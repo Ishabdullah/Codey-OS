@@ -7967,14 +7967,72 @@ this file's own don't-duplicate rule.
       project-membership check — a subcontractor can self-assign a
       work order into any project; needs Ish's call on whether
       subcontractors should ever self-originate work orders at all).
-      **Not yet started:** Phase 2 (service-layer orchestrator:
-      find-or-create customer via a conjunctive, false-merge-safe dedup
-      — exact email OR normalized-phone-AND-last-name, never
-      phone-alone; project/work-order/invoice creation under a scoped
-      system actor; invoice typed honestly as `"project"` with the
-      commission trigger at `crm_service.py:5596` widened to also fire
-      on paid project invoices, not just `"assessment"`, per Ish's
-      2026-09-27 decision); Phase 3 (admin appoint/split — one work
+      **Phase 2 (service-layer orchestrator), DONE, code-reviewer
+      APPROVED after two review rounds, not yet committed as of this
+      write-up** — `CRMService.submit_work_order_intake` drives
+      customer find-or-create (conjunctive, false-merge-safe dedup:
+      exact email match, else normalized-phone-digits AND last-name
+      match, else create new — 2+ ambiguous matches on either path
+      never guesses, creates new) → project find-or-create (keyed on
+      `customer_id + property_address`, real `ProjectStage.INTAKE`
+      enum, not the `'Lead'` string bug) → work order creation (DRAFT,
+      unassigned, diagnostic fields with no dedicated column folded
+      into `notes` rather than dropped) → invoice creation
+      (`invoice_type="project"`, `line_items` passed through, server
+      amount computed by Phase 1), all in one call for a
+      `ROLE_TECHNICIAN`/`ROLE_SUBCONTRACTOR` actor holding only
+      `PERM_WRITE_OPERATIONS`. Internal steps neither role can do
+      directly run under a scoped `intake_system_actor` (same shape as
+      the existing `commission_system_actor`/`pdf_system_actor`
+      precedent); the real submitting actor is recorded on a separate
+      outer `"intake_submitted"` audit entry, confirmed genuinely
+      queryable via `AuditService.query_logs`, not write-only. Also
+      widened `record_payment`'s flat-commission trigger to
+      `invoice_type in ("assessment", "project")` per Ish's 2026-09-27
+      decision.
+      **Round 1 review found a real, live-reproduced money bug**: the
+      orchestrator's customer-REUSE branch (an existing customer
+      matched via dedup) silently dropped `salesperson_user_id` — the
+      new invoice inherited whatever `assigned_user_id` the *existing*
+      customer already had (often `None` or a stale prior owner)
+      instead of the salesperson actually named on the intake form.
+      Fixed by setting `Invoice.assigned_user_id` explicitly to
+      `salesperson_user_id` on both branches (bypassing
+      `create_invoice`'s inherit-from-customer fallback for this call
+      site only, confirmed not to affect any other caller), without
+      touching the reused customer's own ownership — a separate,
+      bigger decision this phase deliberately didn't make. Two
+      regression tests added confirming both invoice attribution AND
+      that customer ownership stays untouched on reuse.
+      **A second commission interaction was caught mid-round and taken
+      straight to Ish, not silently resolved**: the widened trigger
+      overlaps with a pre-existing "portfolio override" mechanism —
+      a single paid, portfolio-override-eligible `project` invoice
+      could produce TWO commission_ledger rows (the flat commission +
+      the override residual), potentially to two different reps.
+      **Ish decided: prevent it, portfolio-override wins.** Fixed by
+      checking `_resolve_portfolio_override_eligibility` (the same
+      method the override block itself already calls) before firing
+      the flat commission; skips the flat block entirely if eligible.
+      Fails open (fires flat commission) with an audit log
+      (`commission_precedence_check_failed`) on any resolution error —
+      round-1 review caught that the fail-open rationale comment
+      overclaimed safety ("whatever broke this will also break the
+      override's own check, so it's one row not zero" — false: they're
+      two independent try/except blocks, so an isolated failure here
+      *can* still double-pay on the error path) and this was corrected
+      per rule 6 without changing the fail-open behavior itself (a
+      possible future fail-closed change, not made this round).
+      `NEW-672` (found-existing-project path has no membership gate,
+      informational-only exposure, deferred), `NEW-674` (flat
+      commission's `basis_amount` reflects the flat reference price,
+      not the real invoice amount, for `project` invoices — cosmetic,
+      deferred), and `NEW-675` (the four-step pipeline has no wrapping
+      transaction — a mid-pipeline failure can leave orphaned,
+      untraceable rows; disclosed as possibly consistent with this
+      file's existing style, not confirmed, deferred) all logged, not
+      fixed, per rule 8.
+      **Not yet started:** Phase 3 (admin appoint/split — one work
       order can be split into multiple child work orders across
       different techs/subcontractors, admin-gated via
       `PERM_DISPATCH_WORK_ORDERS`; advisor flagged the architect's
@@ -7982,12 +8040,15 @@ this file's own don't-duplicate rule.
       roll-up-breaking — needs a non-terminal `SPLIT` status and a
       fixed, filtered roll-up instead, not yet implemented); Phase 4
       (the reusable paper-form-styled intake UI itself, gated to
-      technician+subcontractor roles only); Phase 5 (Joy Clark's WO
-      #351695937 backfilled directly via the service layer, not the
-      form, since the job is already completed/paid — states the
-      intake flow's DRAFT terminus can't express — with a
-      live-verifier check that exactly one `commission_ledger` row is
-      created on `record_payment`, not zero and not a double-fire).
+      technician+subcontractor roles only, submitting to
+      `submit_work_order_intake` — no HTTP route exists for it yet,
+      deliberately deferred to Phase 4 since the form doesn't exist
+      yet either); Phase 5 (Joy Clark's WO #351695937 backfilled
+      directly via the service layer, not the form, since the job is
+      already completed/paid — states the intake flow's DRAFT
+      terminus can't express — with a live-verifier check that exactly
+      one `commission_ledger` row is created on `record_payment`, not
+      zero and not a double-fire).
       Findings logged, not fixed this round: `web_surfaces.py:3403`
       still hardcodes an invalid `stage: 'Lead'` string in the admin
       CRM's `submitProject()` (adjacent to Phase 2's project-creation

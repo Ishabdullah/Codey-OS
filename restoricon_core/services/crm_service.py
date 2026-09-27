@@ -52,6 +52,7 @@ from ..auth import (
     PERM_WRITE_SUBCONTRACTORS,
     PERM_READ_CONTACTS,
     PERM_WRITE_CONTACTS,
+    PERM_WRITE_OPERATIONS,
     ROLE_CUSTOMER,
     ROLE_TECHNICIAN,
     ROLE_ADMIN,
@@ -88,6 +89,8 @@ from ..models import (
     STAGE_DEFAULT_PROBABILITIES,
     Subcontractor,
     Task,
+    WorkOrder,
+    WorkOrderStatus,
     utc_now_iso,
 )
 from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS, _AUDITABLE_CONTACT_FIELDS, _AUDITABLE_HANDOFF_CHECKLIST_FIELDS
@@ -5152,6 +5155,333 @@ class CRMService:
         )
         return invoice
 
+    # ==========================================
+    # B8.16 PHASE 2: WORK-ORDER INTAKE PIPELINE ORCHESTRATOR
+    # ==========================================
+
+    def _find_intake_customer_match(
+        self, email: Optional[str], phone: Optional[str], last_name: Optional[str]
+    ) -> Optional[int]:
+        """Conjunctive, false-merge-safe customer dedup for
+        submit_work_order_intake (B8.16 Phase 2, Ish-approved design,
+        2026-09-27). Deliberately NOT get_customer_by_email/find_customer's
+        substring matcher (crm_service.py ~L695-754) -- that function does
+        loose substring matching built for a human eyeballing one search
+        result, not a safe headless auto-create decision, and both existing
+        lookups are gated on PERM_READ_ALL_CUSTOMERS, which neither
+        ROLE_TECHNICIAN nor ROLE_SUBCONTRACTOR holds. This is a private,
+        no-actor-check helper in the same vein as _get_customer_unscoped/
+        _get_customer_display_name -- safe because the orchestrator's own
+        PERM_WRITE_OPERATIONS gate has already authorized the call, and this
+        never returns a full Customer record, only an id.
+
+        Sequential fallback, exactly as specified: try exact-match email
+        first; if that yields exactly one row, reuse it. Otherwise (zero or
+        2+ ambiguous email matches) try normalized-phone-digits AND
+        last-name (both must match); if that yields exactly one row, reuse
+        it. Otherwise (zero or 2+ ambiguous matches on either path) return
+        None -- the caller creates a new customer. Never guesses on
+        ambiguity.
+
+        Phone matching is strict digit-equality (all non-digits stripped),
+        not substring -- "5551234567" vs "15551234567" (a leading country
+        code) will NOT match under this rule. That is a deliberate false
+        negative (creates a duplicate customer) rather than the false
+        merge substring matching could produce; explicitly preferred by
+        this phase's spec.
+        """
+        conn = self.db.get_connection()
+
+        if email and email.strip():
+            # customers.email is COLLATE NOCASE at the column level
+            # (database.py), so this plain equality is already
+            # case-insensitive -- mirrors get_customer_by_email's own
+            # comparison style.
+            rows = conn.execute(
+                "SELECT id FROM customers WHERE email = ?;", (email.strip(),)
+            ).fetchall()
+            if len(rows) == 1:
+                return rows[0]["id"]
+
+        digits = re.sub(r"\D", "", phone or "")
+        last = (last_name or "").strip()
+        if digits and last:
+            # last_name has no COLLATE NOCASE at the column level (unlike
+            # email) -- COLLATE NOCASE is applied explicitly here so
+            # "Doe" and "doe" are treated the same, matching this phase's
+            # spec ("last-name match").
+            candidates = conn.execute(
+                "SELECT id, phone FROM customers WHERE last_name = ? COLLATE NOCASE;",
+                (last,),
+            ).fetchall()
+            matches = [
+                c["id"] for c in candidates
+                if re.sub(r"\D", "", c["phone"] or "") == digits
+            ]
+            if len(matches) == 1:
+                return matches[0]
+
+        return None
+
+    def _find_or_create_intake_project(
+        self, customer_id: int, property_address: str, title: Optional[str], system_actor: AuthContext
+    ) -> Tuple[int, bool]:
+        """Project find-or-create keyed on customer_id + property_address
+        (B8.16 Phase 2). Returns (project_id, created). Ambiguity (2+
+        existing projects for the same customer+address) is resolved the
+        same way as the customer dedup above -- never guess, create a new
+        project rather than silently picking one; this shape isn't in the
+        original spec text but mirrors its stated dedup philosophy."""
+        conn = self.db.get_connection()
+        address = property_address.strip()
+        rows = conn.execute(
+            "SELECT id FROM projects WHERE customer_id = ? AND property_address = ?;",
+            (customer_id, address),
+        ).fetchall()
+        if len(rows) == 1:
+            return rows[0]["id"], False
+
+        display_name = self._get_customer_display_name(customer_id)
+        project_title = title or f"Intake: {display_name or ('Customer #' + str(customer_id))} - {address}"
+        new_project = Project(
+            customer_id=customer_id,
+            title=project_title,
+            property_address=address,
+            stage=ProjectStage.INTAKE,
+        )
+        created = self.create_project(new_project, system_actor)
+        return created.id, True
+
+    # WorkOrder fields submit_work_order_intake's work_order_data dict may
+    # populate directly (title/trade/notes excepted -- handled explicitly
+    # below since title gets a generated default, trade has no safe
+    # default, and notes is where reported_technician_name and any
+    # unrecognized diagnostic/appliance keys land -- see the "structured"
+    # set right below). Deliberately excludes assigned_subcontractor_id/
+    # status -- Phase 2's spec is explicit that intake work orders start
+    # DRAFT and unassigned, pending an admin's appoint/dispatch decision
+    # (Phase 3), not something the intake payload gets to set.
+    _INTAKE_WORK_ORDER_PASSTHROUGH_FIELDS = frozenset({
+        "instructions", "scheduled_start", "scheduled_end",
+    })
+
+    # WorkOrder has no dedicated columns for diagnostic/appliance-report
+    # fields (e.g. "appliance_model", "serial_number", "diagnosis") -- the
+    # spec asks for "capturing whatever diagnostic/appliance fields the
+    # orchestrator's input payload provides" without a schema migration,
+    # which is out of this phase's scope (Do-not-build list). Rather than
+    # silently dropping any work_order_data key that isn't one of the
+    # structured fields above, every other key is rendered into `notes` as
+    # a labeled line, alongside reported_technician_name -- visible to
+    # whoever reads the work order (Phase 3/4), never lost.
+    _INTAKE_WORK_ORDER_STRUCTURED_FIELDS = frozenset(
+        {"title", "trade", "notes"} | _INTAKE_WORK_ORDER_PASSTHROUGH_FIELDS
+    )
+
+    def submit_work_order_intake(
+        self,
+        actor: AuthContext,
+        salesperson_user_id: int,
+        customer_data: Dict[str, Any],
+        property_address: str,
+        work_order_data: Dict[str, Any],
+        line_items: List[Dict[str, Any]],
+        reported_technician_name: Optional[str] = None,
+        project_title: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """B8.16 Phase 2 service-layer orchestrator (Ish-driven,
+        2026-09-26/27; see CODEY_MASTER_PLAN.md's B8.16 entry for full
+        phase history). Drives customer find-or-create, project
+        find-or-create, work order creation, and invoice creation under
+        one call, for a technician or subcontractor's work-order-intake
+        form submission.
+
+        Entry gate is PERM_WRITE_OPERATIONS (held by both ROLE_TECHNICIAN
+        and ROLE_SUBCONTRACTOR). Neither role holds PERM_WRITE_CUSTOMERS,
+        PERM_WRITE_PROJECTS, or PERM_WRITE_FINANCIALS -- the customer/
+        project/invoice creation steps below run under a scoped system
+        actor (`intake_system_actor`, mirroring record_payment's
+        `commission_system_actor`/sign_contract's `pdf_system_actor` exact
+        shape) rather than the real submitting actor.
+
+        create_work_order is ALSO elevated (verified against Phase 0b's
+        real grants, not assumed): both roles hold PERM_WRITE_OPERATIONS
+        so the top-level gate would pass, but the row-level narrowing below
+        it would not. A ROLE_TECHNICIAN actor is additionally required to
+        already appear in the owning project's assigned_employees
+        (_actor_assigned_to_project) -- never true for a brand-new intake
+        project, since nothing has assigned the submitting technician to
+        it yet. A ROLE_SUBCONTRACTOR actor is additionally required to be
+        the work order's own assigned_subcontractor_id
+        (_actor_owns_work_order_via_subcontractor) -- but this phase's spec
+        is explicit that an intake work order starts unassigned (DRAFT,
+        assigned_subcontractor_id left None), so that check can never pass
+        either. Using the real actor here was deliberately rejected, not
+        just unconsidered: auto-adding the submitting technician to
+        assigned_employees to make the check pass would be a privilege
+        escalation on the *found-existing-project* path (a technician
+        whose customer+address happens to match someone else's existing
+        project would grant themselves standing read access to that whole
+        project via _technician_assigned_project_ids) -- so create_work_order
+        is elevated uniformly for both roles instead.
+
+        Residual, accepted exposure, logged as NEW-672 (not fixed here --
+        the spec doesn't ask for a membership gate on this path): on the
+        found-existing-project branch, a DRAFT/unassigned work order can
+        be attached to a pre-existing project the submitting actor has no
+        relationship to. This is inert until an admin's Phase-3 dispatch
+        decision acts on it, but is a real information surface (the actor
+        learns the project accepted the work order, i.e. that it exists).
+
+        The real submitting `actor` is NOT silently dropped from the audit
+        trail -- record_payment's own comment on this exact shape applies
+        here too. The individual create_customer/create_project/
+        create_work_order/create_invoice audit rows below are attributed to
+        `intake_system_actor` (they're internal steps the real actor
+        couldn't perform directly), but this method's own outer
+        "intake_submitted" audit entry, written last, is attributed to the
+        real `actor` -- that is the row a reviewer or operator checks to
+        see who actually submitted this intake.
+
+        Returns a dict of ids only (never full Customer/Project/WorkOrder/
+        Invoice records) -- deliberately, since ROLE_TECHNICIAN/
+        ROLE_SUBCONTRACTOR don't hold the read permissions that would
+        otherwise gate seeing those records' full contents (e.g.
+        get_customer's PERM_READ_ALL_CUSTOMERS-adjacent narrowing), and
+        handing back a full dataclass here would bypass that.
+        """
+        if not actor.has_permission(PERM_WRITE_OPERATIONS):
+            raise PermissionError("Actor lacks permission to submit a work order intake")
+
+        # Same shape as record_payment's commission_system_actor /
+        # sign_contract's pdf_system_actor: a fixed system identity (user_id
+        # 1, same known FK-fragility as those two precedents -- see
+        # NEW-602) for the elevated internal steps this method drives on
+        # the real actor's behalf.
+        intake_system_actor = AuthContext(
+            user_id=1,
+            username="system_work_order_intake",
+            role=ROLE_ADMIN,
+            actor_type="agent",
+        )
+
+        email = (customer_data.get("email") or "").strip() or None
+        phone = customer_data.get("phone")
+        last_name = customer_data.get("last_name") or ""
+
+        existing_customer_id = self._find_intake_customer_match(email, phone, last_name)
+        customer_created = existing_customer_id is None
+        if existing_customer_id is not None:
+            customer_id = existing_customer_id
+        else:
+            # salesperson_user_id is set explicitly here, never inherited
+            # from the actor (the submitting technician/subcontractor is
+            # NOT the sales attribution) -- this is what makes commission
+            # attribution work correctly downstream. intake_system_actor
+            # holds PERM_READ_TEAM_SALES_DATA (ROLE_ADMIN), so
+            # create_customer's own NEW-598 actor-inheritance override does
+            # NOT fire and this explicit value is respected unchanged.
+            new_customer = Customer(
+                first_name=customer_data.get("first_name", ""),
+                last_name=last_name,
+                company_name=customer_data.get("company_name"),
+                phone=phone,
+                email=email,
+                mailing_address=customer_data.get("mailing_address"),
+                service_address=customer_data.get("service_address") or property_address,
+                customer_type=customer_data.get("customer_type", "residential"),
+                customer_source=customer_data.get("customer_source", "work_order_intake"),
+                assigned_user_id=salesperson_user_id,
+                notes=customer_data.get("notes"),
+            )
+            created_customer = self.create_customer(new_customer, intake_system_actor)
+            customer_id = created_customer.id
+
+        project_id, project_created = self._find_or_create_intake_project(
+            customer_id, property_address, project_title, intake_system_actor
+        )
+
+        work_order_data = work_order_data or {}
+        wo_kwargs = {
+            k: v for k, v in work_order_data.items()
+            if k in self._INTAKE_WORK_ORDER_PASSTHROUGH_FIELDS
+        }
+
+        # notes is assembled from three sources, in order: the caller's own
+        # free-text notes, reported_technician_name (structurally called
+        # out by this phase's spec), then every remaining work_order_data
+        # key that isn't one of the structured fields above -- diagnostic/
+        # appliance-report fields (e.g. appliance_model, serial_number,
+        # diagnosis) have no dedicated WorkOrder column, so they are never
+        # silently dropped, only folded into notes as labeled lines.
+        notes_lines = []
+        if work_order_data.get("notes"):
+            notes_lines.append(str(work_order_data["notes"]))
+        if reported_technician_name:
+            notes_lines.append(f"Reported by: {reported_technician_name}")
+        for key, value in work_order_data.items():
+            if key in self._INTAKE_WORK_ORDER_STRUCTURED_FIELDS or value is None:
+                continue
+            notes_lines.append(f"{key}: {value}")
+        wo_kwargs["notes"] = "\n".join(notes_lines) if notes_lines else None
+        wo_kwargs.setdefault(
+            "title",
+            work_order_data.get("title") or f"Work order intake - {property_address.strip()}",
+        )
+        new_work_order = WorkOrder(
+            project_id=project_id,
+            trade=work_order_data.get("trade", ""),
+            status=WorkOrderStatus.DRAFT,
+            line_items=line_items or [],
+            **wo_kwargs,
+        )
+        created_work_order = self.operations.create_work_order(new_work_order, intake_system_actor)
+
+        # assigned_user_id is set explicitly here to the intake's named
+        # salesperson on BOTH the create and reuse customer branches --
+        # deliberately NOT left to create_invoice's inherit-from-customer
+        # fallback (crm_service.py ~5077-5080), which would pull whatever
+        # assigned_user_id the customer record happens to carry. On the
+        # reuse branch that customer field is never touched by this method
+        # (reassigning an existing customer's owning rep is a separate,
+        # much bigger decision this task is not making), so without this
+        # explicit value a reused-but-unclaimed customer (assigned_user_id
+        # None) would produce an unattributed invoice, and a reused,
+        # already-claimed customer would misattribute this sale to its
+        # prior owning rep instead of the salesperson actually named on
+        # this intake form.
+        new_invoice = Invoice(
+            customer_id=customer_id,
+            project_id=project_id,
+            status="draft",
+            invoice_type="project",
+            line_items=line_items or [],
+            assigned_user_id=salesperson_user_id,
+        )
+        created_invoice = self.create_invoice(new_invoice, intake_system_actor)
+
+        result = {
+            "customer_id": customer_id,
+            "customer_created": customer_created,
+            "project_id": project_id,
+            "project_created": project_created,
+            "work_order_id": created_work_order.id,
+            "invoice_id": created_invoice.id,
+        }
+
+        self.audit.log(
+            action="intake_submitted",
+            entity_type="work_order",
+            entity_id=created_work_order.id,
+            change_summary=(
+                f"Work order intake submitted by {actor.username} for customer #{customer_id}, "
+                f"project #{project_id}"
+            ),
+            actor=actor,
+            details=build_audit_details(after=dict(result)),
+        )
+        return result
+
     @staticmethod
     def _resolve_signed_at_value(
         customer_signed_at: Optional[str],
@@ -5624,11 +5954,138 @@ class CRMService:
         # that turns a genuine double-fire (e.g. two concurrent
         # record_payment calls racing past this same in-Python check)
         # into a straight IntegrityError rather than a silent double
-        # payment -- caught narrowly below. Only acts on invoices
-        # explicitly classified as an assessment sale (invoice_type ==
-        # 'assessment'); every other invoice_type is untouched by this
-        # round (B8.7b/c build Phase 2/3 commission logic later).
-        if _before["status"] != "paid" and new_status == "paid" and row["invoice_type"] == "assessment":
+        # payment -- caught narrowly below. Acts on invoices explicitly
+        # classified as an assessment sale (invoice_type == 'assessment')
+        # OR, as of B8.16 Phase 2 (Ish's 2026-09-27 decision), a project
+        # sale (invoice_type == 'project') -- commission fires on any paid
+        # project invoice now, not just this pipeline's own invoices, so
+        # the condition is widened generally rather than scoped to
+        # invoices created by submit_work_order_intake specifically.
+        # source_type below is left as the literal string "assessment" for
+        # BOTH invoice types, deliberately NOT "project" -- CommissionService.
+        # _VALID_SOURCE_TYPES/the commission_ledger_entries CHECK constraint
+        # have no 'project' value and widening either would need a full
+        # table rebuild (out of this phase's scope, same reasoning as
+        # _VALID_INVOICE_TYPES's own no-CHECK-constraint comment above).
+        # Keeping "assessment" also preserves idx_commission_ledger_source_
+        # unique's double-fire guard (scoped to source_type IN ('assessment',
+        # 'subscription_upsell')) for project invoices too, since that guard
+        # keys on (source_type, source_id), not invoice_type. Every other
+        # invoice_type ('subscription', 'other') remains untouched by this
+        # round.
+        #
+        # NEW-673 resolution (Ish, 2026-09-27): portfolio-override wins.
+        # A single paid, portfolio-override-eligible 'project' invoice
+        # used to be able to produce BOTH this flat sale commission AND
+        # the portfolio-override residual below (two rows, potentially to
+        # two different reps). Decided: the override mechanism is more
+        # specific and pre-existing, so when a 'project' invoice is
+        # already portfolio-override eligible, skip this flat-commission
+        # block entirely and let the override block below record its own
+        # residual row -- no stacking.
+        #
+        # Scoped to invoice_type == 'project' ONLY, never 'assessment':
+        # _resolve_portfolio_override_eligibility's own gate 1a
+        # (unconditional, first check in that method) excludes
+        # invoice_type in ('assessment', 'subscription') outright, so an
+        # 'assessment' invoice can never be portfolio-override eligible in
+        # the first place -- this precedence check would always resolve
+        # to "not eligible" for 'assessment' regardless, but it is kept
+        # scoped to 'project' explicitly so that fact is provable from
+        # this code rather than relying on a fall-through, and so
+        # 'assessment' behavior is textually unchanged.
+        #
+        # Reuses _resolve_portfolio_override_eligibility directly -- the
+        # SAME method the independent override block below calls -- not a
+        # parallel reimplementation of its gates. That method is
+        # read-only (SELECT-only, no writes -- confirmed by inspection),
+        # and nothing between this call and the override block's own call
+        # further down mutates contracts/homecare_subscriptions/users, so
+        # both calls (using the SAME `now` as the payment timestamp) can't
+        # disagree with each other.
+        #
+        # The plan-config read is deliberately duplicated here rather than
+        # hoisted into one shared resolution passed to both blocks: the
+        # override block below carries its own explicit warning that
+        # get_commission_plan_config must be the LITERAL FIRST statement
+        # inside ITS OWN try block (a round-1 B8.7a bug this project
+        # already shipped and fixed once) -- sharing one config read
+        # across both blocks would reintroduce exactly that shape by
+        # moving the read outside the override block's own try.
+        #
+        # Best-effort, audit-logged, never re-raised, same rationale as
+        # every other side-effect failure in this method: a failure
+        # resolving eligibility here must not block or crash the flat-
+        # commission path. Fails OPEN (fires the flat commission, the
+        # pre-existing widened behavior) rather than skipping it on an
+        # unresolved check.
+        #
+        # This is a narrow, error-path-only double-payout risk, NOT a
+        # guarantee of "one commission row, never zero": this precedence
+        # check and the override block's own later call are two
+        # INDEPENDENT try/except blocks with two independent
+        # get_commission_plan_config reads. A failure isolated to THIS
+        # try (e.g. this call's own get_commission_plan_config or
+        # _resolve_portfolio_override_eligibility invocation raising) can
+        # leave skip_flat_for_portfolio_override False -- so the flat
+        # commission fires below -- while the override block's own
+        # separate, unrelated resolution further down still succeeds,
+        # firing its own override commission too. That reproduces the
+        # exact double-payout this precedence check exists to prevent,
+        # specifically on this error path. It is audit-logged via
+        # commission_precedence_check_failed above for manual
+        # reconciliation if it ever fires; the fail-open behavior itself
+        # is left unchanged this round -- fail-closed (skip the flat
+        # commission too on this failure) is a plausible safer
+        # alternative but is a behavior change, not made here.
+        #
+        # Only computed on the actual not-paid -> paid transition edge
+        # this block acts on -- matches the guard this whole mechanism is
+        # scoped to, and avoids an extra plan-config read/eligibility
+        # resolution (and a possible audit-log entry on failure) on every
+        # OTHER record_payment call against an already-paid invoice.
+        skip_flat_for_portfolio_override = False
+        if (
+            _before["status"] != "paid"
+            and new_status == "paid"
+            and row["invoice_type"] == "project"
+        ):
+            try:
+                _precedence_actor = AuthContext(
+                    user_id=1,
+                    username="system_commission_engine",
+                    role=ROLE_ADMIN,
+                    actor_type="agent",
+                )
+                _precedence_plan = self.commission.get_commission_plan_config(_precedence_actor)
+                _precedence_eligibility = self._resolve_portfolio_override_eligibility(
+                    invoice_id=invoice_id,
+                    project_id=row["project_id"],
+                    invoice_type=row["invoice_type"] or "other",
+                    payment_timestamp=now,
+                    window_months=_precedence_plan.portfolio_override_window_months,
+                )
+                skip_flat_for_portfolio_override = _precedence_eligibility.eligible
+            except Exception as exc:
+                self.audit.log(
+                    action="commission_precedence_check_failed",
+                    entity_type="invoice",
+                    entity_id=invoice_id,
+                    change_summary=(
+                        f"Portfolio-override precedence check failed for project invoice "
+                        f"#{row['invoice_number']}: {exc} -- proceeding with flat commission"
+                    ),
+                    actor=actor,
+                    details=build_audit_details(after={"invoice_id": invoice_id, "error": str(exc)}),
+                )
+                skip_flat_for_portfolio_override = False
+
+        if (
+            _before["status"] != "paid"
+            and new_status == "paid"
+            and row["invoice_type"] in ("assessment", "project")
+            and not skip_flat_for_portfolio_override
+        ):
             rep_user_id = row["assigned_user_id"]
             if rep_user_id is None:
                 # Explicit product decision (Ish, B8.7a scoping): a
@@ -5647,8 +6104,8 @@ class CRMService:
                     entity_type="invoice",
                     entity_id=invoice_id,
                     change_summary=(
-                        f"Assessment invoice #{row['invoice_number']} paid in full but has "
-                        f"no assigned rep -- commission skipped, not paid to anyone"
+                        f"{row['invoice_type'].capitalize()} invoice #{row['invoice_number']} paid in "
+                        f"full but has no assigned rep -- commission skipped, not paid to anyone"
                     ),
                     actor=actor,
                     details=build_audit_details(
@@ -5687,6 +6144,15 @@ class CRMService:
                 # actually succeeded.
                 try:
                     plan = self.commission.get_commission_plan_config(commission_system_actor)
+                    # basis_amount/commission_amount below reuse the SAME
+                    # flat assessment_price/assessment_flat_commission
+                    # figures for a 'project' invoice as for a real
+                    # 'assessment' invoice -- deliberate (this phase's spec
+                    # only asked to widen WHEN the trigger fires, not to
+                    # add new project-specific commission economics), but
+                    # basis_amount is now factually a reference price, not
+                    # this invoice's own amount, for the 'project' case.
+                    # Disclosed, not fixed, logged as NEW-674.
                     self.commission.record_commission(
                         CommissionLedgerEntry(
                             rep_user_id=rep_user_id,
@@ -5697,7 +6163,7 @@ class CRMService:
                             commission_amount=plan.assessment_flat_commission,
                             status="earned",
                             earned_at=now,
-                            notes=f"Auto-recorded: assessment invoice #{row['invoice_number']} paid in full",
+                            notes=f"Auto-recorded: {row['invoice_type']} invoice #{row['invoice_number']} paid in full",
                         ),
                         commission_system_actor,
                     )
@@ -5725,7 +6191,7 @@ class CRMService:
                             entity_type="invoice",
                             entity_id=invoice_id,
                             change_summary=(
-                                f"Commission already recorded for assessment invoice "
+                                f"Commission already recorded for {row['invoice_type']} invoice "
                                 f"#{row['invoice_number']} -- duplicate trigger skipped"
                             ),
                             actor=actor,
@@ -5737,7 +6203,7 @@ class CRMService:
                             entity_type="invoice",
                             entity_id=invoice_id,
                             change_summary=(
-                                f"Commission recording failed for assessment invoice "
+                                f"Commission recording failed for {row['invoice_type']} invoice "
                                 f"#{row['invoice_number']}: {exc}"
                             ),
                             actor=actor,
@@ -5758,7 +6224,7 @@ class CRMService:
                         entity_type="invoice",
                         entity_id=invoice_id,
                         change_summary=(
-                            f"Commission recording failed for assessment invoice "
+                            f"Commission recording failed for {row['invoice_type']} invoice "
                             f"#{row['invoice_number']}: {exc}"
                         ),
                         actor=actor,

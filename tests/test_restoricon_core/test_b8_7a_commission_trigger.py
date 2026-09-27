@@ -299,9 +299,14 @@ def test_assessment_invoice_with_no_assigned_rep_skips_commission_without_crashi
 
 
 def test_non_assessment_invoice_paid_in_full_produces_no_commission(setup_services):
-    """A non-assessment invoice (default invoice_type) paid in full must
-    not trigger any commission write -- B8.7a only acts on invoice_type
-    == 'assessment'."""
+    """An invoice_type not acted on by the commission trigger, paid in
+    full, must not trigger any commission write. B8.7a originally scoped
+    this to 'assessment' only; B8.16 Phase 2 (Ish's 2026-09-27 decision)
+    widened the trigger to also fire on 'project' invoices (see
+    test_b8_16_phase2_intake_orchestrator.py's
+    test_paid_project_invoice_now_fires_commission for that behavior) --
+    'other' is used here instead of 'project' so this regression guard
+    still exercises a genuinely untouched invoice_type."""
     _, auth_service, _, crm_service, commission_service = setup_services
     admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
     rep = _make_actor(auth_service, "rep1", ROLE_SALES)
@@ -311,7 +316,7 @@ def test_non_assessment_invoice_paid_in_full_produces_no_commission(setup_servic
         admin,
     )
     invoice = crm_service.create_invoice(
-        Invoice(customer_id=cust.id, amount=15000.0, invoice_type="project"),
+        Invoice(customer_id=cust.id, amount=15000.0, invoice_type="other"),
         admin,
     )
 

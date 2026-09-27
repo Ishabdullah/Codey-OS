@@ -681,3 +681,111 @@ def test_repeated_activate_call_on_already_active_user_is_a_no_op(env):
     updated = env["auth"].set_user_active(env["hc_rep"].user_id, 1, env["admin"])
     assert updated.active == 1
     assert updated.terminated_at is None
+
+
+# ---------------------------------------------------------------------------
+# B8.16 Phase 2 interaction (NEW-673, resolved 2026-09-27, Ish): the
+# record_payment flat-commission trigger was widened to also act on
+# invoice_type == 'project' invoices. This eligibility gate here (gate 1a)
+# already excluded only 'assessment'/'subscription', so a 'project'
+# invoice was already portfolio-override eligible before that widening,
+# and a single qualifying full payment could then produce BOTH a flat
+# "assessment" source_type ledger row (widened trigger) AND a
+# "portfolio_override" row (this mechanism) on the SAME paid invoice.
+# Decision: portfolio-override wins -- record_payment now skips the flat
+# commission entirely when a 'project' invoice is already
+# portfolio-override eligible, letting only the override row through.
+# ---------------------------------------------------------------------------
+
+def test_paid_project_invoice_portfolio_override_eligible_skips_flat_commission(env):
+    """A portfolio-override-eligible 'project' invoice, paid in full,
+    produces ONLY the portfolio-override residual row -- the widened flat
+    sale commission is skipped, per the NEW-673 precedence decision
+    (portfolio-override wins). No 'assessment' source_type row should
+    exist for this invoice at all, on either rep."""
+    _enroll_homecare(env)
+    project, contract = _make_gc_project_and_contract(env)
+    invoice = env["crm"].create_invoice(
+        Invoice(
+            customer_id=env["cust"].id,
+            project_id=project.id,
+            amount=50000.0,
+            invoice_type="project",
+            assigned_user_id=env["gc_rep"].user_id,
+        ),
+        env["admin"],
+    )
+
+    updated = env["crm"].record_payment(invoice.id, 50000.0, "check", "TXN-STACK-1", env["admin"])
+    assert updated.status == "paid"
+
+    all_entries = env["commission"].list_commissions(env["admin"])
+    # Scoped to the two source_types the flat-commission-vs-override
+    # precedence check is actually about, not a bare source_id == invoice.id
+    # filter: _enroll_homecare's contract signing independently records its
+    # own 'subscription_upsell' commission row, whose source_id is that
+    # HomeCare contract's own id -- coincidentally == invoice.id here since
+    # both are the first entity of their kind created in this fresh
+    # in-memory DB (id 1). An unscoped filter would count that unrelated
+    # row as if it were this invoice's own flat commission.
+    entries_for_invoice = [
+        e for e in all_entries
+        if e.source_id == invoice.id and e.source_type in ("assessment", "portfolio_override")
+    ]
+
+    # Exactly one ledger row for this invoice/mechanism pair, and it's the
+    # override row -- asserting on source_type (not just count) matters
+    # here because the flat commission, if it fired, would ALSO carry
+    # source_id == invoice.id (it's deliberately recorded with
+    # source_type="assessment" even for a 'project' invoice), so a bare
+    # row-count check would pass even with the wrong row present.
+    assert len(entries_for_invoice) == 1
+    assert entries_for_invoice[0].source_type == "portfolio_override"
+    assert entries_for_invoice[0].rep_user_id == env["hc_rep"].user_id
+
+    assessment_entries = [e for e in entries_for_invoice if e.source_type == "assessment"]
+    assert assessment_entries == []
+
+
+def test_paid_project_invoice_not_override_eligible_still_gets_flat_commission(env):
+    """Regression guard for the inverse case: a paid 'project' invoice
+    that is NOT portfolio-override eligible (customer never enrolled in
+    HomeCare -- a normal ineligible outcome, not the contract_link_missing
+    fail-closed gap) must still get the widened flat commission. Confirms
+    the new precedence check doesn't accidentally suppress the normal
+    widened-trigger case."""
+    project, contract = _make_gc_project_and_contract(env)
+    invoice = env["crm"].create_invoice(
+        Invoice(
+            customer_id=env["cust"].id,
+            project_id=project.id,
+            amount=50000.0,
+            invoice_type="project",
+            assigned_user_id=env["gc_rep"].user_id,
+        ),
+        env["admin"],
+    )
+
+    updated = env["crm"].record_payment(invoice.id, 50000.0, "check", "TXN-NOOVERRIDE-1", env["admin"])
+    assert updated.status == "paid"
+
+    entries = env["commission"].list_commissions(env["admin"], rep_user_id=env["gc_rep"].user_id)
+    entries = [e for e in entries if e.source_id == invoice.id]
+    assert len(entries) == 1
+    assert entries[0].source_type == "assessment"
+
+    override_entries = env["commission"].list_commissions(env["admin"])
+    override_entries = [e for e in override_entries if e.source_type == "portfolio_override"]
+    assert override_entries == []
+
+    # Confirms the flat commission fired via the NORMAL not-eligible path
+    # (skip_flat_for_portfolio_override resolved to False), not via the
+    # precedence check's fail-open exception path -- without this, an
+    # exception in _resolve_portfolio_override_eligibility (e.g. a future
+    # signature change) would silently make this test pass for the wrong
+    # reason, since fail-open also fires the flat commission.
+    failure_logs = env["audit"].query_logs(
+        env["admin"], entity_type="invoice", entity_id=invoice.id,
+        action="commission_precedence_check_failed",
+    )
+    assert failure_logs == []
