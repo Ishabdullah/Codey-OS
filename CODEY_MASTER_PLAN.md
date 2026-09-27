@@ -4419,17 +4419,60 @@ code-reviewer-approved as of this writing, but **explicitly NOT
 live-verified** — no session that worked on it had access to the real
 device. It lives on branch `feat/estimator-phase3-schema`, not `main`, until
 a session with device access runs `codey_estimator_schema.md`'s live
-verification checklist and merges it. The service layer, API routes,
-customer portal, and admin dashboard integration are B9.2+ and are not yet
-scoped.
+verification checklist and merges it.
+
+**B9.2+ (the service layer, API routes, customer portal, and admin
+dashboard integration) is now scoped**, added 2026-09-27 as a
+`project-architect` pass explicitly done *ahead of* B9.1's live
+verification/merge — it produces a spec for the next round, not code, so it
+does not block or get blocked by that verification. Full detail (exact
+method signatures, the workflow state machine, the race-safe estimate-number
+generator, API routes, the share-link delivery mechanism, and five explicit
+business/policy questions for Ish) lives in `codey_estimator_service.md` —
+read that document, not a restatement here, per §0's no-duplication rule.
+**Building B9.2 itself does not start until B9.1 is live-verified and merged
+to `main`.**
+
+One-paragraph summary: `EstimateService` is a **new file**
+(`restoricon_core/services/estimate_service.py`), not a further section of
+the already-4,392-line `crm_service.py` — it owns real CRUD with actual
+ownership narrowing (closing the finding that any `PERM_READ_ESTIMATES`
+holder currently sees every estimate, unscoped), a ten-state workflow
+machine per D5, version locking/revision, and the calc-engine integration
+point where every dollar figure gets computed server-side via
+`codey_estimator.calc.calculate()` — never client-sent, closing the same
+class of price-manipulation risk plan §24 names. It also fixes a real,
+currently-shipped bug: `POST /api/v1/estimates` today does
+`Estimate(**json_body)` (`routes.py:1070`), so a caller can set its own
+`estimate_number` and (if the field existed) its own creator id directly in
+the request body — B9.2's `create()` signature has no such parameters at
+all. A new race-safe `estimate_number_sequences` table (small, additive)
+replaces the "no generator exists yet" gap for `EST-{YYYY}-{NNNN}` numbering,
+using a `BEGIN IMMEDIATE`-scoped atomic increment rather than a
+`MAX()+1` read, explicitly because this project has already been bitten once
+by exactly that race shape (`NEW-534`). Customer delivery is a genuinely new
+capability-token mechanism (`estimate_share_links`, SHA-256-hash-stored,
+path-based token) — explicitly **not** a reuse of the existing session-token
+`?token=` query-param fallback (`routes.py:497-498`), stated because the two
+could easily be conflated otherwise. D8 (remove the public $/sq-ft
+calculator) turns out to already be answered in `Codey-Estimator`'s own
+`docs/DECISIONS.md` (2026-09-27) — small enough (front-end only, no
+schema/API change) to be this round's own B9.7, not a separately blocked
+phase. Five items are explicitly flagged for Ish, not decided: unclaimed-
+estimate visibility, internal-review mandatoriness, the expiry-transition
+mechanism (no cron/scheduler exists in this codebase today), whether
+`convert()` should require a *signed* contract (B8.12, which would enforce
+that, isn't built yet), and whether `ai_agent`-originated estimates should
+be structurally forced into internal review.
 
 **Depends on:** B3 (CRM/estimates service exists), B6 (staff-portal RBAC
-pattern), and the standalone `Codey-Estimator` library's Phase 2/4a/4b/4c
-(already built — `calc`, `catalog`, `retailers`, `ports.py`, `refresh.py`).
-**Blocks:** the pricing/retailer-tables follow-on phase, and any future
-B8.6 ("estimates, Good/Better/Best packages, proposal...") UI work, which
-should build on this schema rather than the legacy `estimates.line_items_json`
-shape.
+pattern), B9.1 (**must be live-verified and merged to `main` before any
+B9.2+ code is written**), and the standalone `Codey-Estimator` library's
+Phase 2/4a/4b/4c (already built — `calc`, `catalog`, `retailers`, `ports.py`,
+`refresh.py`). **Blocks:** the pricing/retailer-tables follow-on phase
+(unchanged), and any future B8.6 ("estimates, Good/Better/Best packages,
+proposal...") UI work, which should build on B9.2's `EstimateService`
+rather than the legacy `estimates.line_items_json` shape.
 
 ---
 
@@ -4919,6 +4962,42 @@ Numbered for reference. Nothing here is guessed at in this document.
     - **`NEW-534` priority:** Ish chose to prioritize a fix now rather
       than defer to Phase B8.3 — claim workflow with race protection,
       not yet built (`sales_rep_portal.md` §4a item 2).
+13. **B9.2+ scoping pass (2026-09-27), five items — ANSWERED by Ish,
+    2026-09-27.** Full context and binding detail for each:
+    `codey_estimator_service.md` §9 (updated with the answers, not left as
+    open questions).
+    - **Unclaimed-estimate visibility: YES**, allow unclaiming — an
+      unassigned estimate is visible-and-claimable to any `sales`/
+      `sales_manager` actor, mirroring `NEW-534`'s race-safe claim pattern
+      exactly (conditional `UPDATE ... WHERE assigned_to_user_id IS NULL`,
+      not a plain read-then-write). Now part of B9.2's scope.
+    - **Internal-review mandatoriness: HARD GATE, no per-estimate
+      override.** `users.requires_estimate_approval = 1` always requires
+      `INTERNAL_REVIEW -> APPROVED_INTERNAL` before `SENT`. No
+      "send anyway" escape hatch — a manager who disagrees turns the flag
+      off for that user instead.
+    - **Expiry-transition mechanism: a REAL scheduled check, overriding the
+      spec's own "check on read" recommendation.** This is new
+      infrastructure — nothing in Codey-OS today runs a background/cron
+      job. Registered as its own sub-phase, **B9.2b**, in Appendix A below:
+      a single daemon thread in the API server process (same lifecycle
+      discipline as the B7 backup thread), hourly, transitioning
+      `SENT`/`VIEWED` past `expires_at` to `EXPIRED`, each transition
+      individually audit-logged. Rule-4 category (process lifecycle).
+    - **Signed contract required before `convert()`: YES**, the more
+      conservative reading of plan §22. `convert()` checks the linked
+      Contract's `status = 'signed'` (or `customer_signed_at IS NOT NULL`)
+      before creating/linking a Project; otherwise it errors, directing the
+      estimator to get a signature first. Checkable now without B8.12's
+      full handoff checklist existing — B8.12 adds *further* conditions on
+      top of this simpler gate later, it doesn't unblock this one.
+    - **`ai_agent`-originated estimates: FORCED into `INTERNAL_REVIEW`**,
+      structurally, regardless of the assignee's
+      `requires_estimate_approval` flag. Implemented as a small additive
+      column pinned at creation time (`estimates.internal_review_required`,
+      computed once, never re-derived from a possibly-later-changed user
+      flag) — a small follow-on migration in B9.2's own scope, not a
+      reopening of the already-reviewed B9.1 branch.
 
 ---
 
@@ -7061,10 +7140,70 @@ this file's own don't-duplicate rule.
       code-reviewer approved, NOT live-verified** — lives on branch
       `feat/estimator-phase3-schema`, not `main`, pending a session with
       device access to run the live-verification checklist and merge.
-- [ ] **B9.2+** — service layer, API routes, customer portal, admin
-      dashboard integration. Blocked on B9.1's live verification/merge.
+- [ ] **B9.2** — `EstimateService` (new file, not a `crm_service.py`
+      section): create/get/list with real ownership narrowing, including an
+      unassigned/unclaimed bucket and atomic claim/unclaim (NEW-534-shaped
+      race-safe conditional UPDATE, per Ish's answer above) + D9 cost
+      gating, update_header, reassign, the full D5 workflow state machine
+      (hard internal-review gate, no override; `ai_agent`-originated
+      estimates forced into review via a pinned `internal_review_required`
+      column — a small additive migration in this task's own scope, not a
+      B9.1 reopen), versioning/revise, decision recording, line-item CRUD
+      with server-authoritative `calculate()` integration, race-safe
+      `estimate_number` generator (`estimate_number_sequences` table,
+      `BEGIN IMMEDIATE`-scoped, NEW-534-shaped-race-safe). **Rule-4 category**
+      (money, workflow, RBAC narrowing, schema addition). Full spec:
+      `codey_estimator_service.md` §1-2, §9. **Blocked on B9.1 being
+      live-verified and merged to `main`.**
+- [ ] **B9.2b** — expiry sweep: a single daemon thread in the API server
+      process (same start/stop lifecycle as the B7 backup thread), hourly,
+      transitioning `SENT`/`VIEWED` estimates past `expires_at` to
+      `EXPIRED`, each transition individually audit-logged. **New
+      infrastructure — no scheduler of any kind exists in Codey-OS today.**
+      **Rule-4 category** (process lifecycle — `CLAUDE.md` rule 4 names
+      this category explicitly). Full spec: `codey_estimator_service.md`
+      §9 item 3. Blocked on B9.2.
+- [ ] **B9.3** — API routes: `/api/v1/estimates/...` full set, and fixes
+      `/api/v1/portal/estimates` to use the `CustomerEstimateView` allow-list
+      serializer (closes F1). Rule-4 (auth-boundary-adjacent). Full spec:
+      `codey_estimator_service.md` §3. Blocked on B9.2.
+- [ ] **B9.4** — public share-link customer delivery:
+      `estimate_share_links` creation/lookup, path-based
+      `/api/v1/public/estimate/{token}/...` (explicitly NOT the existing
+      `?token=` query-param session-bearer pattern at `routes.py:497-498`),
+      decision recording, `NotificationService` wiring. **Rule-4 category**
+      (new customer-facing auth boundary). Full spec:
+      `codey_estimator_service.md` §4. Blocked on B9.2, B9.3.
+- [ ] **B9.5** — staff `/estimates` mobile-first surface (new
+      `render_estimates_surface()`, not another `render_admin_surface()`
+      tab): customer picker -> new estimate -> add-line sheet -> server-
+      computed preview -> send. Manual pricing entry only this round (no
+      `/pricing/search` until the pricing-tables phase). Full spec:
+      `codey_estimator_service.md` §5. Blocked on B9.3.
+- [ ] **B9.6** — admin `Estimates` tab: list/filter/detail/version-diff/
+      audit-timeline, cost columns gated by `PERM_READ_ESTIMATE_COSTS`. Full
+      spec: `codey_estimator_service.md` §6. Blocked on B9.3.
+- [ ] **B9.7** — quote portal migration (D8, already answered in
+      `Codey-Estimator/docs/DECISIONS.md`, not actually open): remove the
+      public $/sq-ft calculator from `render_quote_surface()`, replace with
+      a request-an-estimate CTA. Front-end only, no schema/API change.
+      Independent of B9.2-B9.6 — can ship any time. Full spec:
+      `codey_estimator_service.md` §7.
+- [ ] **B9.8** — estimate -> job workflow: `convert()`'s Project-creation
+      half (the Contract half is created at acceptance, per D7), **gated on
+      the linked Contract's `status = 'signed'`** (Ish's answer above — the
+      more conservative reading of plan §22; B8.12's fuller handoff
+      checklist is a separate, later addition on top of this simpler gate,
+      not a blocker for it), idempotent, linking to an existing
+      Opportunity's project if present. **Rule-4 category** (writes across
+      three domains at once). Full spec: `codey_estimator_service.md`
+      §1.9/§8/§9 item 4.
 - [ ] **B9.x** — pricing/retailer tables (deferred from B9.1). Depends on
       `codey_estimator.ports.py`'s repository shapes (already built).
+
+**The five B9.2+ business/policy questions are answered** — see §8 item 13
+above and `codey_estimator_service.md` §9 for full binding detail. Nothing
+here is still open.
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
 
