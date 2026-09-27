@@ -691,6 +691,11 @@ class Invoice:
     # table rebuild); validated in Python instead, mirroring
     # CommissionService._VALID_SOURCE_TYPES.
     invoice_type: str = "other"  # assessment, subscription, project, other
+    # Phase 0-slim: itemized line items, mirroring WorkOrder.line_items'
+    # shape ({"description", "quantity", "unit_cost", "total_cost"}).
+    # When non-empty, create_invoice() computes `amount` server-side from
+    # these rather than trusting a client-supplied amount.
+    line_items: List[Dict[str, Any]] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 

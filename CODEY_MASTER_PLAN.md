@@ -7867,6 +7867,66 @@ this file's own don't-duplicate rule.
       deferred to future rounds, not silently dropped. Two cosmetic
       findings logged: `NEW-639`, `NEW-640`. See `PROJECT_LOG.md`'s two
       2026-09-25 B8.14a/B8.14b entries.
+- [ ] **B8.16** — Work-order intake pipeline (real service-call job entry
+      + a reusable sub/tech-facing intake form, replacing ad hoc manual
+      admin entry). Ish-driven, 2026-09-26/27, scoped across two
+      project-architect rounds with an advisor sanity-check between them
+      that caught two blocking defects before dispatch (a mislabeled
+      `invoice_type` that would have corrupted the assessment/project
+      distinction, and an unresolved model-number OCR conflict in the
+      source document — both resolved by Ish before Phase 0-slim
+      started). Six phases, sequenced so Ish sees a real record in the
+      admin portal early rather than last:
+      **Phase 0-slim + Phase 1, DONE, code-reviewer APPROVED (round 2,
+      after one CHANGES REQUESTED fix), not yet committed as of this
+      write-up** — `invoices.line_items_json` column added (schema
+      migration, same precedented `ALTER TABLE ADD COLUMN` pattern as
+      the table's two prior migrations); `Invoice.line_items` field;
+      `create_invoice` computes `amount` server-side from line items
+      (never trusts a client-supplied amount), mirroring
+      `WorkOrder`'s existing cost-computation pattern; verified the
+      $790 water-heater-job fixture (including a negative SCF credit
+      line) sums and nets correctly. Code-reviewer's first pass found a
+      real bug — `record_payment`'s hand-built `Invoice(...)` was a
+      second construction site that missed the new `line_items` field
+      entirely, silently dropping line items from the
+      `POST /invoices/{id}/pay` response only (DB and `get_invoice`
+      were always correct) — fixed and covered by a red/green-verified
+      regression test. Full targeted suite green (48 passed); prior
+      full-suite run at 1269 passed. `NEW-666` logged (line_items
+      absent from `_AUDITABLE_INVOICE_FIELDS`, Confirmed, non-blocking,
+      not fixed this round).
+      **Not yet started:** Phase 2 (service-layer orchestrator:
+      find-or-create customer via a conjunctive, false-merge-safe dedup
+      — exact email OR normalized-phone-AND-last-name, never
+      phone-alone; project/work-order/invoice creation under a scoped
+      system actor; invoice typed honestly as `"project"` with the
+      commission trigger at `crm_service.py:5596` widened to also fire
+      on paid project invoices, not just `"assessment"`, per Ish's
+      2026-09-27 decision); Phase 0b (`ROLE_SUBCONTRACTOR`, closing
+      `NEW-641` for real — today no subcontractor user account can even
+      be created, confirmed via `AuthService.create_user`'s `ALL_ROLES`
+      check); Phase 3 (admin appoint/split — one work order can be
+      split into multiple child work orders across different
+      techs/subcontractors, admin-gated via `PERM_DISPATCH_WORK_ORDERS`;
+      advisor flagged the architect's original `CANCELLED`-parent
+      design as audit-destroying and roll-up-breaking — needs a
+      non-terminal `SPLIT` status and a fixed, filtered roll-up instead,
+      not yet implemented); Phase 4 (the reusable paper-form-styled
+      intake UI itself, gated to technician+subcontractor roles only);
+      Phase 5 (Joy Clark's WO #351695937 backfilled directly via the
+      service layer, not the form, since the job is already
+      completed/paid — states the intake flow's DRAFT terminus can't
+      express — with a live-verifier check that exactly one
+      `commission_ledger` row is created on `record_payment`, not zero
+      and not a double-fire).
+      Findings logged, not fixed this round: `web_surfaces.py:3403`
+      still hardcodes an invalid `stage: 'Lead'` string in the admin
+      CRM's `submitProject()` (adjacent to Phase 2's project-creation
+      work but a different call site — Ish to decide whether to bundle
+      the fix into Phase 2); `web_surfaces.py`'s "Add Customer" modal
+      has no address field at all, meaning Joy Clark's real address
+      can't be entered through that existing UI path.
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
 

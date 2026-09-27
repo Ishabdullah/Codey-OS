@@ -4906,6 +4906,7 @@ class CRMService:
     def _row_to_invoice(row: Any) -> Invoice:
         keys = row.keys() if hasattr(row, "keys") else []
         payments = json.loads(row["payments_json"]) if "payments_json" in keys and row["payments_json"] else []
+        line_items = json.loads(row["line_items_json"]) if "line_items_json" in keys and row["line_items_json"] else []
         return Invoice(
             id=row["id"],
             invoice_number=row["invoice_number"],
@@ -4920,6 +4921,7 @@ class CRMService:
             notes=row["notes"] if "notes" in keys else None,
             assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
             invoice_type=row["invoice_type"] if "invoice_type" in keys and row["invoice_type"] else "other",
+            line_items=line_items,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -5061,6 +5063,23 @@ class CRMService:
             if _customer is not None:
                 invoice.assigned_user_id = _customer.assigned_user_id
 
+        # Phase 0-slim: when line_items are supplied, compute amount
+        # server-side as the sum of each item's total -- never trust a
+        # client-supplied amount in that case. Mirrors
+        # OperationsService.create_work_order's line-item cost computation
+        # exactly: each item's total_cost is recomputed from
+        # quantity * unit_cost (overwriting whatever the client sent),
+        # then summed.
+        if invoice.line_items:
+            total = 0.0
+            for item in invoice.line_items:
+                qty = float(item.get("quantity", 1.0))
+                unit_cost = float(item.get("unit_cost", 0.0))
+                item_total = round(qty * unit_cost, 2)
+                item["total_cost"] = item_total
+                total += item_total
+            invoice.amount = round(total, 2)
+
         now = utc_now_iso()
         if not invoice.invoice_number:
             invoice.invoice_number = f"INV-{now[:10].replace('-', '')}-{secrets.token_hex(2).upper()}"
@@ -5077,6 +5096,7 @@ class CRMService:
         # recorded payments ever count toward balance_due.
         invoice.balance_due, _ = self._recalculate_invoice_balance(invoice.amount, [])
         payments_json = json.dumps(invoice.payments)
+        line_items_json = json.dumps(invoice.line_items)
 
         conn = self.db.get_connection()
         with conn:
@@ -5086,8 +5106,8 @@ class CRMService:
                     invoice_number, customer_id, project_id, status,
                     amount, deposit_amount, balance_due, due_date,
                     payments_json, notes, assigned_user_id, invoice_type,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    line_items_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     invoice.invoice_number,
@@ -5102,6 +5122,7 @@ class CRMService:
                     invoice.notes,
                     invoice.assigned_user_id,
                     invoice.invoice_type,
+                    line_items_json,
                     now,
                     now,
                 ),
@@ -5540,6 +5561,7 @@ class CRMService:
             notes=row["notes"],
             assigned_user_id=row["assigned_user_id"],
             invoice_type=row["invoice_type"] or "other",
+            line_items=json.loads(row["line_items_json"]) if row["line_items_json"] else [],
             created_at=row["created_at"],
             updated_at=now,
         )

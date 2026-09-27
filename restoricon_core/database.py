@@ -1716,6 +1716,7 @@ class DatabaseManager:
             ("customers", "customer_number", "ALTER TABLE customers ADD COLUMN customer_number INTEGER;"),
             ("invoices", "assigned_user_id", "ALTER TABLE invoices ADD COLUMN assigned_user_id INTEGER;"),
             ("invoices", "invoice_type", "ALTER TABLE invoices ADD COLUMN invoice_type TEXT NOT NULL DEFAULT 'other';"),
+            ("invoices", "line_items_json", "ALTER TABLE invoices ADD COLUMN line_items_json TEXT NOT NULL DEFAULT '[]';"),
             # B8.9a: territory_id, additive/nullable on all three tables,
             # FK-less by design (see the territories table's own DDL
             # comment above for why). A rep has AT MOST ONE territory
