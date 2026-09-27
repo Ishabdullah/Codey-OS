@@ -148,3 +148,4 @@
 - [NEW-538 Edit User modal — APPROVED](new538_edit_user_modal_approved.md) — full live+vm-execution verification; advisor's to_dict() concern checked and ruled out empirically
 - [vm harness silent stub gaps](vm_harness_silent_stub_gaps.md) — incomplete DOM stub errors get swallowed by the code's own try/catch, producing false-clean "nothing happened" results
 - [D3 sales-portal 12s periodic refresh — APPROVED](d3_sales_portal_periodic_refresh_approved.md) — try/finally guard wraps whole body incl. all early returns; node --check on rendered <script> block catches brace-escape bugs
+- [Phase B9.1 Codey-Estimator schema/migration/RBAC — APPROVED](b9_1_estimator_schema_rbac_approved.md) — full independent SQLite repro of byte-identity + CHECK-on-ADD-COLUMN claims, programmatic RBAC set-diff verification, git-stash-confirmed pre-existing test failure; new pattern: don't trust a doc's own "code-reviewer approved" self-description written before the review ran

@@ -4389,6 +4389,48 @@ yet built (`sales_rep_portal.md` §4a item 1).
 staff-portal pattern and permission model B8 extends). **Blocks:**
 nothing in Track A.
 
+### 6.13 Track B / Phase B9 — Estimating System (Codey-Estimator Integration)
+
+**Added 2026-09-27**, reconciling the standalone `Codey-Estimator` library's
+own `docs/ARCHITECTURE_PLAN.md` §14-24 design against the real current
+schema/RBAC in this repo. Full detail (exact DDL, migration procedure, RBAC
+constants) lives in `codey_estimator_schema.md` — read that document, not a
+restatement here, per §0's no-duplication rule.
+
+One-paragraph summary: the `estimates` table is rebuilt (not left additive)
+to widen `customer_id`'s delete action from CASCADE to RESTRICT and add
+creator/assignee/workflow columns, using the exact
+`_migrate_users_role_constraint` full-rebuild precedent — made low-risk by
+the confirmed empty-table finding (`Codey-Estimator/docs/DECISIONS.md`,
+2026-09-27: the live `estimates` table has zero rows). Four new tables
+(`estimate_versions`, `estimate_line_items`, `estimate_share_links`,
+`estimate_decisions`) carry the integer-cents priced content, locked-version
+immutability, share-link, and decision-audit data respectively. Six new
+permission constants extend RBAC (Project Managers keep today's de facto
+cost/margin visibility, per Ish's explicit 2026-09-27 confirmation; the
+`ai_agent` role gets draft-create but never send, per that library's D11).
+Pricing/retailer tables (`retailer_products`, `price_observations`,
+`price_book_items`, `labor_rates`, etc.) are deliberately deferred to a
+following phase — they depend on the library's already-built `ports.py`
+repository shapes and are their own integration surface.
+
+**This round (B9.1) is schema + migration only.** Code-complete and
+code-reviewer-approved as of this writing, but **explicitly NOT
+live-verified** — no session that worked on it had access to the real
+device. It lives on branch `feat/estimator-phase3-schema`, not `main`, until
+a session with device access runs `codey_estimator_schema.md`'s live
+verification checklist and merges it. The service layer, API routes,
+customer portal, and admin dashboard integration are B9.2+ and are not yet
+scoped.
+
+**Depends on:** B3 (CRM/estimates service exists), B6 (staff-portal RBAC
+pattern), and the standalone `Codey-Estimator` library's Phase 2/4a/4b/4c
+(already built — `calc`, `catalog`, `retailers`, `ports.py`, `refresh.py`).
+**Blocks:** the pricing/retailer-tables follow-on phase, and any future
+B8.6 ("estimates, Good/Better/Best packages, proposal...") UI work, which
+should build on this schema rather than the legacy `estimates.line_items_json`
+shape.
+
 ---
 
 ## 7. Risks
@@ -7011,6 +7053,18 @@ this file's own don't-duplicate rule.
 - [ ] **B8.13** — mobile-first pass & audit completeness sweep across
       every B8 write path.
 - [ ] **B8.14** — analytics rollups (rep/manager/executive tiers).
+
+### Phase B9 — Estimating System (§6.13)
+
+- [x] **B9.1** — estimating system schema + migration. Rule-4 category
+      (schema/RBAC). Full spec: `codey_estimator_schema.md`. **Code-complete,
+      code-reviewer approved, NOT live-verified** — lives on branch
+      `feat/estimator-phase3-schema`, not `main`, pending a session with
+      device access to run the live-verification checklist and merge.
+- [ ] **B9.2+** — service layer, API routes, customer portal, admin
+      dashboard integration. Blocked on B9.1's live verification/merge.
+- [ ] **B9.x** — pricing/retailer tables (deferred from B9.1). Depends on
+      `codey_estimator.ports.py`'s repository shapes (already built).
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
 

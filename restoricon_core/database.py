@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS users (
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    -- Codey-Estimator Phase B9.1 addition: optional per-user "requires
+    -- approval before an estimate they created can be sent" flag (D5).
+    -- About the creator, not any one estimate, so it lives on users.
+    requires_estimate_approval INTEGER NOT NULL DEFAULT 0 CHECK(requires_estimate_approval IN (0, 1)),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
@@ -201,12 +205,54 @@ CREATE TABLE IF NOT EXISTS projects (
     FOREIGN KEY (project_manager_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
--- Estimates / Quotes
+-- Estimates / Quotes. REBUILT (Codey-Estimator Phase B9.1) to widen
+-- customer_id's delete action from CASCADE to RESTRICT (an estimate is a
+-- financial document; deleting a customer must never silently delete their
+-- estimate history) and to add the header columns Codey-Estimator's own
+-- workflow needs. Legacy `status`/`version` columns are kept, UNTOUCHED,
+-- for backward-compat reads only -- new code drives off `workflow_status`
+-- and `estimate_versions.version_number` instead. This block must stay
+-- byte-for-byte identical to _ESTIMATES_TABLE_V2_SQL below (its rebuilt-
+-- table copy, used by _migrate_estimates_table_v2() to rebuild a legacy
+-- DB's `estimates` table -- the 'workflow_status' column-presence check
+-- there is also this file's idempotency gate) -- keep the two in sync any
+-- time this table changes.
 CREATE TABLE IF NOT EXISTS estimates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     estimate_number TEXT UNIQUE NOT NULL,
     customer_id INTEGER NOT NULL,
     project_id INTEGER,
+    -- Codey-Estimator Phase B9.1 additions:
+    created_by_user_id INTEGER,   -- immutable once set; service-layer only, never from request body
+    created_by_name TEXT,         -- snapshot of users.full_name at creation; survives role changes/departures
+    assigned_to_user_id INTEGER,  -- defaults to creator; reassignment needs PERM_REASSIGN_ESTIMATES
+    opportunity_id INTEGER,
+    lead_id INTEGER,
+    -- property_id: bare INTEGER, NO FOREIGN KEY. Not the ALTER-TABLE-can't-
+    -- attach-an-FK reason used elsewhere in this file -- this IS a fresh
+    -- CREATE TABLE, so a real FK would normally be used. The real reason:
+    -- B8.1's `properties` table (sales_rep_portal.md) is DESIGNED but NOT
+    -- YET BUILT (only its permission half shipped) -- there is no target
+    -- table to reference yet. Attach a real FK in the migration that
+    -- creates `properties`.
+    property_id INTEGER,
+    title TEXT,
+    current_version_id INTEGER,   -- FK below; NULL until the first version is created
+    accepted_version_id INTEGER,
+    accepted_at TEXT,
+    converted_project_id INTEGER,
+    contract_id INTEGER,
+    source TEXT NOT NULL DEFAULT 'engine' CHECK(source IN ('engine', 'legacy', 'api')),
+    workflow_status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(workflow_status IN (
+        'DRAFT', 'INTERNAL_REVIEW', 'APPROVED_INTERNAL', 'SENT', 'VIEWED',
+        'ACCEPTED', 'DECLINED', 'CHANGES_REQUESTED', 'EXPIRED', 'CANCELLED', 'CONVERTED'
+    )),
+    expires_at TEXT,
+    customer_notes TEXT,
+    terms TEXT,
+    sent_at TEXT,
+    last_viewed_at TEXT,
+    -- Legacy columns, UNCHANGED from the original table:
     line_items_json TEXT NOT NULL DEFAULT '[]',
     subtotal REAL NOT NULL DEFAULT 0.0,
     materials_cost REAL NOT NULL DEFAULT 0.0,
@@ -222,9 +268,215 @@ CREATE TABLE IF NOT EXISTS estimates (
     notes TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,  -- widened from CASCADE
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (assigned_to_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE SET NULL,
+    FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL,
+    FOREIGN KEY (current_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
+    FOREIGN KEY (accepted_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
+    FOREIGN KEY (converted_project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL
 );
+CREATE INDEX IF NOT EXISTS idx_estimates_created_by_user_id ON estimates(created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_estimates_assigned_to_user_id ON estimates(assigned_to_user_id);
+CREATE INDEX IF NOT EXISTS idx_estimates_workflow_status ON estimates(workflow_status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_estimates_project_id ON estimates(project_id);
+CREATE INDEX IF NOT EXISTS idx_estimates_opportunity_id ON estimates(opportunity_id);
+
+-- Estimate Versions (Codey-Estimator Phase B9.1, NEW). The estimates header
+-- (rebuilt above) is mutable identity/workflow metadata; a version is the
+-- priced content, and once locked it is never edited again -- revising
+-- creates version_number+1 instead. Money columns are INTEGER cents -- the
+-- first cents-based table in this codebase; every legacy REAL money column
+-- elsewhere stays untouched. calc_engine_version pins
+-- codey_estimator.calc.CALC_ENGINE_VERSION (currently 1) so an old estimate
+-- can always be re-derived exactly even after the engine's formulas change.
+CREATE TABLE IF NOT EXISTS estimate_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id INTEGER NOT NULL,
+    version_number INTEGER NOT NULL,
+    is_locked INTEGER NOT NULL DEFAULT 0 CHECK(is_locked IN (0, 1)),
+    locked_at TEXT,
+    locked_reason TEXT CHECK(locked_reason IN ('sent', 'accepted', 'superseded') OR locked_reason IS NULL),
+    material_cost_cents INTEGER NOT NULL DEFAULT 0,
+    labor_cost_cents INTEGER NOT NULL DEFAULT 0,
+    equipment_cost_cents INTEGER NOT NULL DEFAULT 0,
+    sub_cost_cents INTEGER NOT NULL DEFAULT 0,
+    cost_total_cents INTEGER NOT NULL DEFAULT 0,
+    subtotal_sell_cents INTEGER NOT NULL DEFAULT 0,
+    discount_cents INTEGER NOT NULL DEFAULT 0,
+    taxable_base_cents INTEGER NOT NULL DEFAULT 0,
+    tax_cents INTEGER NOT NULL DEFAULT 0,
+    total_cents INTEGER NOT NULL DEFAULT 0,
+    gross_profit_cents INTEGER NOT NULL DEFAULT 0,
+    gross_margin_bp INTEGER NOT NULL DEFAULT 0,
+    calc_engine_version INTEGER NOT NULL,
+    tax_rate_bp INTEGER NOT NULL DEFAULT 0,
+    terms_snapshot TEXT,
+    customer_notes_snapshot TEXT,
+    change_summary TEXT,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (estimate_id) REFERENCES estimates(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(estimate_id, version_number)
+);
+CREATE INDEX IF NOT EXISTS idx_estimate_versions_estimate_id ON estimate_versions(estimate_id);
+
+-- Immutability defense-in-depth -- the service layer must also refuse
+-- writes to a locked version; this trigger is the DB-level backstop,
+-- matching the append-only trigger convention already used elsewhere in
+-- this file.
+CREATE TRIGGER IF NOT EXISTS trg_estimate_versions_locked_immutable
+BEFORE UPDATE ON estimate_versions
+FOR EACH ROW WHEN OLD.is_locked = 1
+BEGIN
+    SELECT RAISE(ABORT, 'estimate_versions: cannot modify a locked version');
+END;
+
+-- Estimate Line Items (Codey-Estimator Phase B9.1, NEW). line_type drives
+-- which component group applies (mirrors codey_estimator.calc.LineType).
+-- Snapshot columns (retailer_code_snapshot, product_title_snapshot,
+-- unit_cost_cents, and every pricing-table id below being nullable) mean a
+-- line renders identically forever even if the underlying price book item,
+-- retailer product, or labor rate later changes or is deactivated.
+-- price_book_item_id / retailer_product_id / price_observation_id /
+-- labor_rate_id are bare INTEGER, NO FOREIGN KEY -- their target tables are
+-- deliberately deferred to a later phase; a future migration attaches real
+-- FKs once those tables exist. equipment_id / subcontractor_id DO get real
+-- FKs -- those tables already exist in this schema.
+CREATE TABLE IF NOT EXISTS estimate_line_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_version_id INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    line_type TEXT NOT NULL CHECK(line_type IN ('material', 'labor', 'equipment', 'subcontractor', 'combined', 'allowance', 'fee')),
+    section TEXT,
+    category TEXT,
+    description TEXT,
+    customer_description TEXT,
+    visible_to_customer INTEGER NOT NULL DEFAULT 1 CHECK(visible_to_customer IN (0, 1)),
+    price_book_item_id INTEGER,
+    retailer_product_id INTEGER,
+    price_observation_id INTEGER,
+    retailer_code_snapshot TEXT,
+    product_title_snapshot TEXT,
+    package_qty REAL,
+    package_unit TEXT,
+    unit_cost_cents INTEGER,
+    quantity REAL,
+    unit TEXT,
+    waste_pct_bp INTEGER NOT NULL DEFAULT 0,
+    material_markup_bp INTEGER NOT NULL DEFAULT 0,
+    labor_type TEXT,
+    labor_rate_id INTEGER,
+    labor_qty REAL,
+    labor_unit TEXT,
+    labor_cost_rate_cents INTEGER,
+    labor_bill_rate_cents INTEGER,
+    equipment_id INTEGER,
+    equipment_cost_cents INTEGER,
+    equipment_markup_bp INTEGER NOT NULL DEFAULT 0,
+    subcontractor_id INTEGER,
+    sub_cost_cents INTEGER,
+    sub_markup_bp INTEGER NOT NULL DEFAULT 0,
+    taxable INTEGER NOT NULL DEFAULT 1 CHECK(taxable IN (0, 1)),
+    discount_cents INTEGER NOT NULL DEFAULT 0,
+    price_override_cents INTEGER,
+    override_reason TEXT,
+    -- Written by codey_estimator.calc ONLY -- never by the API/UI layer
+    -- directly (totals are server-computed, never client-supplied).
+    packages_needed INTEGER,
+    material_cost_cents INTEGER NOT NULL DEFAULT 0,
+    labor_cost_cents INTEGER NOT NULL DEFAULT 0,
+    cost_total_cents INTEGER NOT NULL DEFAULT 0,
+    sell_total_cents INTEGER NOT NULL DEFAULT 0,
+    tax_cents INTEGER NOT NULL DEFAULT 0,
+    line_total_cents INTEGER NOT NULL DEFAULT 0,
+    internal_note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (estimate_version_id) REFERENCES estimate_versions(id) ON DELETE CASCADE,
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE SET NULL,
+    FOREIGN KEY (subcontractor_id) REFERENCES subcontractors(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_estimate_line_items_version_id ON estimate_line_items(estimate_version_id, sort_order);
+
+CREATE TRIGGER IF NOT EXISTS trg_estimate_line_items_locked_update
+BEFORE UPDATE ON estimate_line_items
+FOR EACH ROW WHEN (SELECT is_locked FROM estimate_versions WHERE id = OLD.estimate_version_id) = 1
+BEGIN
+    SELECT RAISE(ABORT, 'estimate_line_items: cannot modify a line on a locked version');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_estimate_line_items_locked_insert
+BEFORE INSERT ON estimate_line_items
+FOR EACH ROW WHEN (SELECT is_locked FROM estimate_versions WHERE id = NEW.estimate_version_id) = 1
+BEGIN
+    SELECT RAISE(ABORT, 'estimate_line_items: cannot add a line to a locked version');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_estimate_line_items_locked_delete
+BEFORE DELETE ON estimate_line_items
+FOR EACH ROW WHEN (SELECT is_locked FROM estimate_versions WHERE id = OLD.estimate_version_id) = 1
+BEGIN
+    SELECT RAISE(ABORT, 'estimate_line_items: cannot remove a line from a locked version');
+END;
+
+-- Estimate Share Links (Codey-Estimator Phase B9.1, NEW). A capability
+-- token scoped to exactly one estimate_version_id; it never grants an API
+-- session. Only the SHA-256 of the raw token is ever stored (token_hash) --
+-- the raw token exists only in the email/URL sent to the customer and is
+-- never written here.
+CREATE TABLE IF NOT EXISTS estimate_share_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id INTEGER NOT NULL,
+    estimate_version_id INTEGER NOT NULL,
+    customer_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revoked_by_user_id INTEGER,
+    first_viewed_at TEXT,
+    last_viewed_at TEXT,
+    view_count INTEGER NOT NULL DEFAULT 0,
+    delivery_channel TEXT,
+    delivered_to TEXT,
+    FOREIGN KEY (estimate_id) REFERENCES estimates(id) ON DELETE CASCADE,
+    FOREIGN KEY (estimate_version_id) REFERENCES estimate_versions(id) ON DELETE CASCADE,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (revoked_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_estimate_share_links_token_hash ON estimate_share_links(token_hash);
+CREATE INDEX IF NOT EXISTS idx_estimate_share_links_estimate_id ON estimate_share_links(estimate_id);
+
+-- Estimate Decisions (Codey-Estimator Phase B9.1, NEW, append-only). One row
+-- per accept/decline/changes-requested action, whether via a share link
+-- (share_link_id set, customer_user_id NULL) or the logged-in /portal
+-- (customer_user_id set, share_link_id NULL). signer_name +
+-- consent_text_snapshot are always required on an 'accepted' row
+-- (service-layer enforced); signature_data is optional, reusing the
+-- existing contract signature pad.
+CREATE TABLE IF NOT EXISTS estimate_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_version_id INTEGER NOT NULL,
+    share_link_id INTEGER,
+    customer_user_id INTEGER,
+    decision TEXT NOT NULL CHECK(decision IN ('accepted', 'declined', 'changes_requested')),
+    signer_name TEXT,
+    signature_data TEXT,
+    consent_text_snapshot TEXT,
+    comment TEXT,
+    ip TEXT,
+    user_agent TEXT,
+    decided_at TEXT NOT NULL,
+    FOREIGN KEY (estimate_version_id) REFERENCES estimate_versions(id) ON DELETE CASCADE,
+    FOREIGN KEY (share_link_id) REFERENCES estimate_share_links(id) ON DELETE SET NULL,
+    FOREIGN KEY (customer_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_estimate_decisions_version_id ON estimate_decisions(estimate_version_id);
 
 -- Proposals / Contracts
 CREATE TABLE IF NOT EXISTS contracts (
@@ -260,6 +512,15 @@ CREATE TABLE IF NOT EXISTS documents (
     tags_json TEXT NOT NULL DEFAULT '[]',
     permissions_json TEXT NOT NULL DEFAULT '[]',
     expiration_date TEXT,
+    -- Codey-Estimator Phase B9.1 additions: estimate_id links a document to
+    -- the estimate it belongs to (bare, no FK -- see the fresh-CREATE-TABLE
+    -- estimate_id column comment in _migrate_schema()'s additive migrations
+    -- tuple; kept identical between fresh and migrated DBs since the
+    -- migrated path can't attach one via ALTER TABLE ADD COLUMN either).
+    -- customer_visible gates whether a document is served through the
+    -- customer-facing allow-list view.
+    estimate_id INTEGER,
+    customer_visible INTEGER NOT NULL DEFAULT 0 CHECK(customer_visible IN (0, 1)),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
@@ -999,9 +1260,82 @@ CREATE TABLE users (
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    requires_estimate_approval INTEGER NOT NULL DEFAULT 0 CHECK(requires_estimate_approval IN (0, 1)),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+);
+"""
+
+# Codey-Estimator Phase B9.1: byte-for-byte the same DDL as _SCHEMA_SQL's
+# `estimates` block above, but with `CREATE TABLE estimates (` (no
+# `IF NOT EXISTS`) -- used only by _migrate_estimates_table_v2(), via
+# `.replace("CREATE TABLE estimates (", "CREATE TABLE _estimates_new_v2 (", 1)`,
+# mirroring _USERS_TABLE_WIDENED_ROLE_SQL's existing pattern's fail-loud
+# guard if that `.replace()` no-ops. Keep the two in sync any time this
+# table changes.
+_ESTIMATES_TABLE_V2_SQL = """
+CREATE TABLE estimates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_number TEXT UNIQUE NOT NULL,
+    customer_id INTEGER NOT NULL,
+    project_id INTEGER,
+    -- Codey-Estimator Phase B9.1 additions:
+    created_by_user_id INTEGER,   -- immutable once set; service-layer only, never from request body
+    created_by_name TEXT,         -- snapshot of users.full_name at creation; survives role changes/departures
+    assigned_to_user_id INTEGER,  -- defaults to creator; reassignment needs PERM_REASSIGN_ESTIMATES
+    opportunity_id INTEGER,
+    lead_id INTEGER,
+    -- property_id: bare INTEGER, NO FOREIGN KEY. Not the ALTER-TABLE-can't-
+    -- attach-an-FK reason used elsewhere in this file -- this IS a fresh
+    -- CREATE TABLE, so a real FK would normally be used. The real reason:
+    -- B8.1's `properties` table (sales_rep_portal.md) is DESIGNED but NOT
+    -- YET BUILT (only its permission half shipped) -- there is no target
+    -- table to reference yet. Attach a real FK in the migration that
+    -- creates `properties`.
+    property_id INTEGER,
+    title TEXT,
+    current_version_id INTEGER,   -- FK below; NULL until the first version is created
+    accepted_version_id INTEGER,
+    accepted_at TEXT,
+    converted_project_id INTEGER,
+    contract_id INTEGER,
+    source TEXT NOT NULL DEFAULT 'engine' CHECK(source IN ('engine', 'legacy', 'api')),
+    workflow_status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(workflow_status IN (
+        'DRAFT', 'INTERNAL_REVIEW', 'APPROVED_INTERNAL', 'SENT', 'VIEWED',
+        'ACCEPTED', 'DECLINED', 'CHANGES_REQUESTED', 'EXPIRED', 'CANCELLED', 'CONVERTED'
+    )),
+    expires_at TEXT,
+    customer_notes TEXT,
+    terms TEXT,
+    sent_at TEXT,
+    last_viewed_at TEXT,
+    -- Legacy columns, UNCHANGED from the original table:
+    line_items_json TEXT NOT NULL DEFAULT '[]',
+    subtotal REAL NOT NULL DEFAULT 0.0,
+    materials_cost REAL NOT NULL DEFAULT 0.0,
+    labor_cost REAL NOT NULL DEFAULT 0.0,
+    subcontractor_cost REAL NOT NULL DEFAULT 0.0,
+    markup_percent REAL NOT NULL DEFAULT 0.0,
+    tax_amount REAL NOT NULL DEFAULT 0.0,
+    discount_amount REAL NOT NULL DEFAULT 0.0,
+    total_amount REAL NOT NULL DEFAULT 0.0,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'sent', 'approved', 'rejected', 'expired')),
+    expiration_date TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,  -- widened from CASCADE
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (assigned_to_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE SET NULL,
+    FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL,
+    FOREIGN KEY (current_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
+    FOREIGN KEY (accepted_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
+    FOREIGN KEY (converted_project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL
 );
 """
 
@@ -1132,6 +1466,19 @@ class DatabaseManager:
             ("appointments", "appointment_type_id", "ALTER TABLE appointments ADD COLUMN appointment_type_id INTEGER;"),
             ("appointments", "assigned_user_id", "ALTER TABLE appointments ADD COLUMN assigned_user_id INTEGER;"),
             ("subcontractors", "user_id", "ALTER TABLE subcontractors ADD COLUMN user_id INTEGER;"),
+            (
+                "users",
+                "requires_estimate_approval",
+                "ALTER TABLE users ADD COLUMN requires_estimate_approval INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(requires_estimate_approval IN (0, 1));",
+            ),
+            ("documents", "estimate_id", "ALTER TABLE documents ADD COLUMN estimate_id INTEGER;"),
+            (
+                "documents",
+                "customer_visible",
+                "ALTER TABLE documents ADD COLUMN customer_visible INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(customer_visible IN (0, 1));",
+            ),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -1205,6 +1552,124 @@ class DatabaseManager:
         # custom_permissions_json) having already run against the row set
         # it copies.
         self._migrate_users_role_constraint()
+        self._migrate_estimates_table_v2()
+
+    def _migrate_estimates_table_v2(self) -> None:
+        """Rebuild `estimates` to its Codey-Estimator Phase B9.1 v2 shape
+        (widened customer_id FK from CASCADE to RESTRICT, plus the new
+        workflow/header columns) -- see codey_estimator_schema.md §1.
+        Follows _migrate_users_role_constraint()'s exact corrected 9-step
+        procedure (see that method's docstring for the full empirical
+        reasoning this mirrors): never rename `estimates` itself, build the
+        new shape under a disposable temp name, copy, drop the original,
+        rename the temp table in.
+
+        No backfill logic is needed: a read-only query against the live
+        production DB (run by Ish, 2026-09-27, recorded in
+        Codey-Estimator/docs/DECISIONS.md) found the `estimates` table
+        completely empty -- zero rows -- so this rebuild carries none of
+        the data-loss risk a populated-table rebuild would.
+
+        Idempotency: keyed on `PRAGMA table_info(estimates)` containing
+        `workflow_status` (there is no CHECK-constraint-text gate available
+        here the way _migrate_users_role_constraint uses, since this is a
+        genuine column-presence change, not a CHECK widening) -- if
+        `estimates` doesn't exist yet, or already has `workflow_status`,
+        this is a no-op. Safe on a fresh DB (already created in v2 shape via
+        _SCHEMA_SQL -- permanent no-op), safe to re-run against an
+        already-migrated legacy file, and safe against both
+        _migrate_schema() calls per init_schema() run.
+        """
+        conn = self.get_connection()
+
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='estimates';"
+        ).fetchone()
+        if row is None:
+            return
+        existing_columns = {r["name"] for r in conn.execute("PRAGMA table_info(estimates);")}
+        if "workflow_status" in existing_columns:
+            return
+
+        old_cols = sorted(existing_columns)
+        new_cols = {
+            "id", "estimate_number", "customer_id", "project_id",
+            "created_by_user_id", "created_by_name", "assigned_to_user_id",
+            "opportunity_id", "lead_id", "property_id", "title",
+            "current_version_id", "accepted_version_id", "accepted_at",
+            "converted_project_id", "contract_id", "source", "workflow_status",
+            "expires_at", "customer_notes", "terms", "sent_at", "last_viewed_at",
+            "line_items_json", "subtotal", "materials_cost", "labor_cost",
+            "subcontractor_cost", "markup_percent", "tax_amount",
+            "discount_amount", "total_amount", "status", "expiration_date",
+            "version", "notes", "created_at", "updated_at",
+        }
+        missing = set(old_cols) - new_cols
+        if missing:
+            raise RuntimeError(
+                f"estimates table rebuild aborted: legacy DB has column(s) {missing} not "
+                "present in the v2 schema -- update the rebuild DDL/copy list before "
+                "retrying; do not drop data silently."
+            )
+        col_list = ", ".join(old_cols)
+
+        seq_row = conn.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name='estimates';"
+        ).fetchone()
+        preserved_seq = seq_row["seq"] if seq_row else None
+
+        temp_v2_sql = _ESTIMATES_TABLE_V2_SQL.replace(
+            "CREATE TABLE estimates (", "CREATE TABLE _estimates_new_v2 (", 1
+        )
+        if "_estimates_new_v2" not in temp_v2_sql:
+            # The .replace() above is load-bearing and silently no-ops on a
+            # mismatch (e.g. the constant's opener text drifting to a
+            # different exact spacing/formatting) -- fail loudly rather
+            # than proceed to CREATE a second literal `estimates` table.
+            raise RuntimeError(
+                "estimates table rebuild aborted: could not rewrite "
+                "_ESTIMATES_TABLE_V2_SQL's 'CREATE TABLE estimates (' opener "
+                "to the temp table name -- the constant's exact text has "
+                "likely drifted from what this method expects."
+            )
+
+        # foreign_keys is a no-op to change mid-transaction, so both the OFF
+        # and the later ON must run outside the `with conn:` block.
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            with conn:
+                # BEGIN IMMEDIATE first -- see _migrate_users_role_constraint's
+                # docstring for why this is required (sqlite3's default
+                # isolation mode does not implicitly open a transaction
+                # before a DDL statement, only before DML).
+                conn.execute("BEGIN IMMEDIATE;")
+                conn.execute("DROP TABLE IF EXISTS _estimates_new_v2;")
+                conn.execute(temp_v2_sql)
+                conn.execute(
+                    f"INSERT INTO _estimates_new_v2 ({col_list}) "
+                    f"SELECT {col_list} FROM estimates;"
+                )
+                conn.execute("DROP TABLE estimates;")
+                conn.execute("ALTER TABLE _estimates_new_v2 RENAME TO estimates;")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_customer_id ON estimates(customer_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_number ON estimates(estimate_number);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_created_by_user_id ON estimates(created_by_user_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_assigned_to_user_id ON estimates(assigned_to_user_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_workflow_status ON estimates(workflow_status, updated_at);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_project_id ON estimates(project_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_opportunity_id ON estimates(opportunity_id);")
+                if preserved_seq is not None:
+                    conn.execute("DELETE FROM sqlite_sequence WHERE name = 'estimates';")
+                    conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) VALUES ('estimates', ?);",
+                        (preserved_seq,),
+                    )
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON;")
+
+        fk_violations = conn.execute("PRAGMA foreign_key_check;").fetchall()
+        if fk_violations:
+            raise RuntimeError(f"estimates table rebuild left FK violations: {fk_violations}")
 
     def _migrate_users_role_constraint(self) -> None:
         """Rebuild `users` to widen its `role` CHECK constraint to include
@@ -1326,7 +1791,7 @@ class DatabaseManager:
         new_cols = {
             "id", "username", "password_hash", "full_name", "email", "phone", "role",
             "department", "customer_id", "custom_permissions_json", "active",
-            "created_at", "updated_at",
+            "requires_estimate_approval", "created_at", "updated_at",
         }
         missing = set(old_cols) - new_cols
         if missing:

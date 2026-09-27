@@ -214,6 +214,16 @@ PERM_WRITE_PROCUREMENT = "write:procurement"
 PERM_GLOBAL_SEARCH = "search:global"
 PERM_VIEW_REPORTS = "view:reports"
 
+# Codey-Estimator Phase B9.1 permission constants (codey_estimator_schema.md
+# §4). PERM_MANAGE_PRICE_BOOK is declared now but unused until the
+# pricing-tables phase (deferred, see that doc's §3).
+PERM_READ_ALL_ESTIMATES = "read:all_estimates"        # unrestricted read of every estimate, no ownership narrowing
+PERM_READ_ESTIMATE_COSTS = "read:estimate_costs"      # gates cost/margin/GP fields in the served DTO
+PERM_REASSIGN_ESTIMATES = "reassign:estimates"        # change assigned_to_user_id (PERM_REASSIGN_PROJECT_STAFF precedent)
+PERM_SEND_ESTIMATES = "send:estimates"                # DRAFT/APPROVED_INTERNAL -> SENT transition (ai_agent NEVER gets this)
+PERM_APPROVE_ESTIMATES = "approve:estimates"          # INTERNAL_REVIEW -> APPROVED_INTERNAL transition
+PERM_MANAGE_PRICE_BOOK = "manage:price_book"          # declared now, unused until the pricing-tables phase
+
 # Role permissions matrix
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_ADMIN: {
@@ -234,6 +244,12 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_REASSIGN_ANY_PROJECT_STAFF,
         PERM_READ_ESTIMATES,
         PERM_WRITE_ESTIMATES,
+        PERM_READ_ALL_ESTIMATES,
+        PERM_READ_ESTIMATE_COSTS,
+        PERM_REASSIGN_ESTIMATES,
+        PERM_SEND_ESTIMATES,
+        PERM_APPROVE_ESTIMATES,
+        PERM_MANAGE_PRICE_BOOK,
         PERM_READ_CONTRACTS,
         PERM_WRITE_CONTRACTS,
         PERM_SIGN_CONTRACTS,
@@ -296,6 +312,12 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_WRITE_ESTIMATES,
+        PERM_READ_ALL_ESTIMATES,
+        PERM_READ_ESTIMATE_COSTS,
+        PERM_REASSIGN_ESTIMATES,
+        PERM_SEND_ESTIMATES,
+        PERM_APPROVE_ESTIMATES,
+        PERM_MANAGE_PRICE_BOOK,
         PERM_READ_CONTRACTS,
         PERM_WRITE_CONTRACTS,
         PERM_SIGN_CONTRACTS,
@@ -357,6 +379,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_ALL_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_WRITE_ESTIMATES,
+        PERM_READ_ESTIMATE_COSTS,
+        PERM_SEND_ESTIMATES,
         PERM_READ_CONTRACTS,
         PERM_WRITE_CONTRACTS,
         PERM_SIGN_CONTRACTS,
@@ -387,6 +411,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROJECTS,
         PERM_REASSIGN_PROJECT_STAFF,
         PERM_READ_ESTIMATES,
+        PERM_READ_ESTIMATE_COSTS,
         PERM_READ_CONTRACTS,
         PERM_SIGN_CONTRACTS,
         PERM_READ_DOCUMENTS,
@@ -442,6 +467,9 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_TEAM_SALES_DATA,
         PERM_READ_ALL_PROJECTS,
         PERM_READ_ESTIMATES,
+        PERM_WRITE_ESTIMATES,
+        PERM_READ_ALL_ESTIMATES,
+        PERM_READ_ESTIMATE_COSTS,
         PERM_READ_CONTRACTS,
         PERM_READ_DOCUMENTS,
         PERM_WRITE_DOCUMENTS,
@@ -506,7 +534,17 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
 # PERM_REASSIGN_ANY_PROJECT_STAFF or PERM_MANAGE_USERS -- a sales manager
 # manages sales reps' leads/opportunities/tasks, not project staffing or
 # user accounts.
-ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {PERM_READ_TEAM_SALES_DATA}
+#
+# Codey-Estimator Phase B9.1 (codey_estimator_schema.md §4): a sales_manager
+# additionally gets team-wide estimate visibility, reassignment, and
+# internal-review approval on top of everything ROLE_SALES already has --
+# same "derived so it can't drift" reasoning as above.
+ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {
+    PERM_READ_TEAM_SALES_DATA,
+    PERM_READ_ALL_ESTIMATES,
+    PERM_REASSIGN_ESTIMATES,
+    PERM_APPROVE_ESTIMATES,
+}
 
 # Permissions catalog grouped by domain for dynamic permissions UI and validation
 PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
@@ -557,6 +595,12 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_READ_ESTIMATES, "name": "Read Estimates", "description": "View project estimates"},
             {"id": PERM_WRITE_ESTIMATES, "name": "Write Estimates", "description": "Generate and revise estimates"},
             {"id": PERM_READ_OWN_ESTIMATES, "name": "Read Own Estimates", "description": "View own estimates in portal"},
+            {"id": PERM_READ_ALL_ESTIMATES, "name": "Read All Estimates", "description": "Unrestricted read of every estimate, no ownership narrowing"},
+            {"id": PERM_READ_ESTIMATE_COSTS, "name": "Read Estimate Costs", "description": "See cost/margin/gross-profit fields on estimates"},
+            {"id": PERM_REASSIGN_ESTIMATES, "name": "Reassign Estimates", "description": "Change which user an estimate is assigned to"},
+            {"id": PERM_SEND_ESTIMATES, "name": "Send Estimates", "description": "Transition an estimate from draft/approved to sent"},
+            {"id": PERM_APPROVE_ESTIMATES, "name": "Approve Estimates", "description": "Approve an estimate out of internal review"},
+            {"id": PERM_MANAGE_PRICE_BOOK, "name": "Manage Price Book", "description": "Manage the price book used to build estimates"},
             {"id": PERM_READ_CONTRACTS, "name": "Read Contracts", "description": "View contracts and agreements"},
             {"id": PERM_WRITE_CONTRACTS, "name": "Write Contracts", "description": "Generate and edit contracts"},
             {"id": PERM_SIGN_CONTRACTS, "name": "Sign Contracts", "description": "Execute digital signatures on contracts"},

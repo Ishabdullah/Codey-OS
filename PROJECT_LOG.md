@@ -1,3 +1,83 @@
+## 2026-09-27 — B9.1 code-complete + code-reviewer APPROVED: Estimating System schema, migration, RBAC (NOT live-verified — pending device access)
+
+**What changed:** project-architect → implementer → code-reviewer pipeline,
+rule-4 tier (schema + RBAC — mandatory reviewer approval). APPROVED, no
+Critical or Warning findings, one Suggestion (see below). 748 passed, 1
+pre-existing unrelated failure (`test_document_streaming_upload`, missing
+`python_multipart` in this sandbox — confirmed identical on `git stash`'d
+pre-diff code by both the implementer and, independently, the reviewer).
+
+- **Registers Phase B9 — Estimating System (Codey-Estimator Integration)**
+  (`CODEY_MASTER_PLAN.md` §6.13, Appendix A). Reconciles the standalone
+  `Codey-Estimator` library's own `docs/ARCHITECTURE_PLAN.md` design against
+  this repo's real current schema/RBAC. Full spec: `codey_estimator_schema.md`
+  (new, this repo's own spoke doc — not duplicated here, per §0).
+- **`estimates` table fully rebuilt** (not left additive), reusing
+  `_migrate_users_role_constraint`'s exact 9-step full-table-rebuild
+  procedure: widens `customer_id`'s delete action from CASCADE to RESTRICT
+  (a real pre-existing bug — deleting a customer would have silently
+  destroyed their estimate history) and adds creator/assignee/opportunity/
+  lead/property links, versioning pointers, and a `workflow_status` column.
+  Made low-risk by a confirmed finding in the companion library's own
+  decision log: the live `~/.codeyOS/restoricon.db`'s `estimates` table has
+  **zero rows** — no backfill, no legacy-status mapping, no data-loss risk
+  to rehearse against.
+- **Four new tables**: `estimate_versions` (integer-cents priced snapshots,
+  locked-immutable via a DB trigger backstop), `estimate_line_items` (typed
+  line rows, three lock-enforcement triggers), `estimate_share_links`
+  (capability tokens — only the SHA-256 hash is ever stored), `estimate_decisions`
+  (append-only accept/decline/changes-requested log).
+- **`users.requires_estimate_approval`** and **`documents.estimate_id`/
+  `documents.customer_visible`** added additively. The `CHECK`-on-`ALTER
+  TABLE ADD COLUMN` question (rule 12 — no existing migration in this file
+  used one) was tested empirically, twice independently (implementer, then
+  reviewer), against a real `DatabaseManager`-built file: it works and is
+  enforced. Residual cross-SQLite-version risk (this sandbox is 3.45.1, the
+  device is 3.53.4) is real but small — SQLite's `ADD COLUMN` + `CHECK`
+  support has been stable since 3.25 (2018) — and is correctly left to the
+  live-verification checklist rather than asserted as certain.
+- **Six new permission constants** (`PERM_READ_ALL_ESTIMATES`,
+  `PERM_READ_ESTIMATE_COSTS`, `PERM_REASSIGN_ESTIMATES`,
+  `PERM_SEND_ESTIMATES`, `PERM_APPROVE_ESTIMATES`, `PERM_MANAGE_PRICE_BOOK`),
+  granted per `codey_estimator_schema.md` §4. Notably: **Ish confirmed
+  Project Managers keep today's de facto cost/margin visibility** (a real
+  access-scope question the architect correctly escalated rather than
+  deciding); `ai_agent` gets draft-create (`PERM_WRITE_ESTIMATES`,
+  fixing `NEW-544`, a real pre-existing gap against the companion library's
+  D11) but the reviewer independently confirmed **zero overlap** between
+  `ai_agent`'s grants and `{PERM_SEND_ESTIMATES, PERM_APPROVE_ESTIMATES,
+  PERM_REASSIGN_ESTIMATES, PERM_MANAGE_PRICE_BOOK}` — D11's one hard "never."
+- **A real pre-existing bug found and fixed in the same round** (in scope,
+  not a separate task, since it's the direct consequence of widening
+  `_USERS_TABLE_WIDENED_ROLE_SQL`): `_migrate_users_role_constraint()`'s own
+  `new_cols` incompatible-schema-detection set didn't include the newly
+  added `requires_estimate_approval` column, which would have made it
+  false-positive-abort on every legacy DB going forward. Reviewer verified
+  the fix is narrow and doesn't loosen detection for anything else.
+- **`NEW-544` logged and fixed same-round** (the `ai_agent` write-permission
+  gap above).
+- **Pricing/retailer tables deliberately deferred** (`retailer_products`,
+  `price_observations`, `price_book_items`, `labor_rates`, etc.) — they
+  depend on the companion library's already-built `ports.py` repository
+  shapes and are their own integration surface; `estimate_line_items`'
+  bare-int-no-FK pricing columns are already schema-compatible with them
+  arriving later.
+- **One reviewer Suggestion, logged honestly rather than glossed over:**
+  `codey_estimator_schema.md` and this round's first `CODEY_MASTER_PLAN.md`
+  edit stated "code-reviewer approved" as fact *before* the review actually
+  ran. It held up under independent re-verification, but the process was
+  backwards — state review status as pending until a review has actually
+  happened, in every future round.
+
+**Tier (rule 7): code-complete + code-reviewer APPROVED. Explicitly NOT
+live-verified** — no session that worked on this had access to the real
+device. Lives on branch `feat/estimator-phase3-schema`, not `main`. The
+8-item live-verification checklist in `codey_estimator_schema.md` must run
+on a session with device access — copy the real `~/.codeyOS/restoricon.db`,
+run the migration against the copy, confirm `PRAGMA foreign_key_check` and
+row-count parity, confirm the `CHECK`-on-`ADD COLUMN` behavior on the real
+SQLite 3.53.4 — before this merges to `main`.
+
 ## 2026-09-17 — D3 CLOSED: sales portal 12s auto-refresh (not the full SSE push layer)
 
 **What changed:** project-architect → implementer → code-reviewer pipeline, standard tier (no RBAC/schema/process-lifecycle), APPROVED. 1945 passed, 1 skipped, independently reproduced by code-reviewer.

@@ -18375,3 +18375,29 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Not fixed this round** — found during review of the already-scoped D3 fix, deliberately not a blocker per the reviewer's own assessment (self-healing, no security impact). A future fix could carry call-site intent through the guard (e.g. queue the dropped call's parameters and replay after the in-flight one finishes, or simply never let the guard drop the `true`-mode call specifically) rather than uniformly discarding whichever call loses the race.
 - **Related, also not fixed:** no test currently pins the `dashboardRefreshInFlight` guard's existence or its `finally`-based reset — a future edit could remove the guard entirely (reintroducing the overlapping-write risk it was added to prevent) with the test suite staying green throughout.
 - **Cross-reference:** `sales_rep_portal.md` §4a item 3, `restoricon_core/api/web_surfaces.py` (`_render_sales_portal`, `loadDashboard`).
+
+## Found 2026-09-27 — scoping Phase B9 (Estimating System / Codey-Estimator Integration), fixed this round as part of B9.1's RBAC changes
+
+### [NEW-544] CONFIRMED: `ROLE_AI_AGENT` lacked `PERM_WRITE_ESTIMATES` despite the Codey-Estimator library's D11 requiring it — fixed as part of B9.1, not a separate task
+
+- **Status:** Confirmed (project-architect, 2026-09-27, found while scoping
+  B9.1's RBAC constants). `ROLE_AI_AGENT`'s permission set (`auth.py:431-484`)
+  held `PERM_READ_ESTIMATES` but not `PERM_WRITE_ESTIMATES`. The companion
+  `Codey-Estimator` library's decision D11 (answered 2026-09-27,
+  `Codey-Estimator/docs/DECISIONS.md`) explicitly requires the `ai_agent`
+  token to hold "read/search/draft-create permissions" for estimates, which
+  needs `PERM_WRITE_ESTIMATES` to create a draft estimate at all — D11 was
+  answered against code that didn't yet satisfy it.
+- **Impact:** none live yet — no estimate service/API exists for `ai_agent`
+  to call today (that's B9.2+). This is a gap that would have blocked D11's
+  requirement the moment that phase shipped, not an active vulnerability.
+- **Fixed this round**, folded into B9.1's RBAC changes rather than a
+  separate task, since it's a one-line RBAC-constant addition
+  (`codey_estimator_schema.md` §4): `ROLE_AI_AGENT` now also gets
+  `PERM_WRITE_ESTIMATES`, `PERM_READ_ALL_ESTIMATES`, `PERM_READ_ESTIMATE_COSTS`
+  — but explicitly never `PERM_SEND_ESTIMATES`/`PERM_APPROVE_ESTIMATES`/
+  `PERM_REASSIGN_ESTIMATES`/`PERM_MANAGE_PRICE_BOOK`, per D11's hard
+  requirement that an autonomous agent never emails a customer a price
+  without a human clicking send.
+- **Cross-reference:** `codey_estimator_schema.md` §4, `CODEY_MASTER_PLAN.md`
+  §6.13 (Phase B9), `Codey-Estimator/docs/DECISIONS.md` D11.

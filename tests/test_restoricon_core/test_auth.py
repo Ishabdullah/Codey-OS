@@ -19,6 +19,9 @@ from restoricon_core.auth import (
     PERM_READ_AUDIT_LOG,
     PERM_READ_TEAM_SALES_DATA,
     PERM_WRITE_FINANCIALS,
+    PERM_READ_ALL_ESTIMATES,
+    PERM_REASSIGN_ESTIMATES,
+    PERM_APPROVE_ESTIMATES,
 )
 from restoricon_core.database import DatabaseManager
 
@@ -134,11 +137,16 @@ def test_role_sales_manager_registered():
 
 
 def test_role_sales_manager_permissions_derived_from_sales_plus_team_read():
-    """ROLE_SALES_MANAGER's permission set must be exactly ROLE_SALES's
-    set plus PERM_READ_TEAM_SALES_DATA -- derived, not duplicated, so it
-    can never drift out of sync with ROLE_SALES."""
+    """ROLE_SALES_MANAGER's permission set must be exactly ROLE_SALES's set
+    plus PERM_READ_TEAM_SALES_DATA and, since Codey-Estimator Phase B9.1
+    (codey_estimator_schema.md §4), PERM_READ_ALL_ESTIMATES,
+    PERM_REASSIGN_ESTIMATES, and PERM_APPROVE_ESTIMATES -- derived, not
+    duplicated, so it can never drift out of sync with ROLE_SALES."""
     assert ROLE_PERMISSIONS[ROLE_SALES_MANAGER] == ROLE_PERMISSIONS[ROLE_SALES] | {
-        PERM_READ_TEAM_SALES_DATA
+        PERM_READ_TEAM_SALES_DATA,
+        PERM_READ_ALL_ESTIMATES,
+        PERM_REASSIGN_ESTIMATES,
+        PERM_APPROVE_ESTIMATES,
     }
 
 
