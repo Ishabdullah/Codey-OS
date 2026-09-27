@@ -29,6 +29,7 @@ class User:
     active: int = 1
     terminated_at: Optional[str] = None  # B8.7c: set/cleared by AuthService.set_user_active, see database.py's ALTER comment
     territory_id: Optional[int] = None  # B8.9a: at most one territory per rep, see database.py's ALTER comment
+    subcontractor_id: Optional[int] = None  # Phase 0b, B8.16: populated for a ROLE_SUBCONTRACTOR user's own account
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 

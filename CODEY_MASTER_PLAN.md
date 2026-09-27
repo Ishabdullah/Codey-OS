@@ -7877,25 +7877,96 @@ this file's own don't-duplicate rule.
       source document — both resolved by Ish before Phase 0-slim
       started). Six phases, sequenced so Ish sees a real record in the
       admin portal early rather than last:
-      **Phase 0-slim + Phase 1, DONE, code-reviewer APPROVED (round 2,
-      after one CHANGES REQUESTED fix), not yet committed as of this
-      write-up** — `invoices.line_items_json` column added (schema
-      migration, same precedented `ALTER TABLE ADD COLUMN` pattern as
-      the table's two prior migrations); `Invoice.line_items` field;
-      `create_invoice` computes `amount` server-side from line items
-      (never trusts a client-supplied amount), mirroring
-      `WorkOrder`'s existing cost-computation pattern; verified the
-      $790 water-heater-job fixture (including a negative SCF credit
-      line) sums and nets correctly. Code-reviewer's first pass found a
-      real bug — `record_payment`'s hand-built `Invoice(...)` was a
-      second construction site that missed the new `line_items` field
+      **Phase 0-slim + Phase 1, DONE, commit `fece7f8`** —
+      `invoices.line_items_json` column added (schema migration, same
+      precedented `ALTER TABLE ADD COLUMN` pattern as the table's two
+      prior migrations); `Invoice.line_items` field; `create_invoice`
+      computes `amount` server-side from line items (never trusts a
+      client-supplied amount), mirroring `WorkOrder`'s existing
+      cost-computation pattern; verified the $790 water-heater-job
+      fixture (including a negative SCF credit line) sums and nets
+      correctly. Code-reviewer's first pass found a real bug —
+      `record_payment`'s hand-built `Invoice(...)` was a second
+      construction site that missed the new `line_items` field
       entirely, silently dropping line items from the
       `POST /invoices/{id}/pay` response only (DB and `get_invoice`
       were always correct) — fixed and covered by a red/green-verified
-      regression test. Full targeted suite green (48 passed); prior
-      full-suite run at 1269 passed. `NEW-666` logged (line_items
-      absent from `_AUDITABLE_INVOICE_FIELDS`, Confirmed, non-blocking,
-      not fixed this round).
+      regression test. `NEW-666` logged (line_items absent from
+      `_AUDITABLE_INVOICE_FIELDS`, Confirmed, non-blocking, not fixed
+      this round).
+      **Phase 0b (`ROLE_SUBCONTRACTOR`), DONE, code-reviewer APPROVED
+      after three rounds, not yet committed as of this write-up** —
+      closes `NEW-641` for real (today no subcontractor user account
+      could even be created; `create_user` rejected any role outside
+      `ALL_ROLES` and `subcontractor` wasn't in it, despite
+      `/subcontractor`/`render_subcontractor_surface()` already
+      existing as reachable routes). Adds `ROLE_SUBCONTRACTOR` (final
+      grant: `PERM_READ_OPERATIONS`, `PERM_WRITE_OPERATIONS`,
+      `PERM_LOG_COMMUNICATION` only), `AuthContext.subcontractor_id`
+      threaded through `authenticate_token`, `users.subcontractor_id`
+      column, and a full-table-rebuild migration widening
+      `users.role`'s inline `CHECK` constraint (SQLite can't `ALTER` a
+      `CHECK` in place) to accept `'subcontractor'`.
+      **Notable process event, logged because it's a real and
+      non-obvious risk this project should watch for again:** this
+      phase was independently worked on by two separate agent sessions
+      at the same time without either knowing about the other — caught
+      only because Ish, watching both, told this session directly.
+      The concurrent session's production-code changes were already
+      gone by the time this was caught (stopped/reverted on its own
+      side), but it left two uncommitted, unstaged test-file edits
+      behind in the shared working tree with no matching implementation
+      (both failing red). Both attempts had independently found and
+      correctly solved the *same* CHECK-constraint-rebuild gotcha,
+      including the identical "a bare `'subcontractor'` substring
+      check would falsely never fire, because the same migration also
+      adds a `subcontractor_id` *column*, and SQLite rewrites
+      `sqlite_master.sql` to include ALTER-added columns" collision —
+      independent convergence on a real, non-obvious bug, not a
+      coincidence worth dismissing. Resolved by: stopping this
+      session's own in-flight implementer immediately, stashing (never
+      discarding) both this session's attempt and the concurrent
+      session's leftover test edits separately, confirming the leftover
+      test edits were the *coherent, complementary* other half of the
+      same fix (not competing/conflicting work) by reading them
+      directly rather than assuming, then merging both non-conflicting
+      halves back into the tree and re-running the full suite (clean,
+      1290 passed) before proceeding to review. **Takeaway for future
+      sessions**: this project's "Working alongside another agent"
+      section (CLAUDE.md) covers tracking-doc collisions explicitly but
+      not concurrent *code* edits on the same feature — treat any
+      report of "another agent is also working on X" as an immediate
+      stop-and-verify signal, not something to route around.
+      Three code-reviewer rounds on Phase 0b, in order: **round 1**
+      found two real, live-reproduced permission escapes — (C1)
+      `update_work_order` let a subcontractor reassign
+      `assigned_subcontractor_id` to a *different* subcontractor,
+      hijacking the work order (fixed: ownership re-checked against
+      the fresh DB row, reassignment of that field rejected outright);
+      (C2) the `PERM_READ_COMPLIANCE` grant was unnarrowed at
+      `list_compliance_items`, leaking every party's license/insurance/
+      COI data to an external subcontractor (fixed: permission removed
+      from the grant entirely, not narrowed — `NEW-668` logged for the
+      future real-narrowing work). Also corrected a false comment
+      (rule 6) claiming an unrelated `get_project()` over-grant was
+      "logged" when no such entry existed and the claim didn't hold up
+      on inspection. **Round 2** found the identical bug shape one
+      permission over: `PERM_READ_DOCUMENTS`/`PERM_WRITE_DOCUMENTS`
+      were also unnarrowed at `get_document`/`list_documents`/
+      `create_document` (raw-bytes download by id with no ownership
+      check; unrestricted create under any customer/project) — fixed
+      the same way, removed rather than narrowed under review pressure
+      (`NEW-669` logged for the future work). **Round 3: APPROVED**,
+      full suite 1291 passed. Two warning-level findings surfaced
+      during review, confirmed accurate but deliberately left
+      unfixed pending a product decision, logged as `NEW-670`
+      (`get_active_work_orders_for_subcontractor` has no
+      `ROLE_SUBCONTRACTOR` narrowing — a subcontractor can query any
+      other subcontractor's active work orders) and `NEW-671`
+      (`create_work_order`'s `ROLE_SUBCONTRACTOR` branch has no
+      project-membership check — a subcontractor can self-assign a
+      work order into any project; needs Ish's call on whether
+      subcontractors should ever self-originate work orders at all).
       **Not yet started:** Phase 2 (service-layer orchestrator:
       find-or-create customer via a conjunctive, false-merge-safe dedup
       — exact email OR normalized-phone-AND-last-name, never
@@ -7903,23 +7974,20 @@ this file's own don't-duplicate rule.
       system actor; invoice typed honestly as `"project"` with the
       commission trigger at `crm_service.py:5596` widened to also fire
       on paid project invoices, not just `"assessment"`, per Ish's
-      2026-09-27 decision); Phase 0b (`ROLE_SUBCONTRACTOR`, closing
-      `NEW-641` for real — today no subcontractor user account can even
-      be created, confirmed via `AuthService.create_user`'s `ALL_ROLES`
-      check); Phase 3 (admin appoint/split — one work order can be
-      split into multiple child work orders across different
-      techs/subcontractors, admin-gated via `PERM_DISPATCH_WORK_ORDERS`;
-      advisor flagged the architect's original `CANCELLED`-parent
-      design as audit-destroying and roll-up-breaking — needs a
-      non-terminal `SPLIT` status and a fixed, filtered roll-up instead,
-      not yet implemented); Phase 4 (the reusable paper-form-styled
-      intake UI itself, gated to technician+subcontractor roles only);
-      Phase 5 (Joy Clark's WO #351695937 backfilled directly via the
-      service layer, not the form, since the job is already
-      completed/paid — states the intake flow's DRAFT terminus can't
-      express — with a live-verifier check that exactly one
-      `commission_ledger` row is created on `record_payment`, not zero
-      and not a double-fire).
+      2026-09-27 decision); Phase 3 (admin appoint/split — one work
+      order can be split into multiple child work orders across
+      different techs/subcontractors, admin-gated via
+      `PERM_DISPATCH_WORK_ORDERS`; advisor flagged the architect's
+      original `CANCELLED`-parent design as audit-destroying and
+      roll-up-breaking — needs a non-terminal `SPLIT` status and a
+      fixed, filtered roll-up instead, not yet implemented); Phase 4
+      (the reusable paper-form-styled intake UI itself, gated to
+      technician+subcontractor roles only); Phase 5 (Joy Clark's WO
+      #351695937 backfilled directly via the service layer, not the
+      form, since the job is already completed/paid — states the
+      intake flow's DRAFT terminus can't express — with a
+      live-verifier check that exactly one `commission_ledger` row is
+      created on `record_payment`, not zero and not a double-fire).
       Findings logged, not fixed this round: `web_surfaces.py:3403`
       still hardcodes an invalid `stage: 'Lead'` string in the admin
       CRM's `submitProject()` (adjacent to Phase 2's project-creation

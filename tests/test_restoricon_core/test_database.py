@@ -528,6 +528,129 @@ def test_migrate_users_role_constraint_raises_if_widened_sql_opener_text_drifts(
         DatabaseManager(str(db_path))
 
 
+_LEGACY_USERS_ROLE_DDL_PRE_SUBCONTRACTOR = """
+CREATE TABLE customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    company_name TEXT,
+    phone TEXT,
+    email TEXT COLLATE NOCASE,
+    mailing_address TEXT,
+    service_address TEXT,
+    customer_type TEXT NOT NULL DEFAULT 'residential',
+    customer_source TEXT,
+    assigned_user_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'lead',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT,
+    custom_fields_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    last_contact_at TEXT,
+    next_followup_at TEXT
+);
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    phone TEXT,
+    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer')),
+    department TEXT,
+    customer_id INTEGER,
+    custom_permissions_json TEXT NOT NULL DEFAULT '{}',
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    terminated_at TEXT,
+    territory_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE api_tokens (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    is_revoked INTEGER NOT NULL DEFAULT 0 CHECK(is_revoked IN (0, 1)),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE staff_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled', 'cancelled', 'completed')),
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+"""
+
+
+def test_users_role_migration_widens_check_constraint_for_subcontractor_on_already_migrated_db(tmp_path):
+    """Phase 0b, B8.16 (2026-09-27): a DB file that already went through
+    the D2 'sales_manager' widening (its role CHECK already contains
+    'sales_manager', and it already has territory_id/terminated_at/
+    custom_permissions_json) -- i.e. the exact shape of every real,
+    already-migrated production DB today -- must STILL get a further
+    widened CHECK adding 'subcontractor' on the next open, plus the new
+    subcontractor_id column, with existing rows preserved (no data loss).
+
+    Regression guard for a bug caught before it shipped: a naive
+    idempotency gate that tests for a bare 'sales_manager' substring
+    (this method's original gate) would incorrectly treat this DB as
+    already up to date forever. Worse, a bare 'subcontractor' substring
+    check would ALSO false-positive here, because the additive ADD COLUMN
+    migration list adds a `subcontractor_id` column to `users` in the same
+    _migrate_schema() call, and SQLite rewrites sqlite_master.sql to
+    include ALTER-added columns -- so `row["sql"]` contains the substring
+    'subcontractor' (from the column name) before the CHECK is ever
+    widened. The real gate must match the quoted 'subcontractor' role
+    literal, not a bare substring.
+    """
+    db_path = tmp_path / "legacy_users_role_pre_subcontractor.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.executescript(_LEGACY_USERS_ROLE_DDL_PRE_SUBCONTRACTOR)
+    now = "2020-01-01T00:00:00Z"
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, custom_permissions_json, active, created_at, updated_at) "
+        "VALUES ('alice', 'hash1', 'Alice A', 'alice@test.com', 'sales_manager', '{}', 1, ?, ?);",
+        (now, now),
+    )
+    conn.commit()
+    conn.close()
+
+    db = DatabaseManager(str(db_path))
+    conn = db.get_connection()
+
+    # The role CHECK must now accept 'subcontractor' -- this INSERT would
+    # raise sqlite3.IntegrityError before the fix.
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, custom_permissions_json, active, created_at, updated_at) "
+        "VALUES ('sub1', 'hash2', 'Sub One', 'sub1@test.com', 'subcontractor', '{}', 1, ?, ?);",
+        (now, now),
+    )
+    conn.commit()
+
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(users);")}
+    assert "subcontractor_id" in cols
+    assert conn.execute("SELECT role FROM users WHERE username='sub1';").fetchone()["role"] == "subcontractor"
+    # No data loss: alice's pre-existing row survived the rebuild.
+    assert conn.execute("SELECT COUNT(*) FROM users WHERE username='alice';").fetchone()[0] == 1
+    db.close()
+
+    # Second open against the now-migrated file must not raise and must
+    # not lose rows (idempotency).
+    db2 = DatabaseManager(str(db_path))
+    conn2 = db2.get_connection()
+    assert conn2.execute("SELECT COUNT(*) FROM users;").fetchone()[0] == 2
+    db2.close()
+
+
 def test_foreign_key_enforcement():
     db = DatabaseManager(":memory:")
     conn = db.get_connection()

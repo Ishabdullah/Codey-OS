@@ -3602,6 +3602,7 @@ class APIRouter:
             role=user.role,
             actor_type="agent" if user.role == "ai_agent" else "human",
             customer_id=user.customer_id,
+            subcontractor_id=user.subcontractor_id,
             token=token,
         )
         login_details = build_audit_details(side_effects={"session_created": True})

@@ -5198,10 +5198,12 @@ def render_admin_surface() -> str:
                 // (resolved, Ish decision 2026-09-25), IS in this map --
                 // a sales_manager actor is redirected away from /admin to
                 // /sales just like the other dedicated-portal roles below.
-                // "subcontractor" is likewise absent -- it is not in
-                // auth.py's ALL_ROLES, so no actor can ever be issued that
-                // role; /subcontractor is unreachable by construction, not
-                // an oversight here (see NEW-641).
+                // "subcontractor" IS in this map as of Phase 0b/B8.16
+                // (2026-09-27) -- ROLE_SUBCONTRACTOR is now a real role in
+                // auth.py's ALL_ROLES (NEW-641 resolved), and a
+                // subcontractor actor is redirected away from /admin to
+                // /subcontractor just like the other dedicated-portal
+                // roles below.
                 try {
                     const meToken = getAuthToken();
                     const meRes = await fetch('/api/v1/auth/me', { headers: { 'Authorization': 'Bearer ' + meToken } });
@@ -5216,7 +5218,8 @@ def render_admin_surface() -> str:
                             'sales': '/sales',
                             'sales_manager': '/sales',
                             'technician': '/tech',
-                            'customer': '/portal'
+                            'customer': '/portal',
+                            'subcontractor': '/subcontractor'
                         };
                         if (role && rolePortals[role]) {
                             window.location.href = rolePortals[role];

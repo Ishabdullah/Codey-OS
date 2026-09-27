@@ -32,6 +32,11 @@ ROLE_PROJECT_MANAGER = "project_manager"
 ROLE_TECHNICIAN = "technician"
 ROLE_AI_AGENT = "ai_agent"
 ROLE_CUSTOMER = "customer"
+# Phase 0b, B8.16 (2026-09-27): a subcontractor's own login, not the
+# `subcontractors` table row itself (which pre-dates this role and has no
+# login of its own). Deliberately narrower than ROLE_TECHNICIAN -- see
+# ROLE_PERMISSIONS[ROLE_SUBCONTRACTOR] below for the exact subset and why.
+ROLE_SUBCONTRACTOR = "subcontractor"
 
 ALL_ROLES = {
     ROLE_ADMIN,
@@ -42,6 +47,7 @@ ALL_ROLES = {
     ROLE_TECHNICIAN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,
+    ROLE_SUBCONTRACTOR,
 }
 
 # Permissions
@@ -606,6 +612,42 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_LOG_COMMUNICATION,
         PERM_GLOBAL_SEARCH,
     },
+    # Phase 0b, B8.16 (2026-09-27): a deliberately narrower subset of
+    # ROLE_TECHNICIAN's own grant (verified directly against the block
+    # above, not assumed) -- a subcontractor is an external party engaged
+    # per work order, not an employee. Included: PERM_READ_OPERATIONS/
+    # PERM_WRITE_OPERATIONS (work order visibility, narrowed at the row
+    # level to the subcontractor's own assigned_subcontractor_id by
+    # OperationsService._actor_owns_work_order_via_subcontractor, mirroring
+    # ROLE_TECHNICIAN's own _actor_assigned_to_project narrowing),
+    # PERM_LOG_COMMUNICATION (log interactions). Explicitly excluded, never
+    # grant without a separate, logged decision: PERM_READ_HR/PERM_WRITE_HR
+    # (not an employee -- no personnel record), PERM_DISPATCH_WORK_ORDERS,
+    # PERM_MANAGE_PROJECTS, PERM_WRITE_CUSTOMERS, PERM_WRITE_FINANCIALS,
+    # (code-reviewer, 2026-09-27, NEW-668) PERM_READ_COMPLIANCE --
+    # BusinessOpsService.list_compliance_items has zero entity-level
+    # narrowing, so this permission would hand an external subcontractor
+    # read access to every other party's license/insurance/COI records
+    # company-wide, not the "their own status" the original grant's comment
+    # claimed; it also gates scan_compliance_expirations, a write path --
+    # and (code-reviewer round 2, 2026-09-27, NEW-669) PERM_READ_DOCUMENTS/
+    # PERM_WRITE_DOCUMENTS -- CRMService.get_document/list_documents only
+    # apply per-customer narrowing when the actor LACKS PERM_READ_DOCUMENTS
+    # (the NEW-665 fix keys on `if not actor.has_permission(PERM_READ_DOCUMENTS)`),
+    # so holding the broad permission skips narrowing entirely and would let
+    # an external subcontractor read every customer's contracts/insurance
+    # certs/ID scans/financial paperwork/photos in the system, including via
+    # a raw-bytes download by id with no ownership check; create_document has
+    # no role/entity check beyond PERM_WRITE_DOCUMENTS, so holding the write
+    # side would let a subcontractor create a document row under any
+    # customer_id/project_id. Does NOT hold PERM_READ_ASSIGNED_PROJECTS
+    # (ROLE_TECHNICIAN's project-level read) -- a subcontractor's read access
+    # is scoped to their own work orders, not full project detail.
+    ROLE_SUBCONTRACTOR: {
+        PERM_READ_OPERATIONS,
+        PERM_WRITE_OPERATIONS,
+        PERM_LOG_COMMUNICATION,
+    },
 }
 
 # Granted by role default -- see D2, sales_rep_portal.md §4: a sales_manager
@@ -846,6 +888,17 @@ def _validate_user_role_invariants(role: str, customer_id: Optional[int]) -> Non
     Currently: a ``customer``-role user must have a ``customer_id``. Evaluate
     against the *resulting* state — update callers pass post-update values.
     Raises ValueError; the API layer maps that to 400.
+
+    Deliberately no equivalent ``subcontractor``/``subcontractor_id``
+    invariant (Phase 0b, B8.16): unlike ``customer_id``, ``create_user`` has
+    no ``subcontractor_id`` parameter at all yet (see ``update_user``'s
+    ``allowed_fields`` for the only supported way to set it, post-creation),
+    so requiring it at creation time would make creating a
+    ``ROLE_SUBCONTRACTOR`` user impossible outright. A ``ROLE_SUBCONTRACTOR``
+    user with ``subcontractor_id IS NULL`` is therefore a real, reachable
+    state -- deliberately fail-closed to zero work-order access by
+    ``OperationsService._actor_owns_work_order_via_subcontractor`` rather
+    than rejected here.
     """
     if role == ROLE_CUSTOMER and customer_id is None:
         raise ValueError("Customer user role requires an associated customer_id")
@@ -859,6 +912,9 @@ class AuthContext:
     role: str
     actor_type: str  # 'human' or 'agent'
     customer_id: Optional[int] = None
+    # Phase 0b, B8.16: populated for a ROLE_SUBCONTRACTOR actor, mirroring
+    # customer_id's ROLE_CUSTOMER self-scoping. None for every other role.
+    subcontractor_id: Optional[int] = None
     token: Optional[str] = None
     custom_permissions: Dict[str, bool] = field(default_factory=dict)
 
@@ -1020,6 +1076,7 @@ class AuthService:
             active=row["active"],
             terminated_at=row["terminated_at"] if "terminated_at" in row.keys() else None,
             territory_id=row["territory_id"] if "territory_id" in row.keys() else None,
+            subcontractor_id=row["subcontractor_id"] if "subcontractor_id" in row.keys() else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -1050,7 +1107,8 @@ class AuthService:
         row = conn.execute(
             """
             SELECT t.token, t.user_id, t.role, t.expires_at, t.is_revoked,
-                   u.username, u.customer_id, u.active, u.custom_permissions_json
+                   u.username, u.customer_id, u.subcontractor_id, u.active,
+                   u.custom_permissions_json
             FROM api_tokens t
             JOIN users u ON t.user_id = u.id
             WHERE t.token = ? AND t.is_revoked = 0 AND u.active = 1;
@@ -1074,6 +1132,7 @@ class AuthService:
             role=row["role"],
             actor_type=actor_type,
             customer_id=row["customer_id"],
+            subcontractor_id=row["subcontractor_id"] if "subcontractor_id" in row.keys() else None,
             token=token,
             custom_permissions=perms,
         )
@@ -1109,6 +1168,7 @@ class AuthService:
             active=row["active"],
             terminated_at=row["terminated_at"] if "terminated_at" in row.keys() else None,
             territory_id=row["territory_id"] if "territory_id" in row.keys() else None,
+            subcontractor_id=row["subcontractor_id"] if "subcontractor_id" in row.keys() else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -1155,6 +1215,7 @@ class AuthService:
                     active=r["active"],
                     terminated_at=r["terminated_at"] if "terminated_at" in r.keys() else None,
                     territory_id=r["territory_id"] if "territory_id" in r.keys() else None,
+                    subcontractor_id=r["subcontractor_id"] if "subcontractor_id" in r.keys() else None,
                     created_at=r["created_at"],
                     updated_at=r["updated_at"],
                 )
@@ -1194,7 +1255,14 @@ class AuthService:
         # UPDATE path (unlike update_customer's explicit None-rejection),
         # so an explicit territory_id=None in `updates` is accepted and
         # clears the column, same as every other nullable field here.
-        allowed_fields = {"full_name", "email", "phone", "role", "department", "customer_id", "territory_id"}
+        # subcontractor_id (Phase 0b, B8.16): same convention -- this is the
+        # only supported way to populate a ROLE_SUBCONTRACTOR user's own
+        # subcontractor_id today (create_user has no parameter for it, same
+        # as territory_id), gated on the same PERM_MANAGE_USERS check above.
+        allowed_fields = {
+            "full_name", "email", "phone", "role", "department", "customer_id",
+            "territory_id", "subcontractor_id",
+        }
         set_clauses: List[str] = []
         params: List[Any] = []
 

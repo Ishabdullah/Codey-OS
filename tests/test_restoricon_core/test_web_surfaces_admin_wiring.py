@@ -340,6 +340,7 @@ def test_admin_surface_redirects_dedicated_portal_roles_away_from_admin():
         ("sales_manager", "/sales"),
         ("technician", "/tech"),
         ("customer", "/portal"),
+        ("subcontractor", "/subcontractor"),
     ):
         assert f"'{role}': '{portal_path}'" in html, role
 
@@ -354,18 +355,18 @@ def test_admin_surface_does_not_redirect_roles_without_a_dedicated_portal():
     at web_surfaces.py:713-714) and IS now a key in rolePortals, covered
     instead by test_admin_surface_redirects_dedicated_portal_roles_away_from_admin
     above.
-    'subcontractor' is also excluded: it is not a member of auth.py's
-    ALL_ROLES (create_user() rejects it), so no actor can ever be issued
-    that role even though /subcontractor and
-    render_subcontractor_surface() exist as reachable routes (logged
-    separately, see NEW-641)."""
+    'subcontractor' is likewise NOT in this negative list as of Phase 0b/
+    B8.16 (2026-09-27, NEW-641 resolved) -- ROLE_SUBCONTRACTOR is now a
+    real member of auth.py's ALL_ROLES and IS now a key in rolePortals,
+    covered instead by test_admin_surface_redirects_dedicated_portal_roles_away_from_admin
+    above."""
     html = render_admin_surface()
     i = html.find("const rolePortals = {")
     assert i != -1
     j = html.find("};", i)
     assert j != -1
     role_portal_map_js = html[i:j]
-    for role in ("manager", "ai_agent", "subcontractor", "admin"):
+    for role in ("manager", "ai_agent", "admin"):
         assert f"'{role}':" not in role_portal_map_js, role
 
 

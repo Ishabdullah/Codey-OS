@@ -21,6 +21,7 @@ from ..auth import (
     PERM_READ_TEAM_SALES_DATA,
     PERM_WRITE_OPERATIONS,
     ROLE_CUSTOMER,
+    ROLE_SUBCONTRACTOR,
     ROLE_TECHNICIAN,
 )
 from ..database import DatabaseManager
@@ -262,6 +263,37 @@ class OperationsService:
             return False
         assigned = json.loads(row["assigned_employees_json"])
         return actor.user_id in assigned
+
+    def _actor_owns_work_order_via_subcontractor(self, work_order_row, actor: AuthContext) -> bool:
+        """True iff `actor` is a ROLE_SUBCONTRACTOR actor whose own
+        `actor.subcontractor_id` matches `work_order_row`'s
+        `assigned_subcontractor_id` (Phase 0b, B8.16). Mirrors
+        `_actor_assigned_to_project`'s role-keyed shape for ROLE_TECHNICIAN
+        above -- a subcontractor actor holds flat PERM_READ_OPERATIONS/
+        PERM_WRITE_OPERATIONS (see ROLE_PERMISSIONS[ROLE_SUBCONTRACTOR] in
+        auth.py) with no company-wide operations visibility of its own, so
+        every call site gating on those permissions for a work order must
+        also narrow via this helper.
+
+        `work_order_row` may be a `sqlite3.Row` (real query result) or a
+        plain `dict` (a not-yet-persisted `create_work_order` call, before
+        an `id` exists) -- both support `row["assigned_subcontractor_id"]`.
+
+        Deliberately requires `actor.subcontractor_id is not None` --
+        without that guard, a subcontractor-role user whose own
+        `subcontractor_id` was never set (NULL) would match a work order
+        with no subcontractor assigned at all (`assigned_subcontractor_id`
+        also NULL), which is a real permission bypass, not a false
+        positive worth tolerating. This is a deliberate strengthening of
+        this phase's own spec text (which compares the two fields directly
+        with no None-guard) -- flagged explicitly since it's a change from
+        what was asked, not an oversight.
+        """
+        return (
+            actor.role == ROLE_SUBCONTRACTOR
+            and actor.subcontractor_id is not None
+            and work_order_row["assigned_subcontractor_id"] == actor.subcontractor_id
+        )
 
     def _technician_assigned_project_ids(self, actor: AuthContext) -> Set[int]:
         """Set of project ids `actor.user_id` is assigned to, for narrowing
@@ -775,15 +807,26 @@ class OperationsService:
         """Create a work order under `work_order.project_id`. Write-path
         counterpart to NEW-628: a ROLE_TECHNICIAN actor is additionally
         narrowed to projects they are assigned to
-        (`_actor_assigned_to_project`)."""
+        (`_actor_assigned_to_project`). Phase 0b, B8.16: a ROLE_SUBCONTRACTOR
+        actor is additionally narrowed to only create work orders assigned
+        to themselves (`_actor_owns_work_order_via_subcontractor`)."""
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
         ):
             raise PermissionError("Actor lacks permission to create work orders")
 
+        # `elif` here (and at every other ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR
+        # branch pair in this file) is safe because the two roles are
+        # mutually exclusive on a single AuthContext, not because the checks
+        # compose -- an actor is never both at once, so only one branch is
+        # ever relevant per call.
         if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(work_order.project_id, actor):
             raise PermissionError("Technician cannot create a work order for a project they are not assigned to")
+        elif actor.role == ROLE_SUBCONTRACTOR and not self._actor_owns_work_order_via_subcontractor(
+            {"assigned_subcontractor_id": work_order.assigned_subcontractor_id}, actor
+        ):
+            raise PermissionError("Subcontractor cannot create a work order not assigned to themselves")
 
         if not work_order.title or not work_order.title.strip():
             raise ValueError("Work order title cannot be empty")
@@ -881,6 +924,16 @@ class OperationsService:
             # assigned to.
             if not self._actor_assigned_to_project(row["project_id"], actor):
                 raise PermissionError("Technician cannot view a work order for a project they are not assigned to")
+        elif actor.role == ROLE_SUBCONTRACTOR:
+            # Phase 0b, B8.16: narrow to work orders assigned to this
+            # subcontractor themselves -- not part of the phase's own
+            # enumerated call-site list (create_work_order/update_work_order/
+            # list_work_orders only), added here too since without it a
+            # subcontractor's flat PERM_READ_OPERATIONS grant would let them
+            # read any work order by id, contradicting this phase's own
+            # stated invariant.
+            if not self._actor_owns_work_order_via_subcontractor(row, actor):
+                raise PermissionError("Subcontractor cannot view a work order not assigned to themselves")
 
         return self._row_to_work_order(row)
 
@@ -937,6 +990,10 @@ class OperationsService:
             # `_technician_assigned_project_ids`'s docstring above.
             allowed_project_ids = self._technician_assigned_project_ids(actor)
             rows = [r for r in rows if r["project_id"] in allowed_project_ids]
+        elif actor.role == ROLE_SUBCONTRACTOR:
+            # Phase 0b, B8.16: narrow to work orders assigned to this
+            # subcontractor themselves.
+            rows = [r for r in rows if self._actor_owns_work_order_via_subcontractor(r, actor)]
 
         return [self._row_to_work_order(r) for r in rows]
 
@@ -1017,6 +1074,33 @@ class OperationsService:
             ).fetchone()
             if not row or not self._actor_assigned_to_project(row["project_id"], actor):
                 raise PermissionError("Technician cannot update a work order for a project they are not assigned to")
+        elif actor.role == ROLE_SUBCONTRACTOR:
+            # Phase 0b, B8.16: ownership checked against the CURRENT
+            # `assigned_subcontractor_id` read fresh from the DB row, same
+            # NEW-643 discipline as the ROLE_TECHNICIAN branch above -- never
+            # the caller-supplied (possibly stale/spoofed) model field.
+            conn = self.db.get_connection()
+            row = conn.execute(
+                "SELECT assigned_subcontractor_id FROM work_orders WHERE id = ?;", (work_order.id,)
+            ).fetchone()
+            if not row or not self._actor_owns_work_order_via_subcontractor(row, actor):
+                raise PermissionError("Subcontractor cannot update a work order not assigned to themselves")
+            # C1 fix (code-reviewer, 2026-09-27): unlike ROLE_TECHNICIAN's
+            # `project_id`, `assigned_subcontractor_id` IS one of the columns
+            # the UPDATE below writes -- it isn't made immutable "by
+            # construction" the way `project_id` is. Without this explicit
+            # guard, a subcontractor who legitimately owns this work order
+            # could still change `assigned_subcontractor_id` to a different
+            # subcontractor's id in the same call, handing that other
+            # subcontractor read/write access to it -- effectively
+            # self-service PERM_DISPATCH_WORK_ORDERS behavior, which this
+            # role's permission grant explicitly excludes. Reassignment is a
+            # dispatch/admin action, not something a subcontractor can do to
+            # their own work order.
+            if work_order.assigned_subcontractor_id != row["assigned_subcontractor_id"]:
+                raise PermissionError(
+                    "Subcontractor cannot reassign a work order's assigned_subcontractor_id"
+                )
 
         if work_order.line_items:
             total = 0.0

@@ -23,8 +23,8 @@ _SCHEMA_SQL = """
 -- role CHECK list must stay byte-for-byte identical to
 -- _USERS_TABLE_WIDENED_ROLE_SQL below (its rebuilt-table copy, used by
 -- _migrate_users_role_constraint() to widen a legacy DB's `users.role`
--- CHECK; the 'sales_manager' substring check there is also this file's
--- idempotency gate) -- keep the two in sync any time a role is added.
+-- CHECK; the quoted `'subcontractor'` literal there is also this file's
+-- idempotency gate -- keep the two in sync any time a role is added.
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL COLLATE NOCASE,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL COLLATE NOCASE,
     phone TEXT,
-    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer')),
+    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer', 'subcontractor')),
     department TEXT,
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS users (
     -- terminated) is always eligible on this gate.
     terminated_at TEXT,
     territory_id INTEGER, -- B8.9a: FK-less, see the territories table's own DDL comment below
+    subcontractor_id INTEGER, -- Phase 0b, B8.16: FK-less by design (same convention as territory_id above); only populated if role == 'subcontractor'
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
@@ -1513,6 +1514,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_ledger_source_unique ON commiss
 # `users` DDL used by _migrate_users_role_constraint() to rebuild a legacy
 # DB's `users` table (SQLite cannot ALTER a CHECK constraint). Textually
 # identical to _SCHEMA_SQL's `users` block above -- keep the two in sync.
+# Phase 0b, B8.16 (2026-09-27): widened again to also accept 'subcontractor'
+# and carry the new subcontractor_id column through the rebuild -- both
+# additions here mirror _SCHEMA_SQL's own users block above.
 # _migrate_users_role_constraint() never executes this verbatim: it does a
 # one-time `.replace()` of the `CREATE TABLE users (` opener with
 # `CREATE TABLE _users_new_role_migration (` and runs the rebuild under
@@ -1531,13 +1535,14 @@ CREATE TABLE users (
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL COLLATE NOCASE,
     phone TEXT,
-    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer')),
+    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer', 'subcontractor')),
     department TEXT,
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
     terminated_at TEXT,
     territory_id INTEGER,
+    subcontractor_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
@@ -1757,6 +1762,15 @@ class DatabaseManager:
                 "lead_id",
                 "ALTER TABLE communication_history ADD COLUMN lead_id INTEGER;",
             ),
+            # Phase 0b, B8.16 (2026-09-27): subcontractor_id, additive/
+            # nullable, FK-less by design -- same convention as territory_id
+            # (B8.9a) above. Only populated for a ROLE_SUBCONTRACTOR user's
+            # own account. NOTE: users.role's CHECK constraint also needed
+            # widening to accept 'subcontractor' -- see
+            # _migrate_users_role_constraint() below, which handles that
+            # separately (SQLite cannot ALTER a CHECK constraint, so it is
+            # not part of this additive ALTER COLUMN list).
+            ("users", "subcontractor_id", "ALTER TABLE users ADD COLUMN subcontractor_id INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -1890,9 +1904,13 @@ class DatabaseManager:
                 )
 
         # D2 (sales_rep_portal.md §4, Ish-approved), 2026-09-16: widens
-        # users.role's CHECK constraint to add 'sales_manager'. Its own
-        # transaction scope, deliberately not nested in the `with conn:`
-        # block above -- it depends on that block's ADD COLUMN loop (for
+        # users.role's CHECK constraint to add 'sales_manager' (and, as of
+        # Phase 0b/B8.16 2026-09-27, 'subcontractor' too -- see this
+        # method's own idempotency-gate comment below for why the gate
+        # checks the quoted 'subcontractor' literal rather than
+        # 'sales_manager'). Its own transaction scope, deliberately not
+        # nested in the `with conn:` block above -- it depends on that
+        # block's ADD COLUMN loop (for
         # custom_permissions_json) having already run against the row set
         # it copies.
         self._migrate_users_role_constraint()
@@ -1999,18 +2017,37 @@ class DatabaseManager:
         Idempotency: mirrors the `PRAGMA table_info()` gate the additive
         ADD COLUMN migrations use, but keyed on the CHECK constraint text
         itself (there is no column to test for) -- if `users` doesn't
-        exist yet, or its stored DDL already contains 'sales_manager', this
-        is a no-op. Safe on a fresh DB (already created widened via
-        _SCHEMA_SQL -- permanent no-op), safe to re-run against an
-        already-migrated legacy file, and safe against both
-        _migrate_schema() calls per init_schema() run.
+        exist yet, or its stored DDL already contains the quoted
+        `'subcontractor'` role literal, this is a no-op. Safe on a fresh DB
+        (already created widened via _SCHEMA_SQL -- permanent no-op), safe
+        to re-run against an already-migrated legacy file, and safe against
+        both _migrate_schema() calls per init_schema() run.
+
+        Phase 0b, B8.16 (2026-09-27): gate deliberately checks for the
+        quoted role literal `'subcontractor'`, NOT a bare `'sales_manager'`
+        substring check as this method originally used. A bare
+        `'subcontractor'` (or `'sales_manager'`) substring check would be
+        unsafe here specifically because the additive ADD COLUMN loop above
+        (which always runs first, per this method's docstring) adds a
+        `subcontractor_id` column to `users` in the very same
+        `_migrate_schema()` call -- SQLite rewrites `sqlite_master.sql` to
+        include ALTER-added columns, so by the time this gate runs,
+        `row["sql"]` already contains the substring `subcontractor` (from
+        the *column* name) even on a DB that has never had its role CHECK
+        widened. A bare substring check would therefore silently no-op
+        forever on exactly the DBs this migration exists to fix. The
+        original `'sales_manager'` substring check only ever worked because
+        no column happened to contain that substring -- not a safe pattern
+        to repeat, so this round switches to matching the quoted
+        `'subcontractor'` SQL string literal (`role IN (..., 'subcontractor')`),
+        which the column name `subcontractor_id` does not match.
         """
         conn = self.get_connection()
 
         row = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='users';"
         ).fetchone()
-        if row is None or row["sql"] is None or "sales_manager" in row["sql"]:
+        if row is None or row["sql"] is None or "'subcontractor'" in row["sql"]:
             return
 
         old_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users);")]
@@ -2019,6 +2056,7 @@ class DatabaseManager:
             "department", "customer_id", "custom_permissions_json", "active",
             "territory_id",  # B8.9a
             "terminated_at",  # B8.7c
+            "subcontractor_id",  # Phase 0b, B8.16
             "created_at", "updated_at",
         }
         missing = set(old_cols) - new_cols
