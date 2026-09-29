@@ -8174,6 +8174,37 @@ this file's own don't-duplicate rule.
       the fix into Phase 2); `web_surfaces.py`'s "Add Customer" modal
       has no address field at all, meaning Joy Clark's real address
       can't be entered through that existing UI path.
+- [ ] **B9 — Codey-Estimator integration, QUEUED for immediately after
+      B8.16 Phase 5** (Ish, 2026-09-29: this work is fully owned by this
+      session/coordinator going forward, folded into Codey-OS/Restoricon
+      proper — not a separate repo, not another session's territory).
+      In-repo merge into `restoricon_core`, on branch
+      `feat/estimator-phase3-schema` (not `main` — do not start this
+      until switching branches, and confirm nothing else has the shared
+      working tree checked out on a conflicting branch first, per the
+      Phase 0b concurrent-session collision this project already hit
+      once on this exact pairing of branches).
+      **B9.1, DONE** (commit `1ac1e25` on that branch): estimating-system
+      schema — rebuilds `estimates` (customer_id CASCADE→RESTRICT, adds
+      creator/assignee/opportunity/lead/property links, versioning
+      pointers, `workflow_status`) via the established
+      `_migrate_users_role_constraint`-style full-rebuild procedure; adds
+      `estimate_versions`, `estimate_line_items`, `estimate_share_links`,
+      `estimate_decisions` tables with lock-immutability triggers; adds
+      `users.requires_estimate_approval`,
+      `documents.estimate_id`/`customer_visible`; six new permission
+      constants, `ROLE_PERMISSIONS` updated across all 8 roles.
+      **B9.2, SCOPED ONLY** (commit `6c8f4d5`, plan not implemented):
+      estimate service layer, API, UI, delivery.
+      **New requirement, added mid-B8.16 (Ish, 2026-09-29), fold into
+      B9.2's scope before implementation starts, don't bolt on after**:
+      each estimate line item (material lines specifically) needs a
+      per-line-item markup percentage field — editable, fluctuates per
+      line, defaults to 30%. Check `estimate_line_items`' real B9.1
+      schema for whatever pricing-related field shape already exists
+      (category/unit_cost/etc.) before deciding whether this is a new
+      column or fits an existing structure — don't invent a new field
+      shape that duplicates something B9.1 already built.
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
 
