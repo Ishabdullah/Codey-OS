@@ -3,21 +3,33 @@ Codey-Estimator Integration, Phase B9.2 -- EstimateService.
 
 Domain engine for the estimating workflow: header CRUD, line-item CRUD with
 server-authoritative pricing via the vendored `codey_estimator.calc` engine,
-versioning (`revise()`), decision recording (accept/decline/changes-
-requested), preview, and the customer-facing allow-list projection
-(`to_customer_view()`). Sits alongside `CRMService`/`FinanceService`/
-`OperationsService` as its own file, per `codey_estimator_service.md` §1's
-decision (the estimate domain -- 5 tables, a locking workflow, a numbering
-generator, and a calc-engine integration point -- is a bigger unit of
-concern than any existing `crm_service.py` `# SECTION`).
+versioning (`revise()`), the actor-driven workflow state machine
+(`transition()`), claim/unclaim/reassign, decision recording
+(accept/decline/changes-requested, with the accept -> Contract invariant),
+preview, and the customer-facing allow-list projection (`to_customer_view()`).
+Sits alongside `CRMService`/`FinanceService`/`OperationsService` as its own
+file, per `codey_estimator_service.md` §1's decision (the estimate domain --
+5 tables, a locking workflow, a numbering generator, and a calc-engine
+integration point -- is a bigger unit of concern than any existing
+`crm_service.py` `# SECTION`).
 
-**Scope actually built this round** (per the B9.2 task brief, narrower than
-`codey_estimator_service.md`'s full §1.x method table -- see that document
-for the full future design):
+**Scope actually built** (B9.2 core round plus this round's four additions --
+see that round's task brief for the full breakdown):
     create, get, list, update_header
     add_line, update_line, remove_line, reorder_lines
     revise (versioning)
-    record_decision (accepted/declined/changes_requested)
+    claim, unclaim (NEW-534-precedent race-safe conditional UPDATE)
+    reassign (manager-tier override, bypasses the claim race)
+    transition (the public actor-driven workflow state machine, §1.5;
+        DRAFT/APPROVED_INTERNAL -> SENT creates a real estimate_share_links
+        row and locks the current version; the D5 hard internal-review gate
+        is enforced via the pinned `estimates.internal_review_required`
+        column, never a live join against users.requires_estimate_approval)
+    record_decision (accepted/declined/changes_requested; an 'accepted'
+        decision now also creates a real Contract row, in the same
+        transaction as the acceptance write and the version lock -- see
+        record_decision()'s own docstring for the accept -> contract
+        invariant and its disclosed limitation)
     preview, to_customer_view
     lock-immutability enforcement (checked in-transaction before every
     line/header write; the DB triggers are the backstop)
@@ -25,35 +37,17 @@ for the full future design):
 **Deliberately NOT built this round** (each is a real, identified gap --
 logged to NEW_ISSUES.md rather than silently built or silently dropped):
 
-  - `transition()` (the public actor-driven workflow-state-machine method),
-    `reassign()`, `claim()`/`unclaim()`, `convert()`. The discriminating
-    reason: `codey_estimator_service.md` §1.5's `DRAFT -> SENT` and
-    `APPROVED_INTERNAL -> SENT` transitions both create an
-    `estimate_share_links` row as a side effect, and share-link creation is
-    explicitly on this round's do-not-build list (it needs its own
-    capability-token auth-boundary review, B9.4). A `transition()` that
-    structurally cannot reach SENT is worse than no `transition()` --
-    deferred whole, not half-built.
+  - `convert()` (the ACCEPTED -> CONVERTED Project-creation half, B9.8) --
+    gated on a signed Contract per §9 item 4, out of this round's scope.
   - The expiry sweep (B9.2b), API routes (B9.3), the public share-link
-    routes (B9.4), the staff/admin UI (B9.5/B9.6), the quote-portal D8
-    migration (B9.7), and `convert()`'s Project-creation half (B9.8) -- all
-    per the task brief's explicit do-not-build list.
-  - Real ownership-narrowing's "unassigned/unclaimed" visible bucket
-    (`codey_estimator_service.md` §9 item 1) -- `list()`/`get()` below
-    implement the baseline "mine or assigned to me" / "everything"
-    narrowing only, not the claim-workflow's unclaimed-is-visible carve-out
-    (that needs `claim()`/`unclaim()`, deferred above).
-  - `_lock_version()` is implemented as an internal-use method (no public
-    route calls it this round) purely so `revise()`'s own "only callable on
-    a locked version" rule is real and testable, rather than dead code.
-    `record_decision(decision="accepted")` now locks the version too (via
-    `_lock_version_write()`, `_lock_version()`'s shared core, called
-    directly inside `record_decision()`'s own transaction rather than
-    through `_lock_version()` itself, since sqlite3 does not allow a nested
-    `BEGIN`) -- this closes the gap where an accepted estimate could still
-    be silently re-priced by `add_line()`/`update_line()`/`remove_line()`.
-    The deferred `transition()` send step is still the only caller that
-    would use `_lock_version()` directly (for the `'sent'` reason).
+    lookup/decision routes (B9.4 -- this round creates real share-link
+    rows but nothing yet resolves a raw token back to one), the
+    staff/admin UI (B9.5/B9.6), and the quote-portal D8 migration (B9.7).
+  - `_lock_version()` remains an internal-use method -- `transition()`'s
+    `send` step now uses its shared core (`_lock_version_write()`)
+    directly inside its own transaction, the same pattern
+    `record_decision()` already established, never through
+    `_lock_version()` itself (sqlite3 does not allow a nested `BEGIN`).
 
 **Two real schema gaps found while implementing calc-engine integration**
 (logged to NEW_ISSUES.md rather than silently patched with an unreviewed
@@ -73,6 +67,8 @@ schema change):
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -95,22 +91,37 @@ from codey_estimator.errors import EstimatorError
 
 from ..auth import (
     AuthContext,
+    PERM_APPROVE_ESTIMATES,
     PERM_READ_ALL_ESTIMATES,
     PERM_READ_ESTIMATE_COSTS,
     PERM_READ_ESTIMATES,
     PERM_READ_OWN_ESTIMATES,
+    PERM_REASSIGN_ESTIMATES,
+    PERM_SEND_ESTIMATES,
     PERM_WRITE_ESTIMATES,
+    ROLE_ADMIN,
     ROLE_CUSTOMER,
+    ROLE_MANAGER,
+    ROLE_PROJECT_MANAGER,
+    ROLE_SALES,
+    ROLE_SALES_MANAGER,
 )
 from ..database import DatabaseManager
 from ..models import (
     EstimateDecision,
     EstimateHeader,
     EstimateLineItem,
+    EstimateShareLink,
     EstimateVersion,
     utc_now_iso,
 )
 from .audit_service import AuditService, build_audit_details
+# ClaimConflictError: reused, not redefined -- crm_service.py does not import
+# estimate_service.py (confirmed, no cycle), and the NEW-534 claim-workflow
+# precedent this module's claim()/unclaim() follow is defined there. A
+# future route layer needs exactly one class to map to 409 for every
+# claim-shaped entity, not a second, estimate-specific duplicate.
+from .crm_service import ClaimConflictError
 
 # Material-markup default (D-task, 2026-09-29): a material line, or a
 # 'combined' line's material component, that the caller does not supply an
@@ -133,6 +144,39 @@ CONSENT_TEXT_V1 = (
     "By accepting this estimate, you agree to the scope of work, pricing, "
     "and terms presented in this version of the estimate."
 )
+
+# §1.4: roles a reassign() target must hold -- rejecting reassignment to a
+# technician/customer/subcontractor/ai_agent account with a ValueError.
+_REASSIGNABLE_ROLES = frozenset({ROLE_SALES, ROLE_SALES_MANAGER, ROLE_PROJECT_MANAGER, ROLE_MANAGER, ROLE_ADMIN})
+
+# §4.2: share-link default validity window (D10) unless the estimate's own
+# expires_at is sooner.
+_SHARE_LINK_DEFAULT_DAYS = 30
+
+# §1.5's allowed-transitions table, actor-driven rows only. Keys are
+# (from_status, to_status); the value names the action for audit/error
+# messages. Every transition NOT in this table is either genuinely illegal
+# or one of §1.5's "not actor-driven" rows (VIEWED / ACCEPTED / DECLINED /
+# CHANGES_REQUESTED / EXPIRED / CONVERTED) -- transition() refuses both
+# alike, but with a distinguishing error message for the latter so a caller
+# doesn't mistake "wrong door" for "no such door".
+_ACTOR_DRIVEN_TRANSITIONS: Dict[tuple, str] = {
+    ("DRAFT", "INTERNAL_REVIEW"): "submit_for_review",
+    ("DRAFT", "SENT"): "send",
+    ("INTERNAL_REVIEW", "APPROVED_INTERNAL"): "approve",
+    ("INTERNAL_REVIEW", "DRAFT"): "reject_review",
+    ("APPROVED_INTERNAL", "SENT"): "send",
+    ("DRAFT", "CANCELLED"): "cancel",
+    ("INTERNAL_REVIEW", "CANCELLED"): "cancel",
+    ("APPROVED_INTERNAL", "CANCELLED"): "cancel",
+    ("SENT", "CANCELLED"): "cancel",
+    ("VIEWED", "CANCELLED"): "cancel",
+}
+
+# The "not actor-driven" carve-out rows §1.5 names explicitly -- listed so
+# transition() can tell a caller "that transition exists but isn't reached
+# this way" instead of a bare "invalid transition".
+_SYSTEM_DRIVEN_TARGET_STATUSES = frozenset({"VIEWED", "ACCEPTED", "DECLINED", "CHANGES_REQUESTED", "EXPIRED", "CONVERTED"})
 
 # Every column on `estimate_line_items` a caller may set directly via
 # add_line()/update_line() -- i.e. every INPUT column, excluding the id/FK/
@@ -321,6 +365,16 @@ class EstimateService:
         which a request body could set them (the actual fix for the
         `Estimate(**json_body)` client-supplied-`estimate_number` gap
         `codey_estimator_service.md` §0 names).
+
+        **D5 / §9 item 5**: `internal_review_required` is computed HERE,
+        once, and pinned onto the row -- `(the creator's current
+        users.requires_estimate_approval flag) OR (actor.actor_type ==
+        "agent")`. `transition()` reads only this pinned column later,
+        never a live join against `users.requires_estimate_approval` --
+        the creator's flag or role could change after this estimate exists,
+        and the review requirement must reflect what was true at creation
+        time, same reasoning as `created_by_name` being a snapshot rather
+        than a live join to `users.full_name`.
         """
         if not actor.has_permission(PERM_WRITE_ESTIMATES):
             raise PermissionError("Actor lacks permission to write estimates")
@@ -331,9 +385,11 @@ class EstimateService:
         now = utc_now_iso()
         year = int(now[:4])
         creator_row = conn.execute(
-            "SELECT full_name FROM users WHERE id = ?;", (actor.user_id,)
+            "SELECT full_name, requires_estimate_approval FROM users WHERE id = ?;", (actor.user_id,)
         ).fetchone()
         created_by_name = creator_row["full_name"] if creator_row is not None else None
+        creator_requires_approval = bool(creator_row["requires_estimate_approval"]) if creator_row is not None else False
+        internal_review_required = 1 if (creator_requires_approval or actor.actor_type == "agent") else 0
         assignee = assigned_to_user_id if assigned_to_user_id is not None else actor.user_id
         if expires_at is None:
             expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
@@ -347,13 +403,14 @@ class EstimateService:
                     estimate_number, customer_id, project_id, created_by_user_id,
                     created_by_name, assigned_to_user_id, opportunity_id, lead_id,
                     property_id, title, source, workflow_status, expires_at,
-                    customer_notes, terms, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine', 'DRAFT', ?, ?, ?, ?, ?);
+                    customer_notes, terms, internal_review_required, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine', 'DRAFT', ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     estimate_number, customer_id, project_id, actor.user_id,
                     created_by_name, assignee, opportunity_id, lead_id,
-                    property_id, title, expires_at, customer_notes, terms, now, now,
+                    property_id, title, expires_at, customer_notes, terms,
+                    internal_review_required, now, now,
                 ),
             )
             estimate_id = cursor.lastrowid
@@ -389,7 +446,17 @@ class EstimateService:
         if actor.has_permission(PERM_READ_ALL_ESTIMATES):
             return True
         if actor.has_permission(PERM_READ_ESTIMATES) or actor.has_permission(PERM_READ_OWN_ESTIMATES):
-            return row["created_by_user_id"] == actor.user_id or row["assigned_to_user_id"] == actor.user_id
+            # §9 item 1: an unassigned (unclaimed) estimate is visible to
+            # any actor in this narrowed-view bucket too, not just "mine or
+            # assigned to me" -- mirrors NEW-534's claim-workflow
+            # visible-but-claimable pattern for leads/opportunities/tasks.
+            # Whether the actor can actually claim() it is claim()'s own,
+            # separate PERM_WRITE_ESTIMATES gate.
+            return (
+                row["created_by_user_id"] == actor.user_id
+                or row["assigned_to_user_id"] == actor.user_id
+                or row["assigned_to_user_id"] is None
+            )
         return False
 
     def _attach_cost_fields(self, conn: sqlite3.Connection, header: EstimateHeader, current_version_id: Optional[int], actor: AuthContext) -> None:
@@ -419,9 +486,9 @@ class EstimateService:
             setattr(line, f, None)
 
     def get(self, estimate_id: int, actor: AuthContext, *, include_lines: bool = False) -> Optional[EstimateHeader]:
-        """D9 cost gating + §1.2 ownership narrowing (baseline "mine or
-        assigned to me" -- the unclaimed-bucket carve-out is deferred, see
-        module docstring)."""
+        """D9 cost gating + §1.2 ownership narrowing ("mine or assigned to
+        me", plus the unclaimed/unassigned bucket per §9 item 1 -- see
+        `_can_view_estimate()`)."""
         conn = self.db.get_connection()
         row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
         if row is None:
@@ -470,7 +537,9 @@ class EstimateService:
         elif actor.has_permission(PERM_READ_ALL_ESTIMATES):
             pass
         elif actor.has_permission(PERM_READ_ESTIMATES) or actor.has_permission(PERM_READ_OWN_ESTIMATES):
-            clauses.append("(created_by_user_id = ? OR assigned_to_user_id = ?)")
+            # §9 item 1: the unassigned/unclaimed bucket is its own visible
+            # row set for this narrowed view, mirroring _can_view_estimate().
+            clauses.append("(created_by_user_id = ? OR assigned_to_user_id = ? OR assigned_to_user_id IS NULL)")
             params.extend([actor.user_id, actor.user_id])
         else:
             raise PermissionError("Actor lacks permission to list estimates")
@@ -554,6 +623,175 @@ class EstimateService:
             details=build_audit_details(before=before.to_dict(), after=after.to_dict(), fields=data.keys()),
         )
         return after
+
+    # ------------------------------------------------------------------
+    # Claim / unclaim / reassign
+    # ------------------------------------------------------------------
+
+    def claim(self, estimate_id: int, actor: AuthContext) -> Optional[EstimateHeader]:
+        """§9 item 1: atomic self-claim of an unassigned estimate, mirroring
+        `CRMService.claim_lead`'s NEW-534 pattern exactly (same race-safe
+        conditional `UPDATE ... WHERE assigned_to_user_id IS NULL`, same
+        pre-read/disambiguation-query shape, same not-found-vs-conflict
+        split). Hardcodes `assigned_to_user_id = actor.user_id` -- never a
+        caller-supplied assignee (that's `reassign()`'s job).
+
+        Returns `None` (-> 404 convention) if the estimate genuinely doesn't
+        exist. Raises `ClaimConflictError` (-> 409) if it's already claimed
+        by someone else or lost a race against a concurrent claim.
+        """
+        if not actor.has_permission(PERM_WRITE_ESTIMATES):
+            raise PermissionError("Actor lacks permission to write estimates")
+
+        conn = self.db.get_connection()
+        # Raw, unguarded pre-read (not self.get(), which applies the
+        # PERM_READ_ALL_ESTIMATES-narrowing view gate) -- same reasoning as
+        # claim_lead's own pre-read: a narrowed actor may attempt a claim on
+        # any row id, and whether it succeeds is governed solely by the
+        # atomic UPDATE's WHERE clause below, not by a pre-read permission
+        # check.
+        row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        if row is None:
+            return None
+
+        now = utc_now_iso()
+        with conn:
+            cursor = conn.execute(
+                "UPDATE estimates SET assigned_to_user_id = ?, updated_at = ? "
+                "WHERE id = ? AND assigned_to_user_id IS NULL;",
+                (actor.user_id, now, estimate_id),
+            )
+
+        if cursor.rowcount == 0:
+            conflict_row = conn.execute(
+                "SELECT id, assigned_to_user_id FROM estimates WHERE id = ?;", (estimate_id,)
+            ).fetchone()
+            if conflict_row is None:
+                return None
+            raise ClaimConflictError(f"Estimate {estimate_id} already claimed")
+
+        after_row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        header = self._row_to_header(after_row)
+        self.audit.log(
+            action="claim",
+            entity_type="estimate",
+            entity_id=estimate_id,
+            change_summary=f"Estimate {estimate_id} claimed by user {actor.user_id}",
+            actor=actor,
+            details=build_audit_details(
+                before={"assigned_to_user_id": None}, after={"assigned_to_user_id": actor.user_id}
+            ),
+        )
+        return header
+
+    def unclaim(self, estimate_id: int, actor: AuthContext) -> Optional[EstimateHeader]:
+        """Sets `assigned_to_user_id` back to NULL, race-safely. **No
+        `unclaim` precedent exists anywhere in this codebase** (confirmed by
+        grep -- `claim_lead`/`claim_opportunity`/`claim_task` have no
+        `unclaim_*` counterparts) -- the authorization rule below is this
+        method's own derived design, not a copied convention:
+        - the CURRENT assignee, holding `PERM_WRITE_ESTIMATES` (the same
+          permission every other estimate-mutation method in this class
+          gates on), may unclaim their own estimate; or
+        - any actor holding `PERM_REASSIGN_ESTIMATES` (auth.py's own
+          comment defines that permission as "change assigned_to_user_id" --
+          unclaiming is a degenerate case of that, target=NULL instead of a
+          specific user).
+
+        Returns `None` if the estimate doesn't exist. Raises `ValueError` if
+        it's already unassigned (nothing to unclaim). Raises
+        `ClaimConflictError` if the assignment changed concurrently between
+        the pre-read and the write (the same race-safety shape as `claim()`,
+        applied to the reverse direction).
+        """
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        if row is None:
+            return None
+
+        current_assignee = row["assigned_to_user_id"]
+        if current_assignee is None:
+            raise ValueError(f"Estimate {estimate_id} is not currently assigned; nothing to unclaim")
+
+        is_self_unclaim = actor.has_permission(PERM_WRITE_ESTIMATES) and actor.user_id == current_assignee
+        is_broad_unclaim = actor.has_permission(PERM_REASSIGN_ESTIMATES)
+        if not (is_self_unclaim or is_broad_unclaim):
+            raise PermissionError("Actor lacks permission to unclaim this estimate")
+
+        now = utc_now_iso()
+        with conn:
+            cursor = conn.execute(
+                "UPDATE estimates SET assigned_to_user_id = NULL, updated_at = ? "
+                "WHERE id = ? AND assigned_to_user_id = ?;",
+                (now, estimate_id, current_assignee),
+            )
+
+        if cursor.rowcount == 0:
+            raise ClaimConflictError(
+                f"Estimate {estimate_id}'s assignment changed concurrently; unclaim lost the race"
+            )
+
+        after_row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        header = self._row_to_header(after_row)
+        self.audit.log(
+            action="unclaim",
+            entity_type="estimate",
+            entity_id=estimate_id,
+            change_summary=f"Estimate {estimate_id} unclaimed by user {actor.user_id} (was assigned to {current_assignee})",
+            actor=actor,
+            details=build_audit_details(
+                before={"assigned_to_user_id": current_assignee}, after={"assigned_to_user_id": None}
+            ),
+        )
+        return header
+
+    def reassign(self, estimate_id: int, new_assignee_user_id: int, actor: AuthContext) -> EstimateHeader:
+        """§1.4: admin/manager-tier reassignment, bypassing the claim race
+        entirely (a deliberate override, not a claim). Requires
+        `PERM_REASSIGN_ESTIMATES` (the `PERM_REASSIGN_PROJECT_STAFF`
+        precedent). Validates the target is an active user whose role can
+        hold estimates -- rejects a technician/customer/subcontractor/
+        ai_agent target with a `ValueError`.
+        """
+        if not actor.has_permission(PERM_REASSIGN_ESTIMATES):
+            raise PermissionError("Actor lacks permission to reassign estimates")
+
+        conn = self.db.get_connection()
+        user_row = conn.execute(
+            "SELECT id, role, active FROM users WHERE id = ?;", (new_assignee_user_id,)
+        ).fetchone()
+        if user_row is None or not user_row["active"]:
+            raise ValueError(f"User {new_assignee_user_id} is not an active user")
+        if user_row["role"] not in _REASSIGNABLE_ROLES:
+            raise ValueError(
+                f"User {new_assignee_user_id} has role '{user_row['role']}', which cannot hold estimates"
+            )
+
+        row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Estimate {estimate_id} not found")
+        old_assignee = row["assigned_to_user_id"]
+
+        now = utc_now_iso()
+        with conn:
+            conn.execute(
+                "UPDATE estimates SET assigned_to_user_id = ?, updated_at = ? WHERE id = ?;",
+                (new_assignee_user_id, now, estimate_id),
+            )
+
+        after_row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        header = self._row_to_header(after_row)
+        self.audit.log(
+            action="assign",
+            entity_type="estimate",
+            entity_id=estimate_id,
+            change_summary=f"Estimate {estimate_id} reassigned to user {new_assignee_user_id}",
+            actor=actor,
+            details=build_audit_details(
+                before={"assigned_to_user_id": old_assignee}, after={"assigned_to_user_id": new_assignee_user_id}
+            ),
+        )
+        return header
 
     # ------------------------------------------------------------------
     # Line-item CRUD, scoped to the unlocked current version
@@ -1001,12 +1239,13 @@ class EstimateService:
 
     def _lock_version(self, version_id: int, reason: str, actor: AuthContext) -> EstimateVersion:
         """Lock a version (`is_locked=1`/`locked_at`/`locked_reason`).
-        Internal -- the public callers this round are `record_decision()`
-        (locks on 'accepted', in its own transaction via
-        `_lock_version_write()` directly rather than through this method --
-        see its docstring) and the deferred `transition()` send step.
-        Exposed so `revise()`'s "only callable on a locked version" rule is
-        real and testable rather than dead code.
+        Internal -- the public callers are `record_decision()` (locks on
+        'accepted', in its own transaction via `_lock_version_write()`
+        directly rather than through this method -- see its docstring) and
+        `transition()`'s `send` step (same direct-`_lock_version_write()`
+        pattern, for the same nested-`BEGIN` reason). Exposed so `revise()`'s
+        "only callable on a locked version" rule is real and testable rather
+        than dead code.
         """
         conn = self.db.get_connection()
         with conn:
@@ -1022,6 +1261,202 @@ class EstimateService:
         )
         row = conn.execute("SELECT * FROM estimate_versions WHERE id = ?;", (version_id,)).fetchone()
         return self._row_to_version(row)
+
+    def _create_share_link(
+        self, conn: sqlite3.Connection, estimate_id: int, version_id: int, customer_id: int,
+        estimate_expires_at: Optional[str], actor: AuthContext,
+    ) -> tuple:
+        """§4.2: create a real `estimate_share_links` row -- a random,
+        unguessable token, hashed before storage. Caller must already hold
+        `conn`'s write transaction (issues no `BEGIN` of its own, mirroring
+        `_lock_version_write()`/`_next_estimate_number()`'s convention for
+        methods meant to run inside an existing transition()-owned
+        transaction).
+
+        Returns `(EstimateShareLink, raw_token)` -- the raw token is
+        returned ONLY to the immediate caller, never persisted, never
+        attached to any dataclass field, and never logged. **This round
+        (B9.2) creates the row but nothing yet resolves a raw token back to
+        one** (B9.4, the public `/api/v1/public/estimate/{token}` route, is
+        out of this round's scope) -- the link this creates is therefore not
+        yet reachable by any customer. Logged as a real, disclosed gap
+        rather than silently left unremarked: `transition()`'s caller gets a
+        real row and a real token, with no delivery mechanism for either
+        yet.
+
+        `expires_at` (D10): `now + _SHARE_LINK_DEFAULT_DAYS` unless the
+        estimate's own `expires_at` is sooner -- an estimate expiring in 10
+        days should not hand out a 30-day-valid link. Both timestamps come
+        from `utc_now_iso()`'s consistent ISO-8601 (offset-suffixed) format,
+        so a plain string comparison/min() is safe.
+        """
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        now = utc_now_iso()
+        default_expiry = (datetime.now(timezone.utc) + timedelta(days=_SHARE_LINK_DEFAULT_DAYS)).isoformat()
+        link_expires_at = min(default_expiry, estimate_expires_at) if estimate_expires_at else default_expiry
+
+        cursor = conn.execute(
+            """
+            INSERT INTO estimate_share_links (
+                estimate_id, estimate_version_id, customer_id, token_hash,
+                created_by_user_id, created_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?);
+            """,
+            (estimate_id, version_id, customer_id, token_hash, actor.user_id if actor else None, now, link_expires_at),
+        )
+        link = EstimateShareLink(
+            id=cursor.lastrowid, estimate_id=estimate_id, estimate_version_id=version_id,
+            customer_id=customer_id, token_hash=token_hash,
+            created_by_user_id=actor.user_id if actor else None, created_at=now, expires_at=link_expires_at,
+        )
+        return link, raw_token
+
+    def transition(
+        self, estimate_id: int, new_status: str, actor: AuthContext, *, comment: Optional[str] = None,
+    ) -> EstimateHeader:
+        """§1.5: the public actor-driven workflow state machine.
+        `_ACTOR_DRIVEN_TRANSITIONS` is the single source of truth for what's
+        legal here -- anything not a key in that table is refused, with a
+        distinguishing message for the "not actor-driven" rows
+        (`_SYSTEM_DRIVEN_TARGET_STATUSES`: VIEWED/ACCEPTED/DECLINED/
+        CHANGES_REQUESTED/EXPIRED/CONVERTED, each reached by its own
+        internal path -- the public share-link view route, `record_decision()`,
+        the expiry sweep, and `convert()` respectively, none of them this
+        method).
+
+        `send` (DRAFT|APPROVED_INTERNAL -> SENT) locks the current version
+        (`_lock_version_write()`, reason='sent') and creates a real
+        `estimate_share_links` row (`_create_share_link()`) in the SAME
+        transaction -- both succeed or neither does.
+
+        **TOCTOU / compare-and-swap**: `row`/`old_status` (and, for `send`,
+        `current_version_id`/`customer_id`/`expires_at`) are read INSIDE the
+        `BEGIN IMMEDIATE` block below, never before it -- matching
+        `record_decision()`'s own convention in this same file. A caller
+        that reads stale state before this method is invoked will always
+        have its transition validated against the truly-current row once
+        this method actually acquires the write lock, so a legitimate
+        transition committed by someone else in the meantime is never
+        silently clobbered by a stale-state-based action lookup. The final
+        `UPDATE` additionally carries an `AND workflow_status = ?` guard
+        (matching this round's own `claim()`/`unclaim()` conditional-UPDATE
+        pattern) and raises on `rowcount == 0` -- defense in depth on top of
+        the in-transaction re-read, not a substitute for it.
+        """
+        if new_status in _SYSTEM_DRIVEN_TARGET_STATUSES:
+            raise ValueError(
+                f"'{new_status}' is not reached via transition() -- it is system/customer-driven "
+                "(see codey_estimator_service.md §1.5's 'not actor-driven' rows)"
+            )
+
+        conn = self.db.get_connection()
+        now = utc_now_iso()
+        share_link = None
+        raw_token = None
+        version_id = None
+        with conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+            if row is None:
+                raise ValueError(f"Estimate {estimate_id} not found")
+            old_status = row["workflow_status"]
+
+            action = _ACTOR_DRIVEN_TRANSITIONS.get((old_status, new_status))
+            if action is None:
+                raise ValueError(f"Illegal transition: {old_status} -> {new_status}")
+
+            # Permission + ownership checks, per §1.5's table. Run against
+            # the freshly-read row above, not any pre-transaction state.
+            if action == "submit_for_review":
+                if not actor.has_permission(PERM_WRITE_ESTIMATES):
+                    raise PermissionError("Actor lacks permission to write estimates")
+                if row["created_by_user_id"] != actor.user_id and row["assigned_to_user_id"] != actor.user_id:
+                    raise PermissionError("Only the estimate's creator or assignee may submit it for review")
+            elif action == "send":
+                if not actor.has_permission(PERM_SEND_ESTIMATES):
+                    raise PermissionError("Actor lacks permission to send estimates")
+                if old_status == "DRAFT" and row["internal_review_required"]:
+                    raise ValueError(
+                        "This estimate requires internal review before it can be sent "
+                        "(users.requires_estimate_approval was set for its creator, or it was "
+                        "created by an agent) -- submit it for review first"
+                    )
+            elif action in ("approve", "reject_review"):
+                if not actor.has_permission(PERM_APPROVE_ESTIMATES):
+                    raise PermissionError("Actor lacks permission to approve estimates")
+                if action == "reject_review" and not (comment or "").strip():
+                    raise ValueError("reject_review requires a non-blank comment")
+            elif action == "cancel":
+                is_owner_cancel = actor.has_permission(PERM_WRITE_ESTIMATES) and (
+                    row["created_by_user_id"] == actor.user_id or row["assigned_to_user_id"] == actor.user_id
+                )
+                is_manager_cancel = actor.has_permission(PERM_REASSIGN_ESTIMATES)
+                if not (is_owner_cancel or is_manager_cancel):
+                    raise PermissionError("Actor lacks permission to cancel this estimate")
+                if not (comment or "").strip():
+                    raise ValueError("cancel requires a non-blank comment")
+            else:  # pragma: no cover -- defensive, every action above is covered
+                raise ValueError(f"Unhandled transition action {action!r}")
+
+            set_clauses = ["workflow_status = ?", "updated_at = ?"]
+            params: List[Any] = [new_status, now]
+            if action == "send":
+                version_id = row["current_version_id"]
+                if version_id is None:
+                    raise ValueError(f"Estimate {estimate_id} has no current version to send")
+                self._lock_version_write(conn, version_id, "sent")
+                share_link, raw_token = self._create_share_link(
+                    conn, estimate_id, version_id, row["customer_id"], row["expires_at"], actor,
+                )
+                set_clauses.append("sent_at = ?")
+                params.append(now)
+            set_clause_sql = ", ".join(set_clauses)
+            params.extend([estimate_id, old_status])
+            cursor = conn.execute(
+                f"UPDATE estimates SET {set_clause_sql} WHERE id = ? AND workflow_status = ?;", params
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(
+                    f"Estimate {estimate_id}'s status changed concurrently; transition lost the race"
+                )
+
+        after_row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        header = self._row_to_header(after_row)
+        self.audit.log(
+            action="transition",
+            entity_type="estimate",
+            entity_id=estimate_id,
+            change_summary=f"{old_status} -> {new_status}",
+            actor=actor,
+            details=build_audit_details(
+                before={"workflow_status": old_status},
+                after={"workflow_status": new_status},
+                snapshot={"comment": comment} if comment else None,
+            ),
+        )
+        if action == "send" and share_link is not None:
+            self.audit.log(
+                action="lock",
+                entity_type="estimate_version",
+                entity_id=version_id,
+                change_summary=f"Locked version {version_id} (sent)",
+                actor=actor,
+                details=build_audit_details(after={"is_locked": 1, "locked_reason": "sent"}),
+            )
+            self.audit.log(
+                action="create",
+                entity_type="estimate_share_link",
+                entity_id=share_link.id,
+                change_summary=f"Created share link for estimate {estimate_id} version {version_id}",
+                actor=actor,
+                # The raw token is deliberately NOT in this audit payload --
+                # only the row id and delivery metadata, matching §4.2's
+                # "enough to know a link was sent, never enough to
+                # reconstruct it" rule.
+                details=build_audit_details(after={"share_link_id": share_link.id, "estimate_version_id": version_id}),
+            )
+        return header
 
     def revise(self, estimate_id: int, actor: AuthContext) -> EstimateVersion:
         """Clone the locked current version -- header snapshot fields AND
@@ -1180,14 +1615,51 @@ class EstimateService:
         row). 'declined'/'changes_requested' decisions do NOT lock --
         only acceptance is final.
 
-        NOTE on the accepted-estimate-must-have-a-contract rule
-        (`codey_estimator_service.md` §1.7/§1.9): this round defers
-        `convert()`/`_create_contract_from_estimate()` entirely (see module
-        docstring) -- an 'accepted' decision here sets `workflow_status`,
-        `accepted_version_id`, and `accepted_at` on the estimate, but does
-        NOT create a Contract. This gap is logged to NEW_ISSUES.md rather
-        than silently built (out of this round's scope) or silently left
-        unremarked.
+        **Accept -> Contract invariant** (§1.7, closes NEW-705): on
+        'accepted', a `Contract` row is created in the SAME transaction as
+        the acceptance write and the version lock -- one `BEGIN IMMEDIATE`,
+        one commit, so an `ACCEPTED` estimate can never exist without a
+        linked Contract (and a failure anywhere in this transaction rolls
+        back the whole thing, including the decision row and the status
+        change -- there is no path to a half-accepted state). The insert is
+        done directly here, not via `CRMService.create_contract()`: that
+        method requires an `AuthContext` with `PERM_WRITE_CONTRACTS` (this
+        method has no actor -- a share-link viewer isn't one) and manages
+        its own `with conn:` block (sqlite3 does not allow a nested
+        `BEGIN`), so it cannot be called from inside this method's own
+        transaction. The INSERT below mirrors `create_contract()`'s column
+        list/shape exactly, adapted, not reinvented.
+
+        `contract_number` is derived deterministically from the estimate's
+        own (already race-safe, server-generated) `estimate_number` --
+        `f"CON-{estimate_number}"` -- rather than adding a second
+        `contract_number_sequences` table this round (that generalization
+        is explicitly deferred, logged to NEW_ISSUES.md, per
+        `codey_estimator_service.md` §2's own note that `contract_number`
+        has "the same client-supplied gap" as `estimate_number` had).
+
+        **Double-accept disclosed limitation**: if `estimates.contract_id`
+        is already set (a prior acceptance already created one -- e.g. the
+        estimate was re-accepted after `revise()` reopened it), this
+        method does NOT create a second Contract or raise. **The real,
+        narrower trigger** (corrected -- `NEW-705`'s original text named a
+        `changes_requested` round as the path here; it isn't required):
+        `revise()` (pre-existing, unchanged by this round) is reachable
+        directly from `ACCEPTED` with no `changes_requested` decision at
+        all -- it only checks the current version's `is_locked = 1`, which
+        an `ACCEPTED` estimate's version also satisfies. So the actual
+        trigger is `ACCEPTED` -> `revise()` -> re-send -> re-accept (see
+        `NEW-705`/`NEW-714` in NEW_ISSUES.md -- the latter logs a
+        suggestion, not built this round, that `revise()` should reject
+        `workflow_status IN ('ACCEPTED', 'CONVERTED')`). Whichever path
+        gets here, this method re-links the existing Contract rather than
+        creating a second one, since `CON-{estimate_number}` would
+        otherwise collide on `contracts.contract_number`'s UNIQUE
+        constraint and roll back a genuine customer acceptance for a
+        reason unrelated to the acceptance itself. The resulting gap (the
+        linked Contract's amount/content reflects the FIRST accepted
+        version, not necessarily the current one) is a real, disclosed
+        limitation -- logged to NEW_ISSUES.md, not silently decided.
         """
         if decision not in ("accepted", "declined", "changes_requested"):
             raise ValueError(f"invalid decision {decision!r}")
@@ -1236,6 +1708,7 @@ class EstimateService:
                 "accepted": "ACCEPTED", "declined": "DECLINED", "changes_requested": "CHANGES_REQUESTED",
             }[decision]
             locked_on_accept = False
+            new_contract_id = None
             if decision == "accepted":
                 conn.execute(
                     "UPDATE estimates SET workflow_status = ?, accepted_version_id = ?, accepted_at = ?, updated_at = ? WHERE id = ?;",
@@ -1244,6 +1717,37 @@ class EstimateService:
                 locked_on_accept = not version_row["is_locked"]
                 if locked_on_accept:
                     self._lock_version_write(conn, estimate_version_id, "accepted")
+
+                if estimate_row["contract_id"] is None:
+                    contract_number = f"CON-{estimate_row['estimate_number']}"
+                    total_cents = version_row["total_cents"] or 0
+                    content_lines = [
+                        f"Contract generated from accepted estimate {estimate_row['estimate_number']} "
+                        f"(version {version_row['version_number']}).",
+                        f"Total: ${total_cents / 100:.2f}.",
+                    ]
+                    if version_row["terms_snapshot"]:
+                        content_lines.append(f"Terms: {version_row['terms_snapshot']}")
+                    content = "\n".join(content_lines)
+                    contract_title = estimate_row["title"] or f"Contract for {estimate_row['estimate_number']}"
+                    contract_cursor = conn.execute(
+                        """
+                        INSERT INTO contracts (
+                            contract_number, customer_id, project_id, estimate_id,
+                            title, template_name, content, status, version,
+                            assigned_user_id, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, NULL, ?, 'draft', 1, ?, ?, ?);
+                        """,
+                        (
+                            contract_number, estimate_row["customer_id"], estimate_row["project_id"],
+                            estimate_row["id"], contract_title, content,
+                            estimate_row["assigned_to_user_id"], now, now,
+                        ),
+                    )
+                    new_contract_id = contract_cursor.lastrowid
+                    conn.execute(
+                        "UPDATE estimates SET contract_id = ? WHERE id = ?;", (new_contract_id, estimate_row["id"])
+                    )
             else:
                 conn.execute(
                     "UPDATE estimates SET workflow_status = ?, updated_at = ? WHERE id = ?;",
@@ -1269,6 +1773,15 @@ class EstimateService:
                 actor=None,
                 details=build_audit_details(after={"is_locked": 1, "locked_reason": "accepted"}),
             )
+        if new_contract_id is not None:
+            self.audit.log(
+                action="create",
+                entity_type="contract",
+                entity_id=new_contract_id,
+                change_summary=f"Contract auto-created from accepted estimate {estimate_row['id']}",
+                actor=None,
+                details=build_audit_details(snapshot={"estimate_id": estimate_row["id"], "contract_id": new_contract_id}),
+            )
         return result
 
     # ------------------------------------------------------------------
@@ -1285,7 +1798,8 @@ class EstimateService:
             title=row["title"], current_version_id=row["current_version_id"],
             accepted_version_id=row["accepted_version_id"], accepted_at=row["accepted_at"],
             converted_project_id=row["converted_project_id"], contract_id=row["contract_id"],
-            source=row["source"], workflow_status=row["workflow_status"], expires_at=row["expires_at"],
+            source=row["source"], workflow_status=row["workflow_status"],
+            internal_review_required=row["internal_review_required"], expires_at=row["expires_at"],
             customer_notes=row["customer_notes"], terms=row["terms"], sent_at=row["sent_at"],
             last_viewed_at=row["last_viewed_at"], created_at=row["created_at"], updated_at=row["updated_at"],
         )

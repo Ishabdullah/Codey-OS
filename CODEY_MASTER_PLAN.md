@@ -8417,16 +8417,63 @@ this file's own don't-duplicate rule.
       and separate; live-verified against the real production DB copy
       confirms the fix holds. `NEW-700`–`NEW-710` logged across
       scoping/implementation/the merge.
-      **Deferred, disclosed, not silently dropped** (`NEW-703`–`NEW-706`,
-      next round): `transition()` (public state machine — blocked on
-      share-link creation, out of scope this round), `reassign()`,
-      `claim()`/`unclaim()` (unassigned/unclaimed visible-and-claimable
-      bucket, NEW-534-shaped), `convert()`/contract-creation-on-accept
-      (the "an accepted estimate never exists without its contract" spec
-      invariant is NOT enforced yet), API routes, UI, delivery
-      (share-links/PDF), the tenant-configurable markup default. Full
-      spec for the remaining work: `codey_estimator_service.md` §1-2, §9,
-      §11.
+      **B9.2 next slice, DONE** (2026-09-29, code-complete + full test
+      suite green -- `claim()`/`unclaim()` (race-safe conditional UPDATE,
+      NEW-534 precedent, plus the unassigned/unclaimed
+      visible-and-claimable bucket wired into `list()`/`get()`),
+      `reassign()` (manager-tier override via `PERM_REASSIGN_ESTIMATES`),
+      `transition()` (the full section 1.5 actor-driven state machine --
+      real `estimate_share_links` row creation + version lock on `send`,
+      the D5 hard internal-review gate enforced via a new pinned
+      `estimates.internal_review_required` column, computed once at
+      `create()` time from `(creator's requires_estimate_approval OR
+      actor.actor_type == "agent")`, never a live join), and the accept ->
+      Contract invariant (`record_decision('accepted')` now creates a real
+      `contracts` row in the same transaction as the acceptance write and
+      the version lock -- regression-tested that a contract-creation
+      failure rolls back the whole transaction, not just partially
+      applies). `NEW-703`/`NEW-705`/`NEW-706` RESOLVED; `NEW-711`/`NEW-712`
+      newly logged (disclosed limitations: the deterministic
+      `contract_number` derivation and the not-yet-reachable share-link
+      token, both by design this round, not bugs).
+      **Mandatory code-reviewer pass (same day) found a live-reproduced
+      Critical** (`transition()` had no compare-and-swap guard -- read
+      `row`/`old_status` before `BEGIN IMMEDIATE`, then wrote an
+      unconditional `UPDATE` with no re-validation, so a stale-state-based
+      caller could silently clobber a legitimate concurrent transition;
+      `NEW-717`, fixed same day: `row`/`old_status` and every
+      permission/D5 check now re-run inside the transaction against
+      freshly-read state, matching `record_decision()`'s own convention,
+      plus a defense-in-depth `AND workflow_status = ?` CAS guard on the
+      final `UPDATE`) **plus five Warnings**, all fixed/logged same day:
+      a genuine spec-internal contradiction on whether D5's gate is keyed
+      off the creator's or assignee's `requires_estimate_approval` flag
+      (`NEW-713`, disclosed for Ish to rule on, not silently decided),
+      missing test coverage for the human-facing (not just
+      `agent`-actor_type) hard-rule case (now tested), `NEW-711`'s
+      understated severity (corrected -- the `contract_number` collision
+      risk is latent-but-real today via `routes.py:1397`, not purely
+      future), `NEW-705`'s narrower real reopening trigger (`ACCEPTED` ->
+      `revise()` -> re-accept needs no `changes_requested` step at all --
+      corrected in both the docstring and the ledger; `NEW-714` newly
+      logged as a disclosed, not-built suggestion that `revise()` should
+      reject `workflow_status IN ('ACCEPTED','CONVERTED')`), and a stale
+      test-count claim in `PROJECT_LOG.md` (corrected to the reproduced
+      1399/0/0, then 1402/0/0 after this round's own 3 new regression
+      tests). `NEW-715` also newly logged (disclosed, not fixed): `cancel`
+      does not revoke a live `estimate_share_links` row, a separate gap
+      from the TOCTOU fix, found while designing its regression test. Full
+      suite green after all fixes: 1402 passed, 0 failed, 0 deselected.
+      Code-reviewer's `CHANGES REQUESTED` verdict is now addressed;
+      re-review pending before this slice is `main`-mergeable. **Still
+      deferred**:
+      `convert()` (B9.8, Project-creation half, gated on a signed
+      Contract), API routes (B9.3), the public share-link lookup/decision
+      routes (B9.4 -- real rows now exist, nothing resolves a token back
+      to one yet), UI (B9.5/B9.6), delivery/PDF, the
+      tenant-configurable markup default (NEW-702). Full spec for the
+      remaining work: `codey_estimator_service.md` section 1-2, section 9,
+      section 11.
 - [ ] **B9.2b** — expiry sweep: a single daemon thread in the API server
       process (same start/stop lifecycle as the B7 backup thread), hourly,
       transitioning `SENT`/`VIEWED` estimates past `expires_at` to
@@ -8434,18 +8481,25 @@ this file's own don't-duplicate rule.
       infrastructure — no scheduler of any kind exists in Codey-OS today.**
       **Rule-4 category** (process lifecycle — `CLAUDE.md` rule 4 names
       this category explicitly). Full spec: `codey_estimator_service.md`
-      §9 item 3. Blocked on B9.2.
+      §9 item 3. Blocked on B9.2 -- B9.2's `transition()`/`claim()`/
+      `unclaim()`/`reassign()`/accept-Contract slice is now done
+      (2026-09-29); B9.2b is unblocked.
 - [ ] **B9.3** — API routes: `/api/v1/estimates/...` full set, and fixes
       `/api/v1/portal/estimates` to use the `CustomerEstimateView` allow-list
       serializer (closes F1). Rule-4 (auth-boundary-adjacent). Full spec:
-      `codey_estimator_service.md` §3. Blocked on B9.2.
+      `codey_estimator_service.md` §3. Blocked on B9.2 -- unblocked
+      (2026-09-29), see B9.2b note above.
 - [ ] **B9.4** — public share-link customer delivery:
       `estimate_share_links` creation/lookup, path-based
       `/api/v1/public/estimate/{token}/...` (explicitly NOT the existing
       `?token=` query-param session-bearer pattern at `routes.py:497-498`),
-      decision recording, `NotificationService` wiring. **Rule-4 category**
-      (new customer-facing auth boundary). Full spec:
-      `codey_estimator_service.md` §4. Blocked on B9.2, B9.3.
+      decision recording, `NotificationService` wiring. `transition()`'s
+      `send` step already creates real `estimate_share_links` rows
+      (2026-09-29) but discards the raw token after use (`NEW-712`) -- B9.4
+      needs a real delivery path for it, not just the lookup/decision
+      routes. **Rule-4 category** (new customer-facing auth boundary). Full
+      spec: `codey_estimator_service.md` §4. Blocked on B9.2 (unblocked),
+      B9.3.
 - [ ] **B9.5** — staff `/estimates` mobile-first surface (new
       `render_estimates_surface()`, not another `render_admin_surface()`
       tab): customer picker -> new estimate -> add-line sheet -> server-

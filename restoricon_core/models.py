@@ -574,8 +574,12 @@ class Estimate:
 # `line_items_json`/REAL-money columns serialize to for any pre-B9.1 caller;
 # nothing here replaces it. Field names/types match `codey_estimator_schema.md`
 # §1/§2 and the real `database.py` DDL, confirmed by reading both (rule 12).
-# `EstimateShareLink` is not defined here -- share-link creation is deferred
-# past this round (see estimate_service.py's module docstring).
+# `EstimateShareLink` (added B9.2, this round): the raw token itself is
+# NEVER a field on this dataclass -- only `token_hash` (the persisted
+# column) -- matching `estimate_share_links`' own "token_hash-only" DDL
+# comment in database.py. `EstimateService._create_share_link()` returns
+# the raw token separately, out-of-band, never attached to this object or
+# serialized via to_dict().
 
 
 @dataclass
@@ -601,6 +605,10 @@ class EstimateHeader:
     contract_id: Optional[int] = None
     source: str = "engine"
     workflow_status: str = "DRAFT"
+    # B9.2 (D5 / codey_estimator_service.md §9 item 5): pinned once at
+    # create() time -- see EstimateService.create()'s docstring. Never
+    # recomputed from users.requires_estimate_approval on read.
+    internal_review_required: int = 0
     expires_at: Optional[str] = None
     customer_notes: Optional[str] = None
     terms: Optional[str] = None
@@ -732,6 +740,31 @@ class EstimateDecision:
     ip: Optional[str] = None
     user_agent: Optional[str] = None
     decided_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class EstimateShareLink:
+    """Mirrors `estimate_share_links` (database.py). `token_hash` is the
+    persisted SHA-256 of the raw capability token -- the raw token itself
+    is never a field here (see this section's header comment above)."""
+    id: Optional[int] = None
+    estimate_id: int = 0
+    estimate_version_id: int = 0
+    customer_id: int = 0
+    token_hash: str = ""
+    created_by_user_id: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    expires_at: str = ""
+    revoked_at: Optional[str] = None
+    revoked_by_user_id: Optional[int] = None
+    first_viewed_at: Optional[str] = None
+    last_viewed_at: Optional[str] = None
+    view_count: int = 0
+    delivery_channel: Optional[str] = None
+    delivered_to: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

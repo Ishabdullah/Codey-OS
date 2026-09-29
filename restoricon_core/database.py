@@ -300,6 +300,16 @@ CREATE TABLE IF NOT EXISTS estimates (
         'DRAFT', 'INTERNAL_REVIEW', 'APPROVED_INTERNAL', 'SENT', 'VIEWED',
         'ACCEPTED', 'DECLINED', 'CHANGES_REQUESTED', 'EXPIRED', 'CANCELLED', 'CONVERTED'
     )),
+    -- Codey-Estimator Phase B9.2 addition (codey_estimator_service.md
+    -- section 9 item 5, D5's hard-internal-review-gate follow-on): pinned
+    -- once at create() time to (users.requires_estimate_approval OR
+    -- actor.actor_type == 'agent') -- never recomputed on read, since the
+    -- creator's flag/role could change later and the review requirement
+    -- must reflect what was true when this estimate was created, same
+    -- reasoning as created_by_name being a snapshot. transition() reads
+    -- ONLY this column when enforcing the DRAFT/APPROVED_INTERNAL -> SENT
+    -- review gate -- it never re-joins users.requires_estimate_approval.
+    internal_review_required INTEGER NOT NULL DEFAULT 0 CHECK(internal_review_required IN (0, 1)),
     expires_at TEXT,
     customer_notes TEXT,
     terms TEXT,
@@ -1889,6 +1899,16 @@ CREATE TABLE estimates (
         'DRAFT', 'INTERNAL_REVIEW', 'APPROVED_INTERNAL', 'SENT', 'VIEWED',
         'ACCEPTED', 'DECLINED', 'CHANGES_REQUESTED', 'EXPIRED', 'CANCELLED', 'CONVERTED'
     )),
+    -- Codey-Estimator Phase B9.2 addition (codey_estimator_service.md
+    -- section 9 item 5, D5's hard-internal-review-gate follow-on): pinned
+    -- once at create() time to (users.requires_estimate_approval OR
+    -- actor.actor_type == 'agent') -- never recomputed on read, since the
+    -- creator's flag/role could change later and the review requirement
+    -- must reflect what was true when this estimate was created, same
+    -- reasoning as created_by_name being a snapshot. transition() reads
+    -- ONLY this column when enforcing the DRAFT/APPROVED_INTERNAL -> SENT
+    -- review gate -- it never re-joins users.requires_estimate_approval.
+    internal_review_required INTEGER NOT NULL DEFAULT 0 CHECK(internal_review_required IN (0, 1)),
     expires_at TEXT,
     customer_notes TEXT,
     terms TEXT,
@@ -1930,6 +1950,13 @@ CREATE TABLE estimates (
     FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL
 );
 """
+
+# Codey-Estimator Phase B9.2 (2026-09-29): internal_review_required is added
+# to _ESTIMATES_TABLE_V2_SQL's DDL (this constant, above) as well as to the
+# additive ALTER TABLE list below -- see _SCHEMA_SQL's `estimates` block
+# comment for the column's full reasoning. Both copies of the column
+# declaration must stay byte-for-byte identical to each other per this
+# file's own "keep the two in sync" rule for _ESTIMATES_TABLE_V2_SQL.
 
 # B8.16 Phase 3 (2026-09-29): the widened-status `work_orders` DDL used by
 # _migrate_work_orders_status_constraint() to rebuild a legacy DB's
@@ -2174,6 +2201,19 @@ class DatabaseManager:
             # own DDL comment above for the full set_user_active transition
             # semantics.
             ("users", "terminated_at", "ALTER TABLE users ADD COLUMN terminated_at TEXT;"),
+            # Codey-Estimator Phase B9.2 (2026-09-29): internal_review_required,
+            # additive/nullable-by-default on `estimates`. Covers a DB already
+            # rebuilt to the B9.1 v2 shape (workflow_status present, so
+            # _migrate_estimates_table_v2() below no-ops for it) -- a genuinely
+            # legacy pre-v2 DB picks the column up here too, BEFORE
+            # _migrate_estimates_table_v2() runs, and that rebuild's own
+            # new_cols set has been updated to expect it (see that method).
+            (
+                "estimates",
+                "internal_review_required",
+                "ALTER TABLE estimates ADD COLUMN internal_review_required INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(internal_review_required IN (0, 1));",
+            ),
             # B8.7c: portfolio_override_rate/window_months, additive on
             # commission_plan_config. NOT NULL DEFAULT on the ALTER itself
             # backfills any already-migrated DB's existing singleton row
@@ -2440,6 +2480,11 @@ class DatabaseManager:
             "opportunity_id", "lead_id", "property_id", "title",
             "current_version_id", "accepted_version_id", "accepted_at",
             "converted_project_id", "contract_id", "source", "workflow_status",
+            "internal_review_required",  # B9.2 addition; see _SCHEMA_SQL's
+            # `estimates` block comment. Present here so a legacy pre-v2 DB
+            # that already picked this column up via the additive ALTER
+            # TABLE list (which runs before this rebuild) isn't rejected by
+            # the `missing` check below.
             "expires_at", "customer_notes", "terms", "sent_at", "last_viewed_at",
             "line_items_json", "subtotal", "materials_cost", "labor_cost",
             "subcontractor_cost", "markup_percent", "tax_amount",
