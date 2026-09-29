@@ -67,6 +67,7 @@ schema change):
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import secrets
 import sqlite3
@@ -78,9 +79,11 @@ from codey_estimator.calc.engine import CALC_ENGINE_VERSION, calculate
 from codey_estimator.dto import (
     EquipmentInput,
     EstimateInput,
+    EstimateResult,
     LaborInput,
     LaborRateType,
     LineInput,
+    LineResult,
     LineType,
     MaterialInput,
     SubcontractorInput,
@@ -484,6 +487,122 @@ class EstimateService:
             return
         for f in _LINE_COST_INTERNAL_FIELDS:
             setattr(line, f, None)
+
+    def _gate_preview_result_cost_fields(self, result: EstimateResult, actor: AuthContext) -> EstimateResult:
+        """B9.3 code-review fix (Critical): `preview()`'s cost/margin gate.
+
+        `preview()` returns `codey_estimator.dto.EstimateResult` -- a frozen,
+        `slots=True` dataclass tree the vendored engine produces directly,
+        not an `EstimateHeader`/`EstimateLineItem` -- so `_attach_cost_fields()`/
+        `_gate_line_cost_fields()` (which mutate `restoricon_core.models`
+        dataclasses in place) cannot be reused unmodified. This is the same
+        PERM_READ_ESTIMATE_COSTS principle applied to that different shape,
+        via `dataclasses.replace()` since the dto is frozen.
+
+        Header-level cost/margin fields nulled: `material_cost_cents`,
+        `labor_cost_cents`, `equipment_cost_cents`, `sub_cost_cents`,
+        `cost_total_cents`, `gross_profit_cents`, `gross_margin_bp`,
+        `markup_effective_bp` -- mirrors `_attach_cost_fields()`'s
+        `cost_total_cents`/`gross_profit_cents`/`gross_margin_bp` gate, plus
+        the raw per-component costs `get()` never even exposes at all.
+
+        Per-line, two families are nulled: (1) `LineResult`'s own
+        cost/sell-component breakdown (`material_cost_cents`,
+        `material_sell_cents`, `labor_cost_cents`, `labor_sell_cents`,
+        `equipment_cost_cents`, `equipment_sell_cents`, `sub_cost_cents`,
+        `sub_sell_cents`, `cost_total_cents`, `components_sell_cents`,
+        `sell_before_discount_cents`, `sell_total_cents`,
+        `allocated_discount_cents`, `net_sell_cents`, `taxable_amount_cents`)
+        -- the vendored engine has no gated/ungated split of its own, so
+        every field finer-grained than the customer-safe aggregate
+        (`line_total_cents`, kept visible, same as the persisted-model gate
+        keeps it) is treated as cost/margin-revealing; and (2) the nested,
+        echoed `LineResult.input` (`LineInput`), which duplicates the raw
+        cost-side inputs (`material.unit_cost_cents`,
+        `material.material_markup_bp`, `labor.labor_cost_rate_cents`,
+        `equipment.equipment_cost_cents`, `equipment.equipment_markup_bp`,
+        `subcontractor.sub_cost_cents`, `subcontractor.sub_markup_bp`) plus
+        the two staff-internal free-text fields (`override_reason`,
+        `internal_note`) -- the exact same fields `_LINE_COST_INTERNAL_FIELDS`
+        gates on the persisted model, just reached through the echoed input
+        tree instead of a DB row. `price_override_cents` and the sell-side
+        `labor_bill_rate_cents` stay visible on `input`, matching
+        `_gate_line_cost_fields()`'s deliberate price_override_cents
+        exception.
+
+        Every nulled field is typed `int`/`str` (never `Optional[...]`) in
+        the vendored `codey_estimator.dto` -- `None` here technically
+        disagrees with those type hints, but matches this codebase's own
+        established convention (see `models.py`'s `EstimateLineItem` comment
+        on why cost fields are `Optional[int]`: an actual `0` is a legitimate
+        "at cost" value, so `None` must be the unambiguous "withheld"
+        sentinel) rather than inventing a second convention. The vendored
+        `codey_estimator.dto` module itself is never modified to accommodate
+        this -- gating happens entirely on this side, via `replace()`.
+        """
+        if actor.has_permission(PERM_READ_ESTIMATE_COSTS):
+            return result
+
+        def _gate_line(line: LineResult) -> LineResult:
+            li = line.input
+            material = (
+                dataclasses.replace(li.material, unit_cost_cents=None, material_markup_bp=None)
+                if li.material is not None else None
+            )
+            labor = (
+                dataclasses.replace(li.labor, labor_cost_rate_cents=None)
+                if li.labor is not None else None
+            )
+            equipment = (
+                dataclasses.replace(li.equipment, equipment_cost_cents=None, equipment_markup_bp=None)
+                if li.equipment is not None else None
+            )
+            subcontractor = (
+                dataclasses.replace(li.subcontractor, sub_cost_cents=None, sub_markup_bp=None)
+                if li.subcontractor is not None else None
+            )
+            gated_input = dataclasses.replace(
+                li,
+                material=material,
+                labor=labor,
+                equipment=equipment,
+                subcontractor=subcontractor,
+                override_reason=None,
+                internal_note=None,
+            )
+            return dataclasses.replace(
+                line,
+                input=gated_input,
+                material_cost_cents=None,
+                material_sell_cents=None,
+                labor_cost_cents=None,
+                labor_sell_cents=None,
+                equipment_cost_cents=None,
+                equipment_sell_cents=None,
+                sub_cost_cents=None,
+                sub_sell_cents=None,
+                cost_total_cents=None,
+                components_sell_cents=None,
+                sell_before_discount_cents=None,
+                sell_total_cents=None,
+                allocated_discount_cents=None,
+                net_sell_cents=None,
+                taxable_amount_cents=None,
+            )
+
+        gated_lines = tuple(_gate_line(line) for line in result.lines)
+        return dataclasses.replace(
+            result,
+            lines=gated_lines,
+            material_cost_cents=None,
+            labor_cost_cents=None,
+            equipment_cost_cents=None,
+            sub_cost_cents=None,
+            cost_total_cents=None,
+            gross_profit_cents=None,
+            gross_margin_bp=None,
+            markup_effective_bp=None,
+        )
 
     def get(self, estimate_id: int, actor: AuthContext, *, include_lines: bool = False) -> Optional[EstimateHeader]:
         """D9 cost gating + §1.2 ownership narrowing ("mine or assigned to
@@ -1179,17 +1298,32 @@ class EstimateService:
     def preview(self, estimate_id: int, actor: AuthContext):
         """Read-only, server-computed totals for the current version --
         never persists anything. Requires `PERM_WRITE_ESTIMATES` (same as
-        viewing your own draft, per §1.9)."""
+        viewing your own draft, per §1.9), PLUS the same ownership narrowing
+        (`_can_view_estimate()`) AND the same `PERM_READ_ESTIMATE_COSTS`
+        cost-field gate (`_gate_preview_result_cost_fields()`) that `get()`
+        already applies.
+
+        Code-review fix (B9.3, Critical, live-reproduced): this method
+        originally gated on `PERM_WRITE_ESTIMATES` alone -- no
+        `_can_view_estimate()` call, no cost-field gate at all -- so ANY
+        actor holding `PERM_WRITE_ESTIMATES` could preview ANY estimate's
+        full cost/margin breakdown regardless of ownership, unlike `get()`
+        which correctly applies both. See
+        `.claude/agent-memory/code-reviewer/b9_3_estimate_routes_preview_cost_leak_changes_requested.md`.
+        """
         if not actor.has_permission(PERM_WRITE_ESTIMATES):
             raise PermissionError("Actor lacks permission to preview estimates")
         conn = self.db.get_connection()
-        est_row = conn.execute("SELECT current_version_id FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
-        if est_row is None:
+        row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        if row is None:
             raise ValueError(f"Estimate {estimate_id} not found")
-        version_id = est_row["current_version_id"]
+        if not self._can_view_estimate(row, actor):
+            raise PermissionError("Actor lacks permission to view this estimate")
+        version_id = row["current_version_id"]
         if version_id is None:
             raise ValueError(f"Estimate {estimate_id} has no current version")
-        return self._compute_engine_result(conn, version_id)
+        result = self._compute_engine_result(conn, version_id)
+        return self._gate_preview_result_cost_fields(result, actor)
 
     def to_customer_view(self, estimate_id: int) -> Dict[str, Any]:
         """Customer-facing projection of an estimate's current version, via
@@ -1730,20 +1864,53 @@ class EstimateService:
                         content_lines.append(f"Terms: {version_row['terms_snapshot']}")
                     content = "\n".join(content_lines)
                     contract_title = estimate_row["title"] or f"Contract for {estimate_row['estimate_number']}"
-                    contract_cursor = conn.execute(
-                        """
-                        INSERT INTO contracts (
-                            contract_number, customer_id, project_id, estimate_id,
-                            title, template_name, content, status, version,
-                            assigned_user_id, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, NULL, ?, 'draft', 1, ?, ?, ?);
-                        """,
-                        (
-                            contract_number, estimate_row["customer_id"], estimate_row["project_id"],
-                            estimate_row["id"], contract_title, content,
-                            estimate_row["assigned_to_user_id"], now, now,
-                        ),
-                    )
+                    # NEW-711 (B9.3 route round): this INSERT can collide on
+                    # contracts.contract_number's UNIQUE constraint --
+                    # routes.py:1637 already lets any PERM_WRITE_CONTRACTS
+                    # holder set an arbitrary, client-supplied
+                    # contract_number via Contract(**json_body), and
+                    # estimate_number ("EST-{year}-{seq:04d}") is trivially
+                    # guessable, so a pre-created "CON-{estimate_number}" row
+                    # is a real, reachable collision the moment this method
+                    # is wired to a route (B9.3). Without this catch, that
+                    # collision raises a bare sqlite3.IntegrityError, which
+                    # is neither ValueError nor PermissionError, so routes.py's
+                    # global handler would turn a LEGITIMATE customer
+                    # acceptance into a raw 500 and roll back the whole
+                    # transaction (decision row, status change, and version
+                    # lock all lost). Narrowly scoped to just this one
+                    # INSERT (not the whole `with conn:` block) so a genuine
+                    # CHECK/FK failure elsewhere in this transaction still
+                    # propagates as itself, not as this message. The
+                    # `with conn:` context manager still rolls back
+                    # everything on any exception raised out of it --
+                    # re-raising as ValueError here only changes the HTTP
+                    # status (500 -> 400 via the same global handler), not
+                    # the atomicity. The real fix (a race-safe
+                    # contract_number_sequences generator, matching
+                    # _next_estimate_number()'s shape) remains deferred --
+                    # this is a minimal, disclosed mitigation, not that fix.
+                    try:
+                        contract_cursor = conn.execute(
+                            """
+                            INSERT INTO contracts (
+                                contract_number, customer_id, project_id, estimate_id,
+                                title, template_name, content, status, version,
+                                assigned_user_id, created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, NULL, ?, 'draft', 1, ?, ?, ?);
+                            """,
+                            (
+                                contract_number, estimate_row["customer_id"], estimate_row["project_id"],
+                                estimate_row["id"], contract_title, content,
+                                estimate_row["assigned_to_user_id"], now, now,
+                            ),
+                        )
+                    except sqlite3.IntegrityError as exc:
+                        raise ValueError(
+                            f"Cannot create contract {contract_number!r} for accepted estimate "
+                            f"{estimate_row['estimate_number']}: a contract with that number already "
+                            "exists (contract_number collision -- NEW-711)"
+                        ) from exc
                     new_contract_id = contract_cursor.lastrowid
                     conn.execute(
                         "UPDATE estimates SET contract_id = ? WHERE id = ?;", (new_contract_id, estimate_row["id"])

@@ -19,6 +19,7 @@ from ..services.audit_service import AuditService
 from ..services.automation_service import AutomationService
 from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService
+from ..services.estimate_service import EstimateService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
 from ..services.finance_service import FinanceService
@@ -197,6 +198,10 @@ class RestoriconAPIServer:
             finance_service=self.finance_service,
         )
         self.territory_service = TerritoryService(self.db, self.audit_service)
+        # B9.3: EstimateService only depends on db + audit -- constructed
+        # explicitly and passed through, matching every other service
+        # here, rather than relying on APIRouter's lazy default.
+        self.estimate_service = EstimateService(self.db, self.audit_service)
 
         # RBAC for these services is enforced in the service layer, not here -- see
         # APIRouter's own class docstring.
@@ -212,6 +217,7 @@ class RestoriconAPIServer:
             business_ops_service=self.business_ops_service,
             analytics_search_service=self.analytics_search_service,
             commission_service=self.commission_service,
+            estimate_service=self.estimate_service,
             territory_service=self.territory_service,
         )
 

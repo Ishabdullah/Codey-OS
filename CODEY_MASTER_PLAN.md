@@ -8484,11 +8484,47 @@ this file's own don't-duplicate rule.
       §9 item 3. Blocked on B9.2 -- B9.2's `transition()`/`claim()`/
       `unclaim()`/`reassign()`/accept-Contract slice is now done
       (2026-09-29); B9.2b is unblocked.
-- [ ] **B9.3** — API routes: `/api/v1/estimates/...` full set, and fixes
-      `/api/v1/portal/estimates` to use the `CustomerEstimateView` allow-list
-      serializer (closes F1). Rule-4 (auth-boundary-adjacent). Full spec:
-      `codey_estimator_service.md` §3. Blocked on B9.2 -- unblocked
-      (2026-09-29), see B9.2b note above.
+- [x] **B9.3, DONE** (2026-09-29, code-reviewer APPROVED after two
+      rounds): 15 staff-facing routes for every `EstimateService`
+      method — create/read/list/update-header, line CRUD + reorder,
+      revise, preview, claim/unclaim/reassign/transition,
+      staff-recorded decisions. **Deliberately namespaced under
+      `/api/v1/estimator/estimates/...`, NOT `/api/v1/estimates/...`**
+      as §3's route table literally says — the latter path is still
+      live, owned by the pre-existing legacy `Estimate`/
+      `CRMService.create_estimate`/`.../proposal`/`package-options`
+      system, which this round's scope (wire the already-built service
+      to routes) did not authorize retiring. Logged as `NEW-718` —
+      Ish's ruling needed on if/when to formally retire the legacy
+      system and free up the literal spec path. The `/api/v1/portal/estimates`
+      → `CustomerEstimateView` fix (F1) is untouched — still open,
+      folds naturally into B9.4's customer-facing work, not done here.
+      Round 1 review found a real, live-reproduced Critical: `preview()`
+      had no ownership narrowing and no cost/margin gating — any actor
+      holding `PERM_WRITE_ESTIMATES` could read any other actor's
+      estimate cost/margin data by id, including a raw-cost echo buried
+      in the vendored calc library's nested `LineResult.input` tree that
+      a naive top-level-only gate would have missed entirely. Fixed by
+      routing `preview()` through the same ownership check `get()` uses
+      plus a new cost-field gate covering the full field tree (header,
+      line, and the nested input echo), verified with a differential
+      repro (old code reproducibly vulnerable, fix reproducibly closes
+      it) and a permission-override test since no real role currently
+      lacks `PERM_READ_ESTIMATE_COSTS` while holding
+      `PERM_WRITE_ESTIMATES`. Also fixed in the same round: `NEW-711`'s
+      `contract_number` collision risk, previously latent, made live by
+      this round's own `/decisions` route — a pre-existing
+      `Contract(**json_body)` route already lets any
+      `PERM_WRITE_CONTRACTS` holder pre-create a colliding
+      `CON-{estimate_number}` row; mitigated with a scoped
+      `IntegrityError`→`ValueError` catch so the collision maps to a
+      clean 400 (whole transaction still rolls back) instead of a raw
+      500 that would silently discard a legitimate customer acceptance.
+      `NEW-719` logged (Suspected, deferred): the `/decisions` route
+      lets staff attribute a decision to an arbitrary `customer_user_id`
+      with no cross-check it's actually that estimate's customer.
+      Rule-4 (auth-boundary-adjacent). Full spec:
+      `codey_estimator_service.md` §3.
 - [ ] **B9.4** — public share-link customer delivery:
       `estimate_share_links` creation/lookup, path-based
       `/api/v1/public/estimate/{token}/...` (explicitly NOT the existing
@@ -8497,18 +8533,22 @@ this file's own don't-duplicate rule.
       `send` step already creates real `estimate_share_links` rows
       (2026-09-29) but discards the raw token after use (`NEW-712`) -- B9.4
       needs a real delivery path for it, not just the lookup/decision
-      routes. **Rule-4 category** (new customer-facing auth boundary). Full
-      spec: `codey_estimator_service.md` §4. Blocked on B9.2 (unblocked),
-      B9.3.
+      routes. Also folds in the still-open F1 fix
+      (`/api/v1/portal/estimates` → `CustomerEstimateView`, deferred
+      from B9.3). **Rule-4 category** (new customer-facing auth
+      boundary). Full spec: `codey_estimator_service.md` §4. **Blocked
+      on B9.2/B9.3, both done — unblocked (2026-09-29).**
 - [ ] **B9.5** — staff `/estimates` mobile-first surface (new
       `render_estimates_surface()`, not another `render_admin_surface()`
       tab): customer picker -> new estimate -> add-line sheet -> server-
       computed preview -> send. Manual pricing entry only this round (no
       `/pricing/search` until the pricing-tables phase). Full spec:
-      `codey_estimator_service.md` §5. Blocked on B9.3.
+      `codey_estimator_service.md` §5. **Blocked on B9.3, done —
+      unblocked (2026-09-29).**
 - [ ] **B9.6** — admin `Estimates` tab: list/filter/detail/version-diff/
       audit-timeline, cost columns gated by `PERM_READ_ESTIMATE_COSTS`. Full
-      spec: `codey_estimator_service.md` §6. Blocked on B9.3.
+      spec: `codey_estimator_service.md` §6. **Blocked on B9.3, done —
+      unblocked (2026-09-29).**
 - [ ] **B9.7** — quote portal migration (D8, already answered in
       `Codey-Estimator/docs/DECISIONS.md`, not actually open): remove the
       public $/sq-ft calculator from `render_quote_surface()`, replace with

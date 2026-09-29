@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -23,6 +24,7 @@ from ..auth import (
     PERM_MANAGE_USERS,
     PERM_READ_TEAM_COMMISSIONS,
     PERM_READ_TEAM_SALES_DATA,
+    PERM_WRITE_ESTIMATES,
     PERM_WRITE_SUBCONTRACTORS,
     PERMISSIONS_CATALOG,
     ROLE_CUSTOMER,
@@ -69,6 +71,7 @@ from ..services.business_ops_service import BusinessOpsService
 from ..services.commission_service import CommissionService
 from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService, ClaimConflictError
+from ..services.estimate_service import EstimateService
 from ..services.finance_service import FinanceService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
@@ -156,6 +159,35 @@ def _parse_int_body_field(json_body: Dict[str, Any], name: str, default: Optiona
         return int(raw)
     except (TypeError, ValueError):
         raise ValueError(f"Invalid '{name}' body field: {raw!r}")
+
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively convert a value into something `json.dumps` (called with
+    no `default=` at `server.py:131`, no custom encoder anywhere in this
+    codebase) can serialize -- needed for `EstimateService.preview()`'s
+    route (B9.3), whose return value is `codey_estimator.dto.EstimateResult`
+    itself (a frozen dataclass tree of `LineResult`/`LineInput`/
+    `MaterialInput`/etc.), not a `restoricon_core.models` dataclass with its
+    own `to_dict()`. `codey_estimator.dto`'s enums (`LineType`,
+    `LaborRateType`, `TaxMethod`, `DiscountKind`) are all `StrEnum` --
+    already `str` subclasses, so `json.dumps` handles them natively without
+    help here. The one real gap is `Decimal` (`LineInput.material.quantity`/
+    `package_qty`, `LaborInput.labor_qty`, `LineResult.qty_with_waste`),
+    which `json.dumps` raises `TypeError` on unconverted -- stringified here
+    (`str(Decimal)`), matching `codey_estimator.dto._format_quantity`'s own
+    string-not-float convention for exactly the same reason (float would
+    silently lose/misrepresent precision on a quantity value). Generic over
+    any dataclass tree -- reused as-is if this shape changes, not
+    estimate-specific logic re-implemented here."""
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return {f.name: _json_safe(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+    if isinstance(obj, Decimal):
+        return str(obj)
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    return obj
 
 
 def _emit_ai_chat_telemetry(
@@ -350,6 +382,7 @@ class APIRouter:
         commission_service: Optional[CommissionService] = None,
         assessment_service: Optional[AssessmentService] = None,
         territory_service: Optional[TerritoryService] = None,
+        estimate_service: Optional[EstimateService] = None,
     ):
         self.auth = auth_service
         self.crm = crm_service
@@ -378,6 +411,12 @@ class APIRouter:
         )
         self.assessments = assessment_service or AssessmentService(crm_service.db, audit_service)
         self.territories = territory_service or TerritoryService(crm_service.db, audit_service)
+        # B9.3: EstimateService only depends on db + audit (mirrors
+        # CRMService's own two-arg constructor) -- no cross-service sharing
+        # concern the way finance_service/commission_service have, so a
+        # lazy default here is equivalent to server.py's explicit
+        # construction, not a divergent second instance.
+        self.estimates = estimate_service or EstimateService(crm_service.db, audit_service)
         self.rate_limiter = rate_limiter or RateLimiter(max_requests=60, window_seconds=60)
 
     def handle_request(
@@ -1355,6 +1394,230 @@ class APIRouter:
                     estimate, customer, business_profile, compliance_items, package_options
                 )
                 return 200, {"Content-Type": "text/html; charset=utf-8"}, proposal_html
+
+            # -------------------------------------------------------------
+            # B9.3: EstimateService routes -- the NEW estimating-workflow
+            # domain (restoricon_core/services/estimate_service.py, B9.2),
+            # deliberately namespaced under /api/v1/estimator/estimates/...
+            # rather than /api/v1/estimates/... .
+            #
+            # codey_estimator_service.md §3's route table names this round's
+            # routes /api/v1/estimates/... and describes them as "replacing"
+            # the legacy blocks just above (Estimate(**json_body) / the
+            # legacy GET-by-id block) -- but that legacy Estimate/
+            # CRMService.create_estimate/get_estimate/list_estimates/
+            # update_estimate/send_estimate machinery is NOT dead code:
+            # the /proposal route and /api/v1/package-options both still
+            # read through it (confirmed above, and via
+            # web_surfaces.py:7234/7401's own JS calling the legacy paths),
+            # and it's covered by its own live test suite
+            # (test_b8_6c_contract_update_send_proposal.py,
+            # test_b8_4a_customer_360_and_property_panels.py). Colliding on
+            # the same path would either silently shadow one system behind
+            # the other in this linear if-chain (breaking whichever loses)
+            # or require unilaterally deciding to remove the legacy
+            # estimate CRM routes/proposal/package-options wiring as part
+            # of what this round's task brief scoped as an additive
+            # "wire the already-built service to routes" task -- neither is
+            # this round's call to make silently. Logged as NEW-718 rather
+            # than decided here; Ish's ruling needed on whether/when to
+            # formally retire the legacy Estimate model + its routes.
+            # -------------------------------------------------------------
+            if path == "/api/v1/estimator/estimates":
+                if method == "GET":
+                    qp = query_params
+                    cust_id_raw = qp.get("customer_id", [None])[0]
+                    proj_id_raw = qp.get("project_id", [None])[0]
+                    assigned_raw = qp.get("assigned_to_user_id", [None])[0]
+                    created_by_raw = qp.get("created_by_user_id", [None])[0]
+                    headers_list = self.estimates.list(
+                        actor,
+                        customer_id=_parse_int_query_param(qp, "customer_id", 0) if cust_id_raw else None,
+                        project_id=_parse_int_query_param(qp, "project_id", 0) if proj_id_raw else None,
+                        assigned_to_user_id=_parse_int_query_param(qp, "assigned_to_user_id", 0) if assigned_raw else None,
+                        created_by_user_id=_parse_int_query_param(qp, "created_by_user_id", 0) if created_by_raw else None,
+                        workflow_status=qp.get("workflow_status", [None])[0],
+                        date_from=qp.get("date_from", [None])[0],
+                        date_to=qp.get("date_to", [None])[0],
+                        q=qp.get("q", [None])[0],
+                        limit=_parse_int_query_param(qp, "limit", 50, minimum=1, maximum=1000),
+                        offset=_parse_int_query_param(qp, "offset", 0),
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"estimates": [h.to_dict() for h in headers_list]}
+                elif method == "POST":
+                    # Explicit field extraction (§0/§1.1's fix this codebase's
+                    # own spec doc names) -- create()'s signature has no
+                    # created_by_user_id/estimate_number/workflow_status
+                    # parameters at all, so there is no code path for a
+                    # client-supplied value of either to reach the row,
+                    # unlike the legacy Estimate(**json_body) route above.
+                    cust_id = _parse_int_body_field(json_body, "customer_id", None)
+                    if cust_id is None:
+                        raise ValueError("Missing required 'customer_id' body field")
+                    new_header = self.estimates.create(
+                        customer_id=cust_id,
+                        actor=actor,
+                        project_id=_parse_int_body_field(json_body, "project_id", None),
+                        opportunity_id=_parse_int_body_field(json_body, "opportunity_id", None),
+                        lead_id=_parse_int_body_field(json_body, "lead_id", None),
+                        property_id=_parse_int_body_field(json_body, "property_id", None),
+                        title=json_body.get("title"),
+                        terms=json_body.get("terms"),
+                        customer_notes=json_body.get("customer_notes"),
+                        expires_at=json_body.get("expires_at"),
+                        assigned_to_user_id=_parse_int_body_field(json_body, "assigned_to_user_id", None),
+                        tax_rate_bp=_parse_int_body_field(json_body, "tax_rate_bp", 0),
+                    )
+                    return 201, {"Content-Type": "application/json"}, {"estimate": new_header.to_dict()}
+
+            if (
+                path.startswith("/api/v1/estimator/estimates/")
+                and "/" not in path[len("/api/v1/estimator/estimates/"):]
+                and method == "GET"
+            ):
+                est_id = _parse_int_path_segment(path.split("/")[-1], "estimate_id")
+                include_lines = query_params.get("include_lines", ["false"])[0].lower() in ("true", "1")
+                header = self.estimates.get(est_id, actor, include_lines=include_lines)
+                if header is None:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                # EstimateHeader.to_dict() is dataclasses.asdict(self), which
+                # already recurses into header.lines (a List[EstimateLineItem])
+                # -- no separate line-serialization step needed here.
+                return 200, {"Content-Type": "application/json"}, {"estimate": header.to_dict()}
+
+            if (
+                path.startswith("/api/v1/estimator/estimates/")
+                and "/" not in path[len("/api/v1/estimator/estimates/"):]
+                and method == "PATCH"
+            ):
+                est_id = _parse_int_path_segment(path.split("/")[-1], "estimate_id")
+                updated_header = self.estimates.update_header(est_id, json_body, actor)
+                return 200, {"Content-Type": "application/json"}, {"estimate": updated_header.to_dict()}
+
+            if path.startswith("/api/v1/estimator/estimates/"):
+                sub_path = path[len("/api/v1/estimator/estimates/"):]
+
+                if sub_path.endswith("/lines") and method == "POST" and "/" not in sub_path[:-len("/lines")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/lines")], "estimate_id")
+                    new_line = self.estimates.add_line(est_id, json_body, actor)
+                    return 201, {"Content-Type": "application/json"}, {"line": new_line.to_dict()}
+
+                if sub_path.endswith("/lines/reorder") and method == "POST" and "/" not in sub_path[:-len("/lines/reorder")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/lines/reorder")], "estimate_id")
+                    ordered_ids_raw = json_body.get("ordered_line_ids", [])
+                    try:
+                        ordered_ids = [int(i) for i in ordered_ids_raw]
+                    except (TypeError, ValueError):
+                        raise ValueError(f"Invalid 'ordered_line_ids' body field: {ordered_ids_raw!r}")
+                    self.estimates.reorder_lines(est_id, ordered_ids, actor)
+                    return 200, {"Content-Type": "application/json"}, {"status": "ok"}
+
+                _lines_prefix, _sep, _line_id_str = sub_path.rpartition("/lines/")
+                if (
+                    _sep and _lines_prefix and "/" not in _lines_prefix and "/" not in _line_id_str
+                    and method in ("PATCH", "DELETE")
+                ):
+                    line_id = _parse_int_path_segment(_line_id_str, "line_id")
+                    if method == "PATCH":
+                        updated_line = self.estimates.update_line(line_id, json_body, actor)
+                        return 200, {"Content-Type": "application/json"}, {"line": updated_line.to_dict()}
+                    else:  # DELETE
+                        self.estimates.remove_line(line_id, actor)
+                        return 200, {"Content-Type": "application/json"}, {"deleted": True}
+
+                if sub_path.endswith("/revise") and method == "POST" and "/" not in sub_path[:-len("/revise")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/revise")], "estimate_id")
+                    new_version = self.estimates.revise(est_id, actor)
+                    return 200, {"Content-Type": "application/json"}, {"version": new_version.to_dict()}
+
+                if sub_path.endswith("/preview") and method == "GET" and "/" not in sub_path[:-len("/preview")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/preview")], "estimate_id")
+                    result = self.estimates.preview(est_id, actor)
+                    return 200, {"Content-Type": "application/json"}, {"preview": _json_safe(result)}
+
+                if sub_path.endswith("/claim") and method == "POST" and "/" not in sub_path[:-len("/claim")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/claim")], "estimate_id")
+                    try:
+                        claimed = self.estimates.claim(est_id, actor)
+                    except ClaimConflictError:
+                        return 409, {"Content-Type": "application/json"}, {"error": "already claimed"}
+                    if claimed is None:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                    return 200, {"Content-Type": "application/json"}, {"estimate": claimed.to_dict()}
+
+                if sub_path.endswith("/unclaim") and method == "POST" and "/" not in sub_path[:-len("/unclaim")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/unclaim")], "estimate_id")
+                    try:
+                        unclaimed = self.estimates.unclaim(est_id, actor)
+                    except ClaimConflictError:
+                        return 409, {"Content-Type": "application/json"}, {"error": "unclaim lost the race"}
+                    if unclaimed is None:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                    return 200, {"Content-Type": "application/json"}, {"estimate": unclaimed.to_dict()}
+
+                if sub_path.endswith("/reassign") and method == "POST" and "/" not in sub_path[:-len("/reassign")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/reassign")], "estimate_id")
+                    new_assignee = _parse_int_body_field(json_body, "assigned_to_user_id", None)
+                    if new_assignee is None:
+                        raise ValueError("Missing required 'assigned_to_user_id' body field")
+                    reassigned = self.estimates.reassign(est_id, new_assignee, actor)
+                    return 200, {"Content-Type": "application/json"}, {"estimate": reassigned.to_dict()}
+
+                if sub_path.endswith("/transition") and method == "POST" and "/" not in sub_path[:-len("/transition")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/transition")], "estimate_id")
+                    new_status = json_body.get("new_status") or json_body.get("to")
+                    if not new_status:
+                        raise ValueError("Missing required 'new_status' body field")
+                    transitioned = self.estimates.transition(
+                        est_id, new_status, actor, comment=json_body.get("comment")
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"estimate": transitioned.to_dict()}
+
+                if sub_path.endswith("/decisions") and method == "POST" and "/" not in sub_path[:-len("/decisions")]:
+                    # record_decision() is deliberately actor-less (§1.7 --
+                    # it also serves the unauthenticated public share-link
+                    # viewer, B9.4, not built yet) -- it takes no `actor`
+                    # parameter and performs NO permission check of its own,
+                    # writing its audit row with actor=None. Unlike every
+                    # other route in this file, this is NOT "duplicating a
+                    # check the service already makes" -- there is no
+                    # service-layer check to duplicate. Wiring this
+                    # authenticated staff-facing route to it without an
+                    # explicit gate here would let ANY Bearer-token holder
+                    # (technician, subcontractor, customer) accept/decline
+                    # ANY estimate id, firing the accept -> Contract
+                    # invariant with no attributable actor in the audit
+                    # trail. PERM_WRITE_ESTIMATES matches every other
+                    # estimate-mutation route's gate in this file and is
+                    # confirmed (auth.py's ROLE_PERMISSIONS map) NOT held by
+                    # ROLE_TECHNICIAN/ROLE_CUSTOMER/ROLE_SUBCONTRACTOR.
+                    # get() below additionally confirms the actor can at
+                    # least VIEW this specific estimate (its own
+                    # ownership-narrowing PermissionError/None-for-404), on
+                    # top of the blanket permission check -- mirrors
+                    # routes.py:758's own explicit-gate-before-side-effect
+                    # precedent (comment there explains the same shape of
+                    # exception to "the service already gates itself").
+                    est_id = _parse_int_path_segment(sub_path[:-len("/decisions")], "estimate_id")
+                    if not actor.has_permission(PERM_WRITE_ESTIMATES):
+                        raise PermissionError("Actor lacks permission to record estimate decisions")
+                    header = self.estimates.get(est_id, actor)
+                    if header is None:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                    if header.current_version_id is None:
+                        raise ValueError(f"Estimate {est_id} has no current version")
+                    decision_result = self.estimates.record_decision(
+                        estimate_version_id=header.current_version_id,
+                        decision=json_body.get("decision", ""),
+                        ip=client_ip,
+                        user_agent=headers_lower.get("user-agent", ""),
+                        signer_name=json_body.get("signer_name"),
+                        signature_data=json_body.get("signature_data"),
+                        comment=json_body.get("comment"),
+                        share_link_id=_parse_int_body_field(json_body, "share_link_id", None),
+                        customer_user_id=_parse_int_body_field(json_body, "customer_user_id", None),
+                    )
+                    return 201, {"Content-Type": "application/json"}, {"decision": decision_result.to_dict()}
 
             # Package Options (B8.6b, sales_rep_portal.md §B8.6)
             if path == "/api/v1/package-options":

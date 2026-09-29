@@ -17,6 +17,7 @@ import pytest
 from restoricon_core.auth import (
     AuthContext,
     AuthService,
+    PERM_READ_ESTIMATE_COSTS,
     ROLE_ADMIN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,
@@ -260,6 +261,65 @@ def test_preview_and_to_customer_view(env):
     for line in view["lines"]:
         assert forbidden_keys.isdisjoint(line.keys())
     assert view["total_cents"] == 13_000
+
+
+def test_preview_gates_cost_fields_without_permission(env):
+    """Code-review fix regression (Critical): `preview()` originally
+    returned the engine's raw `EstimateResult`/`LineResult` tree -- cost and
+    margin fields included -- to ANY actor holding `PERM_WRITE_ESTIMATES`,
+    with no `PERM_READ_ESTIMATE_COSTS` gate at all (unlike `get()`, which
+    correctly gates via `_attach_cost_fields()`/`_gate_line_cost_fields()`).
+
+    Every role in the actual permission matrix that holds
+    `PERM_WRITE_ESTIMATES` also holds `PERM_READ_ESTIMATE_COSTS` today
+    (confirmed by reading `auth.py`'s `ROLE_PERMISSIONS` directly -- no
+    role currently has one without the other), so this exercises the gate
+    the only way it's reachable: `custom_permissions` overriding the
+    creator's own role grant, exactly as an admin revoking just that one
+    permission for a specific user would (`AuthContext.has_permission()`
+    checks `custom_permissions` before falling back to the role).
+    """
+    svc = env["svc"]
+    actor = AuthContext(
+        env["sales"].user_id, env["sales"].username, ROLE_SALES, "human",
+        custom_permissions={PERM_READ_ESTIMATE_COSTS: False},
+    )
+    header = svc.create(customer_id=env["customer_id"], actor=actor)
+    svc.add_line(header.id, _material_line(), actor)
+
+    result = svc.preview(header.id, actor)
+
+    # Header-level cost/margin fields withheld.
+    assert result.material_cost_cents is None
+    assert result.labor_cost_cents is None
+    assert result.equipment_cost_cents is None
+    assert result.sub_cost_cents is None
+    assert result.cost_total_cents is None
+    assert result.gross_profit_cents is None
+    assert result.gross_margin_bp is None
+    assert result.markup_effective_bp is None
+    # Non-cost sell/tax totals still present -- gated, not gutted.
+    assert result.total_cents == 13_000
+    assert result.subtotal_sell_cents is not None
+
+    line = result.lines[0]
+    assert line.material_cost_cents is None
+    assert line.cost_total_cents is None
+    assert line.sell_total_cents is None
+    assert line.line_total_cents is not None  # customer still sees a coherent final charge
+
+    # The raw cost inputs are echoed back on `line.input.material` etc. --
+    # gating only the top-level computed fields and leaving the echoed
+    # input tree untouched would silently defeat the whole gate.
+    assert line.input.material.unit_cost_cents is None
+    assert line.input.material.material_markup_bp is None
+    assert line.input.override_reason is None
+
+    # Sanity: the same actor with cost-read permission sees the real values.
+    full_actor = env["sales"]
+    full_result = svc.preview(header.id, full_actor)
+    assert full_result.cost_total_cents is not None
+    assert full_result.lines[0].input.material.unit_cost_cents is not None
 
 
 def test_record_decision_requires_signer_name_on_accept(env, request):
