@@ -50,6 +50,28 @@ ALL_ROLES = {
     ROLE_SUBCONTRACTOR,
 }
 
+# B8.16 Phase 4 (NEW-680, 2026-09-29): the first place in this codebase
+# that codifies which roles are legitimate holders of a sales-attribution
+# user id (e.g. Customer.assigned_user_id / submit_work_order_intake's
+# salesperson_user_id). Verified directly: neither
+# CRMService.submit_work_order_intake nor CommissionService validates the
+# role behind an assigned_user_id today -- this constant doesn't change
+# that (out of scope here, logged separately as NEW-682), it only scopes
+# AuthService.list_salesperson_roster's read so the picker it powers
+# doesn't offer every active user in the system, just the roles this
+# business's sales/commission workflow already treats as real sales
+# attribution owners. ROLE_ADMIN/ROLE_MANAGER included because an
+# owner/manager legitimately sells jobs directly in this business, not
+# just ROLE_SALES/ROLE_SALES_MANAGER. Deliberately excludes
+# ROLE_PROJECT_MANAGER, ROLE_TECHNICIAN, ROLE_SUBCONTRACTOR, ROLE_CUSTOMER,
+# ROLE_AI_AGENT.
+SALES_ATTRIBUTION_ROLES = {
+    ROLE_ADMIN,
+    ROLE_MANAGER,
+    ROLE_SALES,
+    ROLE_SALES_MANAGER,
+}
+
 # Permissions
 PERM_READ_ALL_CUSTOMERS = "read:all_customers"
 PERM_WRITE_CUSTOMERS = "write:customers"
@@ -281,6 +303,23 @@ PERM_READ_OPERATIONS = "read:operations"
 PERM_WRITE_OPERATIONS = "write:operations"
 PERM_MANAGE_PROJECTS = "manage:projects"
 PERM_DISPATCH_WORK_ORDERS = "dispatch:work_orders"
+
+# B8.16 Phase 4 (NEW-680, 2026-09-29, Ish decision): a deliberately narrow
+# permission for AuthService.list_salesperson_roster -- returns ONLY
+# {id, name} pairs for users in SALES_ATTRIBUTION_ROLES below, never a
+# full User record (no email/phone/role/permissions). This exists
+# specifically so ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR can populate the
+# work-order-intake form's salesperson picker without holding
+# PERM_MANAGE_USERS, which would repeat the exact over-grant shape
+# code-reviewer already removed twice this phase (NEW-668/NEW-669: a
+# broad read grant handing an external party company-wide data). Not
+# reusing PERM_READ_TEAM_SALES_DATA -- that permission is treated as an
+# ownership-narrowing BYPASS by every B8.12a-era filter branch in
+# crm_service.py/operations_service.py (verified directly, not assumed),
+# so granting it here would hand technician/subcontractor actors
+# team-wide pipeline reads, a strictly worse over-grant than the numeric-
+# id input it replaces.
+PERM_READ_SALESPERSON_ROSTER = "read:salesperson_roster"
 
 # Phase B5a Domain Permissions
 PERM_READ_FINANCE = "read:finance"
@@ -538,6 +577,11 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_HR,
         PERM_WRITE_HR,
         PERM_READ_COMPLIANCE,
+        # NEW-680, B8.16 Phase 4: populates the work-order-intake form's
+        # salesperson picker -- id+name only, see PERM_READ_SALESPERSON_ROSTER's
+        # own definition above for why this is not PERM_MANAGE_USERS/
+        # PERM_READ_TEAM_SALES_DATA.
+        PERM_READ_SALESPERSON_ROSTER,
     },
     ROLE_AI_AGENT: {
         PERM_READ_ALL_CUSTOMERS,
@@ -647,6 +691,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_OPERATIONS,
         PERM_WRITE_OPERATIONS,
         PERM_LOG_COMMUNICATION,
+        # NEW-680, B8.16 Phase 4: same narrow salesperson-roster read as
+        # ROLE_TECHNICIAN above -- id+name only, needed for this role's
+        # own work-order-intake form.
+        PERM_READ_SALESPERSON_ROSTER,
     },
 }
 
@@ -755,6 +803,7 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_READ_OPERATIONS, "name": "Read Operations", "description": "View operations dashboard"},
             {"id": PERM_WRITE_OPERATIONS, "name": "Write Operations", "description": "Modify operational assets and equipment"},
             {"id": PERM_DISPATCH_WORK_ORDERS, "name": "Dispatch Work Orders", "description": "Assign and dispatch work orders"},
+            {"id": PERM_READ_SALESPERSON_ROSTER, "name": "Read Salesperson Roster", "description": "See a narrow id+name-only list of users in sales-attribution-eligible roles, for populating a salesperson picker -- not the full user roster (Manage Users)"},
         ],
     },
     "estimates_contracts": {
@@ -1221,6 +1270,46 @@ class AuthService:
                 )
             )
         return users
+
+    def list_salesperson_roster(self, actor_context: AuthContext) -> List[Dict[str, Any]]:
+        """NEW-680, B8.16 Phase 4: a deliberately narrow read for populating
+        the work-order-intake form's salesperson picker (requires
+        PERM_READ_SALESPERSON_ROSTER, held by ROLE_TECHNICIAN/
+        ROLE_SUBCONTRACTOR -- see that permission's own definition above
+        for why this isn't PERM_MANAGE_USERS or PERM_READ_TEAM_SALES_DATA).
+
+        Returns ONLY {"id": ..., "name": ...} pairs -- no email, phone,
+        role, or any other user field -- for active users
+        (`active = 1`) whose role is in SALES_ATTRIBUTION_ROLES. The
+        projection happens in this SQL SELECT itself (not by fetching full
+        User rows and trimming fields in a route handler), so there is no
+        later call site that could accidentally widen the response by
+        returning a fuller object.
+
+        `name` falls back to `username` when `full_name` is blank/NULL, so
+        a user is never silently omitted from the picker just because
+        their full_name wasn't set -- deliberate choice, not an oversight:
+        username is still not email/phone/role/any other user field, so it
+        does not violate this endpoint's "id+name only" contract, even
+        though it is a login identifier rather than a display name.
+        """
+        if not actor_context.has_permission(PERM_READ_SALESPERSON_ROSTER):
+            raise PermissionError("Actor lacks permission to read the salesperson roster")
+
+        ordered_roles = sorted(SALES_ATTRIBUTION_ROLES)
+        placeholders = ",".join("?" for _ in ordered_roles)
+        query = (
+            f"SELECT id, full_name, username FROM users "
+            f"WHERE active = 1 AND role IN ({placeholders}) "
+            f"ORDER BY full_name ASC, username ASC;"
+        )
+        conn = self.db.get_connection()
+        rows = conn.execute(query, tuple(ordered_roles)).fetchall()
+        roster: List[Dict[str, Any]] = []
+        for r in rows:
+            name = (r["full_name"] or "").strip() or r["username"]
+            roster.append({"id": r["id"], "name": name})
+        return roster
 
     def update_user(
         self,

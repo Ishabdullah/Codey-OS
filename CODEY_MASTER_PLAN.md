@@ -8156,12 +8156,48 @@ this file's own don't-duplicate rule.
       error on a child's own INSERT, and a narrower TOCTOU race where
       a subcontractor's existence/compliance can change between the
       pre-check's read and `dispatch_work_order`'s own later re-read
-      inside the children-creation loop. Phase 4
-      (the reusable paper-form-styled intake UI itself, gated to
-      technician+subcontractor roles only, submitting to
-      `submit_work_order_intake` — no HTTP route exists for it yet,
-      deliberately deferred to Phase 4 since the form doesn't exist
-      yet either); Phase 5 (Joy Clark's WO #351695937 backfilled
+      inside the children-creation loop.
+      **Phase 4 (intake form UI), DONE, code-reviewer APPROVED (round 2,
+      after two Critical fixes)** — `_render_work_order_intake_section()`
+      (`web_surfaces.py`): the paper-work-order-styled intake form
+      (customer info, sales attribution, diagnostic/service-call
+      fields, a repeatable line-items builder, Appointment Details),
+      gated at the Python call site so its markup is genuinely absent
+      from PM/sales/admin portal bytes, submitting to new route
+      `POST /api/v1/operations/work-order-intake` (thin wrapper over
+      Phase 2's `submit_work_order_intake`, unmodified). A second new
+      route, `GET /api/v1/operations/salesperson-roster`
+      (`AuthService.list_salesperson_roster`), was added mid-phase per
+      Ish's decision: rather than a raw numeric salesperson-id input,
+      built a deliberately narrow id+name-only endpoint behind a new
+      `PERM_READ_SALESPERSON_ROSTER` permission (rejected reusing
+      `PERM_MANAGE_USERS` — too broad — and `PERM_READ_TEAM_SALES_DATA`
+      — verified to be treated as an ownership-narrowing bypass
+      elsewhere in this codebase, which would have been a worse
+      over-grant), scoped to a new `SALES_ATTRIBUTION_ROLES` constant.
+      Round 1 review found two real Critical bugs, not style nits: the
+      line-item builder's `oninput` handler triggered a full
+      `tbody.innerHTML` re-render on every keystroke, destroying input
+      focus and making the form's primary text-entry interaction
+      unusable (fixed: edits now update only the derived total cells
+      in place, full re-render reserved for add/remove-row); and the
+      roster-load 401 handler called an undefined `logoutUser()`,
+      silently swallowed by the surrounding try/catch instead of
+      redirecting to login (fixed: matched this page's own actual
+      401 convention, `window.location.href = '/admin/login'`). Also
+      corrected `NEW-682`'s Impact wording (rule 6) after review traced
+      a concrete, real money-diversion path — `submit_work_order_intake`'s
+      unvalidated `salesperson_user_id` flows into `record_payment`'s
+      commission trigger with zero role check anywhere in
+      `commission_service.py`, so a technician naming their own user id
+      can have themselves paid a flat commission — understated in the
+      first draft as "correctness-only," corrected to lead with the
+      real risk. `NEW-680` (roster endpoint) and `NEW-682` (the
+      unvalidated-salesperson-id gap itself, deferred — Phase 2's
+      orchestrator wasn't to be touched this round) logged; `NEW-681`
+      (Service Call Fee stays note-only, not billed) resolved as
+      accepted per Ish's explicit decision, no code change.
+      **Phase 5** (Joy Clark's WO #351695937 backfilled
       directly via the service layer, not the form, since the job is
       already completed/paid — states the intake flow's DRAFT
       terminus can't express — with a live-verifier check that exactly

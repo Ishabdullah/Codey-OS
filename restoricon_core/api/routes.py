@@ -2915,6 +2915,47 @@ class APIRouter:
                     created_wo = self.operations.create_work_order(wo, actor)
                     return 201, {"Content-Type": "application/json"}, {"status": "created", "work_order": created_wo.to_dict()}
 
+            if path == "/api/v1/operations/salesperson-roster" and method == "GET":
+                # NEW-680, B8.16 Phase 4: narrow id+name-only read powering
+                # the work-order-intake form's salesperson picker (RBAC
+                # gated on PERM_READ_SALESPERSON_ROSTER inside
+                # AuthService.list_salesperson_roster itself, not repeated
+                # here). Deliberately NOT GET /api/v1/users, which requires
+                # PERM_MANAGE_USERS and returns full user records.
+                roster = self.auth.list_salesperson_roster(actor)
+                return 200, {"Content-Type": "application/json"}, {"salespeople": roster}
+
+            if path == "/api/v1/operations/work-order-intake" and method == "POST":
+                # B8.16 Phase 4: the technician/subcontractor-facing intake
+                # form's submit target. Thin translation layer only -- all
+                # real logic (customer/project find-or-create, elevated
+                # internal actor, commission-precedence interaction) lives
+                # in CRMService.submit_work_order_intake (Phase 2). The
+                # global `except PermissionError`/`except ValueError`
+                # handlers above turn a missing PERM_WRITE_OPERATIONS grant
+                # or a bad body field into a controlled 403/400.
+                salesperson_user_id = _parse_int_body_field(json_body, "salesperson_user_id", None)
+                if salesperson_user_id is None:
+                    raise ValueError("Missing required 'salesperson_user_id' body field")
+                property_address = (json_body.get("property_address") or "").strip()
+                if not property_address:
+                    # submit_work_order_intake's project find-or-create keys
+                    # on customer_id + property_address -- a blank address
+                    # would silently merge every address-less intake from
+                    # the same customer into one project.
+                    raise ValueError("Missing required 'property_address' body field")
+                intake_result = self.crm.submit_work_order_intake(
+                    actor,
+                    salesperson_user_id,
+                    json_body.get("customer_data") or {},
+                    property_address,
+                    json_body.get("work_order_data") or {},
+                    json_body.get("line_items") or [],
+                    reported_technician_name=json_body.get("reported_technician_name"),
+                    project_title=json_body.get("project_title"),
+                )
+                return 201, {"Content-Type": "application/json"}, {"status": "created", **intake_result}
+
             if (
                 path.startswith("/api/v1/operations/work-orders/")
                 and path.endswith("/dispatch")

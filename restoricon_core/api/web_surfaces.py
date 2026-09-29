@@ -5341,8 +5341,364 @@ def render_admin_surface() -> str:
 </body>
 </html>"""
 
+def _render_work_order_intake_section() -> str:
+    """B8.16 Phase 4: the reusable, paper-work-order-styled intake form
+    itself (customer info, sales attribution, diagnostic/service-call
+    fields, a repeatable line-items builder, Appointment Details),
+    submitting to POST /api/v1/operations/work-order-intake, which wraps
+    CRMService.submit_work_order_intake (Phase 2). Included verbatim (via
+    string interpolation, not f-string substitution) by
+    _render_staff_portal_base only when role_key is 'technician' or
+    'subcontractor' -- the gate is applied at the Python call site, not in
+    client-side JS, so the section's markup is genuinely absent from the
+    rendered bytes of every other role's portal (PM, sales, admin), not
+    merely hidden.
+
+    Deliberately a plain (non-f-string) string: every value in this form
+    is either static markup or filled in client-side from user input at
+    submit time -- there is no server-rendered dynamic value anywhere in
+    this section (no customer name, no salesperson name), so there is
+    nothing here for Python-side escaping to protect. The one place a
+    dynamic value DOES get rendered into the DOM is the client-side line
+    item row builder in the appended <script> block below, which escapes
+    every row's description through escapeHtml() (the same helper
+    _render_staff_portal_base's own script already defines) before
+    building the row's innerHTML, and never inlines a line-item object
+    into an onclick/oninput attribute -- the exact bug class NEW-661/664
+    fixed elsewhere in this file (see guidedSelectCustomer's own comment).
+
+    NEW-680 (2026-09-29, Ish decision): the salesperson field is a
+    <select> populated from GET /api/v1/operations/salesperson-roster
+    (AuthService.list_salesperson_roster), gated by the new, narrow
+    PERM_READ_SALESPERSON_ROSTER permission (held by ROLE_TECHNICIAN/
+    ROLE_SUBCONTRACTOR) rather than PERM_MANAGE_USERS -- see that
+    permission's own definition in auth.py for why PERM_MANAGE_USERS and
+    PERM_READ_TEAM_SALES_DATA were both considered and rejected (the
+    latter is treated as an ownership-narrowing bypass elsewhere in this
+    codebase, which would make it a worse over-grant than the numeric-id
+    input it replaces). The endpoint returns ONLY {id, name} pairs for
+    users in SALES_ATTRIBUTION_ROLES (never email/phone/role/any other
+    field). woiLoadSalespersonRoster() (below) fetches it on modal-open
+    and routes every returned name through escapeHtml() before building
+    each <option>'s innerHTML -- same discipline the line-item builder
+    already follows per NEW-661/664.
+
+    Known gap, also not resolved here: the Service Call Fee field folds
+    into `work_order_data` per this phase's spec (no dedicated WorkOrder
+    or Invoice column), which means it never reaches the invoice's billed
+    total -- it is recorded as a notes line, visible to whoever reads the
+    work order, but not billed. Making it bill would mean prefilling it
+    as an authoritative line-item row instead, which is a money-visible
+    behavior choice outside this sub-task's scope (Phase 2's orchestrator
+    is explicitly not to be modified here).
+    """
+    return """
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Work Order Intake</h2>
+            <p style="color:var(--text-muted);margin:0 0 1rem 0;">Submit a new service-call job -- customer, diagnostic, and appointment details. This goes to an admin as a DRAFT work order for dispatch.</p>
+            <button class="btn-gold" onclick="openWorkOrderIntakeModal()">+ New Work Order Intake</button>
+        </div>
+
+        <div id="woiModal" class="erp-modal-overlay">
+            <div class="erp-modal" style="max-width:700px;">
+                <div class="modal-header">
+                    <h3>Work Order Intake</h3>
+                    <button type="button" onclick="closeWorkOrderIntakeModal()" style="background:none;border:none;color:#94A3B8;font-size:1.5rem;cursor:pointer;">&times;</button>
+                </div>
+                <form onsubmit="submitWorkOrderIntake(event)">
+                    <h4>Customer</h4>
+                    <div class="modal-field"><label>First Name</label><input type="text" id="woiFirstName" required></div>
+                    <div class="modal-field"><label>Last Name</label><input type="text" id="woiLastName" required></div>
+                    <div class="modal-field"><label>Phone</label><input type="text" id="woiPhone"></div>
+                    <div class="modal-field"><label>Email</label><input type="email" id="woiEmail"></div>
+                    <div class="modal-field"><label>Service Address</label><input type="text" id="woiAddress" required></div>
+
+                    <h4>Sales Attribution</h4>
+                    <div class="modal-field">
+                        <label>Salesperson</label>
+                        <select id="woiSalespersonId" required>
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+
+                    <h4>Diagnostic / Service Call</h4>
+                    <div class="modal-field"><label>Trade / Service Type</label><input type="text" id="woiTrade" placeholder="e.g. plumbing, electrical, appliance repair"></div>
+                    <div class="modal-field"><label>Appliance / Equipment Type</label><input type="text" id="woiApplianceType"></div>
+                    <div class="modal-field"><label>Model / Serial Number</label><input type="text" id="woiModelSerial"></div>
+                    <div class="modal-field"><label>Issue Description</label><textarea id="woiIssueDescription" rows="3"></textarea></div>
+                    <div class="modal-field">
+                        <label>Leaking?</label>
+                        <select id="woiLeaking"><option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option></select>
+                    </div>
+                    <div class="modal-field"><label>Last Time Working</label><input type="date" id="woiLastTimeWorking"></div>
+                    <div class="modal-field"><label>Service Call Fee ($) -- recorded, not auto-billed; see line items below</label><input type="number" step="0.01" min="0" id="woiServiceCallFee"></div>
+
+                    <h4>Line Items</h4>
+                    <table style="width:100%;">
+                        <thead><tr><th>Description</th><th>Qty</th><th>Unit Cost</th><th>Total</th><th></th></tr></thead>
+                        <tbody id="woiLineItemsBody"></tbody>
+                    </table>
+                    <button type="button" class="btn-gold" style="margin-top:0.5rem;background:transparent;border:1px solid var(--bronze);color:var(--bronze);" onclick="woiAddLineItem()">+ Add Line Item</button>
+                    <div style="text-align:right;margin-top:0.5rem;font-weight:600;">Running Total (client-side estimate; server computes the authoritative total): $<span id="woiRunningTotal">0.00</span></div>
+
+                    <h4>Appointment Details</h4>
+                    <div class="modal-field"><label>Date</label><input type="date" id="woiApptDate"></div>
+                    <div class="modal-field"><label>Start Time</label><input type="time" id="woiApptStart"></div>
+                    <div class="modal-field"><label>End Time</label><input type="time" id="woiApptEnd"></div>
+                    <div class="modal-field">
+                        <label>Reported Technician Name (informational only -- actual assignment happens later via admin dispatch)</label>
+                        <input type="text" id="woiReportedTechName">
+                    </div>
+                    <div class="modal-field"><label>Reported Technician Phone (informational only)</label><input type="text" id="woiReportedTechPhone"></div>
+                    <div class="modal-field">
+                        <label>At Home?</label>
+                        <select id="woiAtHome"><option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option></select>
+                    </div>
+
+                    <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
+                        <button type="button" onclick="closeWorkOrderIntakeModal()" class="btn-gold" style="background:transparent;border:1px solid var(--card-border);color:#CBD5E1;">Cancel</button>
+                        <button type="submit" class="btn-gold">Submit Work Order</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            let woiLineItems = [];
+
+            function openWorkOrderIntakeModal() {
+                woiLineItems = [];
+                woiRenderLineItems();
+                woiLoadSalespersonRoster();
+                document.getElementById('woiModal').classList.add('active');
+            }
+
+            // NEW-680: populates the Sales Attribution <select> from the
+            // narrow id+name-only roster endpoint on every modal-open (not
+            // cached -- this form is opened rarely enough that a fresh
+            // fetch each time is simpler than a window.currentX cache, and
+            // guarantees a newly-added salesperson shows up immediately).
+            // Every returned name is routed through escapeHtml() before
+            // being placed in the <option>'s innerHTML -- same discipline
+            // NEW-661/664 established elsewhere in this file. On any
+            // fetch failure, the select is left with a single disabled-
+            // shaped placeholder option rather than silently reverting to
+            // an empty, submittable state -- required=true on the
+            // <select> then blocks submission with a clear reason instead
+            // of failing later with a confusing server-side error.
+            async function woiLoadSalespersonRoster() {
+                const sel = document.getElementById('woiSalespersonId');
+                sel.innerHTML = '<option value="">Loading...</option>';
+                try {
+                    const res = await fetch('/api/v1/operations/salesperson-roster', {
+                        headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+                    });
+                    if (res.status === 401) { window.location.href = '/admin/login'; return; }
+                    if (!res.ok) {
+                        sel.innerHTML = '<option value="">-- Failed to load, contact admin --</option>';
+                        return;
+                    }
+                    const data = await res.json();
+                    const roster = data.salespeople || [];
+                    sel.innerHTML = '<option value="">-- Select --</option>' +
+                        roster.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+                } catch (err) {
+                    sel.innerHTML = '<option value="">-- Failed to load, contact admin --</option>';
+                }
+            }
+            function closeWorkOrderIntakeModal() {
+                document.getElementById('woiModal').classList.remove('active');
+            }
+
+            function woiAddLineItem() {
+                woiLineItems.push({ description: '', quantity: 1, unit_cost: 0 });
+                woiRenderLineItems();
+            }
+
+            function woiRemoveLineItem(index) {
+                woiLineItems.splice(index, 1);
+                woiRenderLineItems();
+            }
+
+            // Mutates woiLineItems[index] in place and then updates ONLY
+            // the derived, non-input values (this row's own total <td>
+            // and the overall #woiRunningTotal span) via
+            // woiUpdateDerivedTotals -- deliberately does NOT call the
+            // full woiRenderLineItems() re-render. A full re-render
+            // replaces every row's DOM node via tbody.innerHTML, which
+            // destroys and recreates whichever <input> currently has
+            // focus/caret position; calling it on every keystroke (this
+            // function fires on every oninput) made typing a
+            // multi-character description or multi-digit quantity
+            // impossible (reviewer-caught regression). woiAddLineItem/
+            // woiRemoveLineItem still call the full woiRenderLineItems()
+            // below, since those genuinely change the row count and make
+            // every row index stale.
+            function woiUpdateLineItem(index, field, value) {
+                if (!woiLineItems[index]) return;
+                if (field === 'description') {
+                    woiLineItems[index].description = value;
+                } else {
+                    woiLineItems[index][field] = parseFloat(value) || 0;
+                }
+                woiUpdateDerivedTotals(index);
+            }
+
+            // Writes just the edited row's total <td> text content and
+            // the overall #woiRunningTotal span from the current
+            // woiLineItems array -- never touches/replaces any <input>
+            // element, unlike woiRenderLineItems()'s tbody.innerHTML
+            // full re-render.
+            function woiUpdateDerivedTotals(index) {
+                const tbody = document.getElementById('woiLineItemsBody');
+                const row = tbody.children[index];
+                const item = woiLineItems[index];
+                if (row && item) {
+                    const qty = Number(item.quantity) || 0;
+                    const unitCost = Number(item.unit_cost) || 0;
+                    const totalCell = row.children[3];
+                    if (totalCell) totalCell.textContent = '$' + (qty * unitCost).toFixed(2);
+                }
+                let runningTotal = 0;
+                woiLineItems.forEach(li => {
+                    runningTotal += (Number(li.quantity) || 0) * (Number(li.unit_cost) || 0);
+                });
+                document.getElementById('woiRunningTotal').textContent = runningTotal.toFixed(2);
+            }
+
+            // Re-renders the whole line-items table body from the held
+            // woiLineItems array on add/remove (only -- NOT on a single
+            // field edit, see woiUpdateLineItem above), so row indices
+            // used by woiUpdateLineItem/woiRemoveLineItem's onclick/oninput
+            // attributes never go stale against the array. Each row's
+            // description is passed through escapeHtml() before being
+            // placed in an HTML attribute -- never inlined as a raw string
+            // or a stringified object (see guidedSelectCustomer's own
+            // comment elsewhere in this file for the exact bug class this
+            // avoids: NEW-661/664, a customer name containing a quote
+            // breaking out of an inline onclick attribute). The running
+            // total displayed here is client-side convenience only; the
+            // server (create_work_order/create_invoice) always recomputes
+            // total_cost from quantity * unit_cost itself and never trusts
+            // a client-supplied total.
+            function woiRenderLineItems() {
+                const tbody = document.getElementById('woiLineItemsBody');
+                let runningTotal = 0;
+                tbody.innerHTML = woiLineItems.map((item, i) => {
+                    const qty = Number(item.quantity) || 0;
+                    const unitCost = Number(item.unit_cost) || 0;
+                    const total = qty * unitCost;
+                    runningTotal += total;
+                    return `<tr>
+                        <td><input type="text" value="${escapeHtml(item.description)}" oninput="woiUpdateLineItem(${i}, 'description', this.value)"></td>
+                        <td><input type="number" step="0.01" min="0" style="width:70px;" value="${qty}" oninput="woiUpdateLineItem(${i}, 'quantity', this.value)"></td>
+                        <td><input type="number" step="0.01" min="0" style="width:90px;" value="${unitCost}" oninput="woiUpdateLineItem(${i}, 'unit_cost', this.value)"></td>
+                        <td>$${total.toFixed(2)}</td>
+                        <td><button type="button" onclick="woiRemoveLineItem(${i})" style="background:none;border:none;color:#EF4444;cursor:pointer;">&times;</button></td>
+                    </tr>`;
+                }).join('');
+                document.getElementById('woiRunningTotal').textContent = runningTotal.toFixed(2);
+            }
+
+            async function submitWorkOrderIntake(e) {
+                e.preventDefault();
+                const salespersonId = parseInt(document.getElementById('woiSalespersonId').value, 10);
+                const address = document.getElementById('woiAddress').value.trim();
+                if (!salespersonId || !address) {
+                    alert('Salesperson and Service Address are required.');
+                    return;
+                }
+
+                const apptDate = document.getElementById('woiApptDate').value;
+                const apptStart = document.getElementById('woiApptStart').value;
+                const apptEnd = document.getElementById('woiApptEnd').value;
+                // Client-side-only combination of the appointment date +
+                // time-window inputs into ISO datetimes -- scheduled_start/
+                // scheduled_end are the only two WorkOrder columns the
+                // intake orchestrator passes through for appointment info
+                // (_INTAKE_WORK_ORDER_PASSTHROUGH_FIELDS in crm_service.py).
+                const scheduledStart = (apptDate && apptStart) ? (apptDate + 'T' + apptStart + ':00') : null;
+                const scheduledEnd = (apptDate && apptEnd) ? (apptDate + 'T' + apptEnd + ':00') : null;
+
+                const payload = {
+                    salesperson_user_id: salespersonId,
+                    property_address: address,
+                    customer_data: {
+                        first_name: document.getElementById('woiFirstName').value,
+                        last_name: document.getElementById('woiLastName').value,
+                        phone: document.getElementById('woiPhone').value || null,
+                        email: document.getElementById('woiEmail').value || null,
+                        service_address: address,
+                    },
+                    // Every key here without a dedicated WorkOrder column
+                    // (everything but trade/instructions/scheduled_start/
+                    // scheduled_end) is folded by the orchestrator into the
+                    // work order's notes as a labeled line, never dropped --
+                    // blank optional fields are sent as null (not ''), since
+                    // the orchestrator only skips None values, not empty
+                    // strings, when building those notes lines.
+                    work_order_data: {
+                        trade: document.getElementById('woiTrade').value || '',
+                        appliance_type: document.getElementById('woiApplianceType').value || null,
+                        model_serial_number: document.getElementById('woiModelSerial').value || null,
+                        issue_description: document.getElementById('woiIssueDescription').value || null,
+                        leaking: document.getElementById('woiLeaking').value || null,
+                        last_time_working: document.getElementById('woiLastTimeWorking').value || null,
+                        service_call_fee: document.getElementById('woiServiceCallFee').value || null,
+                        at_home: document.getElementById('woiAtHome').value || null,
+                        reported_technician_phone: document.getElementById('woiReportedTechPhone').value || null,
+                        scheduled_start: scheduledStart,
+                        scheduled_end: scheduledEnd,
+                    },
+                    line_items: woiLineItems
+                        .filter(item => (item.description || '').trim() || Number(item.quantity) || Number(item.unit_cost))
+                        .map(item => ({
+                            description: item.description,
+                            quantity: Number(item.quantity) || 0,
+                            unit_cost: Number(item.unit_cost) || 0,
+                        })),
+                    reported_technician_name: document.getElementById('woiReportedTechName').value || null,
+                };
+
+                try {
+                    const res = await fetch('/api/v1/operations/work-order-intake', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + getAuthToken(), 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert('Work order submitted (Work Order #' + data.work_order_id + ').');
+                        closeWorkOrderIntakeModal();
+                        document.querySelector('#woiModal form').reset();
+                        woiLineItems = [];
+                        woiRenderLineItems();
+                    } else {
+                        alert('Failed to submit work order: ' + (data.error || 'Unknown error'));
+                    }
+                } catch (err) {
+                    alert('Failed to submit work order: network error.');
+                }
+            }
+        </script>
+"""
+
+
 def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str) -> str:
-    """Base template for the focused staff portals (B6.8)."""
+    """Base template for the focused staff portals (B6.8).
+
+    B8.16 Phase 4: `intake_section` is computed here, at the Python call
+    site, from `role_key` -- 'technician'/'subcontractor' get the
+    Work Order Intake card+modal; every other role_key (project_manager,
+    sales) gets an empty string. This means the section's markup is
+    genuinely absent from the rendered HTML bytes of every non-gated
+    portal, not merely hidden by client-side JS (contrast with the
+    existing '{role_key}' === '...' string-embedded JS branching further
+    below in this same function, which only filters what data loads, not
+    whether the markup exists)."""
+    intake_section = (
+        _render_work_order_intake_section() if role_key in ("technician", "subcontractor") else ""
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5358,6 +5714,20 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
         table {{ width: 100%; border-collapse: collapse; }}
         th, td {{ padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-light); }}
         th {{ color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+        /* B8.16 Phase 4: Work Order Intake modal -- same erp-modal-overlay
+           / erp-modal / modal-header / modal-field pattern already
+           established in _render_sales_portal's own <style> block,
+           duplicated here for the same reason its own comment gives:
+           each surface in this file ships its own self-contained
+           <style>. */
+        .erp-modal-overlay {{ position: fixed; inset: 0; background: rgba(10, 25, 47, 0.85); display: none; align-items: center; justify-content: center; z-index: 3000; padding: 1.5rem; }}
+        .erp-modal-overlay.active {{ display: flex; }}
+        .erp-modal {{ background: white; color: var(--charcoal); border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }}
+        .modal-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }}
+        .modal-header h3 {{ margin: 0; font-size: 1.15rem; }}
+        .modal-field {{ margin-bottom: 0.85rem; }}
+        .modal-field label {{ display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.25rem; }}
+        .modal-field input, .modal-field select, .modal-field textarea {{ width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: 6px; font-size: 0.9rem; box-sizing: border-box; }}
     </style>
 </head>
 <body>
@@ -5386,6 +5756,8 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
                 <tbody id="myAssignmentsList"><tr><td colspan="4">Loading assignments...</td></tr></tbody>
             </table>
         </div>
+
+        {intake_section}
     </div>
 
     <script>
