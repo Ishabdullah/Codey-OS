@@ -2935,6 +2935,21 @@ class APIRouter:
 
             if (
                 path.startswith("/api/v1/operations/work-orders/")
+                and path.endswith("/split")
+                and path[len("/api/v1/operations/work-orders/"):-len("/split")]
+                and "/" not in path[len("/api/v1/operations/work-orders/"):-len("/split")]
+                and method == "POST"
+            ):
+                # B8.16 Phase 3: minimal route mirroring /dispatch above --
+                # no admin UI button exists for this yet (a later addition
+                # or Phase 4's territory).
+                wo_id = _parse_int_path_segment(path[len("/api/v1/operations/work-orders/"):-len("/split")], "wo_id")
+                splits = json_body.get("splits", [])
+                result = self.operations.split_work_order(wo_id, splits, actor)
+                return 200, {"Content-Type": "application/json"}, {"status": "split", **result}
+
+            if (
+                path.startswith("/api/v1/operations/work-orders/")
                 and path.endswith("/accept")
                 and path[len("/api/v1/operations/work-orders/"):-len("/accept")]
                 and "/" not in path[len("/api/v1/operations/work-orders/"):-len("/accept")]

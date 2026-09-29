@@ -103,6 +103,10 @@ class OperationsService:
             trade=row["trade"],
             assigned_subcontractor_id=row["assigned_subcontractor_id"] if "assigned_subcontractor_id" in keys else None,
             assigned_crew_lead=row["assigned_crew_lead"] if "assigned_crew_lead" in keys else None,
+            # B8.16 Phase 3: same "x in keys else None" guard as its
+            # neighbors (a pre-migration legacy DB row won't have this
+            # column yet).
+            parent_work_order_id=row["parent_work_order_id"] if "parent_work_order_id" in keys else None,
             scheduled_start=row["scheduled_start"] if "scheduled_start" in keys else None,
             scheduled_end=row["scheduled_end"] if "scheduled_end" in keys else None,
             actual_start=row["actual_start"] if "actual_start" in keys else None,
@@ -418,8 +422,14 @@ class OperationsService:
                 raise ValueError("Transition to in_progress requires at least one work order or a scheduled start date")
 
         elif target == ProjectStage.QUALITY_INSPECTION:
+            # B8.16 Phase 3: 'split' added to the terminal-for-this-purpose
+            # set -- a SPLIT parent's own line_items/total_cost are zeroed
+            # at write time (the work moved to its children), so it must
+            # never block this gate the way a still-open DRAFT/DISPATCHED/
+            # etc. work order legitimately does. See WorkOrderStatus.SPLIT's
+            # own docstring (models.py) for the full rationale.
             active_wos = conn.execute(
-                "SELECT id, status FROM work_orders WHERE project_id = ? AND status NOT IN ('completed', 'verified', 'cancelled');",
+                "SELECT id, status FROM work_orders WHERE project_id = ? AND status NOT IN ('completed', 'verified', 'cancelled', 'split');",
                 (project_id,),
             ).fetchall()
             if active_wos:
@@ -859,11 +869,12 @@ class OperationsService:
                 INSERT INTO work_orders (
                     work_order_number, title, project_id, trade,
                     assigned_subcontractor_id, assigned_crew_lead,
+                    parent_work_order_id,
                     scheduled_start, scheduled_end, actual_start, actual_end,
                     status, line_items_json, total_cost, instructions, notes,
                     dispatched_at, accepted_at, completed_at, verified_at,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     work_order.work_order_number,
@@ -872,6 +883,12 @@ class OperationsService:
                     work_order.trade.strip().lower(),
                     work_order.assigned_subcontractor_id,
                     work_order.assigned_crew_lead,
+                    # B8.16 Phase 3: only ever non-None when this INSERT is
+                    # reached via OperationsService.split_work_order (which
+                    # sets it on the in-memory WorkOrder before calling
+                    # create_work_order) -- every other caller constructs a
+                    # WorkOrder with the field left at its None default.
+                    work_order.parent_work_order_id,
                     work_order.scheduled_start,
                     work_order.scheduled_end,
                     work_order.actual_start,
@@ -999,11 +1016,19 @@ class OperationsService:
 
     def _query_active_work_orders_for_subcontractor(self, subcontractor_id: int) -> List[Dict[str, Any]]:
         """Unguarded query -- 'active' = non-terminal work_orders rows
-        assigned to this subcontractor. Terminal statuses
-        ('completed', 'verified', 'cancelled') come from
-        work_orders.status's own CHECK constraint (database.py) and match
-        the same NOT IN set this module already uses for the
-        QUALITY_INSPECTION stage-transition guard above. Shared,
+        assigned to this subcontractor. Terminal-for-this-purpose statuses
+        ('completed', 'verified', 'cancelled', 'split') match the same
+        NOT IN set this module already uses for the QUALITY_INSPECTION
+        stage-transition guard above -- NOT the full set of
+        work_orders.status's own CHECK constraint values (B8.16 Phase 3
+        correction: the CHECK constraint now has 8 values, including
+        'draft'/'dispatched'/etc which are very much non-terminal; 'split'
+        is included here despite the parent's own row still nominally
+        "belonging" to the subcontractor at split time, because a SPLIT
+        parent's line_items/total_cost are zeroed and the real remaining
+        work lives on its children -- a subcontractor being deleted with
+        only a SPLIT parent left on their record has no real outstanding
+        work order to block that delete on). Shared,
         unfiltered core for both the RBAC-gated public read
         (get_active_work_orders_for_subcontractor) and the subcontractor
         DELETE route's server-side re-check, so the two can never drift
@@ -1023,7 +1048,7 @@ class OperationsService:
         rows = conn.execute(
             "SELECT id, work_order_number, title, status, project_id FROM work_orders "
             "WHERE assigned_subcontractor_id = ? "
-            "AND status NOT IN ('completed', 'verified', 'cancelled');",
+            "AND status NOT IN ('completed', 'verified', 'cancelled', 'split');",
             (subcontractor_id,),
         ).fetchall()
         return [dict(row) for row in rows]
@@ -1067,6 +1092,18 @@ class OperationsService:
         if not work_order.id:
             raise ValueError("Work order ID is required for update")
 
+        # B8.16 Phase 3 round-2 fix (code-reviewer, 2026-09-29): the
+        # SPLIT-immutability checks (originally here, ahead
+        # of the ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR ownership branches below)
+        # were reordered to run AFTER those ownership/permission branches.
+        # Running them first was a new permission-oracle leak: a technician
+        # or subcontractor with no legitimate relationship to an arbitrary
+        # work order id could probe it and get back this method's
+        # SPLIT-specific ValueError (revealing the row exists and its
+        # split-status) instead of the PermissionError they should get for
+        # having no relationship to it at all. An actor must clear ownership
+        # first, same as before this round; only then is SPLIT-immutability
+        # relevant.
         if actor.role == ROLE_TECHNICIAN:
             conn = self.db.get_connection()
             row = conn.execute(
@@ -1101,6 +1138,36 @@ class OperationsService:
                 raise PermissionError(
                     "Subcontractor cannot reassign a work order's assigned_subcontractor_id"
                 )
+
+        # B8.16 Phase 3: SPLIT is only ever settable via
+        # OperationsService.split_work_order, never through this generic
+        # update -- and once a row IS split, it is immutable (its
+        # line_items/total_cost were deliberately zeroed; the real work
+        # lives on its children now). Both directions are guarded against
+        # the row's CURRENT status read fresh from the DB, same NEW-643
+        # discipline as the ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR ownership
+        # checks above -- never the caller-supplied (possibly stale) model
+        # field. Without the reject-going-in half, flipping a SPLIT
+        # parent's status back to e.g. DRAFT with line items restored would
+        # double-count it in get_project_summary's roll-up alongside its
+        # already-created children. Deliberately placed AFTER the
+        # ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR ownership branches above (see
+        # the round-2 fix note near the top of this method) so an actor without
+        # a legitimate relationship to this work order is rejected with
+        # PermissionError before ever reaching these row-existence-leaking
+        # checks.
+        conn = self.db.get_connection()
+        _current_status_row = conn.execute(
+            "SELECT status FROM work_orders WHERE id = ?;", (work_order.id,)
+        ).fetchone()
+        if _current_status_row and _current_status_row["status"] == WorkOrderStatus.SPLIT:
+            raise ValueError(
+                f"Work order #{work_order.id} has been split and can no longer be updated directly"
+            )
+        if work_order.status == WorkOrderStatus.SPLIT:
+            raise ValueError(
+                "status='split' can only be set via OperationsService.split_work_order"
+            )
 
         if work_order.line_items:
             total = 0.0
@@ -1315,6 +1382,60 @@ class OperationsService:
         matches.sort(key=lambda m: m["match_score"], reverse=True)
         return matches
 
+    def _check_subcontractor_compliance(
+        self,
+        sub_row,
+        subcontractor_id: int,
+        override_compliance: bool = False,
+        error_prefix: str = "",
+    ) -> bool:
+        """Shared DNC / COI-expiration / license-active compliance checks.
+
+        Extracted (NEW-679 round 3, code-reviewer 2026-09-29) so
+        dispatch_work_order and split_work_order's pre-write compliance
+        pre-check can never drift on what counts as "dispatchable" --
+        round 2 of NEW-679 only pre-checked subcontractor *existence*
+        before split_work_order's children-creation loop, leaving the
+        exact same reachable roll-up double-count (children created
+        before the parent is zeroed, see split_work_order's own
+        docstring) whenever a split entry named a real-but-noncompliant
+        subcontractor (DNC / expired COI / inactive license) instead of
+        a nonexistent id.
+
+        `sub_row` must already be a confirmed-existing `subcontractors`
+        row -- existence is intentionally checked separately by each
+        caller, since dispatch_work_order and split_work_order want
+        different wording for "no such subcontractor". Returns whether
+        compliance was overridden (only possible when
+        `override_compliance=True`, which split_work_order never
+        passes -- it has no override parameter of its own). Raises
+        ValueError with dispatch_work_order's own original wording,
+        with `error_prefix` prepended so split_work_order's caller can
+        still name the offending split entry and subcontractor id.
+        """
+        if sub_row["dnc_status"] == 1:
+            raise ValueError(f"{error_prefix}Subcontractor #{subcontractor_id} is on Do-Not-Contact list")
+
+        compliance_overridden = False
+        today_str = utc_now_iso()[:10]
+        coi_expiration = sub_row["coi_expiration"]
+        if coi_expiration and coi_expiration < today_str:
+            if not override_compliance:
+                raise ValueError(
+                    f"{error_prefix}Subcontractor #{subcontractor_id} compliance failure: "
+                    f"COI expired on {coi_expiration}"
+                )
+            compliance_overridden = True
+
+        if sub_row["license_required"] == 1:
+            license_status = (sub_row["license_status"] or "").strip().lower()
+            if license_status != "active" and not sub_row["license_number"]:
+                if not override_compliance:
+                    raise ValueError(f"{error_prefix}Subcontractor #{subcontractor_id} license is not active")
+                compliance_overridden = True
+
+        return compliance_overridden
+
     def dispatch_work_order(
         self,
         work_order_id: int,
@@ -1335,33 +1456,15 @@ class OperationsService:
         if not wo:
             raise ValueError(f"Work order #{work_order_id} not found")
         _before = wo.to_dict()
-        _compliance_overridden = False
 
         conn = self.db.get_connection()
         sub_row = conn.execute("SELECT * FROM subcontractors WHERE id = ?;", (subcontractor_id,)).fetchone()
         if not sub_row:
             raise ValueError(f"Subcontractor #{subcontractor_id} not found")
 
-        # Do-not-contact check
-        if sub_row["dnc_status"] == 1:
-            raise ValueError(f"Subcontractor #{subcontractor_id} is on Do-Not-Contact list")
-
-        # Compliance checks
-        today_str = utc_now_iso()[:10]
-        coi_expiration = sub_row["coi_expiration"]
-        if coi_expiration and coi_expiration < today_str:
-            if not override_compliance:
-                raise ValueError(
-                    f"Subcontractor #{subcontractor_id} compliance failure: COI expired on {coi_expiration}"
-                )
-            _compliance_overridden = True
-
-        if sub_row["license_required"] == 1:
-            license_status = (sub_row["license_status"] or "").strip().lower()
-            if license_status != "active" and not sub_row["license_number"]:
-                if not override_compliance:
-                    raise ValueError(f"Subcontractor #{subcontractor_id} license is not active")
-                _compliance_overridden = True
+        _compliance_overridden = self._check_subcontractor_compliance(
+            sub_row, subcontractor_id, override_compliance=override_compliance
+        )
 
         now = utc_now_iso()
         wo.assigned_subcontractor_id = subcontractor_id
@@ -1491,9 +1594,30 @@ class OperationsService:
         if new_status not in WorkOrderStatus.ALL_STATUSES:
             raise ValueError(f"Invalid work order status: {new_status}")
 
+        # B8.16 Phase 3: SPLIT is in ALL_STATUSES (it must be, to round-trip
+        # through get_work_order/list_work_orders/audit diffs) but is NOT a
+        # status this execution-lifecycle method may ever set -- it is only
+        # ever settable via OperationsService.split_work_order. Without
+        # this, any PERM_WRITE_OPERATIONS holder (e.g. ROLE_TECHNICIAN)
+        # could set status='split' on any work order they can otherwise
+        # touch, bypassing split_work_order's line-item partitioning and
+        # child-creation invariants entirely. See WorkOrderStatus.SPLIT's
+        # own docstring (models.py), which already documents this method as
+        # rejecting it.
+        if new_status == WorkOrderStatus.SPLIT:
+            raise ValueError(
+                "status='split' can only be set via OperationsService.split_work_order"
+            )
+
         wo = self.get_work_order(work_order_id, actor)
         if not wo:
             raise ValueError(f"Work order #{work_order_id} not found")
+        # B8.16 Phase 3: a SPLIT parent is immutable once split (its
+        # line_items/total_cost were deliberately zeroed; the real work
+        # lives on its children) -- same reject-the-current-row-too
+        # discipline as update_work_order's own SPLIT guard above.
+        if wo.status == WorkOrderStatus.SPLIT:
+            raise ValueError(f"Work order #{work_order_id} has been split and can no longer change status")
         _before = wo.to_dict()
 
         now = utc_now_iso()
@@ -1574,6 +1698,303 @@ class OperationsService:
         return self.update_work_order_execution_status(
             work_order_id, WorkOrderStatus.VERIFIED, actor, notes=notes
         )
+
+    def split_work_order(
+        self,
+        work_order_id: int,
+        splits: List[Dict[str, Any]],
+        actor: AuthContext,
+    ) -> Dict[str, Any]:
+        """B8.16 Phase 3 (2026-09-29): split one DRAFT work order into
+        multiple child work orders across different trades/techs/
+        subcontractors, e.g. when a single reported job actually needs
+        both drywall and plumbing dispatched to different subs.
+
+        Gate: PERM_DISPATCH_WORK_ORDERS -- same permission
+        dispatch_work_order already requires (verified against auth.py's
+        real grants, not assumed). Confirmed neither ROLE_TECHNICIAN nor
+        ROLE_SUBCONTRACTOR holds it (Phase 0b's grants), so this is
+        admin/manager/project_manager-only, same as dispatch itself. Every
+        role holding PERM_DISPATCH_WORK_ORDERS in ROLE_PERMISSIONS also
+        holds PERM_READ_OPERATIONS and (PERM_WRITE_OPERATIONS or
+        PERM_MANAGE_PROJECTS) (verified directly against auth.py, not
+        assumed) -- so, unlike Phase 2's submit_work_order_intake, this
+        method passes the real `actor` straight through to
+        get_work_order/create_work_order/dispatch_work_order below with no
+        scoped system actor needed; none of those roles is ROLE_TECHNICIAN
+        or ROLE_SUBCONTRACTOR either, so create_work_order's row-level
+        narrowing branches for those roles are never reached.
+
+        `splits`: a non-empty list of at least two dicts, each describing
+        one child work order:
+          - "trade" (required, non-empty str)
+          - "line_item_indices" (required, list of ints -- 0-based indices
+            into the PARENT's own `line_items` list, fetched fresh from the
+            DB below, never a caller-supplied line_items array). Every
+            index 0..len(parent.line_items)-1 must appear in EXACTLY one
+            split's indices -- this is a partition, not an arbitrary
+            subset selection: overlapping indices, an out-of-range index,
+            and an incomplete partition (indices left unassigned) are all
+            rejected. Line items are plain dicts with no id and are not
+            hashable/comparable for equality (two items can have identical
+            fields), so index-into-the-parent's-list is the only
+            unambiguous reference scheme.
+          - "assigned_subcontractor_id" (optional int) -- if present, the
+            child is dispatched immediately via dispatch_work_order (not
+            reimplemented here) instead of being left DRAFT/unassigned.
+            NOTE: WorkOrder has no `assigned_technician_user_id` field
+            (verified directly against models.py -- only
+            `assigned_subcontractor_id` and free-text
+            `assigned_crew_lead` exist), so technician-only assignment via
+            this call is not supported; report this task-spec discrepancy
+            rather than adding a new column.
+
+        Additionally rejects (all ValueError, before any write): the
+        parent not existing, the parent not being in DRAFT status (SPLIT
+        is only reachable from DRAFT -- see WorkOrderStatus.TRANSITIONS),
+        and the recomputed sum of every child's line items (same
+        qty * unit_cost logic create_work_order already applies, reused via
+        that call rather than reimplemented) not matching the parent's own
+        stored `total_cost` within a 1-cent float tolerance -- this is a
+        parent-row-internal-consistency check distinct from the partition
+        check above: create_work_order only recomputes `total_cost` when
+        `line_items` is non-empty, so a parent's stored `total_cost` can in
+        principle already disagree with its own line items; this method
+        refuses to silently redistribute an inconsistent total rather than
+        picking one of the two numbers to trust.
+
+        Ordering (NEW-675: this file has no wrapping-transaction mechanism
+        for multi-row orchestrations spanning multiple `with conn:` blocks,
+        same disclosed-not-fixed gap Phase 2 logged): children are created
+        (and dispatched, if requested) FIRST, the parent is zeroed LAST.
+        Zeroing the parent's line_items/total_cost is destructive and
+        irrecoverable (the original line items are gone once overwritten);
+        a mid-failure after that step with some children missing would
+        leave no way to reconstruct the split. Failing earlier (some
+        children created, parent still DRAFT with its original line items
+        intact) is visibly recoverable -- an operator can see the orphaned
+        children and either finish the split by hand or delete them and
+        retry -- BUT recoverable is not the same as roll-up-safe: until an
+        operator acts, the parent's still-unzeroed total_cost and the
+        already-created children's costs both count in
+        get_project_summary's roll-up simultaneously, double-counting it.
+        NEW-679 closes the two reachable causes of a mid-loop failure this
+        method's own validation can prevent (a nonexistent
+        assigned_subcontractor_id; a real-but-noncompliant one -- DNC,
+        expired COI, inactive license) by checking both up front, before
+        any child is created. The residual is narrower but not zero: a
+        subcontractor's existence/compliance state can still change in the
+        window between this method's pre-check read and
+        dispatch_work_order's own re-read inside the children-creation
+        loop (a genuine TOCTOU race), or a child's own INSERT can fail for
+        an unrelated DB-level reason -- both still land in this same
+        "some children created, parent not yet zeroed, roll-up
+        double-counted until an operator intervenes" state. See NEW-679's
+        NEW_ISSUES.md entry for the full detail.
+        """
+        if not actor.has_permission(PERM_DISPATCH_WORK_ORDERS):
+            raise PermissionError("Actor lacks permission to split work orders")
+
+        parent = self.get_work_order(work_order_id, actor)
+        if not parent:
+            raise ValueError(f"Work order #{work_order_id} not found")
+        if parent.status != WorkOrderStatus.DRAFT:
+            raise ValueError(
+                f"Work order #{work_order_id} must be in '{WorkOrderStatus.DRAFT}' status to be split "
+                f"(currently '{parent.status}')"
+            )
+
+        if not splits:
+            raise ValueError("splits cannot be empty")
+        if len(splits) < 2:
+            raise ValueError("A single-entry split is not a split -- use dispatch_work_order instead")
+
+        parent_item_count = len(parent.line_items)
+        if parent_item_count == 0:
+            raise ValueError(f"Work order #{work_order_id} has no line items to split")
+
+        seen_indices: Set[int] = set()
+        for i, entry in enumerate(splits):
+            trade = entry.get("trade")
+            if not trade or not str(trade).strip():
+                raise ValueError(f"splits[{i}] is missing a non-empty 'trade'")
+            indices = entry.get("line_item_indices")
+            if not indices:
+                raise ValueError(f"splits[{i}] is missing non-empty 'line_item_indices'")
+            for idx in indices:
+                if not isinstance(idx, int) or idx < 0 or idx >= parent_item_count:
+                    raise ValueError(
+                        f"splits[{i}] references line_item_indices index {idx!r}, "
+                        f"which does not exist on work order #{work_order_id} "
+                        f"(has {parent_item_count} line item(s))"
+                    )
+                if idx in seen_indices:
+                    raise ValueError(
+                        f"splits[{i}] line_item_indices overlap: index {idx} is claimed by more than one split"
+                    )
+                seen_indices.add(idx)
+
+        if seen_indices != set(range(parent_item_count)):
+            missing = sorted(set(range(parent_item_count)) - seen_indices)
+            raise ValueError(
+                f"splits must partition ALL of work order #{work_order_id}'s line items "
+                f"-- index(es) {missing} are not claimed by any split"
+            )
+
+        # Parent-row-internal-consistency check: recompute what each child's
+        # total_cost WOULD be (same qty * unit_cost logic create_work_order
+        # applies below) and confirm the sum matches the parent's own
+        # stored total_cost within a 1-cent tolerance, before writing
+        # anything.
+        recomputed_total = 0.0
+        for entry in splits:
+            for idx in entry["line_item_indices"]:
+                item = parent.line_items[idx]
+                qty = float(item.get("quantity", 1.0))
+                unit_cost = float(item.get("unit_cost", 0.0))
+                recomputed_total += round(qty * unit_cost, 2)
+        recomputed_total = round(recomputed_total, 2)
+        if abs(recomputed_total - round(parent.total_cost, 2)) > 0.01:
+            raise ValueError(
+                f"Work order #{work_order_id}'s line items recompute to {recomputed_total}, "
+                f"which does not match its stored total_cost of {parent.total_cost} -- "
+                "refusing to split an internally inconsistent work order"
+            )
+
+        # NEW-679 fix (round 3, code-reviewer 2026-09-29): validate every
+        # splits[i]["assigned_subcontractor_id"] (when provided) refers to a
+        # real, DISPATCHABLE subcontractor -- existing AND not DNC AND
+        # compliant on COI/license -- BEFORE creating any child work order
+        # below. dispatch_work_order (reused per-entry in the
+        # children-creation loop) already raises ValueError on any of these,
+        # but that check happens per-entry, DURING the loop -- by the time it
+        # fires on e.g. the 2nd of 3 split entries, the 1st entry's child has
+        # already been created and committed, and the parent has not yet
+        # been zeroed (children-first-parent-last is deliberate, see this
+        # method's own docstring), which permanently double-counts the
+        # parent's cost against the already-committed first child. Round 2
+        # of this fix only pre-checked existence, leaving the exact same
+        # reachable double-count whenever a split named a real-but-
+        # noncompliant subcontractor (DNC / expired COI / inactive license)
+        # instead of a nonexistent id (live-reproduced by the reviewer with
+        # a DNC subcontractor on a later split entry). Checking existence
+        # AND compliance for every entry up front, before any write, closes
+        # that reachable roll-up double-count for both rejection classes.
+        # The compliance checks are shared with dispatch_work_order via
+        # _check_subcontractor_compliance so the two can never drift on what
+        # counts as "dispatchable"; split_work_order has no override
+        # mechanism of its own, so override_compliance is always False here
+        # -- same as the per-entry dispatch_work_order call further below,
+        # which also never passes override_compliance.
+        conn = self.db.get_connection()
+        for i, entry in enumerate(splits):
+            assigned_subcontractor_id = entry.get("assigned_subcontractor_id")
+            if assigned_subcontractor_id is None:
+                continue
+            sub_row = conn.execute(
+                "SELECT * FROM subcontractors WHERE id = ?;", (assigned_subcontractor_id,)
+            ).fetchone()
+            if not sub_row:
+                raise ValueError(
+                    f"splits[{i}] references assigned_subcontractor_id "
+                    f"{assigned_subcontractor_id}, which does not exist"
+                )
+            self._check_subcontractor_compliance(
+                sub_row,
+                assigned_subcontractor_id,
+                override_compliance=False,
+                error_prefix=(
+                    f"splits[{i}] references assigned_subcontractor_id "
+                    f"{assigned_subcontractor_id}, but "
+                ),
+            )
+
+        children: List[WorkOrder] = []
+        for entry in splits:
+            child_line_items = [dict(parent.line_items[idx]) for idx in entry["line_item_indices"]]
+            child = self.create_work_order(
+                WorkOrder(
+                    title=f"{parent.title} (split: {str(entry['trade']).strip()})",
+                    project_id=parent.project_id,
+                    trade=str(entry["trade"]).strip(),
+                    line_items=child_line_items,
+                    parent_work_order_id=parent.id,
+                    status=WorkOrderStatus.DRAFT,
+                ),
+                actor,
+            )
+            assigned_subcontractor_id = entry.get("assigned_subcontractor_id")
+            if assigned_subcontractor_id is not None:
+                # Reuses dispatch_work_order's own compliance checks/
+                # assignment logic rather than reimplementing them.
+                child = self.dispatch_work_order(child.id, assigned_subcontractor_id, actor)
+            children.append(child)
+
+        _before = parent.to_dict()
+        now = utc_now_iso()
+        # B8.16 Phase 3 round-2 fix (code-reviewer, 2026-09-29) / mirrors
+        # NEW-631/NEW-632's claim-race idiom
+        # (crm_service.py's `WHERE id = ? AND assigned_user_id IS NULL` +
+        # rowcount check): this final UPDATE is the parent-zeroing write
+        # that follows children-creation above. Two concurrent
+        # split_work_order calls on the same parent could both pass the
+        # earlier DRAFT-status validation read (both read before either
+        # writes), both create their own full set of children, and then
+        # both attempt to zero the same parent -- a permanent double-count.
+        # `AND status = 'draft'` plus a rowcount check closes that specific
+        # TOCTOU window on this write; on the losing call, its
+        # already-created children are left orphaned, an accepted
+        # consequence of NEW-675's no-wrapping-transaction gap (not fixed
+        # here -- out of scope for this concurrency guard).
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                UPDATE work_orders SET
+                    status = ?,
+                    line_items_json = ?,
+                    total_cost = ?,
+                    updated_at = ?
+                WHERE id = ? AND status = 'draft';
+                """,
+                (WorkOrderStatus.SPLIT, json.dumps([]), 0.0, now, work_order_id),
+            )
+        if cursor.rowcount == 0:
+            # ValueError, not RuntimeError -- matches every other rejection
+            # in this method (and the whole file's convention: the API
+            # layer's top-level handler maps ValueError to a clean 400/409,
+            # while an uncaught RuntimeError falls through to the generic
+            # `except Exception` -> 500 (restoricon_core/api/routes.py's
+            # split endpoint has no dedicated except clause of its own).
+            raise ValueError(
+                f"Work order #{work_order_id} was split by a concurrent request "
+                "-- this call's children were created but the parent could not "
+                "be claimed"
+            )
+
+        _after = self.get_work_order(work_order_id, actor)
+        self.audit.log(
+            action="work_order_split",
+            entity_type="work_order",
+            entity_id=work_order_id,
+            change_summary=(
+                f"Split work order {parent.work_order_number} into "
+                f"{len(children)} child work order(s): "
+                f"{', '.join(c.work_order_number for c in children)}"
+            ),
+            actor=actor,
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+                fields=_AUDITABLE_WORK_ORDER_FIELDS,
+                side_effects={"child_work_order_ids": [c.id for c in children]},
+            ),
+        )
+
+        return {
+            "parent": _after.to_dict() if _after else None,
+            "children": [c.to_dict() for c in children],
+        }
 
     # ==========================================
     # EQUIPMENT & RESOURCE TRACKING

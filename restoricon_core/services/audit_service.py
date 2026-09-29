@@ -91,7 +91,9 @@ _AUDITABLE_PROJECT_FIELDS = frozenset({
 # to_dict key), not the `line_items_json` column.
 _AUDITABLE_WORK_ORDER_FIELDS = frozenset({
     "id", "work_order_number", "title", "project_id", "trade",
-    "assigned_subcontractor_id", "assigned_crew_lead", "scheduled_start",
+    "assigned_subcontractor_id", "assigned_crew_lead",
+    "parent_work_order_id",  # B8.16 Phase 3
+    "scheduled_start",
     "scheduled_end", "actual_start", "actual_end", "status", "line_items",
     "total_cost", "instructions", "notes", "dispatched_at", "accepted_at",
     "completed_at", "verified_at", "created_at", "updated_at",

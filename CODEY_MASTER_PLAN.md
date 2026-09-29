@@ -8032,13 +8032,131 @@ this file's own don't-duplicate rule.
       untraceable rows; disclosed as possibly consistent with this
       file's existing style, not confirmed, deferred) all logged, not
       fixed, per rule 8.
-      **Not yet started:** Phase 3 (admin appoint/split — one work
-      order can be split into multiple child work orders across
-      different techs/subcontractors, admin-gated via
-      `PERM_DISPATCH_WORK_ORDERS`; advisor flagged the architect's
-      original `CANCELLED`-parent design as audit-destroying and
-      roll-up-breaking — needs a non-terminal `SPLIT` status and a
-      fixed, filtered roll-up instead, not yet implemented); Phase 4
+      **Phase 3 (admin split), DONE 2026-09-29, code-complete + full
+      suite green (1333 passed, round 3), code-reviewer round 3
+      pending re-verification** —
+      one DRAFT work order can be split into 2+ child work orders
+      across different trades/subcontractors, admin-gated via
+      `PERM_DISPATCH_WORK_ORDERS`. `WorkOrderStatus.SPLIT` (a
+      non-terminal status distinct from `CANCELLED`, per advisor's
+      original flag that a `CANCELLED`-parent design would be
+      audit-destroying and roll-up-breaking) added to `ALL_STATUSES`/
+      `TRANSITIONS` (`DRAFT -> SPLIT` only); `WorkOrder.
+      parent_work_order_id` (FK-less, immutable-by-construction)
+      added. `OperationsService.split_work_order(work_order_id,
+      splits, actor)`: fetches the parent fresh from the DB (never
+      trusts a caller-supplied line_items array), requires `splits` to
+      fully PARTITION the parent's own `line_items` by index (no
+      overlap, no gap, no out-of-range index — line items are
+      unhashable plain dicts, so index-into-the-parent's-list is the
+      only unambiguous reference scheme) and the recomputed subset sum
+      to match the parent's stored `total_cost` within a 1-cent
+      tolerance (refuses to split an internally-inconsistent parent
+      row rather than silently redistributing). Each child is created
+      via `create_work_order` (reusing its existing cost-computation,
+      not reimplementing it) with `parent_work_order_id` set and, if
+      an entry specified `assigned_subcontractor_id`, immediately
+      dispatched via `dispatch_work_order` (reusing its compliance
+      checks, not reimplemented). Children created first, parent
+      zeroed (`status=SPLIT`, `line_items=[]`, `total_cost=0.0`) last
+      — the zeroing step is destructive/irrecoverable, so ordering it
+      last keeps a mid-failure state visibly recoverable (`NEW-675`'s
+      no-wrapping-transaction gap, disclosed not fixed, same as
+      Phase 2). Schema: `work_orders.status`'s inline `CHECK`
+      constraint (verified present by reading the DDL directly, not
+      assumed) required the same full-table-rebuild migration Phase 0b
+      established for `users.role` — `_migrate_work_orders_status_
+      constraint()` mirrors that method's never-rename-the-real-table
+      procedure exactly, live-tested against a scratch pre-Phase-3 DB
+      file with real rows in both FK-referencing child tables
+      (`equipment_deployments`, `timesheets` — both `ON DELETE SET
+      NULL`) — confirmed data preserved, children's `REFERENCES
+      work_orders(...)` DDL untouched, `PRAGMA foreign_key_check`
+      clean, idempotent re-open (rule 12, not just reasoned about
+      against the in-memory fresh-schema suite). Two integrity holes
+      the new `SPLIT` value opened were also closed this round (found
+      via advisor review before writing, not after): `create_work_
+      order`'s INSERT was missing `parent_work_order_id` entirely (a
+      NEW-259-shaped silent-no-op risk) and `_row_to_work_order`
+      didn't read it back — both fixed and covered by a test that
+      round-trips through `get_work_order`, not the object returned
+      from the create call; `update_work_order`/`update_work_order_
+      execution_status` had no guard against `status='split'` being
+      set by any `PERM_WRITE_OPERATIONS` holder outside
+      `split_work_order`, or against further-mutating an already-SPLIT
+      row (both now raise `ValueError`). The two `status NOT IN
+      (...)` "active work order" queries (`QUALITY_INSPECTION`
+      stage-transition guard, `_query_active_work_orders_for_
+      subcontractor`) were widened to also treat `'split'` as
+      terminal-for-that-purpose, matching the doc comment's claim.
+      Verified directly (not assumed): `get_project_summary`'s cost
+      roll-up (`sum(wo.total_cost for wo in work_orders)`, unfiltered
+      by status) is naturally correct post-split with zero additional
+      filtering — the SPLIT parent contributes `0.0` and its children
+      contribute their real costs, summing back to the original total;
+      covered by a regression test comparing the roll-up before vs.
+      after a split. Also verified `Invoice` has `customer_id`/
+      `project_id` and no `work_order_id` column, so Phase 2's one
+      invoice per job is completely unaffected by a later split.
+      Minimal `POST /api/v1/operations/work-orders/{id}/split` route
+      added mirroring `/dispatch`; no admin UI button yet (Phase 4/a
+      later addition). 16 new tests (round 1) in
+      `tests/test_restoricon_core/test_b8_16_phase3_split_work_order.py`
+      (valid split, roll-up regression, six rejection cases, RBAC x3,
+      both SPLIT-immutability guards, invoice-unaffected, migration
+      against a legacy DB with data). `NEW-676` (SPLIT parent inflates
+      `get_project_summary`'s work-order count denominator, cosmetic),
+      `NEW-677` (`dispatch_work_order`/`accept_work_order` have no
+      SPLIT-specific guard, consistent with their pre-existing
+      no-status-precondition permissiveness for every other status,
+      not a novel gap), and `NEW-678` (task spec's
+      `assigned_technician_user_id` doesn't exist on `WorkOrder` —
+      subcontractor-only assignment support, not a bug) logged, not
+      fixed, per rule 8.
+      **Round 2 fixes (code-reviewer, same day):** three findings from
+      the round-1 review, all fixed and re-verified: (1) `NEW-679`'s
+      existence-only half — `split_work_order` had no up-front check
+      that every `splits[i]["assigned_subcontractor_id"]` refers to a
+      real subcontractor, so a bad id on a later split entry left an
+      earlier entry's already-committed child permanently
+      double-counted against the still-unzeroed parent (live-reproduced
+      by the reviewer: `total_cost` went from `500.0` to `1000.0`) — a
+      pre-write existence-validation pass over every entry, before the
+      children-creation loop, closed it; (2) `update_work_order`'s
+      SPLIT-immutability guard read the row's current status AFTER its
+      own permission-oracle checks instead of before, an ordering bug
+      the reviewer flagged as its own narrow permission-oracle-order
+      concern, reordered to check-status-first; (3) a concurrency guard
+      (`AND status = 'draft'` + rowcount check, mirroring `NEW-631`/
+      `NEW-632`'s claim-race idiom from `crm_service.py`) added on the
+      final parent-zeroing UPDATE, closing a TOCTOU window where two
+      concurrent `split_work_order` calls on the same parent could both
+      pass the earlier DRAFT-status read and both attempt to zero the
+      same row.
+      **Round 3 fix (code-reviewer, same day):** `NEW-679`'s
+      compliance-path half — round 2's existence pre-check didn't cover
+      `dispatch_work_order`'s other rejection reasons (DNC status,
+      expired COI, inactive license), so the identical roll-up
+      double-count was still reachable via a split entry naming a
+      real-but-noncompliant subcontractor (live-reproduced by the
+      reviewer with a `dnc_status=1` subcontractor on a later split
+      entry). Fixed by extracting `dispatch_work_order`'s DNC/COI/
+      license checks into a new shared private helper,
+      `OperationsService._check_subcontractor_compliance`, called both
+      by `dispatch_work_order` itself and by `split_work_order`'s
+      pre-check loop (now also covering compliance, not just
+      existence) — so the two paths can never drift on what counts as
+      "dispatchable." 1 more test added this round (20 total in
+      `test_b8_16_phase3_split_work_order.py` — 16 from round 1, 3 from
+      round 2's own three fixes, 1 from this round); full suite 1333
+      passed.
+      `NEW-679`'s ledger entry updated to reflect both rounds are now
+      closed, with two residuals still explicitly open under
+      `NEW-675`'s no-wrapping-transaction gap: a genuine mid-loop DB
+      error on a child's own INSERT, and a narrower TOCTOU race where
+      a subcontractor's existence/compliance can change between the
+      pre-check's read and `dispatch_work_order`'s own later re-read
+      inside the children-creation loop. Phase 4
       (the reusable paper-form-styled intake UI itself, gated to
       technician+subcontractor roles only, submitting to
       `submit_work_order_intake` — no HTTP route exists for it yet,

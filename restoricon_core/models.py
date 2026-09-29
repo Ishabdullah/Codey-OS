@@ -351,17 +351,31 @@ class WorkOrderStatus:
     COMPLETED = "completed"
     VERIFIED = "verified"
     CANCELLED = "cancelled"
+    # B8.16 Phase 3: a non-terminal status distinct from CANCELLED (see
+    # OperationsService.split_work_order's docstring for why CANCELLED was
+    # explicitly rejected as this phase's original design -- the job is
+    # still proceeding, just divided across child work orders). A SPLIT
+    # parent's own line_items/total_cost are zeroed at write time (the work
+    # moved to its children), so it is intentionally treated like a
+    # terminal status by every "active work order" query in
+    # operations_service.py (the QUALITY_INSPECTION transition guard and
+    # the subcontractor active-work-orders query) even though the project
+    # as a whole is still live. Settable ONLY via
+    # OperationsService.split_work_order -- update_work_order_execution_
+    # status explicitly rejects it (see that method).
+    SPLIT = "split"
 
-    ALL_STATUSES = {DRAFT, DISPATCHED, ACCEPTED, IN_PROGRESS, COMPLETED, VERIFIED, CANCELLED}
+    ALL_STATUSES = {DRAFT, DISPATCHED, ACCEPTED, IN_PROGRESS, COMPLETED, VERIFIED, CANCELLED, SPLIT}
 
     TRANSITIONS: Dict[str, List[str]] = {
-        DRAFT: [DISPATCHED, CANCELLED],
+        DRAFT: [DISPATCHED, CANCELLED, SPLIT],
         DISPATCHED: [ACCEPTED, DRAFT, CANCELLED],  # Returning to draft on sub rejection
         ACCEPTED: [IN_PROGRESS, DISPATCHED, CANCELLED],
         IN_PROGRESS: [COMPLETED, CANCELLED],
         COMPLETED: [VERIFIED, IN_PROGRESS],  # Can be rejected back to in_progress during QA
         VERIFIED: [],
         CANCELLED: [],
+        SPLIT: [],
     }
 
 
@@ -386,6 +400,13 @@ class WorkOrder:
     trade: str = ""  # e.g. "mitigation", "drywall", "plumbing", "electrical", "flooring", "paint"
     assigned_subcontractor_id: Optional[int] = None
     assigned_crew_lead: Optional[str] = None
+    # B8.16 Phase 3: FK-less ref to the parent WorkOrder this row was split
+    # from (same "loosely-linked, additive ALTER TABLE ADD COLUMN" pattern
+    # as Invoice.assigned_user_id/Contract.assigned_user_id above), NOT a
+    # real FOREIGN KEY -- only populated on a child created by
+    # OperationsService.split_work_order. Immutable by construction: never
+    # written by update_work_order's UPDATE (same treatment as project_id).
+    parent_work_order_id: Optional[int] = None
     scheduled_start: Optional[str] = None
     scheduled_end: Optional[str] = None
     actual_start: Optional[str] = None

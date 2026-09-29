@@ -849,11 +849,25 @@ CREATE TABLE IF NOT EXISTS work_orders (
     trade TEXT NOT NULL,
     assigned_subcontractor_id INTEGER,
     assigned_crew_lead TEXT,
+    -- B8.16 Phase 3: FK-less ref to the parent work order this row was
+    -- split from -- see WorkOrder.parent_work_order_id's own docstring
+    -- (models.py) for why this is not a real FOREIGN KEY. Additive on a
+    -- legacy DB via _migrate_schema()'s ALTER TABLE ADD COLUMN list below.
+    parent_work_order_id INTEGER,
     scheduled_start TEXT,
     scheduled_end TEXT,
     actual_start TEXT,
     actual_end TEXT,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'dispatched', 'accepted', 'in_progress', 'completed', 'verified', 'cancelled')),
+    -- B8.16 Phase 3 (2026-09-29): widened to add 'split', a non-terminal
+    -- status distinct from 'cancelled' for a work order divided into child
+    -- work orders (see OperationsService.split_work_order). SQLite cannot
+    -- ALTER a CHECK constraint in place -- a legacy DB's copy is widened by
+    -- _migrate_work_orders_status_constraint() below via the same
+    -- never-rename-the-real-table full-rebuild procedure
+    -- _migrate_users_role_constraint() established (D2, sales_rep_portal.md
+    -- §4). Keep this list and _WORK_ORDERS_TABLE_WIDENED_STATUS_SQL's copy
+    -- in sync.
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'dispatched', 'accepted', 'in_progress', 'completed', 'verified', 'cancelled', 'split')),
     line_items_json TEXT NOT NULL DEFAULT '[]',
     total_cost REAL NOT NULL DEFAULT 0.0,
     instructions TEXT,
@@ -1549,6 +1563,48 @@ CREATE TABLE users (
 );
 """
 
+# B8.16 Phase 3 (2026-09-29): the widened-status `work_orders` DDL used by
+# _migrate_work_orders_status_constraint() to rebuild a legacy DB's
+# `work_orders` table (SQLite cannot ALTER a CHECK constraint). Textually
+# identical to _SCHEMA_SQL's `work_orders` block above -- keep the two in
+# sync. _migrate_work_orders_status_constraint() never executes this
+# verbatim: it does a one-time `.replace()` of the `CREATE TABLE work_orders (`
+# opener with `CREATE TABLE _work_orders_new_status_migration (` and runs the
+# rebuild under that throwaway temporary name, mirroring
+# _migrate_users_role_constraint()'s own procedure exactly (never renames
+# `work_orders` itself, so no child table's `REFERENCES work_orders(...)`
+# DDL is ever rewritten -- see that method's docstring for the full
+# empirically-confirmed reasoning this mirrors).
+_WORK_ORDERS_TABLE_WIDENED_STATUS_SQL = """
+CREATE TABLE work_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_order_number TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    project_id INTEGER NOT NULL,
+    trade TEXT NOT NULL,
+    assigned_subcontractor_id INTEGER,
+    assigned_crew_lead TEXT,
+    parent_work_order_id INTEGER,
+    scheduled_start TEXT,
+    scheduled_end TEXT,
+    actual_start TEXT,
+    actual_end TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'dispatched', 'accepted', 'in_progress', 'completed', 'verified', 'cancelled', 'split')),
+    line_items_json TEXT NOT NULL DEFAULT '[]',
+    total_cost REAL NOT NULL DEFAULT 0.0,
+    instructions TEXT,
+    notes TEXT,
+    dispatched_at TEXT,
+    accepted_at TEXT,
+    completed_at TEXT,
+    verified_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (assigned_subcontractor_id) REFERENCES subcontractors(id) ON DELETE SET NULL
+);
+"""
+
 _local = threading.local()
 _mem_counter = 0
 _mem_lock = threading.Lock()
@@ -1771,6 +1827,14 @@ class DatabaseManager:
             # separately (SQLite cannot ALTER a CHECK constraint, so it is
             # not part of this additive ALTER COLUMN list).
             ("users", "subcontractor_id", "ALTER TABLE users ADD COLUMN subcontractor_id INTEGER;"),
+            # B8.16 Phase 3 (2026-09-29): parent_work_order_id, additive/
+            # nullable, FK-less by design -- same convention as
+            # territory_id (B8.9a) above. Only populated on a child work
+            # order created by OperationsService.split_work_order. Must
+            # run before _migrate_work_orders_status_constraint() below so
+            # the column is already present in `old_cols` when that
+            # rebuild copies rows across -- see that method's docstring.
+            ("work_orders", "parent_work_order_id", "ALTER TABLE work_orders ADD COLUMN parent_work_order_id INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -1914,6 +1978,12 @@ class DatabaseManager:
         # custom_permissions_json) having already run against the row set
         # it copies.
         self._migrate_users_role_constraint()
+        # B8.16 Phase 3 (2026-09-29): widens work_orders.status's CHECK
+        # constraint to add 'split'. Own transaction scope, same reasoning
+        # as _migrate_users_role_constraint() above -- depends on the
+        # additive ADD COLUMN loop (for parent_work_order_id) having
+        # already run against the row set it copies.
+        self._migrate_work_orders_status_constraint()
 
     def _migrate_users_role_constraint(self) -> None:
         """Rebuild `users` to widen its `role` CHECK constraint to include
@@ -2130,6 +2200,127 @@ class DatabaseManager:
         fk_violations = conn.execute("PRAGMA foreign_key_check;").fetchall()
         if fk_violations:
             raise RuntimeError(f"users table rebuild left FK violations: {fk_violations}")
+
+    def _migrate_work_orders_status_constraint(self) -> None:
+        """Rebuild `work_orders` to widen its `status` CHECK constraint to
+        include 'split' (B8.16 Phase 3, 2026-09-29). SQLite cannot ALTER a
+        CHECK constraint, so this rebuilds the table -- identical procedure
+        to _migrate_users_role_constraint() above, which established (and
+        empirically verified against this project's real SQLite version)
+        that the real table must never itself be renamed: `work_orders` is
+        referenced by `equipment_deployments.work_order_id` and
+        `timesheets.work_order_id` (both `ON DELETE SET NULL`, confirmed by
+        reading database.py's own DDL directly -- neither is `ON DELETE
+        CASCADE`, so the data-wipe failure mode
+        _migrate_users_role_constraint() found and fixed does not apply
+        here). Still, a `RENAME` unconditionally rewrites every other
+        table's stored `REFERENCES work_orders(...)` DDL text regardless of
+        cascade type -- if `work_orders` were renamed away and then
+        dropped, both child tables would be left with `REFERENCES` clauses
+        pointing at a dead table name, silently breaking their `SET NULL`
+        behavior on a future `DELETE FROM work_orders` (the same DDL-drift
+        consequence #2 found and fixed for `users`). This rebuild avoids
+        that failure mode identically: it builds the widened table under a
+        throwaway temp name, copies rows, `DROP`s the real `work_orders`,
+        then `RENAME`s the temp table into the real name -- `work_orders`
+        itself is never the source of a RENAME, so no child table's DDL is
+        ever rewritten.
+
+        Idempotency: same `PRAGMA table_info()`-adjacent gate shape as
+        _migrate_users_role_constraint(), keyed on the CHECK constraint
+        text itself since there is no column to test for. Gate checks the
+        quoted `'split'` role literal, not a bare substring -- verified
+        directly that no other column or existing CHECK value in
+        `work_orders`' DDL contains the substring `split` (the additive
+        ADD COLUMN loop above only adds `parent_work_order_id`, which does
+        not match), so a quoted-literal check is not strictly required to
+        avoid the exact `subcontractor_id`-shaped collision
+        _migrate_users_role_constraint() hit -- used anyway, for the same
+        defense-in-depth reason and to keep both migrations' gating logic
+        recognizably identical.
+
+        `work_orders.id` is `INTEGER PRIMARY KEY AUTOINCREMENT`; the same
+        `sqlite_sequence` DELETE-then-INSERT preservation
+        _migrate_users_role_constraint() uses is required here too (that
+        method's docstring covers why `INSERT OR REPLACE` does not dedupe
+        `sqlite_sequence` rows by name).
+        """
+        conn = self.get_connection()
+
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='work_orders';"
+        ).fetchone()
+        if row is None or row["sql"] is None or "'split'" in row["sql"]:
+            return
+
+        old_cols = [r["name"] for r in conn.execute("PRAGMA table_info(work_orders);")]
+        new_cols = {
+            "id", "work_order_number", "title", "project_id", "trade",
+            "assigned_subcontractor_id", "assigned_crew_lead",
+            "parent_work_order_id",  # B8.16 Phase 3
+            "scheduled_start", "scheduled_end", "actual_start", "actual_end",
+            "status", "line_items_json", "total_cost", "instructions",
+            "notes", "dispatched_at", "accepted_at", "completed_at",
+            "verified_at", "created_at", "updated_at",
+        }
+        missing = set(old_cols) - new_cols
+        if missing:
+            raise RuntimeError(
+                f"work_orders table rebuild aborted: legacy DB has column(s) {missing} "
+                "not present in the widened-status schema -- update the rebuild DDL/copy "
+                "list before retrying; do not drop data silently."
+            )
+        col_list = ", ".join(old_cols)
+
+        seq_row = conn.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name='work_orders';"
+        ).fetchone()
+        preserved_seq = seq_row["seq"] if seq_row else None
+
+        temp_widened_sql = _WORK_ORDERS_TABLE_WIDENED_STATUS_SQL.replace(
+            "CREATE TABLE work_orders (", "CREATE TABLE _work_orders_new_status_migration (", 1
+        )
+        if "_work_orders_new_status_migration" not in temp_widened_sql:
+            # Load-bearing, same reasoning as _migrate_users_role_constraint()'s
+            # identical guard -- fail loudly on a text drift rather than
+            # proceed to CREATE a second literal `work_orders` table.
+            raise RuntimeError(
+                "work_orders table rebuild aborted: could not rewrite "
+                "_WORK_ORDERS_TABLE_WIDENED_STATUS_SQL's 'CREATE TABLE work_orders (' "
+                "opener to the temp table name -- the constant's exact text has "
+                "likely drifted from what this method expects."
+            )
+
+        # foreign_keys is a no-op to change mid-transaction, so both the
+        # OFF and the later ON must run outside the `with conn:` block.
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            with conn:
+                conn.execute("BEGIN IMMEDIATE;")
+                conn.execute("DROP TABLE IF EXISTS _work_orders_new_status_migration;")
+                conn.execute(temp_widened_sql)
+                conn.execute(
+                    f"INSERT INTO _work_orders_new_status_migration ({col_list}) "
+                    f"SELECT {col_list} FROM work_orders;"
+                )
+                conn.execute("DROP TABLE work_orders;")
+                conn.execute("ALTER TABLE _work_orders_new_status_migration RENAME TO work_orders;")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_work_orders_project_id ON work_orders(project_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_work_orders_subcontractor_id ON work_orders(assigned_subcontractor_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_work_orders_trade ON work_orders(trade);")
+                if preserved_seq is not None:
+                    conn.execute("DELETE FROM sqlite_sequence WHERE name = 'work_orders';")
+                    conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) VALUES ('work_orders', ?);",
+                        (preserved_seq,),
+                    )
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON;")
+
+        fk_violations = conn.execute("PRAGMA foreign_key_check;").fetchall()
+        if fk_violations:
+            raise RuntimeError(f"work_orders table rebuild left FK violations: {fk_violations}")
 
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Cursor, None, None]:
