@@ -8360,18 +8360,22 @@ this file's own don't-duplicate rule.
       now (entered via the service layer, bypassing that gap), but
       still a live gap for any future customer entered by hand through
       the admin UI.
-- [ ] **B9 — Codey-Estimator integration, QUEUED for immediately after
-      B8.16 Phase 5** (Ish, 2026-09-29: this work is fully owned by this
-      session/coordinator going forward, folded into Codey-OS/Restoricon
-      proper — not a separate repo, not another session's territory).
-      In-repo merge into `restoricon_core`, on branch
-      `feat/estimator-phase3-schema` (not `main` — do not start this
-      until switching branches, and confirm nothing else has the shared
-      working tree checked out on a conflicting branch first, per the
-      Phase 0b concurrent-session collision this project already hit
-      once on this exact pairing of branches).
-      **B9.1, DONE** (commit `1ac1e25` on that branch): estimating-system
-      schema — rebuilds `estimates` (customer_id CASCADE→RESTRICT, adds
+- [x] **B9 — Codey-Estimator integration** (Ish, 2026-09-29: fully owned by
+      this session/coordinator, folded into Codey-OS/Restoricon proper —
+      not a separate repo). Built on a dedicated branch
+      (`feat/estimator-phase3-schema`), which diverged from `main` at
+      `91ee3c1` and fell ~30 commits behind before B9.2 landed — **merged
+      back into `main` and deleted 2026-09-29** (`main` ← `bb7a59d`) after
+      the merge itself caught a real bug (see below) and a full
+      code-reviewer pass on the merge diff. Only one branch (`main`)
+      remains. `main`'s `init_schema()` migration chain live-verified
+      2026-09-29 against a real copy of the production DB (checksummed
+      before/after, real B8.16 data — Mike Regina, Joy Clark's job —
+      confirmed intact through actual service classes, `PRAGMA
+      integrity_check`/`foreign_key_check` clean) — safe for `codey start`
+      against the real DB.
+      **B9.1, DONE** (commit `1ac1e25`): estimating-system schema —
+      rebuilds `estimates` (customer_id CASCADE→RESTRICT, adds
       creator/assignee/opportunity/lead/property links, versioning
       pointers, `workflow_status`) via the established
       `_migrate_users_role_constraint`-style full-rebuild procedure; adds
@@ -8380,40 +8384,49 @@ this file's own don't-duplicate rule.
       `users.requires_estimate_approval`,
       `documents.estimate_id`/`customer_visible`; six new permission
       constants, `ROLE_PERMISSIONS` updated across all 8 roles.
-      **B9.2, SCOPED ONLY** (commit `6c8f4d5`, plan not implemented):
-      estimate service layer, API, UI, delivery.
-      **New requirement, added mid-B8.16 (Ish, 2026-09-29), fold into
-      B9.2's scope before implementation starts, don't bolt on after**:
-      each estimate line item (material lines specifically) needs a
-      per-line-item markup percentage field — editable, fluctuates per
-      line, defaults to 30%. Check `estimate_line_items`' real B9.1
-      schema for whatever pricing-related field shape already exists
-      (category/unit_cost/etc.) before deciding whether this is a new
-      column or fits an existing structure — don't invent a new field
-      shape that duplicates something B9.1 already built.
-
-### Phase B9 — Estimating System (§6.13)
-
-- [x] **B9.1** — estimating system schema + migration. Rule-4 category
-      (schema/RBAC). Full spec: `codey_estimator_schema.md`. **Code-complete,
-      code-reviewer approved, NOT live-verified** — lives on branch
-      `feat/estimator-phase3-schema`, not `main`, pending a session with
-      device access to run the live-verification checklist and merge.
-- [ ] **B9.2** — `EstimateService` (new file, not a `crm_service.py`
-      section): create/get/list with real ownership narrowing, including an
-      unassigned/unclaimed bucket and atomic claim/unclaim (NEW-534-shaped
-      race-safe conditional UPDATE, per Ish's answer above) + D9 cost
-      gating, update_header, reassign, the full D5 workflow state machine
-      (hard internal-review gate, no override; `ai_agent`-originated
-      estimates forced into review via a pinned `internal_review_required`
-      column — a small additive migration in this task's own scope, not a
-      B9.1 reopen), versioning/revise, decision recording, line-item CRUD
-      with server-authoritative `calculate()` integration, race-safe
-      `estimate_number` generator (`estimate_number_sequences` table,
-      `BEGIN IMMEDIATE`-scoped, NEW-534-shaped-race-safe). **Rule-4 category**
-      (money, workflow, RBAC narrowing, schema addition). Full spec:
-      `codey_estimator_service.md` §1-2, §9. **Blocked on B9.1 being
-      live-verified and merged to `main`.**
+      **B9.2 core, DONE** (commit `ef04dab`, code-reviewer APPROVED after
+      two rounds): vendored the real `codey_estimator` calculation library
+      (cloned from `github.com/Ishabdullah/Codey-Estimator` per Ish's
+      decision, verbatim copy at repo root); built `EstimateService` —
+      create/read/update, line-item CRUD with server-authoritative
+      pricing, `revise()` (versioning, verbatim-clone semantics),
+      `record_decision()`, `preview()`, `to_customer_view()`. Implements
+      Ish's material-markup requirement: 30% default on create when not
+      explicitly set (explicit `0` respected, never silently overridden),
+      gated on whether a line actually carries a material cost component
+      rather than the literal `line_type` string, so a `'combined'` line's
+      material portion isn't silently shipped at 0% markup — no schema
+      change needed, the field already existed from B9.1. Two review
+      rounds caught two real bugs: `record_decision('accepted')` didn't
+      lock the version, letting staff silently re-price an
+      already-accepted estimate (fixed — locks in the same transaction as
+      acceptance, conditional on not-already-locked per the DB's own
+      immutability trigger); line-level cost fields weren't
+      permission-gated the way header-level ones already were (fixed).
+      Also fixed, bundled into the same round: a real live-production bug
+      Ish hit running `codey start` — B9.1's estimates-table migration
+      didn't account for the live DB's `assigned_user_id` column, crashing
+      startup. **The merge with `main` caught a more dangerous version of
+      the same bug before it shipped**: the branch-local fix (treating
+      `assigned_user_id` as a rename to `assigned_to_user_id`) was correct
+      in isolation but wrong the instant `main`'s independent B8.6a work
+      (a different, real, actively-used `estimates.assigned_user_id`
+      column) merged in — would have crashed every `CRMService.create_estimate`
+      call. Caught during conflict resolution, live-reproduced against a
+      realistic legacy-shaped DB, fixed by keeping both columns permanent
+      and separate; live-verified against the real production DB copy
+      confirms the fix holds. `NEW-700`–`NEW-710` logged across
+      scoping/implementation/the merge.
+      **Deferred, disclosed, not silently dropped** (`NEW-703`–`NEW-706`,
+      next round): `transition()` (public state machine — blocked on
+      share-link creation, out of scope this round), `reassign()`,
+      `claim()`/`unclaim()` (unassigned/unclaimed visible-and-claimable
+      bucket, NEW-534-shaped), `convert()`/contract-creation-on-accept
+      (the "an accepted estimate never exists without its contract" spec
+      invariant is NOT enforced yet), API routes, UI, delivery
+      (share-links/PDF), the tenant-configurable markup default. Full
+      spec for the remaining work: `codey_estimator_service.md` §1-2, §9,
+      §11.
 - [ ] **B9.2b** — expiry sweep: a single daemon thread in the API server
       process (same start/stop lifecycle as the B7 backup thread), hourly,
       transitioning `SENT`/`VIEWED` estimates past `expires_at` to
