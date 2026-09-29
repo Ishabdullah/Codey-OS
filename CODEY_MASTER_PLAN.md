@@ -7867,7 +7867,7 @@ this file's own don't-duplicate rule.
       deferred to future rounds, not silently dropped. Two cosmetic
       findings logged: `NEW-639`, `NEW-640`. See `PROJECT_LOG.md`'s two
       2026-09-25 B8.14a/B8.14b entries.
-- [ ] **B8.16** — Work-order intake pipeline (real service-call job entry
+- [x] **B8.16** — Work-order intake pipeline (real service-call job entry
       + a reusable sub/tech-facing intake form, replacing ad hoc manual
       admin entry). Ish-driven, 2026-09-26/27, scoped across two
       project-architect rounds with an advisor sanity-check between them
@@ -8197,19 +8197,48 @@ this file's own don't-duplicate rule.
       orchestrator wasn't to be touched this round) logged; `NEW-681`
       (Service Call Fee stays note-only, not billed) resolved as
       accepted per Ish's explicit decision, no code change.
-      **Phase 5** (Joy Clark's WO #351695937 backfilled
-      directly via the service layer, not the form, since the job is
-      already completed/paid — states the intake flow's DRAFT
-      terminus can't express — with a live-verifier check that exactly
-      one `commission_ledger` row is created on `record_payment`, not
-      zero and not a double-fire).
+      **Phase 5, DONE, code-reviewer APPROVED + live-verified against
+      the real production DB (2026-09-29) — B8.16 CLOSED IN FULL.**
+      Joy Clark's WO #351695937 (water heater replacement, $790
+      invoice, technician/salesperson Mike Regina — the original job
+      Ish pasted at the very start of this effort) backfilled directly
+      via the service layer (`restoricon_core/backfill_wo_351695937.py`,
+      a one-off script mirroring `migrate_aigentik.py`'s bootstrap
+      pattern), not through the intake form, since the job is
+      already completed/paid — the intake flow's DRAFT terminus can't
+      express that. Code-reviewer live-executed the script against a
+      COPY of the real production DB before approving (not just the
+      in-memory test suite) and found a real blocker this way: the
+      live DB had never had recent migrations applied — missing Phase
+      3's `work_orders.parent_work_order_id`/`status` CHECK widening
+      entirely (`NEW-683`, confirmed by the crash itself, not
+      theorized). live-verifier backed up the real DB (SHA256-verified),
+      brought its schema current via the same additive migration path
+      every other part of this codebase already uses, verified the
+      migration was additive-only (identical row counts before/after
+      across every table), then ran the backfill's dry-run and
+      `--apply` against the real file. **Direct SQL confirmation
+      against production, not the script's own printed report**:
+      exactly one customer, one work order (`notes` carries both the
+      diagnostic detail and the historical `351695937` reference
+      number; confirmed `Model: XE30S06ST45U1`, confirmed the rejected
+      `XE30S06ST4501` OCR alternative is absent), one invoice
+      (`invoice_type='project'`, `assigned_user_id`=Mike Regina's real
+      id, `amount=790.0`, `status='paid'`, `balance_due=0.0`), and
+      **exactly one** `commission_ledger_entries` row tied to that
+      invoice's id — not zero, not a double-fire, the exact class of
+      bug Phases 2/3 spent multiple review rounds getting right
+      elsewhere in this pipeline, verified to hold here too.
+      `PRAGMA integrity_check` clean. `NEW-683` resolved.
       Findings logged, not fixed this round: `web_surfaces.py:3403`
       still hardcodes an invalid `stage: 'Lead'` string in the admin
       CRM's `submitProject()` (adjacent to Phase 2's project-creation
       work but a different call site — Ish to decide whether to bundle
       the fix into Phase 2); `web_surfaces.py`'s "Add Customer" modal
-      has no address field at all, meaning Joy Clark's real address
-      can't be entered through that existing UI path.
+      has no address field at all — moot for Joy Clark's own record
+      now (entered via the service layer, bypassing that gap), but
+      still a live gap for any future customer entered by hand through
+      the admin UI.
 - [ ] **B9 — Codey-Estimator integration, QUEUED for immediately after
       B8.16 Phase 5** (Ish, 2026-09-29: this work is fully owned by this
       session/coordinator going forward, folded into Codey-OS/Restoricon
