@@ -218,6 +218,103 @@ def test_appointments_assigned_user_id_migration_adds_column_to_legacy_db(tmp_pa
     db2.close()
 
 
+_LEGACY_ESTIMATES_DDL = """
+CREATE TABLE estimates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_number TEXT UNIQUE NOT NULL,
+    customer_id INTEGER NOT NULL,
+    project_id INTEGER,
+    assigned_user_id INTEGER,
+    line_items_json TEXT NOT NULL DEFAULT '[]',
+    subtotal REAL NOT NULL DEFAULT 0.0,
+    materials_cost REAL NOT NULL DEFAULT 0.0,
+    labor_cost REAL NOT NULL DEFAULT 0.0,
+    subcontractor_cost REAL NOT NULL DEFAULT 0.0,
+    markup_percent REAL NOT NULL DEFAULT 0.0,
+    tax_amount REAL NOT NULL DEFAULT 0.0,
+    discount_amount REAL NOT NULL DEFAULT 0.0,
+    total_amount REAL NOT NULL DEFAULT 0.0,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'sent', 'approved', 'rejected', 'expired')),
+    expiration_date TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+"""
+
+
+def test_estimates_assigned_user_id_rename_migration_preserves_data(tmp_path):
+    """Live 2026-09-29: the real production `estimates` table predates
+    B9.1's v2 rebuild and uses `assigned_user_id` -- the same naming
+    convention `customers`/`leads`/`opportunities`/`tasks`/`appointments`
+    all use -- not the v2 schema's `assigned_to_user_id`. Before this fix,
+    `_migrate_estimates_table_v2()` correctly refused to silently drop the
+    column (raising RuntimeError) but that meant `restoricon-api` could not
+    start at all against the real DB. This confirms the rename is now
+    handled: the rebuild succeeds and the legacy column's data lands in
+    `assigned_to_user_id`, not dropped."""
+    db_path = tmp_path / "legacy_estimates.db"
+
+    # Build via a fresh DatabaseManager first so users/customers/projects
+    # get the real v2 schema, then downgrade only `estimates` to its
+    # pre-B9.1 legacy shape (+ the real-world assigned_user_id drift) to
+    # exercise the migration on next open.
+    db = DatabaseManager(str(db_path))
+    conn = db.get_connection()
+    now = "2020-01-01T00:00:00Z"
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, active, created_at, updated_at) "
+        "VALUES ('sales1', 'hash1', 'Sales One', 'sales1@test.com', 'sales', 1, ?, ?);",
+        (now, now),
+    )
+    user_id = conn.execute("SELECT id FROM users WHERE username='sales1';").fetchone()[0]
+    conn.execute(
+        "INSERT INTO customers (first_name, last_name, created_at) VALUES ('Jane', 'Doe', ?);",
+        (now,),
+    )
+    customer_id = conn.execute("SELECT id FROM customers WHERE first_name='Jane';").fetchone()[0]
+    conn.commit()
+
+    conn.execute("DROP TABLE estimates;")
+    conn.executescript(_LEGACY_ESTIMATES_DDL)
+    conn.execute(
+        "INSERT INTO estimates (estimate_number, customer_id, assigned_user_id, created_at, updated_at) "
+        "VALUES ('EST-0001', ?, ?, ?, ?);",
+        (customer_id, user_id, now, now),
+    )
+    conn.commit()
+    db.close()
+
+    # Reopen -- must not raise, must rebuild to v2 shape, must carry the
+    # legacy assigned_user_id value forward into assigned_to_user_id.
+    db2 = DatabaseManager(str(db_path))
+    conn2 = db2.get_connection()
+    cols = {row["name"] for row in conn2.execute("PRAGMA table_info(estimates);")}
+    assert "workflow_status" in cols
+    assert "assigned_to_user_id" in cols
+    assert "assigned_user_id" not in cols
+
+    row = conn2.execute(
+        "SELECT estimate_number, customer_id, assigned_to_user_id FROM estimates WHERE estimate_number='EST-0001';"
+    ).fetchone()
+    assert row["customer_id"] == customer_id
+    assert row["assigned_to_user_id"] == user_id
+
+    fk_violations = conn2.execute("PRAGMA foreign_key_check;").fetchall()
+    assert fk_violations == []
+    db2.close()
+
+    # Idempotent second open: no error, no duplicate-column/table issues.
+    db3 = DatabaseManager(str(db_path))
+    conn3 = db3.get_connection()
+    cols3 = {row["name"] for row in conn3.execute("PRAGMA table_info(estimates);")}
+    assert "assigned_to_user_id" in cols3
+    db3.close()
+
+
 def test_customers_external_id_unique_index_enforced():
     db = DatabaseManager(":memory:")
     conn = db.get_connection()

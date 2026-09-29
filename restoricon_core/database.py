@@ -478,6 +478,17 @@ CREATE TABLE IF NOT EXISTS estimate_decisions (
 );
 CREATE INDEX IF NOT EXISTS idx_estimate_decisions_version_id ON estimate_decisions(estimate_version_id);
 
+-- Estimate Number Sequences (Codey-Estimator Phase B9.2, NEW). Backs
+-- EstimateService._next_estimate_number()'s race-safe, per-year sequence --
+-- the estimate insert and the sequence bump happen in the same
+-- BEGIN IMMEDIATE transaction, closing the same read-then-write race
+-- NEW-534's claim-workflow fix was bitten by (see codey_estimator_service.md
+-- section 2). One row per calendar year; `next_seq` is the NEXT number to hand out.
+CREATE TABLE IF NOT EXISTS estimate_number_sequences (
+    year INTEGER PRIMARY KEY,
+    next_seq INTEGER NOT NULL DEFAULT 1
+);
+
 -- Proposals / Contracts
 CREATE TABLE IF NOT EXISTS contracts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1564,11 +1575,16 @@ class DatabaseManager:
         new shape under a disposable temp name, copy, drop the original,
         rename the temp table in.
 
-        No backfill logic is needed: a read-only query against the live
-        production DB (run by Ish, 2026-09-27, recorded in
+        No row-value backfill logic is needed: a read-only query against
+        the live production DB (run by Ish, 2026-09-27, recorded in
         Codey-Estimator/docs/DECISIONS.md) found the `estimates` table
         completely empty -- zero rows -- so this rebuild carries none of
-        the data-loss risk a populated-table rebuild would.
+        the data-loss risk a populated-table rebuild would. A
+        column-rename IS handled below (`assigned_user_id` ->
+        `assigned_to_user_id`, found live 2026-09-29 blocking
+        `restoricon-api` startup entirely) -- that gap was a schema-shape
+        mismatch, not a row-data one, so it applies regardless of the
+        table's row count.
 
         Idempotency: keyed on `PRAGMA table_info(estimates)` containing
         `workflow_status` (there is no CHECK-constraint-text gate available
@@ -1604,14 +1620,33 @@ class DatabaseManager:
             "discount_amount", "total_amount", "status", "expiration_date",
             "version", "notes", "created_at", "updated_at",
         }
-        missing = set(old_cols) - new_cols
+        # Legacy pre-B9.1 `estimates` tables use `assigned_user_id`, the
+        # same naming convention `customers`/`leads`/`opportunities`/
+        # `tasks`/`appointments` all use elsewhere in this schema (see
+        # crm_service.py/scheduling_service.py). B9.1's v2 rebuild renamed
+        # the concept to `assigned_to_user_id` (this file's DDL comment:
+        # "defaults to creator; reassignment needs PERM_REASSIGN_ESTIMATES")
+        # without accounting for the rename here -- found live against the
+        # real production DB (2026-09-29, blocked `restoricon-api` startup
+        # entirely). This is a rename, not a new/unrelated column: nothing
+        # in the codebase reads `estimates.assigned_user_id` under that
+        # name (confirmed by grep), so its data is carried forward into
+        # `assigned_to_user_id` below rather than silently dropped.
+        _LEGACY_COLUMN_RENAMES = {"assigned_user_id": "assigned_to_user_id"}
+        missing = set(old_cols) - new_cols - set(_LEGACY_COLUMN_RENAMES)
         if missing:
             raise RuntimeError(
                 f"estimates table rebuild aborted: legacy DB has column(s) {missing} not "
                 "present in the v2 schema -- update the rebuild DDL/copy list before "
                 "retrying; do not drop data silently."
             )
-        col_list = ", ".join(old_cols)
+        # target_cols/source_cols stay parallel (built together) so a
+        # renamed column reads from its old name and writes to its new one;
+        # every other column keeps the same name on both sides.
+        target_cols = [_LEGACY_COLUMN_RENAMES.get(c, c) for c in old_cols]
+        source_cols = list(old_cols)
+        insert_col_list = ", ".join(target_cols)
+        select_col_list = ", ".join(source_cols)
 
         seq_row = conn.execute(
             "SELECT seq FROM sqlite_sequence WHERE name='estimates';"
@@ -1646,8 +1681,8 @@ class DatabaseManager:
                 conn.execute("DROP TABLE IF EXISTS _estimates_new_v2;")
                 conn.execute(temp_v2_sql)
                 conn.execute(
-                    f"INSERT INTO _estimates_new_v2 ({col_list}) "
-                    f"SELECT {col_list} FROM estimates;"
+                    f"INSERT INTO _estimates_new_v2 ({insert_col_list}) "
+                    f"SELECT {select_col_list} FROM estimates;"
                 )
                 conn.execute("DROP TABLE estimates;")
                 conn.execute("ALTER TABLE _estimates_new_v2 RENAME TO estimates;")

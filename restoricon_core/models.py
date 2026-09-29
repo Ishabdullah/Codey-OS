@@ -535,6 +535,177 @@ class Estimate:
         return asdict(self)
 
 
+# --- Codey-Estimator Phase B9.2: EstimateService dataclasses ---------------
+# New, additional dataclasses for the B9.1-rebuilt `estimates` table's new
+# columns plus the four brand-new tables (`estimate_versions`,
+# `estimate_line_items`, `estimate_decisions`). The existing `Estimate`
+# dataclass above is left untouched -- it is still what the legacy
+# `line_items_json`/REAL-money columns serialize to for any pre-B9.1 caller;
+# nothing here replaces it. Field names/types match `codey_estimator_schema.md`
+# §1/§2 and the real `database.py` DDL, confirmed by reading both (rule 12).
+# `EstimateShareLink` is not defined here -- share-link creation is deferred
+# past this round (see estimate_service.py's module docstring).
+
+
+@dataclass
+class EstimateHeader:
+    """The `estimates` table's B9.1 header columns only (identity/workflow
+    metadata) -- not the legacy REAL-money/`line_items_json` columns, which
+    stay on `Estimate` above."""
+    id: Optional[int] = None
+    estimate_number: str = ""
+    customer_id: int = 0
+    project_id: Optional[int] = None
+    created_by_user_id: Optional[int] = None
+    created_by_name: Optional[str] = None
+    assigned_to_user_id: Optional[int] = None
+    opportunity_id: Optional[int] = None
+    lead_id: Optional[int] = None
+    property_id: Optional[int] = None
+    title: Optional[str] = None
+    current_version_id: Optional[int] = None
+    accepted_version_id: Optional[int] = None
+    accepted_at: Optional[str] = None
+    converted_project_id: Optional[int] = None
+    contract_id: Optional[int] = None
+    source: str = "engine"
+    workflow_status: str = "DRAFT"
+    expires_at: Optional[str] = None
+    customer_notes: Optional[str] = None
+    terms: Optional[str] = None
+    sent_at: Optional[str] = None
+    last_viewed_at: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+    # Not DB columns -- populated in-memory by EstimateService.get()/list()
+    # only when the actor holds PERM_READ_ESTIMATE_COSTS (cost fields) or
+    # passed include_lines=True (lines), per D9's cost-gating design
+    # (codey_estimator_service.md §1.2). Always present on the dataclass
+    # (default None / empty list) so to_dict() has a stable key set; a
+    # caller without the permission simply sees None there.
+    cost_total_cents: Optional[int] = None
+    gross_profit_cents: Optional[int] = None
+    gross_margin_bp: Optional[int] = None
+    lines: List["EstimateLineItem"] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class EstimateVersion:
+    id: Optional[int] = None
+    estimate_id: int = 0
+    version_number: int = 1
+    is_locked: int = 0
+    locked_at: Optional[str] = None
+    locked_reason: Optional[str] = None
+    material_cost_cents: int = 0
+    labor_cost_cents: int = 0
+    equipment_cost_cents: int = 0
+    sub_cost_cents: int = 0
+    cost_total_cents: int = 0
+    subtotal_sell_cents: int = 0
+    discount_cents: int = 0
+    taxable_base_cents: int = 0
+    tax_cents: int = 0
+    total_cents: int = 0
+    gross_profit_cents: int = 0
+    gross_margin_bp: int = 0
+    calc_engine_version: int = 1
+    tax_rate_bp: int = 0
+    terms_snapshot: Optional[str] = None
+    customer_notes_snapshot: Optional[str] = None
+    change_summary: Optional[str] = None
+    created_by_user_id: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class EstimateLineItem:
+    id: Optional[int] = None
+    estimate_version_id: int = 0
+    sort_order: int = 0
+    line_type: str = "material"
+    section: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    customer_description: Optional[str] = None
+    visible_to_customer: int = 1
+    price_book_item_id: Optional[int] = None
+    retailer_product_id: Optional[int] = None
+    price_observation_id: Optional[int] = None
+    retailer_code_snapshot: Optional[str] = None
+    product_title_snapshot: Optional[str] = None
+    package_qty: Optional[float] = None
+    package_unit: Optional[str] = None
+    unit_cost_cents: Optional[int] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    waste_pct_bp: int = 0
+    # material_markup_bp/equipment_markup_bp/sub_markup_bp/material_cost_cents/
+    # labor_cost_cents/cost_total_cents/sell_total_cents are `Optional[int]`
+    # (rather than `int` with a `0` default) specifically so
+    # EstimateService._row_to_line()'s PERM_READ_ESTIMATE_COSTS gate (D9,
+    # mirroring _attach_cost_fields()'s header-level gate) can null them out
+    # to mean "withheld" unambiguously -- an actual `0` is a legitimate
+    # "at cost" value and must never be confused with "not permitted to see
+    # this field".
+    material_markup_bp: Optional[int] = None
+    labor_type: Optional[str] = None
+    labor_rate_id: Optional[int] = None
+    labor_qty: Optional[float] = None
+    labor_unit: Optional[str] = None
+    labor_cost_rate_cents: Optional[int] = None
+    labor_bill_rate_cents: Optional[int] = None
+    equipment_id: Optional[int] = None
+    equipment_cost_cents: Optional[int] = None
+    equipment_markup_bp: Optional[int] = None
+    subcontractor_id: Optional[int] = None
+    sub_cost_cents: Optional[int] = None
+    sub_markup_bp: Optional[int] = None
+    taxable: int = 1
+    discount_cents: int = 0
+    price_override_cents: Optional[int] = None
+    override_reason: Optional[str] = None
+    # Written by codey_estimator.calc ONLY -- never by the API/UI layer.
+    packages_needed: Optional[int] = None
+    material_cost_cents: Optional[int] = None
+    labor_cost_cents: Optional[int] = None
+    cost_total_cents: Optional[int] = None
+    sell_total_cents: Optional[int] = None
+    tax_cents: int = 0
+    line_total_cents: int = 0
+    internal_note: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class EstimateDecision:
+    id: Optional[int] = None
+    estimate_version_id: int = 0
+    share_link_id: Optional[int] = None
+    customer_user_id: Optional[int] = None
+    decision: str = "accepted"
+    signer_name: Optional[str] = None
+    signature_data: Optional[str] = None
+    consent_text_snapshot: Optional[str] = None
+    comment: Optional[str] = None
+    ip: Optional[str] = None
+    user_agent: Optional[str] = None
+    decided_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
 @dataclass
 class Contract:
     id: Optional[int] = None

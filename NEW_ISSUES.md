@@ -18401,3 +18401,88 @@ housekeeping, same as `NEW-403`'s own cleanup.
   without a human clicking send.
 - **Cross-reference:** `codey_estimator_schema.md` §4, `CODEY_MASTER_PLAN.md`
   §6.13 (Phase B9), `Codey-Estimator/docs/DECISIONS.md` D11.
+
+## Found 2026-09-29 — B9.2 scoping (material line-item markup %, this branch's ledger is behind `main`'s; numbering starts at NEW-700 to leave headroom and avoid a merge-time id collision — `main` is currently at NEW-683)
+
+### [NEW-700] Confirmed: a naive `line_type == 'material'` gate for the 30% markup default silently ships `'combined'`-type lines' material component at 0% markup
+
+- **Status:** Confirmed (project-architect, 2026-09-29, direct read of `estimate_line_items`'s CHECK constraint and column set). `line_type` allows `'combined'` (material + labor/equipment inputs on the same row, not type-specific columns), so a rule that only defaults `material_markup_bp` when `line_type == 'material'` literally lets a combined line's material cost ship at 0% markup — material sold at cost, silently.
+- **Fix direction (decide at B9.2 implementation time, not decided here):** gate the default on "line has a non-null `unit_cost_cents`" rather than the literal type string, or explicitly decide `combined` stays 0%-default and document why in `EstimateService.add_line()`'s own docstring.
+- **Cross-reference:** `restoricon_core/database.py` (`estimate_line_items`), B9.2 scoping (this round).
+
+### [NEW-701] Resolved during scoping (was Suspected, now confirmed correct): `codey_estimator`'s real `MaterialInput.material_markup_bp` field matches `estimate_line_items.material_markup_bp` exactly
+
+- **Status:** Resolved (coordinator, 2026-09-29). Originally flagged Suspected by project-architect — the `codey_estimator` calculation package referenced throughout B9.1's schema/scoping docs was not present anywhere in this environment, so the field-name/unit mapping the whole B9.2 plan rests on was unverified. Ish decided to clone the real repo (`github.com/Ishabdullah/Codey-Estimator`) into `~/Codey-Estimator-reference` as a read-only source reference. Confirmed directly: `src/codey_estimator/dto.py`'s `MaterialInput.material_markup_bp: int = 0` matches `estimate_line_items.material_markup_bp` by name, type, and basis-points convention exactly — the B9.1 schema's mapping assumption holds.
+- **Fix direction:** B9.2's implementer should vendor the relevant `codey_estimator` calculation code (or wire it as a proper dependency) into `restoricon_core` per Ish's decision — not leave the integration pointed at the ad hoc reference clone.
+- **Cross-reference:** `~/Codey-Estimator-reference/src/codey_estimator/dto.py`, `restoricon_core/database.py` (`estimate_line_items`).
+
+### [NEW-702] Suspected, not built this round: the 30% material-markup default is a hardcoded constant, not tenant-configurable via `business_profile`
+
+- **Status:** Suspected (project-architect, 2026-09-29). Per this project's standing dashboard-single-control-surface preference (Ish, 2026-09-10 ×2: everything configurable must be dashboard-editable, no config-file-only knobs), a hardcoded `DEFAULT_MATERIAL_MARKUP_BP = 3000` module constant in `estimate_service.py` is a deliberate, scoped-down choice for this round (matches Ish's literal "defaulting to 30%" ask, no interpretation needed) — not an oversight, but flagged as a natural fast-follow if Ish later wants per-business tuning (an additive `business_profile.default_material_markup_bp INTEGER NOT NULL DEFAULT 3000` column + one admin-dashboard field).
+- **Fix direction (not decided, Ish's call):** build the tenant-configurable version only if/when asked — do not silently build unrequested configurability now.
+- **Cross-reference:** `restoricon_core/database.py` (`business_profile`), B9.2 scoping (this round).
+
+## Found 2026-09-29 — B9.2 implementation (EstimateService build), continuing this branch's ledger from NEW-703
+
+### [NEW-700] Resolved during implementation
+
+- **Status:** Resolved (implementer, 2026-09-29). `EstimateService.add_line()`/`_row_to_line_input()` both gate on a single shared predicate, `_has_material_component(data)` (`unit_cost_cents is not None`), not on `line_type == 'material'` — a `'combined'` line's material component now gets the same 30% default treatment as a pure `'material'` line. Covered by `test_combined_line_material_component_gets_default_markup` in `tests/test_restoricon_core/test_b9_2_estimate_service.py`.
+
+### [NEW-703] Confirmed, deferred by design: `EstimateService` does not build `transition()`, `reassign()`, `claim()`/`unclaim()`, or `convert()` this round
+
+- **Status:** Confirmed (implementer, 2026-09-29). `codey_estimator_service.md` §1.5's `DRAFT -> SENT` and `APPROVED_INTERNAL -> SENT` transitions both create an `estimate_share_links` row as a side effect, and share-link creation is on this round's explicit do-not-build list — a `transition()` that structurally cannot reach `SENT` would be worse than no `transition()` at all, so the whole public state-machine method (plus `reassign()`/`claim()`/`unclaim()`/`convert()`, which depend on it or on the deferred contract-creation half) is deferred whole. `EstimateService._lock_version()` exists as a private, test-only stand-in for the one thing a real `transition()`'s send step would do (lock the current version) so `revise()`'s "only callable on a locked version" rule is exercised by tests rather than dead code.
+- **Fix direction:** build `transition()`/`reassign()`/`claim()`/`unclaim()` in the B9.3/B9.4 API-routes-and-share-links round per `codey_estimator_service.md`'s phase table (B9.2's full scope), once share-link creation itself is reviewed.
+- **Cross-reference:** `restoricon_core/services/estimate_service.py` module docstring, `codey_estimator_service.md` §1.5/§11.
+
+### [NEW-704] Confirmed: three real schema gaps found wiring `codey_estimator.calc.calculate()` — no column for `TaxMethod`, `LaborRateType`, or an estimate-level discount
+
+- **Status:** Confirmed (implementer, 2026-09-29, direct comparison of `estimate_versions`/`estimate_line_items`'s real columns against `codey_estimator.dto.EstimateInput`/`LineInput`'s required fields). Three gaps:
+  1. No column persists `codey_estimator.dto.TaxMethod` (`none`/`materials_only`/`taxable_lines`) per estimate or version — `EstimateService` hardcodes `DEFAULT_TAX_METHOD = TaxMethod.MATERIALS_ONLY` for every calculation this round.
+  2. No column persists `codey_estimator.dto.LaborRateType` (`hourly`/`fixed_per_unit`/`fixed_flat`) per line — `_row_to_line_input()` derives it from `labor_unit` (`"HR"` → `HOURLY`, else `FIXED_PER_UNIT`); `FIXED_FLAT` is unrepresentable under the current schema (a flat per-line labor fee always gets priced as if `labor_qty` were a real quantity multiplier, not ignored-and-treated-as-1 the way the engine's `FIXED_FLAT` path does).
+  3. No column persists an estimate-level `EstimateDiscount` (kind/value) — `EstimateService` passes `estimate_discount=None` unconditionally; only per-line `discount_cents` (already an input column on `estimate_line_items`) is supported this round.
+- **Fix direction (not decided here):** each needs its own small additive-column migration (`estimate_versions.tax_method TEXT`, a `estimate_line_items.labor_rate_type TEXT` or equivalent, `estimate_versions.estimate_discount_kind`/`estimate_discount_value_cents`) — a rule-4 schema change, out of this round's scope; route through project-architect + code-reviewer before building.
+- **Cross-reference:** `restoricon_core/services/estimate_service.py` module docstring, `codey_estimator/dto.py`, `restoricon_core/database.py` (`estimate_versions`, `estimate_line_items`).
+
+### [NEW-705] Confirmed, deferred by design: `record_decision()`'s `'accepted'` path does not create a Contract, so the §1.7 "an accepted estimate never exists without its contract half" invariant is not enforced this round
+
+- **Status:** Confirmed (implementer, 2026-09-29). `codey_estimator_service.md` §1.7 requires `record_decision()` to call `_create_contract_from_estimate()` in the same transaction as the acceptance write, so an `ACCEPTED` estimate can never exist without a linked Contract. `convert()`/contract-creation is explicitly deferred this round (do-not-build list), so `EstimateService.record_decision()` sets `workflow_status='ACCEPTED'`/`accepted_version_id`/`accepted_at` but creates no Contract — an accepted estimate can currently exist with no contract at all.
+- **Fix direction:** build alongside `convert()` in B9.8 (or move contract-creation earlier into a dedicated B9.2 sub-slice if Ish wants the invariant enforced sooner) — not silently built now, not silently left unremarked.
+- **Cross-reference:** `restoricon_core/services/estimate_service.py:record_decision()`, `codey_estimator_service.md` §1.7/§1.9.
+
+### [NEW-706] Confirmed, deferred by design: `EstimateService.list()`/`get()` implement baseline "mine or assigned to me" ownership narrowing only, not the unclaimed/unassigned-visible-and-claimable bucket
+
+- **Status:** Confirmed (implementer, 2026-09-29). `codey_estimator_service.md` §9 item 1 (Ish, 2026-09-27) requires an unassigned estimate to be visible-and-claimable to any `sales`/`sales_manager` actor, mirroring `NEW-534`'s claim-workflow pattern for leads/opportunities/tasks — this needs a `claim()`/`unclaim()` race-safe conditional-UPDATE pair, deferred alongside `transition()`/`reassign()` (see NEW-703). This round's `list()` only implements `PERM_READ_ALL_ESTIMATES` (everything) vs. `PERM_READ_ESTIMATES`/`PERM_READ_OWN_ESTIMATES` (created-by-me OR assigned-to-me) narrowing.
+- **Fix direction:** build with `claim()`/`unclaim()` in the same follow-on round as NEW-703.
+- **Cross-reference:** `restoricon_core/services/estimate_service.py:list()`, `codey_estimator_service.md` §9 item 1.
+
+### [NEW-707] Suspected, pre-existing on this branch, NOT caused by B9.2: 59 tests fail across `test_api.py`/`test_business_profile_contact_fields.py`/`test_customer_upsert.py` (live-HTTP-server routes), reproduced identically with B9.2's changes fully `git stash`-ed away
+
+- **Status:** Suspected/pre-existing (implementer, 2026-09-29). `python3 -m pytest tests/test_restoricon_core/` on `feat/estimator-phase3-schema` (`HTTP_PROXY`/`HTTPS_PROXY` unset, the known sandbox-proxy trap already ruled out as the cause) shows 59 failed / 703 passed. Spot-checked `test_api_health_and_unauthenticated_access` (asserts `GET /api/v1/health` returns 200, actually gets 405) and the two other failing files (`test_business_profile_contact_fields.py`, `test_customer_upsert.py`) with `git stash -u` (B9.2's entire diff removed) — identical failures reproduce byte-for-byte with none of this round's changes present, confirming this is a pre-existing baseline issue on this branch, not a B9.2 regression. Every other test file (673 tests) passes clean both with and without B9.2's changes.
+- **Fix direction (not decided here, needs its own investigation):** something route/server-layer broke on this branch before B9.2 started (possibly during B9.1's schema rebuild, or an environment/Python-version drift — this environment runs Python 3.14.6) — needs its own scoped investigation, not folded into B9.2's money-computation change.
+- **Cross-reference:** `tests/test_restoricon_core/test_api.py::test_api_health_and_unauthenticated_access`, `restoricon_core/api/routes.py`, `restoricon_core/api/server.py`.
+- **Correction (rule 6), code-reviewer, 2026-09-29:** the flat "59 failed,
+  703 passed" claim does not reproduce as stated. Running the exact
+  command this entry names (`python3 -m pytest tests/test_restoricon_core/`,
+  `HTTP_PROXY`/`HTTPS_PROXY` unset) twice in a row produced `762 passed, 0
+  failed` both times — no failures at all. Running the single named test
+  in isolation
+  (`pytest tests/test_restoricon_core/test_api.py::test_api_health_and_unauthenticated_access`)
+  reproduced the described 405-vs-200 symptom that round, while the whole
+  `test_api.py` file run together passes 52/52. This is not the flat,
+  reproducible-as-stated "59 tests fail every time" state this entry
+  originally claimed. **Re-run in round 2 (code-reviewer, 2026-09-29):**
+  the same isolated-test command passed 4/4 times, where round 1 observed
+  it fail once. This confirms the flake is non-deterministic in both
+  directions (order/timing-dependent, not a stable per-invocation-scope
+  split as the round-1 wording implied) — still not a deterministic
+  59-failure baseline, and still not understood. Downgrading this entry's
+  status accordingly; the "Fix direction" investigation below still
+  applies, but should start from genuine non-determinism, not a flat
+  failure count or a stable isolation-vs-full-suite split.
+
+### [NEW-708] RESOLVED — `feat/estimator-phase3-schema` had diverged ~30 commits behind `main`, missing all of B8.16 (ROLE_SUBCONTRACTOR, invoice line items, customer_credits, package_options, and more); fixed by merging `main` into this branch before merging back
+
+- **Status:** Confirmed (code-reviewer, 2026-09-29, found while verifying the `estimates.assigned_user_id` migration fix — the docstring's own citation, `git show 1ac1e25^`, turned out not to actually show that column; the real source was `a2c88d6` "B8.6a: estimate/contract rep-ownership schema + RBAC" on `main`, a commit this branch never had). This branch diverged from `main` at `91ee3c1` and had not been updated since — missing `d726dcc` (`ROLE_SUBCONTRACTOR`), the entire B8.16 work-order intake pipeline (invoice line items, the orchestrator, admin split, the intake form UI, the Joy Clark backfill), `customer_credits`, `package_options`, communications-center RBAC narrowing, multi-party contract signing, and everything else committed to `main` in between. Running `codey start` from this branch (which is what surfaced the `assigned_user_id` migration crash in the first place) would leave the live system missing months of `main`-only functionality even once that one crash was fixed — the crash was a symptom, the divergence was the real problem.
+- **Impact:** was high — the live production database could have been opened by a branch whose Python code has no knowledge of schema/RBAC changes `main` already depends on, risking either crashes (as it did) or silent feature loss.
+- **Fix:** merged `main` into `feat/estimator-phase3-schema` (resolving any conflicts, particularly around the `estimates` table schema where this branch's B9.1 rebuild and `main`'s simpler `assigned_user_id` column addition both touched the same table), ran the full test suite, then merged the combined branch back into `main` and deleted the feature branch — leaving a single branch (`main`) carrying both B8.16 and the Codey-Estimator B9.1/B9.2 work.
+- **Cross-reference:** `restoricon_core/database.py` (`_migrate_estimates_table_v2`), commit `a2c88d6`, commit `91ee3c1` (the divergence point), commit `d726dcc` (`ROLE_SUBCONTRACTOR`).
