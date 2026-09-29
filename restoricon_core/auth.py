@@ -32,6 +32,11 @@ ROLE_PROJECT_MANAGER = "project_manager"
 ROLE_TECHNICIAN = "technician"
 ROLE_AI_AGENT = "ai_agent"
 ROLE_CUSTOMER = "customer"
+# Phase 0b, B8.16 (2026-09-27): a subcontractor's own login, not the
+# `subcontractors` table row itself (which pre-dates this role and has no
+# login of its own). Deliberately narrower than ROLE_TECHNICIAN -- see
+# ROLE_PERMISSIONS[ROLE_SUBCONTRACTOR] below for the exact subset and why.
+ROLE_SUBCONTRACTOR = "subcontractor"
 
 ALL_ROLES = {
     ROLE_ADMIN,
@@ -42,6 +47,29 @@ ALL_ROLES = {
     ROLE_TECHNICIAN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,
+    ROLE_SUBCONTRACTOR,
+}
+
+# B8.16 Phase 4 (NEW-680, 2026-09-29): the first place in this codebase
+# that codifies which roles are legitimate holders of a sales-attribution
+# user id (e.g. Customer.assigned_user_id / submit_work_order_intake's
+# salesperson_user_id). Verified directly: neither
+# CRMService.submit_work_order_intake nor CommissionService validates the
+# role behind an assigned_user_id today -- this constant doesn't change
+# that (out of scope here, logged separately as NEW-682), it only scopes
+# AuthService.list_salesperson_roster's read so the picker it powers
+# doesn't offer every active user in the system, just the roles this
+# business's sales/commission workflow already treats as real sales
+# attribution owners. ROLE_ADMIN/ROLE_MANAGER included because an
+# owner/manager legitimately sells jobs directly in this business, not
+# just ROLE_SALES/ROLE_SALES_MANAGER. Deliberately excludes
+# ROLE_PROJECT_MANAGER, ROLE_TECHNICIAN, ROLE_SUBCONTRACTOR, ROLE_CUSTOMER,
+# ROLE_AI_AGENT.
+SALES_ATTRIBUTION_ROLES = {
+    ROLE_ADMIN,
+    ROLE_MANAGER,
+    ROLE_SALES,
+    ROLE_SALES_MANAGER,
 }
 
 # Permissions
@@ -59,6 +87,22 @@ PERM_READ_ALL_PROJECTS = "read:all_projects"
 PERM_READ_ASSIGNED_PROJECTS = "read:assigned_projects"
 PERM_READ_OWN_PROJECTS = "read:own_projects"
 PERM_WRITE_PROJECTS = "write:projects"
+
+# B8.12a, 2026-09-24: replaces PERM_READ_ALL_PROJECTS/PERM_READ_OPERATIONS on
+# ROLE_SALES, which were flat, company-wide over-grants with zero per-row
+# ownership check anywhere in crm_service.py/operations_service.py (NEW-628).
+# Narrowed to projects a rep actually sold: crm_service.py/
+# operations_service.py filter to rows where a `contracts` row exists with
+# matching project_id AND assigned_user_id == actor.user_id.
+# assigned_user_id IS NULL (an unclaimed contract) is DENIED, not treated as
+# visible -- deliberately different from the leads/opportunities
+# unclaimed-pool leniency (_scoped_assignee_filter), since granting an
+# unclaimed project to every rep would recreate the exact over-grant this
+# permission replaces. A rep additionally holding PERM_READ_TEAM_SALES_DATA
+# (i.e. ROLE_SALES_MANAGER, via its derived-permissions union below) bypasses
+# the ownership filter entirely and keeps full visibility, same team-wide
+# semantics as every other PERM_READ_TEAM_SALES_DATA narrowing in this file.
+PERM_READ_OWN_SOLD_PROJECTS = "read:own_sold_projects"
 
 # NEW-533, 2026-09-16 (permission introduced); D2, sales_rep_portal.md §4,
 # Ish-approved, 2026-09-16 (real ROLE_SALES_MANAGER role added on top).
@@ -84,6 +128,41 @@ PERM_WRITE_PROJECTS = "write:projects"
 #      This general-purpose per-user override stays available for any
 #      other one-off grant -- it is not superseded or removed by (1).
 PERM_READ_TEAM_SALES_DATA = "read:team_sales_data"
+
+# B8.1, D4 (sales_rep_portal.md §4, Ish-approved 2026-09-16). Genuinely
+# separate from PERM_READ_TEAM_SALES_DATA above, not implied by it:
+# PERM_READ_TEAM_SALES_DATA governs pipeline visibility (leads,
+# opportunities, tasks), which is operational data a sales manager needs
+# to run a team day-to-day. Commission ledger rows are compensation --
+# financial data an actor may legitimately need team-pipeline visibility
+# for without also being entitled to see what every rep is being paid.
+# Financial data warrants its own gate even for someone who already sees
+# team pipeline -- this mirrors why PERM_SIGN_CONTRACTS is split from
+# PERM_WRITE_CONTRACTS (being able to edit a contract's terms doesn't
+# imply authority to execute a signature on it). Holding
+# PERM_READ_TEAM_COMMISSIONS lets an actor read (and, per
+# CommissionService's minimal write gate, record/reverse) any rep's
+# commission ledger rows, not just rows where rep_user_id == their own
+# user_id. Default-granted to admin/manager/ai_agent (ROLE_PERMISSIONS
+# below) and to ROLE_SALES_MANAGER (see its derived-permissions line
+# further down), same set that holds PERM_READ_TEAM_SALES_DATA today.
+# Deliberately withheld from sales/project_manager/technician/customer by
+# default -- an ordinary sales rep may read/have recorded their own
+# commission rows (CommissionService narrows to rep_user_id == actor.user_id
+# without this permission) but not another rep's.
+PERM_READ_TEAM_COMMISSIONS = "read:team_commissions"
+
+# code-reviewer round 2 (B8.1): split from PERM_READ_TEAM_COMMISSIONS
+# above, following the exact PERM_SIGN_CONTRACTS / PERM_WRITE_CONTRACTS
+# precedent this same comment block already cites -- being able to see
+# every rep's commissions does not imply authority to author or reverse
+# money-moving ledger rows (CommissionService.record_commission /
+# reverse_commission). Granted to the identical default set as the read
+# permission (admin/manager/ai_agent, plus ROLE_SALES_MANAGER via its
+# derived-permissions line further down) so no default-role behavior
+# changes; this only matters the day a role or custom_permissions_json
+# grant holds read without write.
+PERM_WRITE_TEAM_COMMISSIONS = "write:team_commissions"
 
 # B6.1, 2026-09-02: reassigning the PM, employees, or subcontractors
 # on an existing project is split from ordinary project edits into two
@@ -184,6 +263,17 @@ PERM_WRITE_APPOINTMENT_TYPES = "write:appointment_types"
 PERM_READ_STAFF_SCHEDULES = "read:staff_schedules"
 PERM_WRITE_STAFF_SCHEDULES = "write:staff_schedules"
 
+# NEW-547: a narrow, self-only tier of PERM_READ_STAFF_SCHEDULES, distinct
+# from it -- granting the full permission to ROLE_SALES would hand every
+# sales rep company-wide staff-schedule visibility via direct API calls,
+# not just what the sales portal's "My Schedule" panel displays. Holders
+# of this permission alone are forced to their own user_id in
+# list_staff_schedules/get_staff_schedule regardless of what they request
+# (see SchedulingService); get_active_staff_schedules_for_user and
+# list_staff_schedules_archive deliberately stay gated on the FULL
+# permission only -- this narrow tier does not unlock either of them.
+PERM_READ_OWN_STAFF_SCHEDULE = "read:own_staff_schedule"
+
 # Contacts permissions (Track B Phase B2 cutover)
 PERM_READ_CONTACTS = "read:contacts"
 PERM_WRITE_CONTACTS = "write:contacts"
@@ -194,11 +284,42 @@ PERM_WRITE_CRM = "write:crm"
 PERM_MANAGE_PIPELINE = "manage:pipeline"
 PERM_SCORE_LEADS = "score:leads"
 
+# B8.9a: territory management -- defining what territories EXIST (create/
+# rename/edit the lookup table itself) is an operational/admin decision,
+# same class as appointment_types (own dedicated read/write pair, not a
+# reuse of PERM_MANAGE_USERS -- that permission is admin-only and cannot
+# express a read/write split, and territory names need to be readable by
+# a broader tier than "can manage user accounts" the moment any rep-
+# facing surface lists them). Assigning a territory_id TO a user/lead/
+# customer is NOT gated by this pair -- that's already covered by the
+# existing PERM_MANAGE_USERS (users.territory_id via update_user) and
+# PERM_WRITE_LEADS/PERM_WRITE_CUSTOMERS (leads/customers.territory_id via
+# update_lead/update_customer) gates on those write paths.
+PERM_READ_TERRITORIES = "read:territories"
+PERM_WRITE_TERRITORIES = "write:territories"
+
 # Operations Domain permissions (Track B Phase B3)
 PERM_READ_OPERATIONS = "read:operations"
 PERM_WRITE_OPERATIONS = "write:operations"
 PERM_MANAGE_PROJECTS = "manage:projects"
 PERM_DISPATCH_WORK_ORDERS = "dispatch:work_orders"
+
+# B8.16 Phase 4 (NEW-680, 2026-09-29, Ish decision): a deliberately narrow
+# permission for AuthService.list_salesperson_roster -- returns ONLY
+# {id, name} pairs for users in SALES_ATTRIBUTION_ROLES below, never a
+# full User record (no email/phone/role/permissions). This exists
+# specifically so ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR can populate the
+# work-order-intake form's salesperson picker without holding
+# PERM_MANAGE_USERS, which would repeat the exact over-grant shape
+# code-reviewer already removed twice this phase (NEW-668/NEW-669: a
+# broad read grant handing an external party company-wide data). Not
+# reusing PERM_READ_TEAM_SALES_DATA -- that permission is treated as an
+# ownership-narrowing BYPASS by every B8.12a-era filter branch in
+# crm_service.py/operations_service.py (verified directly, not assumed),
+# so granting it here would hand technician/subcontractor actors
+# team-wide pipeline reads, a strictly worse over-grant than the numeric-
+# id input it replaces.
+PERM_READ_SALESPERSON_ROSTER = "read:salesperson_roster"
 
 # Phase B5a Domain Permissions
 PERM_READ_FINANCE = "read:finance"
@@ -238,6 +359,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
         PERM_READ_TEAM_SALES_DATA,
+        PERM_READ_TEAM_COMMISSIONS,
+        PERM_WRITE_TEAM_COMMISSIONS,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_REASSIGN_PROJECT_STAFF,
@@ -295,6 +418,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        PERM_READ_TERRITORIES,
+        PERM_WRITE_TERRITORIES,
     },
     ROLE_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -308,6 +433,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
         PERM_READ_TEAM_SALES_DATA,
+        PERM_READ_TEAM_COMMISSIONS,
+        PERM_WRITE_TEAM_COMMISSIONS,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_READ_ESTIMATES,
@@ -364,6 +491,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        PERM_READ_TERRITORIES,
+        PERM_WRITE_TERRITORIES,
     },
     ROLE_SALES: {
         PERM_READ_ALL_CUSTOMERS,
@@ -376,7 +505,20 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_CRM,
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
-        PERM_READ_ALL_PROJECTS,
+        # B8.12a, 2026-09-24 (NEW-628): PERM_READ_ALL_PROJECTS and
+        # PERM_READ_OPERATIONS were removed from here -- both were flat,
+        # company-wide over-grants with zero per-row ownership check,
+        # letting any sales rep read every project/work order/equipment
+        # deployment in the company. Replaced with PERM_READ_OWN_SOLD_PROJECTS
+        # (see its definition above), which crm_service.py/
+        # operations_service.py narrow to projects the rep actually sold via
+        # a matching Contract row. This also intentionally denies ROLE_SALES
+        # get_equipment/list_equipment/deploy_equipment/return_equipment/
+        # list_project_deployments/get_active_work_orders_for_subcontractor/
+        # match_subcontractors_for_trade -- none of those had a legitimate
+        # sales-rep use case and PERM_READ_OWN_SOLD_PROJECTS does not cover
+        # them; this is the intended narrowing outcome, not a gap.
+        PERM_READ_OWN_SOLD_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_WRITE_ESTIMATES,
         PERM_READ_ESTIMATE_COSTS,
@@ -395,12 +537,20 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_DNC,
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
-        PERM_READ_OPERATIONS,
         PERM_READ_MARKETING,
         PERM_WRITE_MARKETING,
         PERM_READ_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        # NEW-565, 2026-09-18 (Ish): sales reps need to see a customer's
+        # invoices on the Customer 360 panel; verified this only gates
+        # list_invoices/get_invoice in crm_service.py, nothing else.
+        PERM_READ_FINANCIALS,
+        # NEW-547: self-only staff-schedule visibility for the sales
+        # portal's "My Schedule" panel -- NOT the full company-wide
+        # PERM_READ_STAFF_SCHEDULES (that stays admin/manager/PM/ai_agent
+        # only, see below).
+        PERM_READ_OWN_STAFF_SCHEDULE,
     },
     ROLE_PROJECT_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -452,6 +602,11 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_HR,
         PERM_WRITE_HR,
         PERM_READ_COMPLIANCE,
+        # NEW-680, B8.16 Phase 4: populates the work-order-intake form's
+        # salesperson picker -- id+name only, see PERM_READ_SALESPERSON_ROSTER's
+        # own definition above for why this is not PERM_MANAGE_USERS/
+        # PERM_READ_TEAM_SALES_DATA.
+        PERM_READ_SALESPERSON_ROSTER,
     },
     ROLE_AI_AGENT: {
         PERM_READ_ALL_CUSTOMERS,
@@ -465,6 +620,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
         PERM_READ_TEAM_SALES_DATA,
+        PERM_READ_TEAM_COMMISSIONS,
+        PERM_WRITE_TEAM_COMMISSIONS,
         PERM_READ_ALL_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_WRITE_ESTIMATES,
@@ -509,6 +666,11 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        # B8.9a: read-only, mirroring PERM_READ_APPOINTMENT_TYPES' own
+        # ai_agent grant above -- the agent needs to read territory names
+        # (e.g. to render them in a write-through payload) but authoring
+        # what territories exist is an admin/manager decision.
+        PERM_READ_TERRITORIES,
     },
     ROLE_CUSTOMER: {
         PERM_READ_OWN_CUSTOMER,
@@ -521,6 +683,46 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_OWN_COMMUNICATIONS,
         PERM_LOG_COMMUNICATION,
         PERM_GLOBAL_SEARCH,
+    },
+    # Phase 0b, B8.16 (2026-09-27): a deliberately narrower subset of
+    # ROLE_TECHNICIAN's own grant (verified directly against the block
+    # above, not assumed) -- a subcontractor is an external party engaged
+    # per work order, not an employee. Included: PERM_READ_OPERATIONS/
+    # PERM_WRITE_OPERATIONS (work order visibility, narrowed at the row
+    # level to the subcontractor's own assigned_subcontractor_id by
+    # OperationsService._actor_owns_work_order_via_subcontractor, mirroring
+    # ROLE_TECHNICIAN's own _actor_assigned_to_project narrowing),
+    # PERM_LOG_COMMUNICATION (log interactions). Explicitly excluded, never
+    # grant without a separate, logged decision: PERM_READ_HR/PERM_WRITE_HR
+    # (not an employee -- no personnel record), PERM_DISPATCH_WORK_ORDERS,
+    # PERM_MANAGE_PROJECTS, PERM_WRITE_CUSTOMERS, PERM_WRITE_FINANCIALS,
+    # (code-reviewer, 2026-09-27, NEW-668) PERM_READ_COMPLIANCE --
+    # BusinessOpsService.list_compliance_items has zero entity-level
+    # narrowing, so this permission would hand an external subcontractor
+    # read access to every other party's license/insurance/COI records
+    # company-wide, not the "their own status" the original grant's comment
+    # claimed; it also gates scan_compliance_expirations, a write path --
+    # and (code-reviewer round 2, 2026-09-27, NEW-669) PERM_READ_DOCUMENTS/
+    # PERM_WRITE_DOCUMENTS -- CRMService.get_document/list_documents only
+    # apply per-customer narrowing when the actor LACKS PERM_READ_DOCUMENTS
+    # (the NEW-665 fix keys on `if not actor.has_permission(PERM_READ_DOCUMENTS)`),
+    # so holding the broad permission skips narrowing entirely and would let
+    # an external subcontractor read every customer's contracts/insurance
+    # certs/ID scans/financial paperwork/photos in the system, including via
+    # a raw-bytes download by id with no ownership check; create_document has
+    # no role/entity check beyond PERM_WRITE_DOCUMENTS, so holding the write
+    # side would let a subcontractor create a document row under any
+    # customer_id/project_id. Does NOT hold PERM_READ_ASSIGNED_PROJECTS
+    # (ROLE_TECHNICIAN's project-level read) -- a subcontractor's read access
+    # is scoped to their own work orders, not full project detail.
+    ROLE_SUBCONTRACTOR: {
+        PERM_READ_OPERATIONS,
+        PERM_WRITE_OPERATIONS,
+        PERM_LOG_COMMUNICATION,
+        # NEW-680, B8.16 Phase 4: same narrow salesperson-roster read as
+        # ROLE_TECHNICIAN above -- id+name only, needed for this role's
+        # own work-order-intake form.
+        PERM_READ_SALESPERSON_ROSTER,
     },
 }
 
@@ -539,11 +741,57 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
 # additionally gets team-wide estimate visibility, reassignment, and
 # internal-review approval on top of everything ROLE_SALES already has --
 # same "derived so it can't drift" reasoning as above.
+#
+# B8.1, D4, 2026-09-16: also given PERM_READ_TEAM_COMMISSIONS by default,
+# same as how admin/manager/ai_agent hold both team-visibility permissions
+# together -- a sales manager who can see the whole team's pipeline is
+# also expected to see the whole team's commissions (e.g. to verify a
+# rep's payout against their own pipeline). Also given
+# PERM_WRITE_TEAM_COMMISSIONS (code-reviewer round 2) -- a sales manager
+# correcting a payout is exactly the role this write gate is meant for,
+# same default set as the read permission it was split from.
+#
+# B8.12a, 2026-09-24: confirmed this union needs no change for
+# get_project/get_milestone/list_milestones/get_work_order/
+# list_work_orders and get_project_summary's project/milestone/work-order
+# data -- PERM_READ_ALL_PROJECTS/PERM_READ_OPERATIONS were removed from
+# ROLE_SALES and replaced with PERM_READ_OWN_SOLD_PROJECTS above. A manager
+# inherits PERM_READ_OWN_SOLD_PROJECTS from ROLE_SALES (passing the
+# crm_service.py/operations_service.py gate on those six methods) and
+# independently holds PERM_READ_TEAM_SALES_DATA right here, which every
+# ownership-filter branch B8.12a added treats as a bypass.
+#
+# NEW-630 (2026-09-25, Ish decision -- dd244d5): PERM_READ_OPERATIONS was
+# re-granted to ROLE_SALES_MANAGER below. That was NOT an ownership-scoped
+# re-grant -- PERM_READ_OPERATIONS is a flat, company-wide permission
+# gating get_equipment/list_equipment/
+# get_active_work_orders_for_subcontractor/match_subcontractors_for_trade/
+# list_project_deployments in operations_service.py, and every one of
+# NEW-628's ownership-narrowing branches on those methods keys
+# specifically on `actor.role == ROLE_TECHNICIAN`, not on the permission
+# itself. ROLE_SALES_MANAGER is not that role, so the 2026-09-25 grant was
+# a full, org-wide read grant on equipment/deployment/subcontractor-
+# matching data across every project, not one narrowed to the manager's
+# own team's sold projects (unlike PERM_READ_OWN_SOLD_PROJECTS/
+# PERM_READ_TEAM_SALES_DATA above, which are narrowed).
+#
+# NEW-630, superseded (2026-09-27, direct Ish decision): the 2026-09-25
+# grant is reversed. PERM_READ_OPERATIONS is deliberately NOT included in
+# ROLE_SALES_MANAGER's permission set below -- a sales manager gets no
+# equipment/deployment/subcontractor-matching visibility, same as plain
+# ROLE_SALES. get_project_summary's equipment_summary field goes back to
+# returning None for a sales_manager actor (see L1875-ish's
+# `PERM_READ_OPERATIONS or PERM_MANAGE_PROJECTS` gate on that field).
+# deploy_equipment/return_equipment were never affected either way: both
+# gate on PERM_WRITE_OPERATIONS or PERM_MANAGE_PROJECTS, neither of which
+# this permission touches.
 ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {
     PERM_READ_TEAM_SALES_DATA,
     PERM_READ_ALL_ESTIMATES,
     PERM_REASSIGN_ESTIMATES,
     PERM_APPROVE_ESTIMATES,
+    PERM_READ_TEAM_COMMISSIONS,
+    PERM_WRITE_TEAM_COMMISSIONS,
 }
 
 # Permissions catalog grouped by domain for dynamic permissions UI and validation
@@ -570,6 +818,10 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_MANAGE_PIPELINE, "name": "Manage Pipeline", "description": "Move stages and configure pipeline"},
             {"id": PERM_SCORE_LEADS, "name": "Score Leads", "description": "Run lead qualification scoring"},
             {"id": PERM_READ_TEAM_SALES_DATA, "name": "Read Team Sales Data", "description": "See leads, opportunities, and tasks assigned to other sales reps, not just your own (sales manager view)"},
+            {"id": PERM_READ_TEAM_COMMISSIONS, "name": "Read Team Commissions", "description": "See commission ledger entries for every sales rep, not just your own -- separate from Read Team Sales Data since compensation is more sensitive than pipeline visibility"},
+            {"id": PERM_WRITE_TEAM_COMMISSIONS, "name": "Write Team Commissions", "description": "Record and reverse commission ledger entries -- separate from Read Team Commissions since seeing compensation data doesn't imply authority to author or reverse money-moving ledger rows"},
+            {"id": PERM_READ_TERRITORIES, "name": "Read Territories", "description": "View the territory lookup list (name/code/notes)"},
+            {"id": PERM_WRITE_TERRITORIES, "name": "Write Territories", "description": "Create and edit territory definitions -- separate from assigning a territory to a user/lead/customer, which is gated by that record's own write permission"},
         ],
     },
     "operations": {
@@ -577,6 +829,7 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
         "description": "Projects, work orders, and drying fleet",
         "permissions": [
             {"id": PERM_READ_ALL_PROJECTS, "name": "Read All Projects", "description": "View all job sites and projects"},
+            {"id": PERM_READ_OWN_SOLD_PROJECTS, "name": "Read Own Sold Projects", "description": "View projects, work orders, and status for jobs the actor personally sold (has a matching Contract), not the whole company's -- default sales-rep grant"},
             {"id": PERM_READ_ASSIGNED_PROJECTS, "name": "Read Assigned Projects", "description": "View assigned project jobs"},
             {"id": PERM_READ_OWN_PROJECTS, "name": "Read Own Projects", "description": "View own customer projects"},
             {"id": PERM_WRITE_PROJECTS, "name": "Write Projects", "description": "Create and update project records"},
@@ -586,6 +839,7 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_READ_OPERATIONS, "name": "Read Operations", "description": "View operations dashboard"},
             {"id": PERM_WRITE_OPERATIONS, "name": "Write Operations", "description": "Modify operational assets and equipment"},
             {"id": PERM_DISPATCH_WORK_ORDERS, "name": "Dispatch Work Orders", "description": "Assign and dispatch work orders"},
+            {"id": PERM_READ_SALESPERSON_ROSTER, "name": "Read Salesperson Roster", "description": "See a narrow id+name-only list of users in sales-attribution-eligible roles, for populating a salesperson picker -- not the full user roster (Manage Users)"},
         ],
     },
     "estimates_contracts": {
@@ -656,6 +910,7 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_WRITE_APPOINTMENT_TYPES, "name": "Write Appointment Types", "description": "Create, rename, and deactivate bookable service types"},
             {"id": PERM_READ_STAFF_SCHEDULES, "name": "Read Staff Schedules", "description": "View staff schedules"},
             {"id": PERM_WRITE_STAFF_SCHEDULES, "name": "Write Staff Schedules", "description": "Manage staff schedules"},
+            {"id": PERM_READ_OWN_STAFF_SCHEDULE, "name": "Read Own Staff Schedule", "description": "View own staff schedule only (self-scoped, not company-wide)"},
         ],
     },
     "business_ops": {
@@ -724,6 +979,17 @@ def _validate_user_role_invariants(role: str, customer_id: Optional[int]) -> Non
     Currently: a ``customer``-role user must have a ``customer_id``. Evaluate
     against the *resulting* state — update callers pass post-update values.
     Raises ValueError; the API layer maps that to 400.
+
+    Deliberately no equivalent ``subcontractor``/``subcontractor_id``
+    invariant (Phase 0b, B8.16): unlike ``customer_id``, ``create_user`` has
+    no ``subcontractor_id`` parameter at all yet (see ``update_user``'s
+    ``allowed_fields`` for the only supported way to set it, post-creation),
+    so requiring it at creation time would make creating a
+    ``ROLE_SUBCONTRACTOR`` user impossible outright. A ``ROLE_SUBCONTRACTOR``
+    user with ``subcontractor_id IS NULL`` is therefore a real, reachable
+    state -- deliberately fail-closed to zero work-order access by
+    ``OperationsService._actor_owns_work_order_via_subcontractor`` rather
+    than rejected here.
     """
     if role == ROLE_CUSTOMER and customer_id is None:
         raise ValueError("Customer user role requires an associated customer_id")
@@ -737,6 +1003,9 @@ class AuthContext:
     role: str
     actor_type: str  # 'human' or 'agent'
     customer_id: Optional[int] = None
+    # Phase 0b, B8.16: populated for a ROLE_SUBCONTRACTOR actor, mirroring
+    # customer_id's ROLE_CUSTOMER self-scoping. None for every other role.
+    subcontractor_id: Optional[int] = None
     token: Optional[str] = None
     custom_permissions: Dict[str, bool] = field(default_factory=dict)
 
@@ -896,6 +1165,9 @@ class AuthService:
             customer_id=row["customer_id"],
             custom_permissions=perms,
             active=row["active"],
+            terminated_at=row["terminated_at"] if "terminated_at" in row.keys() else None,
+            territory_id=row["territory_id"] if "territory_id" in row.keys() else None,
+            subcontractor_id=row["subcontractor_id"] if "subcontractor_id" in row.keys() else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -926,7 +1198,8 @@ class AuthService:
         row = conn.execute(
             """
             SELECT t.token, t.user_id, t.role, t.expires_at, t.is_revoked,
-                   u.username, u.customer_id, u.active, u.custom_permissions_json
+                   u.username, u.customer_id, u.subcontractor_id, u.active,
+                   u.custom_permissions_json
             FROM api_tokens t
             JOIN users u ON t.user_id = u.id
             WHERE t.token = ? AND t.is_revoked = 0 AND u.active = 1;
@@ -950,6 +1223,7 @@ class AuthService:
             role=row["role"],
             actor_type=actor_type,
             customer_id=row["customer_id"],
+            subcontractor_id=row["subcontractor_id"] if "subcontractor_id" in row.keys() else None,
             token=token,
             custom_permissions=perms,
         )
@@ -983,6 +1257,9 @@ class AuthService:
             customer_id=row["customer_id"],
             custom_permissions=perms,
             active=row["active"],
+            terminated_at=row["terminated_at"] if "terminated_at" in row.keys() else None,
+            territory_id=row["territory_id"] if "territory_id" in row.keys() else None,
+            subcontractor_id=row["subcontractor_id"] if "subcontractor_id" in row.keys() else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -1027,11 +1304,54 @@ class AuthService:
                     customer_id=r["customer_id"],
                     custom_permissions=perms,
                     active=r["active"],
+                    terminated_at=r["terminated_at"] if "terminated_at" in r.keys() else None,
+                    territory_id=r["territory_id"] if "territory_id" in r.keys() else None,
+                    subcontractor_id=r["subcontractor_id"] if "subcontractor_id" in r.keys() else None,
                     created_at=r["created_at"],
                     updated_at=r["updated_at"],
                 )
             )
         return users
+
+    def list_salesperson_roster(self, actor_context: AuthContext) -> List[Dict[str, Any]]:
+        """NEW-680, B8.16 Phase 4: a deliberately narrow read for populating
+        the work-order-intake form's salesperson picker (requires
+        PERM_READ_SALESPERSON_ROSTER, held by ROLE_TECHNICIAN/
+        ROLE_SUBCONTRACTOR -- see that permission's own definition above
+        for why this isn't PERM_MANAGE_USERS or PERM_READ_TEAM_SALES_DATA).
+
+        Returns ONLY {"id": ..., "name": ...} pairs -- no email, phone,
+        role, or any other user field -- for active users
+        (`active = 1`) whose role is in SALES_ATTRIBUTION_ROLES. The
+        projection happens in this SQL SELECT itself (not by fetching full
+        User rows and trimming fields in a route handler), so there is no
+        later call site that could accidentally widen the response by
+        returning a fuller object.
+
+        `name` falls back to `username` when `full_name` is blank/NULL, so
+        a user is never silently omitted from the picker just because
+        their full_name wasn't set -- deliberate choice, not an oversight:
+        username is still not email/phone/role/any other user field, so it
+        does not violate this endpoint's "id+name only" contract, even
+        though it is a login identifier rather than a display name.
+        """
+        if not actor_context.has_permission(PERM_READ_SALESPERSON_ROSTER):
+            raise PermissionError("Actor lacks permission to read the salesperson roster")
+
+        ordered_roles = sorted(SALES_ATTRIBUTION_ROLES)
+        placeholders = ",".join("?" for _ in ordered_roles)
+        query = (
+            f"SELECT id, full_name, username FROM users "
+            f"WHERE active = 1 AND role IN ({placeholders}) "
+            f"ORDER BY full_name ASC, username ASC;"
+        )
+        conn = self.db.get_connection()
+        rows = conn.execute(query, tuple(ordered_roles)).fetchall()
+        roster: List[Dict[str, Any]] = []
+        for r in rows:
+            name = (r["full_name"] or "").strip() or r["username"]
+            roster.append({"id": r["id"], "name": name})
+        return roster
 
     def update_user(
         self,
@@ -1061,7 +1381,19 @@ class AuthService:
         if not user:
             return None, False
 
-        allowed_fields = {"full_name", "email", "phone", "role", "department", "customer_id"}
+        # territory_id (B8.9a): setting it to None is how a rep is returned
+        # to "no territory" -- no None-guard exists on this dict-driven
+        # UPDATE path (unlike update_customer's explicit None-rejection),
+        # so an explicit territory_id=None in `updates` is accepted and
+        # clears the column, same as every other nullable field here.
+        # subcontractor_id (Phase 0b, B8.16): same convention -- this is the
+        # only supported way to populate a ROLE_SUBCONTRACTOR user's own
+        # subcontractor_id today (create_user has no parameter for it, same
+        # as territory_id), gated on the same PERM_MANAGE_USERS check above.
+        allowed_fields = {
+            "full_name", "email", "phone", "role", "department", "customer_id",
+            "territory_id", "subcontractor_id",
+        }
         set_clauses: List[str] = []
         params: List[Any] = []
 
@@ -1154,7 +1486,37 @@ class AuthService:
         active: int,
         actor_context: AuthContext,
     ) -> Optional[User]:
-        """Activate or suspend user account (requires PERM_MANAGE_USERS)."""
+        """Activate or suspend user account (requires PERM_MANAGE_USERS).
+
+        terminated_at (B8.7c, D6): set to the current timestamp ONLY on a
+        genuine active 1->0 transition (checked against this SAME
+        get_user_by_id read below, before the UPDATE -- a repeated
+        suspend call against an already-suspended user is a no-op
+        transition and must not keep bumping terminated_at forward,
+        which would silently move CRMService's portfolio-override
+        termination gate later than the rep's real departure). Cleared
+        back to NULL on a 0->1 reactivation -- a rehired rep isn't
+        "still terminated" for future GC projects. Built into ONE UPDATE
+        below (not a second follow-up statement) so there is no
+        partial-write window between the active flag and terminated_at
+        landing -- same atomicity discipline as the B8.6d-b finding.
+        Known, accepted TOCTOU (not fixed here, same class as NEW-606):
+        the get_user_by_id read above and the UPDATE below are not one
+        atomic operation, so two concurrent set_user_active calls on the
+        same user (a suspend racing a reactivate) could interleave and
+        land active=1 with a stale terminated_at still set, or vice
+        versa -- no lock exists on this row for that window. Consequence
+        for the active=1/terminated_at-stale case specifically: CRMService's
+        portfolio-override gate 5 (crm_service.py,
+        _resolve_portfolio_override_eligibility) treats a non-NULL
+        terminated_at as "this rep departed on this date" regardless of
+        the active flag, so a currently-employed rep left in this state
+        would have a legitimate override silently rejected (fail-closed
+        money loss, not a security exposure) on every payment until the
+        stale terminated_at is corrected -- and since normal-ineligible
+        outcomes aren't audit-logged, there would be no trail pointing at
+        why.
+        """
         if not actor_context.has_permission(PERM_MANAGE_USERS):
             raise PermissionError("Actor lacks permission to manage users")
 
@@ -1168,10 +1530,26 @@ class AuthService:
         now = utc_now_iso()
         conn = self.db.get_connection()
         with conn:
-            conn.execute(
-                "UPDATE users SET active = ?, updated_at = ? WHERE id = ?;",
-                (active, now, user_id),
-            )
+            if user.active == 1 and active == 0:
+                # Genuine 1->0 transition: stamp terminated_at.
+                conn.execute(
+                    "UPDATE users SET active = ?, terminated_at = ?, updated_at = ? WHERE id = ?;",
+                    (active, now, now, user_id),
+                )
+            elif user.active == 0 and active == 1:
+                # Genuine 0->1 transition: clear terminated_at.
+                conn.execute(
+                    "UPDATE users SET active = ?, terminated_at = NULL, updated_at = ? WHERE id = ?;",
+                    (active, now, user_id),
+                )
+            else:
+                # No actual transition (e.g. suspend called again on an
+                # already-suspended user) -- leave terminated_at
+                # untouched.
+                conn.execute(
+                    "UPDATE users SET active = ?, updated_at = ? WHERE id = ?;",
+                    (active, now, user_id),
+                )
             # If suspending, immediately revoke all active sessions
             if active == 0:
                 conn.execute(

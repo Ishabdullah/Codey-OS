@@ -18,6 +18,8 @@ from restoricon_core.auth import (
     PERM_MANAGE_USERS,
     PERM_READ_AUDIT_LOG,
     PERM_READ_TEAM_SALES_DATA,
+    PERM_READ_TEAM_COMMISSIONS,
+    PERM_WRITE_TEAM_COMMISSIONS,
     PERM_WRITE_FINANCIALS,
     PERM_READ_ALL_ESTIMATES,
     PERM_REASSIGN_ESTIMATES,
@@ -140,14 +142,68 @@ def test_role_sales_manager_permissions_derived_from_sales_plus_team_read():
     """ROLE_SALES_MANAGER's permission set must be exactly ROLE_SALES's set
     plus PERM_READ_TEAM_SALES_DATA and, since Codey-Estimator Phase B9.1
     (codey_estimator_schema.md §4), PERM_READ_ALL_ESTIMATES,
-    PERM_REASSIGN_ESTIMATES, and PERM_APPROVE_ESTIMATES -- derived, not
-    duplicated, so it can never drift out of sync with ROLE_SALES."""
+    PERM_REASSIGN_ESTIMATES, and PERM_APPROVE_ESTIMATES; and
+    PERM_READ_TEAM_COMMISSIONS, PERM_WRITE_TEAM_COMMISSIONS (B8.1, D4;
+    write split added in code-reviewer round 2) -- derived, not
+    duplicated, so it can never drift out of sync with ROLE_SALES.
+    PERM_READ_OPERATIONS was briefly granted here (NEW-630, dd244d5,
+    2026-09-25) and then reversed (2026-09-27, direct Ish decision) -- a
+    sales manager should not get equipment/deployment visibility."""
     assert ROLE_PERMISSIONS[ROLE_SALES_MANAGER] == ROLE_PERMISSIONS[ROLE_SALES] | {
         PERM_READ_TEAM_SALES_DATA,
         PERM_READ_ALL_ESTIMATES,
         PERM_REASSIGN_ESTIMATES,
         PERM_APPROVE_ESTIMATES,
+        PERM_READ_TEAM_COMMISSIONS,
+        PERM_WRITE_TEAM_COMMISSIONS,
     }
+
+
+def test_role_permissions_grant_read_team_commissions_to_admin_manager_ai_agent_sales_manager_only():
+    """B8.1, D4: PERM_READ_TEAM_COMMISSIONS is a separate financial-
+    visibility gate from PERM_READ_TEAM_SALES_DATA -- granted to
+    admin/manager/ai_agent/sales_manager only, withheld from
+    sales/project_manager/technician/customer."""
+    from restoricon_core.auth import (
+        ROLE_ADMIN as _ROLE_ADMIN,
+        ROLE_MANAGER as _ROLE_MANAGER,
+        ROLE_AI_AGENT as _ROLE_AI_AGENT,
+        ROLE_PROJECT_MANAGER as _ROLE_PROJECT_MANAGER,
+        ROLE_TECHNICIAN as _ROLE_TECHNICIAN,
+        ROLE_CUSTOMER as _ROLE_CUSTOMER,
+    )
+
+    granted = {_ROLE_ADMIN, _ROLE_MANAGER, _ROLE_AI_AGENT, ROLE_SALES_MANAGER}
+    withheld = {ROLE_SALES, _ROLE_PROJECT_MANAGER, _ROLE_TECHNICIAN, _ROLE_CUSTOMER}
+
+    for role in granted:
+        assert PERM_READ_TEAM_COMMISSIONS in ROLE_PERMISSIONS[role], role
+    for role in withheld:
+        assert PERM_READ_TEAM_COMMISSIONS not in ROLE_PERMISSIONS[role], role
+
+
+def test_role_permissions_grant_write_team_commissions_to_admin_manager_ai_agent_sales_manager_only():
+    """code-reviewer round 2 (B8.1): PERM_WRITE_TEAM_COMMISSIONS is split
+    from PERM_READ_TEAM_COMMISSIONS (PERM_SIGN_CONTRACTS /
+    PERM_WRITE_CONTRACTS precedent) but granted to the identical default
+    set -- admin/manager/ai_agent/sales_manager only, withheld from
+    sales/project_manager/technician/customer."""
+    from restoricon_core.auth import (
+        ROLE_ADMIN as _ROLE_ADMIN,
+        ROLE_MANAGER as _ROLE_MANAGER,
+        ROLE_AI_AGENT as _ROLE_AI_AGENT,
+        ROLE_PROJECT_MANAGER as _ROLE_PROJECT_MANAGER,
+        ROLE_TECHNICIAN as _ROLE_TECHNICIAN,
+        ROLE_CUSTOMER as _ROLE_CUSTOMER,
+    )
+
+    granted = {_ROLE_ADMIN, _ROLE_MANAGER, _ROLE_AI_AGENT, ROLE_SALES_MANAGER}
+    withheld = {ROLE_SALES, _ROLE_PROJECT_MANAGER, _ROLE_TECHNICIAN, _ROLE_CUSTOMER}
+
+    for role in granted:
+        assert PERM_WRITE_TEAM_COMMISSIONS in ROLE_PERMISSIONS[role], role
+    for role in withheld:
+        assert PERM_WRITE_TEAM_COMMISSIONS not in ROLE_PERMISSIONS[role], role
 
 
 def test_create_user_with_sales_manager_role(auth_service):

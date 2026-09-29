@@ -450,15 +450,17 @@ PERM_MANAGE_PRICE_BOOK = "manage:price_book"          # declared now, unused unt
 | `ROLE_SALES_MANAGER` (derived line, `auth.py:509`) | update to `ROLE_PERMISSIONS[ROLE_SALES] \| {PERM_READ_TEAM_SALES_DATA, PERM_READ_ALL_ESTIMATES, PERM_REASSIGN_ESTIMATES, PERM_APPROVE_ESTIMATES}` | team-wide visibility + reassignment + internal-review approval, same "derived so it can't drift" reasoning already documented at that line |
 | `ROLE_PROJECT_MANAGER` | `PERM_READ_ESTIMATE_COSTS` | **Ish's decision, 2026-09-27: keep current behavior** — today's `_row_to_estimate` already lets PMs see cost (its `is_customer` gate only excludes `ROLE_CUSTOMER`/`ROLE_TECHNICIAN`); this formalizes that under the new permission system rather than narrowing it |
 | `ROLE_TECHNICIAN` | none | unchanged |
-| `ROLE_AI_AGENT` | `PERM_WRITE_ESTIMATES` (fixes a real pre-existing gap — see NEW-544), `PERM_READ_ALL_ESTIMATES`, `PERM_READ_ESTIMATE_COSTS` | preserves today's de facto behavior and satisfies the library's D11 ("read/search/draft-create permissions"). **Never** `PERM_SEND_ESTIMATES` (hard requirement — an autonomous agent must never email a customer a price without a human clicking send), **never** `PERM_APPROVE_ESTIMATES`/`PERM_REASSIGN_ESTIMATES`/`PERM_MANAGE_PRICE_BOOK` |
+| `ROLE_AI_AGENT` | `PERM_WRITE_ESTIMATES` (fixes a real pre-existing gap — see NEW-709, renumbered from NEW-544 during the 2026-09-29 merge of `main` into this branch), `PERM_READ_ALL_ESTIMATES`, `PERM_READ_ESTIMATE_COSTS` | preserves today's de facto behavior and satisfies the library's D11 ("read/search/draft-create permissions"). **Never** `PERM_SEND_ESTIMATES` (hard requirement — an autonomous agent must never email a customer a price without a human clicking send), **never** `PERM_APPROVE_ESTIMATES`/`PERM_REASSIGN_ESTIMATES`/`PERM_MANAGE_PRICE_BOOK` |
 | `ROLE_CUSTOMER` | none | unaffected; keeps `PERM_READ_OWN_ESTIMATES` only |
 
 `PERMISSIONS_CATALOG`'s existing `"estimates"` domain block
 (`auth.py:557-559`) gets six new entries, same `{"id", "name", "description"}`
 shape as the three already there.
 
-See `NEW_ISSUES.md` [NEW-544] for the pre-existing `ROLE_AI_AGENT` gap this
-round also fixes.
+See `NEW_ISSUES.md` [NEW-709] (renumbered from [NEW-544] during the
+2026-09-29 merge of `main` into this branch, which had independently
+allocated NEW-544 to an unrelated finding) for the pre-existing
+`ROLE_AI_AGENT` gap this round also fixes.
 
 ## 5. Where the migration goes, and the "done" bar
 

@@ -8,6 +8,23 @@ Exact brand styling matching restoricon.com:
 - Phone: (860) 337-1820 | CT HIC Licensed General Contractor
 """
 
+import html as _html
+
+
+def _pesc(value) -> str:
+    """Python-side HTML escaping for server-rendered (non-f-string,
+    non-SPA) surfaces such as render_estimate_proposal -- customer
+    names, line-item descriptions, and business-profile text are all
+    client-supplied and land directly in server-rendered HTML, so they
+    must be escaped the same way escapeHtml() protects the client-side
+    JS-rendered surfaces elsewhere in this file. quote=True also escapes
+    quotes, not just angle brackets, since this print-only markup has no
+    client-side re-escaping pass of its own to fall back on."""
+    if value is None:
+        return ""
+    return _html.escape(str(value), quote=True)
+
+
 def _get_universal_drawer_html(active_surface: str = "") -> str:
     """Generate universal slide-out navigation drawer and overlay shared across all web surfaces."""
     return """
@@ -382,6 +399,12 @@ def _get_common_styles() -> str:
             .nav-center-links { display: none; }
             .nav-phone-btn span { display: none; }
         }
+
+        /* B8.13b: horizontal-scroll container for data tables so a wide
+           table never overflows a narrow (phone-width) viewport. Tables
+           keep their existing markup exactly as-is -- this only wraps
+           them, it does not restructure them into cards. */
+        .table-scroll-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     """
 
 
@@ -2202,6 +2225,34 @@ def render_admin_surface() -> str:
                     </tbody>
                 </table>
             </div>
+
+            <!-- B8.12b, sales_rep_portal.md §B8.12: Production Handoff
+                 Checklist -- operations/PM-tier (PERM_WRITE_PROJECTS-gated
+                 server-side in CRMService; ROLE_SALES does not hold that
+                 permission per B8.12a). Every project is listed here
+                 (unfiltered), unlike the PM staff portal's own
+                 project_manager_id-scoped list, since a just-sold project
+                 has no project_manager_id assigned yet and still needs a
+                 reachable entry point for its handoff. -->
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>📋</span> Production Handoff Checklists</h2>
+                </div>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Title</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="handoffProjectsTableBody">
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>
+                    </tbody>
+                </table>
+                <div id="handoffChecklistArea"></div>
+            </div>
         </div>
 
         <!-- Tab 7: Subcontractors -->
@@ -2854,6 +2905,186 @@ def render_admin_surface() -> str:
             }
         }
 
+        // B8.12b, sales_rep_portal.md §B8.12: Production Handoff Checklist
+        // -- operations/PM-tier panel. Lists every project unfiltered
+        // (GET /api/v1/projects has no client-side project_manager_id
+        // filter here, unlike the PM staff portal's own list -- a
+        // just-sold project has no project_manager_id assigned yet and
+        // still needs a reachable entry point for its handoff). All 7
+        // items are always rendered; each individually settable to
+        // done/na/pending. "Complete Handoff" is disabled with the
+        // server's own blocking_reasons (CRMService.
+        // _evaluate_handoff_conditions, the single source of truth for
+        // the guard) whenever any condition is unmet -- never a second
+        // copy of the guard's rules computed client-side.
+        // PERM_WRITE_PROJECTS is enforced server-side in CRMService --
+        // ROLE_SALES does not hold it (B8.12a), so a rep reaching this
+        // admin surface (NEW-625: /admin has no server-side role check)
+        // gets a clean 403 from every write route below regardless.
+        let editingHandoffChecklistProjectId = null;
+        const HANDOFF_ITEM_LABELS = {
+            scope: 'Scope of Work',
+            materials: 'Materials',
+            customer_selections: 'Customer Selections',
+            permits: 'Permits',
+            insurance: 'Insurance Info',
+            financing: 'Financing',
+            deposit: 'Deposit Status',
+        };
+
+        async function loadHandoffProjects() {
+            const token = getAuthToken();
+            const tbody = document.getElementById('handoffProjectsTableBody');
+            try {
+                const res = await fetch('/api/v1/projects', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                const projects = (data && data.projects) || [];
+                if (projects.length > 0) {
+                    tbody.innerHTML = projects.map(p => `
+                        <tr>
+                            <td>#${p.id}</td>
+                            <td>${escapeHtml(p.title || '')}</td>
+                            <td>${escapeHtml(p.status || '')}</td>
+                            <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openHandoffChecklist(${p.id})">Handoff</button></td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="4">Error loading projects.</td></tr>';
+            }
+        }
+
+        async function openHandoffChecklist(projectId) {
+            editingHandoffChecklistProjectId = projectId;
+            const area = document.getElementById('handoffChecklistArea');
+            area.innerHTML = '<div class="erp-card"><p style="color:var(--text-muted);">Loading handoff checklist...</p></div>';
+            await refreshHandoffChecklist();
+        }
+
+        async function refreshHandoffChecklist() {
+            const projectId = editingHandoffChecklistProjectId;
+            if (!projectId) { return; }
+            const area = document.getElementById('handoffChecklistArea');
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/projects/' + projectId + '/handoff-checklist', {
+                    headers: { 'Authorization': 'Bearer ' + token },
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                if (res.status === 403) {
+                    area.innerHTML = '<div class="erp-card"><p style="color:var(--text-muted);">No access.</p></div>';
+                    return;
+                }
+                if (res.status === 404) {
+                    area.innerHTML = `<div class="erp-card">
+                        <h4 style="margin-top:0;">Production Handoff Checklist — Project #${projectId}</h4>
+                        <p style="color:var(--text-muted);">No checklist started yet for this project.</p>
+                        <button class="btn-gold" onclick="createHandoffChecklist(${projectId})">Start Handoff Checklist</button>
+                    </div>`;
+                    return;
+                }
+                const data = await res.json();
+                if (!res.ok) {
+                    area.innerHTML = `<div class="erp-card"><p style="color:var(--text-muted);">${escapeHtml(data.error || 'Failed to load.')}</p></div>`;
+                    return;
+                }
+                area.innerHTML = renderHandoffChecklist(projectId, data.handoff_checklist);
+            } catch (e) {
+                area.innerHTML = '<div class="erp-card"><p style="color:var(--text-muted);">Failed to load: network error.</p></div>';
+            }
+        }
+
+        function renderHandoffChecklist(projectId, checklist) {
+            const items = checklist.items || {};
+            const guard = checklist.guard || {};
+            const completed = !!checklist.completed_at;
+            const itemRows = Object.keys(HANDOFF_ITEM_LABELS).map(key => {
+                const status = items[key] || 'pending';
+                const opt = (val, label) => `<option value="${val}" ${status === val ? 'selected' : ''}>${label}</option>`;
+                return `<tr>
+                    <td>${escapeHtml(HANDOFF_ITEM_LABELS[key])}</td>
+                    <td>
+                        <select ${completed ? 'disabled' : ''} onchange="setHandoffChecklistItem(${projectId}, ${escapeHtml(JSON.stringify(key))}, this.value)">
+                            ${opt('pending', 'Pending')}${opt('done', 'Done')}${opt('na', 'N/A')}
+                        </select>
+                    </td>
+                </tr>`;
+            }).join('');
+            const reasons = (guard.blocking_reasons || []);
+            const reasonsHtml = reasons.length > 0
+                ? `<p style="color:var(--text-muted);">Cannot complete: ${escapeHtml(reasons.join('; '))}</p>`
+                : '';
+            const completeDisabled = completed || reasons.length > 0;
+            const completeLabel = completed ? 'Handoff Completed' : 'Complete Handoff';
+            return `<div class="erp-card">
+                <h4 style="margin-top:0;">Production Handoff Checklist — Project #${projectId}</h4>
+                <table class="erp-table"><thead><tr><th>Item</th><th>Status</th></tr></thead><tbody>${itemRows}</tbody></table>
+                ${reasonsHtml}
+                <button class="btn-gold" ${completeDisabled ? 'disabled' : ''} onclick="completeHandoffChecklist(${projectId})">${completeLabel}</button>
+            </div>`;
+        }
+
+        async function createHandoffChecklist(projectId) {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/projects/' + projectId + '/handoff-checklist', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.error || ('Failed to start handoff checklist (' + res.status + ').'));
+                    return;
+                }
+                await refreshHandoffChecklist();
+            } catch (e) {
+                alert('Failed to start handoff checklist: network error.');
+            }
+        }
+
+        async function setHandoffChecklistItem(projectId, item, status) {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/projects/' + projectId + '/handoff-checklist/item', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ item: item, status: status }),
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.error || ('Failed to update checklist item (' + res.status + ').'));
+                }
+                await refreshHandoffChecklist();
+            } catch (e) {
+                alert('Failed to update checklist item: network error.');
+            }
+        }
+
+        async function completeHandoffChecklist(projectId) {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/projects/' + projectId + '/handoff-checklist/complete', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.error || ('Failed to complete handoff checklist (' + res.status + ').'));
+                    await refreshHandoffChecklist();
+                    return;
+                }
+                await refreshHandoffChecklist();
+            } catch (e) {
+                alert('Failed to complete handoff checklist: network error.');
+            }
+        }
+
         async function loadSubcontractors() {
             // NEW-489: the list route lives under /api/v1/subcontractors
             // directly, not under an operations/ prefix -- no handler
@@ -3256,7 +3487,15 @@ def render_admin_surface() -> str:
             if (target) target.classList.add('active');
             
             if (tabId === 'kpis') loadKPIs();
+            // B8.12b: kept as two separate statements, NOT merged into
+            // `{ loadEquipment(); loadHandoffProjects(); }` --
+            // test_b6_4_admin_wiring_tabs_has_fetches asserts the exact
+            // literal substring "if (tabId === 'operations') loadEquipment();"
+            // is present verbatim; a merge (even though functionally
+            // equivalent) breaks that pre-existing test on a
+            // string-equality technicality, not a real regression.
             if (tabId === 'operations') loadEquipment();
+            if (tabId === 'operations') loadHandoffProjects();
             if (tabId === 'subcontractors') loadSubcontractors();
             if (tabId === 'finance') loadFinance();
             if (tabId === 'comms') loadComms();
@@ -4070,8 +4309,8 @@ def render_admin_surface() -> str:
                             <td>${escapeHtml(d.document_type)}</td>
                             <td>${escapeHtml(d.title)}</td>
                             <td>
-                                ${d.customer_id ? 'Cust: ' + d.customer_id : ''}
-                                ${d.project_id ? 'Proj: ' + d.project_id : ''}
+                                ${d.customer_id ? 'Cust: ' + escapeHtml(d.customer_name || ('Customer #' + d.customer_id)) : ''}
+                                ${d.project_id ? 'Proj: ' + escapeHtml(d.project_name || ('Project #' + d.project_id)) : ''}
                             </td>
                             <td>
                                 <button onclick="window.open('/api/v1/documents/${d.id}/download?token=' + getAuthToken(), '_blank')" class="btn-gold" style="padding: 0.2rem 0.5rem;">Download</button>
@@ -4942,6 +5181,53 @@ def render_admin_surface() -> str:
         // Initial load
         validateSession('/admin/login').then(async valid => {
             if (valid) {
+                // NEW-625: validateSession() above only checks token validity,
+                // not role -- it is shared with render_portal_surface()'s own
+                // session check and must stay bool-returning for that caller,
+                // so a role check can't be folded into it. This is a
+                // deliberate second /auth/me fetch specifically for /admin's
+                // own role gate: any actor whose role has its own dedicated
+                // portal (B6.8) must not land on the full admin ERP shell.
+                // ROLE_MANAGER and ROLE_AI_AGENT have no dedicated portal
+                // anywhere in this codebase (verified), so they are
+                // deliberately left off this map and continue to /admin.
+                // ROLE_SALES_MANAGER DOES have a dedicated portal (/sales --
+                // see _render_sales_portal()'s own docstring, and the
+                // existing login-page redirect at line ~713-714 which already
+                // sends sales_manager to /sales) and, as of NEW-642
+                // (resolved, Ish decision 2026-09-25), IS in this map --
+                // a sales_manager actor is redirected away from /admin to
+                // /sales just like the other dedicated-portal roles below.
+                // "subcontractor" IS in this map as of Phase 0b/B8.16
+                // (2026-09-27) -- ROLE_SUBCONTRACTOR is now a real role in
+                // auth.py's ALL_ROLES (NEW-641 resolved), and a
+                // subcontractor actor is redirected away from /admin to
+                // /subcontractor just like the other dedicated-portal
+                // roles below.
+                try {
+                    const meToken = getAuthToken();
+                    const meRes = await fetch('/api/v1/auth/me', { headers: { 'Authorization': 'Bearer ' + meToken } });
+                    // 401/403 were already handled by validateSession() above;
+                    // a non-ok response here just means role is unknown, so
+                    // fall through and let the admin shell load as before.
+                    if (meRes.ok) {
+                        const meData = await meRes.json();
+                        const role = meData.user && meData.user.role;
+                        const rolePortals = {
+                            'project_manager': '/pm',
+                            'sales': '/sales',
+                            'sales_manager': '/sales',
+                            'technician': '/tech',
+                            'customer': '/portal',
+                            'subcontractor': '/subcontractor'
+                        };
+                        if (role && rolePortals[role]) {
+                            window.location.href = rolePortals[role];
+                            return;
+                        }
+                    }
+                } catch (e) { /* network/parse failure: fail open to the admin shell, matching validateSession()'s own fail-open catch above */ }
+
                 loadUsersList();
                 // Awaited (not fire-and-forget) so window.currentAppointmentTypes
                 // is populated before the Calendar's initial loadCalendar() call
@@ -5055,8 +5341,364 @@ def render_admin_surface() -> str:
 </body>
 </html>"""
 
+def _render_work_order_intake_section() -> str:
+    """B8.16 Phase 4: the reusable, paper-work-order-styled intake form
+    itself (customer info, sales attribution, diagnostic/service-call
+    fields, a repeatable line-items builder, Appointment Details),
+    submitting to POST /api/v1/operations/work-order-intake, which wraps
+    CRMService.submit_work_order_intake (Phase 2). Included verbatim (via
+    string interpolation, not f-string substitution) by
+    _render_staff_portal_base only when role_key is 'technician' or
+    'subcontractor' -- the gate is applied at the Python call site, not in
+    client-side JS, so the section's markup is genuinely absent from the
+    rendered bytes of every other role's portal (PM, sales, admin), not
+    merely hidden.
+
+    Deliberately a plain (non-f-string) string: every value in this form
+    is either static markup or filled in client-side from user input at
+    submit time -- there is no server-rendered dynamic value anywhere in
+    this section (no customer name, no salesperson name), so there is
+    nothing here for Python-side escaping to protect. The one place a
+    dynamic value DOES get rendered into the DOM is the client-side line
+    item row builder in the appended <script> block below, which escapes
+    every row's description through escapeHtml() (the same helper
+    _render_staff_portal_base's own script already defines) before
+    building the row's innerHTML, and never inlines a line-item object
+    into an onclick/oninput attribute -- the exact bug class NEW-661/664
+    fixed elsewhere in this file (see guidedSelectCustomer's own comment).
+
+    NEW-680 (2026-09-29, Ish decision): the salesperson field is a
+    <select> populated from GET /api/v1/operations/salesperson-roster
+    (AuthService.list_salesperson_roster), gated by the new, narrow
+    PERM_READ_SALESPERSON_ROSTER permission (held by ROLE_TECHNICIAN/
+    ROLE_SUBCONTRACTOR) rather than PERM_MANAGE_USERS -- see that
+    permission's own definition in auth.py for why PERM_MANAGE_USERS and
+    PERM_READ_TEAM_SALES_DATA were both considered and rejected (the
+    latter is treated as an ownership-narrowing bypass elsewhere in this
+    codebase, which would make it a worse over-grant than the numeric-id
+    input it replaces). The endpoint returns ONLY {id, name} pairs for
+    users in SALES_ATTRIBUTION_ROLES (never email/phone/role/any other
+    field). woiLoadSalespersonRoster() (below) fetches it on modal-open
+    and routes every returned name through escapeHtml() before building
+    each <option>'s innerHTML -- same discipline the line-item builder
+    already follows per NEW-661/664.
+
+    Known gap, also not resolved here: the Service Call Fee field folds
+    into `work_order_data` per this phase's spec (no dedicated WorkOrder
+    or Invoice column), which means it never reaches the invoice's billed
+    total -- it is recorded as a notes line, visible to whoever reads the
+    work order, but not billed. Making it bill would mean prefilling it
+    as an authoritative line-item row instead, which is a money-visible
+    behavior choice outside this sub-task's scope (Phase 2's orchestrator
+    is explicitly not to be modified here).
+    """
+    return """
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Work Order Intake</h2>
+            <p style="color:var(--text-muted);margin:0 0 1rem 0;">Submit a new service-call job -- customer, diagnostic, and appointment details. This goes to an admin as a DRAFT work order for dispatch.</p>
+            <button class="btn-gold" onclick="openWorkOrderIntakeModal()">+ New Work Order Intake</button>
+        </div>
+
+        <div id="woiModal" class="erp-modal-overlay">
+            <div class="erp-modal" style="max-width:700px;">
+                <div class="modal-header">
+                    <h3>Work Order Intake</h3>
+                    <button type="button" onclick="closeWorkOrderIntakeModal()" style="background:none;border:none;color:#94A3B8;font-size:1.5rem;cursor:pointer;">&times;</button>
+                </div>
+                <form onsubmit="submitWorkOrderIntake(event)">
+                    <h4>Customer</h4>
+                    <div class="modal-field"><label>First Name</label><input type="text" id="woiFirstName" required></div>
+                    <div class="modal-field"><label>Last Name</label><input type="text" id="woiLastName" required></div>
+                    <div class="modal-field"><label>Phone</label><input type="text" id="woiPhone"></div>
+                    <div class="modal-field"><label>Email</label><input type="email" id="woiEmail"></div>
+                    <div class="modal-field"><label>Service Address</label><input type="text" id="woiAddress" required></div>
+
+                    <h4>Sales Attribution</h4>
+                    <div class="modal-field">
+                        <label>Salesperson</label>
+                        <select id="woiSalespersonId" required>
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+
+                    <h4>Diagnostic / Service Call</h4>
+                    <div class="modal-field"><label>Trade / Service Type</label><input type="text" id="woiTrade" placeholder="e.g. plumbing, electrical, appliance repair"></div>
+                    <div class="modal-field"><label>Appliance / Equipment Type</label><input type="text" id="woiApplianceType"></div>
+                    <div class="modal-field"><label>Model / Serial Number</label><input type="text" id="woiModelSerial"></div>
+                    <div class="modal-field"><label>Issue Description</label><textarea id="woiIssueDescription" rows="3"></textarea></div>
+                    <div class="modal-field">
+                        <label>Leaking?</label>
+                        <select id="woiLeaking"><option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option></select>
+                    </div>
+                    <div class="modal-field"><label>Last Time Working</label><input type="date" id="woiLastTimeWorking"></div>
+                    <div class="modal-field"><label>Service Call Fee ($) -- recorded, not auto-billed; see line items below</label><input type="number" step="0.01" min="0" id="woiServiceCallFee"></div>
+
+                    <h4>Line Items</h4>
+                    <table style="width:100%;">
+                        <thead><tr><th>Description</th><th>Qty</th><th>Unit Cost</th><th>Total</th><th></th></tr></thead>
+                        <tbody id="woiLineItemsBody"></tbody>
+                    </table>
+                    <button type="button" class="btn-gold" style="margin-top:0.5rem;background:transparent;border:1px solid var(--bronze);color:var(--bronze);" onclick="woiAddLineItem()">+ Add Line Item</button>
+                    <div style="text-align:right;margin-top:0.5rem;font-weight:600;">Running Total (client-side estimate; server computes the authoritative total): $<span id="woiRunningTotal">0.00</span></div>
+
+                    <h4>Appointment Details</h4>
+                    <div class="modal-field"><label>Date</label><input type="date" id="woiApptDate"></div>
+                    <div class="modal-field"><label>Start Time</label><input type="time" id="woiApptStart"></div>
+                    <div class="modal-field"><label>End Time</label><input type="time" id="woiApptEnd"></div>
+                    <div class="modal-field">
+                        <label>Reported Technician Name (informational only -- actual assignment happens later via admin dispatch)</label>
+                        <input type="text" id="woiReportedTechName">
+                    </div>
+                    <div class="modal-field"><label>Reported Technician Phone (informational only)</label><input type="text" id="woiReportedTechPhone"></div>
+                    <div class="modal-field">
+                        <label>At Home?</label>
+                        <select id="woiAtHome"><option value="">-- Select --</option><option value="Yes">Yes</option><option value="No">No</option></select>
+                    </div>
+
+                    <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
+                        <button type="button" onclick="closeWorkOrderIntakeModal()" class="btn-gold" style="background:transparent;border:1px solid var(--card-border);color:#CBD5E1;">Cancel</button>
+                        <button type="submit" class="btn-gold">Submit Work Order</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            let woiLineItems = [];
+
+            function openWorkOrderIntakeModal() {
+                woiLineItems = [];
+                woiRenderLineItems();
+                woiLoadSalespersonRoster();
+                document.getElementById('woiModal').classList.add('active');
+            }
+
+            // NEW-680: populates the Sales Attribution <select> from the
+            // narrow id+name-only roster endpoint on every modal-open (not
+            // cached -- this form is opened rarely enough that a fresh
+            // fetch each time is simpler than a window.currentX cache, and
+            // guarantees a newly-added salesperson shows up immediately).
+            // Every returned name is routed through escapeHtml() before
+            // being placed in the <option>'s innerHTML -- same discipline
+            // NEW-661/664 established elsewhere in this file. On any
+            // fetch failure, the select is left with a single disabled-
+            // shaped placeholder option rather than silently reverting to
+            // an empty, submittable state -- required=true on the
+            // <select> then blocks submission with a clear reason instead
+            // of failing later with a confusing server-side error.
+            async function woiLoadSalespersonRoster() {
+                const sel = document.getElementById('woiSalespersonId');
+                sel.innerHTML = '<option value="">Loading...</option>';
+                try {
+                    const res = await fetch('/api/v1/operations/salesperson-roster', {
+                        headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+                    });
+                    if (res.status === 401) { window.location.href = '/admin/login'; return; }
+                    if (!res.ok) {
+                        sel.innerHTML = '<option value="">-- Failed to load, contact admin --</option>';
+                        return;
+                    }
+                    const data = await res.json();
+                    const roster = data.salespeople || [];
+                    sel.innerHTML = '<option value="">-- Select --</option>' +
+                        roster.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+                } catch (err) {
+                    sel.innerHTML = '<option value="">-- Failed to load, contact admin --</option>';
+                }
+            }
+            function closeWorkOrderIntakeModal() {
+                document.getElementById('woiModal').classList.remove('active');
+            }
+
+            function woiAddLineItem() {
+                woiLineItems.push({ description: '', quantity: 1, unit_cost: 0 });
+                woiRenderLineItems();
+            }
+
+            function woiRemoveLineItem(index) {
+                woiLineItems.splice(index, 1);
+                woiRenderLineItems();
+            }
+
+            // Mutates woiLineItems[index] in place and then updates ONLY
+            // the derived, non-input values (this row's own total <td>
+            // and the overall #woiRunningTotal span) via
+            // woiUpdateDerivedTotals -- deliberately does NOT call the
+            // full woiRenderLineItems() re-render. A full re-render
+            // replaces every row's DOM node via tbody.innerHTML, which
+            // destroys and recreates whichever <input> currently has
+            // focus/caret position; calling it on every keystroke (this
+            // function fires on every oninput) made typing a
+            // multi-character description or multi-digit quantity
+            // impossible (reviewer-caught regression). woiAddLineItem/
+            // woiRemoveLineItem still call the full woiRenderLineItems()
+            // below, since those genuinely change the row count and make
+            // every row index stale.
+            function woiUpdateLineItem(index, field, value) {
+                if (!woiLineItems[index]) return;
+                if (field === 'description') {
+                    woiLineItems[index].description = value;
+                } else {
+                    woiLineItems[index][field] = parseFloat(value) || 0;
+                }
+                woiUpdateDerivedTotals(index);
+            }
+
+            // Writes just the edited row's total <td> text content and
+            // the overall #woiRunningTotal span from the current
+            // woiLineItems array -- never touches/replaces any <input>
+            // element, unlike woiRenderLineItems()'s tbody.innerHTML
+            // full re-render.
+            function woiUpdateDerivedTotals(index) {
+                const tbody = document.getElementById('woiLineItemsBody');
+                const row = tbody.children[index];
+                const item = woiLineItems[index];
+                if (row && item) {
+                    const qty = Number(item.quantity) || 0;
+                    const unitCost = Number(item.unit_cost) || 0;
+                    const totalCell = row.children[3];
+                    if (totalCell) totalCell.textContent = '$' + (qty * unitCost).toFixed(2);
+                }
+                let runningTotal = 0;
+                woiLineItems.forEach(li => {
+                    runningTotal += (Number(li.quantity) || 0) * (Number(li.unit_cost) || 0);
+                });
+                document.getElementById('woiRunningTotal').textContent = runningTotal.toFixed(2);
+            }
+
+            // Re-renders the whole line-items table body from the held
+            // woiLineItems array on add/remove (only -- NOT on a single
+            // field edit, see woiUpdateLineItem above), so row indices
+            // used by woiUpdateLineItem/woiRemoveLineItem's onclick/oninput
+            // attributes never go stale against the array. Each row's
+            // description is passed through escapeHtml() before being
+            // placed in an HTML attribute -- never inlined as a raw string
+            // or a stringified object (see guidedSelectCustomer's own
+            // comment elsewhere in this file for the exact bug class this
+            // avoids: NEW-661/664, a customer name containing a quote
+            // breaking out of an inline onclick attribute). The running
+            // total displayed here is client-side convenience only; the
+            // server (create_work_order/create_invoice) always recomputes
+            // total_cost from quantity * unit_cost itself and never trusts
+            // a client-supplied total.
+            function woiRenderLineItems() {
+                const tbody = document.getElementById('woiLineItemsBody');
+                let runningTotal = 0;
+                tbody.innerHTML = woiLineItems.map((item, i) => {
+                    const qty = Number(item.quantity) || 0;
+                    const unitCost = Number(item.unit_cost) || 0;
+                    const total = qty * unitCost;
+                    runningTotal += total;
+                    return `<tr>
+                        <td><input type="text" value="${escapeHtml(item.description)}" oninput="woiUpdateLineItem(${i}, 'description', this.value)"></td>
+                        <td><input type="number" step="0.01" min="0" style="width:70px;" value="${qty}" oninput="woiUpdateLineItem(${i}, 'quantity', this.value)"></td>
+                        <td><input type="number" step="0.01" min="0" style="width:90px;" value="${unitCost}" oninput="woiUpdateLineItem(${i}, 'unit_cost', this.value)"></td>
+                        <td>$${total.toFixed(2)}</td>
+                        <td><button type="button" onclick="woiRemoveLineItem(${i})" style="background:none;border:none;color:#EF4444;cursor:pointer;">&times;</button></td>
+                    </tr>`;
+                }).join('');
+                document.getElementById('woiRunningTotal').textContent = runningTotal.toFixed(2);
+            }
+
+            async function submitWorkOrderIntake(e) {
+                e.preventDefault();
+                const salespersonId = parseInt(document.getElementById('woiSalespersonId').value, 10);
+                const address = document.getElementById('woiAddress').value.trim();
+                if (!salespersonId || !address) {
+                    alert('Salesperson and Service Address are required.');
+                    return;
+                }
+
+                const apptDate = document.getElementById('woiApptDate').value;
+                const apptStart = document.getElementById('woiApptStart').value;
+                const apptEnd = document.getElementById('woiApptEnd').value;
+                // Client-side-only combination of the appointment date +
+                // time-window inputs into ISO datetimes -- scheduled_start/
+                // scheduled_end are the only two WorkOrder columns the
+                // intake orchestrator passes through for appointment info
+                // (_INTAKE_WORK_ORDER_PASSTHROUGH_FIELDS in crm_service.py).
+                const scheduledStart = (apptDate && apptStart) ? (apptDate + 'T' + apptStart + ':00') : null;
+                const scheduledEnd = (apptDate && apptEnd) ? (apptDate + 'T' + apptEnd + ':00') : null;
+
+                const payload = {
+                    salesperson_user_id: salespersonId,
+                    property_address: address,
+                    customer_data: {
+                        first_name: document.getElementById('woiFirstName').value,
+                        last_name: document.getElementById('woiLastName').value,
+                        phone: document.getElementById('woiPhone').value || null,
+                        email: document.getElementById('woiEmail').value || null,
+                        service_address: address,
+                    },
+                    // Every key here without a dedicated WorkOrder column
+                    // (everything but trade/instructions/scheduled_start/
+                    // scheduled_end) is folded by the orchestrator into the
+                    // work order's notes as a labeled line, never dropped --
+                    // blank optional fields are sent as null (not ''), since
+                    // the orchestrator only skips None values, not empty
+                    // strings, when building those notes lines.
+                    work_order_data: {
+                        trade: document.getElementById('woiTrade').value || '',
+                        appliance_type: document.getElementById('woiApplianceType').value || null,
+                        model_serial_number: document.getElementById('woiModelSerial').value || null,
+                        issue_description: document.getElementById('woiIssueDescription').value || null,
+                        leaking: document.getElementById('woiLeaking').value || null,
+                        last_time_working: document.getElementById('woiLastTimeWorking').value || null,
+                        service_call_fee: document.getElementById('woiServiceCallFee').value || null,
+                        at_home: document.getElementById('woiAtHome').value || null,
+                        reported_technician_phone: document.getElementById('woiReportedTechPhone').value || null,
+                        scheduled_start: scheduledStart,
+                        scheduled_end: scheduledEnd,
+                    },
+                    line_items: woiLineItems
+                        .filter(item => (item.description || '').trim() || Number(item.quantity) || Number(item.unit_cost))
+                        .map(item => ({
+                            description: item.description,
+                            quantity: Number(item.quantity) || 0,
+                            unit_cost: Number(item.unit_cost) || 0,
+                        })),
+                    reported_technician_name: document.getElementById('woiReportedTechName').value || null,
+                };
+
+                try {
+                    const res = await fetch('/api/v1/operations/work-order-intake', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + getAuthToken(), 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert('Work order submitted (Work Order #' + data.work_order_id + ').');
+                        closeWorkOrderIntakeModal();
+                        document.querySelector('#woiModal form').reset();
+                        woiLineItems = [];
+                        woiRenderLineItems();
+                    } else {
+                        alert('Failed to submit work order: ' + (data.error || 'Unknown error'));
+                    }
+                } catch (err) {
+                    alert('Failed to submit work order: network error.');
+                }
+            }
+        </script>
+"""
+
+
 def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str) -> str:
-    """Base template for the focused staff portals (B6.8)."""
+    """Base template for the focused staff portals (B6.8).
+
+    B8.16 Phase 4: `intake_section` is computed here, at the Python call
+    site, from `role_key` -- 'technician'/'subcontractor' get the
+    Work Order Intake card+modal; every other role_key (project_manager,
+    sales) gets an empty string. This means the section's markup is
+    genuinely absent from the rendered HTML bytes of every non-gated
+    portal, not merely hidden by client-side JS (contrast with the
+    existing '{role_key}' === '...' string-embedded JS branching further
+    below in this same function, which only filters what data loads, not
+    whether the markup exists)."""
+    intake_section = (
+        _render_work_order_intake_section() if role_key in ("technician", "subcontractor") else ""
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5068,10 +5710,24 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
         {_get_common_styles()}
         .portal-layout {{ max-width: 1200px; margin: 2rem auto; padding: 0 1.25rem; display: flex; flex-direction: column; gap: 2rem; }}
         .header-card {{ background: linear-gradient(135deg, #112240 0%, #1c2e4a 100%); border-radius: 12px; padding: 2rem; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
-        .erp-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
+        .erp-card {{ background: white; color: var(--charcoal); border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
         table {{ width: 100%; border-collapse: collapse; }}
         th, td {{ padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-light); }}
         th {{ color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+        /* B8.16 Phase 4: Work Order Intake modal -- same erp-modal-overlay
+           / erp-modal / modal-header / modal-field pattern already
+           established in _render_sales_portal's own <style> block,
+           duplicated here for the same reason its own comment gives:
+           each surface in this file ships its own self-contained
+           <style>. */
+        .erp-modal-overlay {{ position: fixed; inset: 0; background: rgba(10, 25, 47, 0.85); display: none; align-items: center; justify-content: center; z-index: 3000; padding: 1.5rem; }}
+        .erp-modal-overlay.active {{ display: flex; }}
+        .erp-modal {{ background: white; color: var(--charcoal); border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }}
+        .modal-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }}
+        .modal-header h3 {{ margin: 0; font-size: 1.15rem; }}
+        .modal-field {{ margin-bottom: 0.85rem; }}
+        .modal-field label {{ display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.25rem; }}
+        .modal-field input, .modal-field select, .modal-field textarea {{ width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: 6px; font-size: 0.9rem; box-sizing: border-box; }}
     </style>
 </head>
 <body>
@@ -5100,6 +5756,8 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
                 <tbody id="myAssignmentsList"><tr><td colspan="4">Loading assignments...</td></tr></tbody>
             </table>
         </div>
+
+        {intake_section}
     </div>
 
     <script>
@@ -5177,7 +5835,7 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
                         tbody.innerHTML = myProjects.map(p => 
                             `<tr>
                                 <td>#${{p.id}}</td>
-                                <td>Cust #${{p.customer_id}}</td>
+                                <td>${{escapeHtml(p.customer_name || ('Customer #' + p.customer_id))}}</td>
                                 <td>${{escapeHtml(p.title)}}</td>
                                 <td><span class="badge badge-info">${{escapeHtml(p.status)}}</span></td>
                             </tr>`
@@ -5222,10 +5880,28 @@ def _render_sales_portal() -> str:
         {_get_common_styles()}
         .portal-layout {{ max-width: 1200px; margin: 2rem auto; padding: 0 1.25rem; display: flex; flex-direction: column; gap: 2rem; }}
         .header-card {{ background: linear-gradient(135deg, #112240 0%, #1c2e4a 100%); border-radius: 12px; padding: 2rem; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
-        .erp-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
+        .erp-card {{ background: white; color: var(--charcoal); border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
         table {{ width: 100%; border-collapse: collapse; }}
         th, td {{ padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-light); }}
         th {{ color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+        /* B8.3: lead detail / lead create modals -- same erp-modal-overlay /
+           erp-modal / modal-header pattern already established in
+           render_admin_surface's <style> block, duplicated here because
+           each surface in this file ships its own self-contained <style>. */
+        .erp-modal-overlay {{ position: fixed; inset: 0; background: rgba(10, 25, 47, 0.85); display: none; align-items: center; justify-content: center; z-index: 3000; padding: 1.5rem; }}
+        .erp-modal-overlay.active {{ display: flex; }}
+        .erp-modal {{ background: white; color: var(--charcoal); border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }}
+        .modal-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }}
+        .modal-header h3 {{ margin: 0; font-size: 1.15rem; }}
+        .modal-field {{ margin-bottom: 0.85rem; }}
+        .modal-field label {{ display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.25rem; }}
+        .modal-field input, .modal-field select, .modal-field textarea {{ width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: 6px; font-size: 0.9rem; box-sizing: border-box; }}
+        /* B8.3: kanban board -- one column per PipelineStage.STAGE_ORDER stage. */
+        .kanban-board {{ display: flex; gap: 0.85rem; overflow-x: auto; padding-bottom: 0.5rem; }}
+        .kanban-col {{ flex: 0 0 230px; background: #f4f5f7; border-radius: 8px; padding: 0.65rem; }}
+        .kanban-col h4 {{ margin: 0 0 0.6rem 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }}
+        .kanban-card {{ background: white; color: var(--charcoal); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.6rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-size: 0.82rem; }}
+        .kanban-card select {{ width: 100%; margin-top: 0.4rem; font-size: 0.78rem; padding: 0.25rem; }}
     </style>
 </head>
 <body>
@@ -5240,28 +5916,328 @@ def _render_sales_portal() -> str:
             <button class="btn-gold" onclick="window.location.href='/admin/login'" style="padding: 0.5rem 1rem;">Sign Out</button>
         </div>
 
-        <div class="erp-card">
-            <h2 style="margin-top:0;">My Schedule</h2>
-            <table>
-                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
-                <tbody id="myScheduleList"><tr><td colspan="3">Loading schedule...</td></tr></tbody>
-            </table>
+        <div class="erp-card" id="dashboardErrorBanner" style="display:none; border-left: 4px solid var(--danger);">
+            <p id="dashboardErrorMsg" style="margin:0; color: var(--danger); font-weight:600;"></p>
         </div>
 
         <div class="erp-card">
-            <h2 style="margin-top:0;">My Leads</h2>
-            <table>
+            <h2 style="margin-top:0;">My Schedule</h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
+                <tbody id="myScheduleList"><tr><td colspan="3">Loading schedule...</td></tr></tbody>
+            </table></div>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Appointments</h2>
+            <h3 style="margin:0 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Today</h3>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
+                <tbody id="dashApptTodayList"><tr><td colspan="3">Loading...</td></tr></tbody>
+            </table></div>
+            <h3 style="margin:1rem 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Upcoming</h3>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
+                <tbody id="dashApptUpcomingList"><tr><td colspan="3">Loading...</td></tr></tbody>
+            </table></div>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                <span>My Leads <span id="newLeadsBadge" class="card-badge badge-gold" style="display:none;"></span></span>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="openCreateLeadModal()">+ New Lead</button>
+            </h2>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>ID</th><th>Customer</th><th>Status</th><th>Assigned Rep</th></tr></thead>
                 <tbody id="myLeadsList"><tr><td colspan="4">Loading leads...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="erp-card">
             <h2 style="margin-top:0;">My Opportunities</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>ID</th><th>Title</th><th>Stage</th><th>Assigned Rep</th></tr></thead>
                 <tbody id="myOpportunitiesList"><tr><td colspan="4">Loading opportunities...</td></tr></tbody>
-            </table>
+            </table></div>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                <span>Customers</span>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="openGuidedContractModal()">+ New Contract (Guided)</button>
+            </h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>ID #</th><th>Name</th><th>Phone</th><th>Email</th><th></th></tr></thead>
+                <tbody id="myCustomersList"><tr><td colspan="5">Loading customers...</td></tr></tbody>
+            </table></div>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Pipeline Kanban</h2>
+            <div id="kanbanBoard" class="kanban-board"><p style="color:var(--text-muted);">Loading pipeline board...</p></div>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Where Deals Get Stuck</h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Stage</th><th>Avg Hours In Stage</th></tr></thead>
+                <tbody id="stageAnalyticsList"><tr><td colspan="2">Loading stage analytics...</td></tr></tbody>
+            </table></div>
+            <p id="stageAnalyticsCoverage" style="margin:0.75rem 0 0 0; font-size:0.85rem; color:var(--text-muted);"></p>
+            <h3 style="margin:1rem 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Currently Stuck</h3>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Opportunity</th><th>Stage</th><th>Hours In Stage</th></tr></thead>
+                <tbody id="currentlyStuckList"><tr><td colspan="3">Loading...</td></tr></tbody>
+            </table></div>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Follow-ups</h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Title</th><th>Type</th><th>Due</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody id="followupsList"><tr><td colspan="6">Loading follow-ups...</td></tr></tbody>
+            </table></div>
+        </div>
+
+        <!-- B8.10b: Communications Center -- a non-customer-scoped feed
+             across every customer/lead the calling actor can see, unlike
+             Customer 360's own Communications panel (still customer_id-
+             scoped, unchanged). Server-side narrowed per NEW-618: a plain
+             rep sees only their own assigned (or unclaimed) customers'/
+             leads' communications; a PERM_READ_TEAM_SALES_DATA holder sees
+             everything. -->
+        <div class="erp-card">
+            <h2 id="commsCenterHeading" style="margin-top:0;">Communications Center</h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>When</th><th>Channel</th><th>Direction</th><th>Linked To</th><th>Subject / Content</th></tr></thead>
+                <tbody id="commsCenterList"><tr><td colspan="5">Loading communications...</td></tr></tbody>
+            </table></div>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Pipeline Summary</h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Stage</th><th>Count</th><th>Total Value</th><th>Weighted Value</th></tr></thead>
+                <tbody id="pipelineSummaryList"><tr><td colspan="4">Loading pipeline...</td></tr></tbody>
+            </table></div>
+            <p id="pipelineTotals" style="margin:0.75rem 0 0 0; font-size:0.85rem; color:var(--text-muted);"></p>
+        </div>
+
+        <div class="erp-card">
+            <h2 id="commissionsHeading" style="margin-top:0;">Commissions</h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Status</th><th>Source</th><th>Amount</th><th>Earned</th></tr></thead>
+                <tbody id="commissionsList"><tr><td colspan="4">Loading commissions...</td></tr></tbody>
+            </table></div>
+        </div>
+
+        <!-- B8.7d: "This Month" rep-facing commission summary panel, fed by
+             the same /api/v1/sales/dashboard response's new commission_summary
+             field -- one row (the calling rep's own), always present since
+             CommissionService.get_team_commission_summary never raises. -->
+        <div class="erp-card">
+            <h2 style="margin-top:0;">This Month</h2>
+            <div id="commissionSummaryStrip" style="display:flex; flex-wrap:wrap; gap:1.5rem;">
+                <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Earned</div><div id="summaryEarned" style="font-size:1.25rem;font-weight:700;">Loading...</div></div>
+                <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Paid</div><div id="summaryPaid" style="font-size:1.25rem;font-weight:700;">-</div></div>
+                <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Pending</div><div id="summaryPending" style="font-size:1.25rem;font-weight:700;">-</div></div>
+                <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Entries</div><div id="summaryEntryCount" style="font-size:1.25rem;font-weight:700;">-</div></div>
+            </div>
+        </div>
+
+        <div class="erp-card" id="teamSummaryCard" style="display:none;">
+            <h2 style="margin-top:0;">Team Snapshot</h2>
+            <div id="teamSummaryStrip" style="display:flex; flex-wrap:wrap; gap:1.5rem;"></div>
+        </div>
+
+        <!-- B8.7d: manager-facing commission rankings, gated independently
+             of teamSummaryCard on team_commission_rankings' own presence
+             (PERM_READ_TEAM_COMMISSIONS, a different permission axis from
+             teamSummaryCard's PERM_READ_TEAM_SALES_DATA -- see
+             commissions_scope's existing precedent for this split). -->
+        <div class="erp-card" id="commissionRankingsCard" style="display:none;">
+            <h2 style="margin-top:0;">Commission Rankings (This Month)</h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Rep</th><th>Earned</th><th>Paid</th><th>Pending</th><th>Entries</th></tr></thead>
+                <tbody id="commissionRankingsList"></tbody>
+            </table></div>
+        </div>
+
+        <!-- B8.14b: tiered analytics rollup -- deliberately load-on-demand
+             (a button, not window.onload/DOMContentLoaded), never wired
+             into this page's existing polling, per NEW-554's cost concern.
+             GET /api/v1/sales/analytics-rollup itself has no route-level
+             permission gate -- AnalyticsSearchService.get_sales_analytics_
+             rollup branches purely on the caller's own permission set and
+             returns exactly the rep/manager/executive tier they're already
+             entitled to elsewhere, so every actor can click this button. -->
+        <div class="erp-card">
+            <h2 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                <span>Analytics Rollup</span>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="loadAnalyticsRollup()">Load / Refresh</button>
+            </h2>
+            <div id="analyticsRollupArea"><p style="color:var(--text-muted);">Click "Load / Refresh" to view your analytics rollup.</p></div>
+        </div>
+    </div>
+
+    <div id="leadDetailModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Lead Detail</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeLeadDetailModal()">&times;</button>
+            </div>
+            <div id="leadDetailBody"><p style="color:var(--text-muted);">Loading...</p></div>
+        </div>
+    </div>
+
+    <div id="createLeadModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>New Lead</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeCreateLeadModal()">&times;</button>
+            </div>
+            <div class="modal-field">
+                <label>Source</label>
+                <input type="text" id="newLeadSource" value="manual_entry">
+            </div>
+            <div class="modal-field">
+                <label>Customer (leave blank if unknown)</label>
+                <input type="text" id="newLeadCustomerSearch" oninput="searchNewLeadCustomers()" placeholder="Start typing a customer name...">
+                <div id="newLeadCustomerResults" style="margin-bottom:0.5rem;"></div>
+                <p id="newLeadSelectedCustomerLabel" style="color:var(--text-muted);"></p>
+                <button type="button" class="btn-gold" id="newLeadClearCustomerBtn" style="display:none;padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="clearNewLeadCustomer()">Change</button>
+                <input type="hidden" id="newLeadCustomerId" value="">
+            </div>
+            <div class="modal-field">
+                <label>Property Type</label>
+                <input type="text" id="newLeadPropertyType" placeholder="residential, commercial...">
+            </div>
+            <div class="modal-field">
+                <label>Project Scope</label>
+                <input type="text" id="newLeadProjectScope">
+            </div>
+            <div class="modal-field">
+                <label>Urgency Level</label>
+                <input type="text" id="newLeadUrgencyLevel" placeholder="emergency, high, medium, low...">
+            </div>
+            <div class="modal-field">
+                <label>Insurance Status</label>
+                <input type="text" id="newLeadInsuranceStatus" placeholder="claim_filed, self_pay, none...">
+            </div>
+            <div class="modal-field">
+                <label>Estimated Value</label>
+                <input type="number" id="newLeadEstimatedValue" step="0.01">
+            </div>
+            <div class="modal-field">
+                <label>Notes</label>
+                <textarea id="newLeadNotes" rows="3"></textarea>
+            </div>
+            <button class="btn-gold" onclick="submitCreateLead()">Create Lead</button>
+        </div>
+    </div>
+
+    <div id="customer360Modal" class="erp-modal-overlay">
+        <div class="erp-modal" style="max-width:900px;">
+            <div class="modal-header">
+                <h3 id="c360Title">Customer 360</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeCustomer360Modal()">&times;</button>
+            </div>
+            <div id="c360Body"><p style="color:var(--text-muted);">Loading...</p></div>
+        </div>
+    </div>
+
+    <!-- B8.10c: Compose email modal -- To is always a read-only display of
+         the locked customer address (the actual outbound recipient is
+         resolved server-side from customer_id, never from this field), so
+         there is no input for it at all. -->
+    <div id="composeEmailModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Compose Email</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeComposeEmailModal()">&times;</button>
+            </div>
+            <p id="composeEmailError" style="display:none;color:var(--danger);font-weight:600;"></p>
+            <div class="modal-field"><label>To</label><div id="composeEmailTo" style="color:var(--text-muted);"></div></div>
+            <div class="modal-field"><label>Subject</label><input type="text" id="composeEmailSubject" placeholder="Message from Restoricon"></div>
+            <div class="modal-field"><label>Message</label><textarea id="composeEmailBody" rows="6"></textarea></div>
+            <button class="btn-gold" id="composeEmailSendBtn" onclick="sendComposeEmail()">Send</button>
+        </div>
+    </div>
+
+    <!-- B8.6d-c (NEW-579): guided customer -> template -> fill -> sign flow.
+         Four steps, one <div id="gflowStepN"> shown at a time via
+         showGuidedStep(). Reuses the erp-modal-overlay/erp-modal/
+         modal-header pattern already established above (customer360Modal,
+         createLeadModal) rather than a new UI paradigm. -->
+    <div id="guidedContractModal" class="erp-modal-overlay">
+        <div class="erp-modal" style="max-width:700px;">
+            <div class="modal-header">
+                <h3>New Contract — Guided</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeGuidedContractModal()">&times;</button>
+            </div>
+            <p id="gflowError" style="display:none;color:var(--danger);font-weight:600;"></p>
+
+            <div id="gflowStep1">
+                <h4 style="margin:0 0 0.5rem 0;">Step 1 — Find or create customer</h4>
+                <div class="modal-field">
+                    <label>Search by name, phone, or email</label>
+                    <input type="text" id="gflowCustomerSearch" oninput="guidedSearchCustomers()" placeholder="Start typing...">
+                </div>
+                <div id="gflowCustomerResults" style="margin-bottom:0.75rem;"></div>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="guidedShowNewCustomerForm()">+ New Customer</button>
+
+                <div id="gflowNewCustomerForm" style="display:none;margin-top:1rem;border-top:1px solid var(--border-light);padding-top:1rem;">
+                    <div class="modal-field"><label>First Name</label><input type="text" id="gflowNewFirstName"></div>
+                    <div class="modal-field"><label>Last Name</label><input type="text" id="gflowNewLastName"></div>
+                    <div class="modal-field"><label>Phone</label><input type="text" id="gflowNewPhone"></div>
+                    <div class="modal-field"><label>Email</label><input type="text" id="gflowNewEmail"></div>
+                    <div class="modal-field"><label>Service Address</label><input type="text" id="gflowNewAddress"></div>
+                    <button class="btn-gold" onclick="guidedSubmitNewCustomer()">Create &amp; Continue</button>
+                </div>
+            </div>
+
+            <div id="gflowStep2" style="display:none;">
+                <h4 style="margin:0 0 0.5rem 0;">Step 2 — Contract template</h4>
+                <p id="gflowSelectedCustomerLabel" style="color:var(--text-muted);"></p>
+                <div class="modal-field">
+                    <label>Template</label>
+                    <select id="gflowTemplateSelect">
+                        <option value="general_remodeling">General Remodeling</option>
+                        <option value="homecare_basic">HomeCare — Basic</option>
+                        <option value="homecare_plus">HomeCare — Plus</option>
+                        <option value="homecare_complete">HomeCare — Complete</option>
+                        <option value="homecare_estate">HomeCare — Estate</option>
+                    </select>
+                </div>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="showGuidedStep(1)">&larr; Back</button>
+                <button class="btn-gold" onclick="guidedGoToStep3()">Continue</button>
+            </div>
+
+            <div id="gflowStep3" style="display:none;">
+                <h4 style="margin:0 0 0.5rem 0;">Step 3 — Contract details</h4>
+                <div class="modal-field"><label>Contract #</label><input type="text" id="gflowContractNumber"></div>
+                <div class="modal-field"><label>Title</label><input type="text" id="gflowContractTitle"></div>
+                <div class="modal-field"><label>Customer Name</label><input type="text" id="gflowFieldName" readonly></div>
+                <div class="modal-field"><label>Address</label><input type="text" id="gflowFieldAddress" readonly></div>
+                <div class="modal-field"><label>Phone</label><input type="text" id="gflowFieldPhone" readonly></div>
+                <div class="modal-field"><label>Email</label><input type="text" id="gflowFieldEmail" readonly></div>
+                <div class="modal-field"><label>Content / Scope of Work</label><textarea id="gflowContractContent" rows="4"></textarea></div>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="showGuidedStep(2)">&larr; Back</button>
+                <button class="btn-gold" onclick="guidedSubmitContract()">Create Contract</button>
+            </div>
+
+            <div id="gflowStep4" style="display:none;">
+                <h4 style="margin:0 0 0.5rem 0;">Step 4 — Required signers</h4>
+                <p style="color:var(--text-muted);">Select every party who must sign this contract, then collect signatures.</p>
+                <div class="modal-field">
+                    <label><input type="checkbox" id="gflowSignerCustomer" checked style="width:auto;"> Customer</label><br>
+                    <label><input type="checkbox" id="gflowSignerRep" style="width:auto;"> Sales Rep</label><br>
+                    <label><input type="checkbox" id="gflowSignerPM" style="width:auto;"> Project Manager</label><br>
+                    <label><input type="checkbox" id="gflowSignerAdmin" style="width:auto;"> Admin</label>
+                </div>
+                <button class="btn-gold" onclick="guidedConfigureSigners()">Save Required Signers</button>
+                <div id="gflowSignerStatus" style="margin-top:1rem;"></div>
+            </div>
         </div>
     </div>
 
@@ -5273,6 +6249,139 @@ def _render_sales_portal() -> str:
 
         function getAuthToken() {{
             return sessionStorage.getItem('restoricon_token') || '';
+        }}
+
+        // B8.10a: shared badge/action-button renderers for the Follow-ups
+        // panel and the Customer 360 Tasks panel -- both display the same
+        // Task rows fetched from GET /api/v1/crm/tasks (directly or via the
+        // dashboard's followups block), so they share one rendering path
+        // rather than two copies drifting apart.
+        //
+        // Surfaces task_type always, plus an "Auto" tag (with rule_name in
+        // its tooltip) when trigger_source is set -- this is the mechanism
+        // that discharges the "no black-box automation" requirement per
+        // NEW-622: every automation-generated task is visibly distinguished
+        // from a manually-created one, right on the row.
+        function taskTypeBadge(t) {{
+            const typeLabel = escapeHtml(t.task_type || 'follow_up');
+            let html = `<span class="badge badge-slate">${{typeLabel}}</span>`;
+            if (t.trigger_source) {{
+                const ruleLabel = t.rule_name ? escapeHtml(t.rule_name) : escapeHtml(t.trigger_source);
+                html += ` <span class="badge badge-gold" title="Automated by rule: ${{ruleLabel}}">Auto</span>`;
+            }}
+            return html;
+        }}
+
+        // Complete/Cancel/Snooze action buttons. Only shown for a task that
+        // is still actionable (pending/in_progress) -- a completed or
+        // cancelled task has nothing left to do. "Pause" has no backing
+        // Task.status value (only pending/in_progress/completed/cancelled
+        // exist, no CHECK-constraint change this round) -- the pause-like
+        // request is implemented as Cancel, deliberately, not as an
+        // invented new status.
+        function taskActionButtons(t) {{
+            if (t.status !== 'pending' && t.status !== 'in_progress') {{
+                return '';
+            }}
+            // escapeHtml(JSON.stringify(...)) is this file's established
+            // pattern for passing a string argument through an onclick="..."
+            // HTML attribute (see deleteSubcontractor/openPermModal/
+            // deleteUser/deleteAppointmentType) -- JSON.stringify produces
+            // a properly quoted/escaped JS string literal, and escapeHtml
+            // on top of that keeps its own double quotes from breaking out
+            // of the onclick="..." HTML attribute they sit inside.
+            const dueDateArg = escapeHtml(JSON.stringify(t.due_date || null));
+            return `<button class="btn-gold" style="padding:0.2rem 0.5rem;font-size:0.7rem;" onclick="completeTaskAction(${{t.id}})">Complete</button>
+                <button class="btn-gold" style="padding:0.2rem 0.5rem;font-size:0.7rem;" onclick="cancelTaskAction(${{t.id}})">Cancel</button>
+                <button class="btn-gold" style="padding:0.2rem 0.5rem;font-size:0.7rem;" onclick="snoozeTaskAction(${{t.id}}, ${{dueDateArg}})">Snooze +1d</button>`;
+        }}
+
+        // Each action reloads whichever panel(s) are currently visible --
+        // the dashboard Follow-ups panel always, and the Customer 360 Tasks
+        // panel too if that modal happens to be open -- mirroring
+        // sendContractAction/signContractAction's own currentCustomer360Id
+        // refresh check and claimLead/claimOpportunity's unconditional
+        // loadDashboard() reload on every outcome (success or failure), so
+        // a stale row never lingers either place.
+        async function completeTaskAction(id) {{
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/crm/tasks/' + id + '/complete', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{}}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to complete task (' + res.status + ').'));
+                }}
+                loadDashboard();
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to complete task: network error.');
+            }}
+        }}
+
+        async function cancelTaskAction(id) {{
+            const token = getAuthToken();
+            if (!confirm('Cancel this follow-up task?')) return;
+            try {{
+                const res = await fetch('/api/v1/crm/tasks/' + id + '/update', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ status: 'cancelled' }}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to cancel task (' + res.status + ').'));
+                }}
+                loadDashboard();
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to cancel task: network error.');
+            }}
+        }}
+
+        async function snoozeTaskAction(id, currentDueDate) {{
+            const token = getAuthToken();
+            // Push the due date forward by exactly one day from its current
+            // value (or from today, if the task has none yet) -- a simple,
+            // minimal snooze rather than a date-picker modal, consistent
+            // with the "keep it minimal" scope for this round.
+            //
+            // The dashboard route buckets overdue/due_today/upcoming via a
+            // plain string compare against datetime.now(timezone.utc).date()
+            // (routes.py) -- entirely in UTC. Build and parse the date here
+            // entirely in UTC too (getUTCDate/setUTCDate, never the local-
+            // timezone getDate/setDate), or a snooze clicked in the evening
+            // in a timezone behind UTC can silently land a day off from
+            // what the user asked for, or a task can stay/land in the
+            // wrong overdue/due_today/upcoming bucket.
+            const base = currentDueDate ? new Date(currentDueDate + 'T00:00:00Z') : new Date();
+            if (isNaN(base.getTime())) {{
+                alert('Cannot snooze: task has an unrecognized due date.');
+                return;
+            }}
+            base.setUTCDate(base.getUTCDate() + 1);
+            const newDueDate = base.toISOString().slice(0, 10);
+            try {{
+                const res = await fetch('/api/v1/crm/tasks/' + id + '/update', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ due_date: newDueDate }}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to snooze task (' + res.status + ').'));
+                }}
+                loadDashboard();
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to snooze task: network error.');
+            }}
         }}
 
         let dashboardRefreshInFlight = false;
@@ -5303,13 +6412,15 @@ def _render_sales_portal() -> str:
             // Display-only viewer-scope banner -- real enforcement is entirely
             // server-side (CRMService._scoped_assignee_filter); this is never
             // an access-control point, only a label for what the fetches below
-            // will return.
+            // will return. NEW-552: the old check (a custom_permissions flag
+            // read off /api/v1/auth/me) missed any actor with team access via
+            // the real ROLE_SALES_MANAGER role rather than a custom_permissions
+            // override. The authoritative signal is now data.scope === 'team'
+            // from the dashboard fetch below -- fail closed to 'My Own' here so
+            // an actor never sees 'Whole Team' before (or instead of) a
+            // confirmed team response.
             const scopeBanner = document.getElementById('viewerScopeBanner');
-            if (user.custom_permissions && user.custom_permissions['read:team_sales_data'] === true) {{
-                scopeBanner.textContent = 'Viewing: Whole Team';
-            }} else {{
-                scopeBanner.textContent = 'Viewing: My Own';
-            }}
+            scopeBanner.textContent = 'Viewing: My Own';
 
             // Load Schedule
             try {{
@@ -5332,6 +6443,42 @@ def _render_sales_portal() -> str:
                 }}
             }} catch (e) {{ /* network/parse failure: schedule tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
 
+            // Load Customers (B8.4a Customer 360 entry point).
+            // CORRECTION (B8.6d-c, 2026-09-22): the note this comment
+            // originally carried here claimed list_customers has no
+            // PERM_READ_TEAM_SALES_DATA-style per-assignee narrowing. That
+            // is no longer accurate -- NEW-568 added exactly that
+            // narrowing to list_customers (crm_service.py, "AND
+            // (assigned_user_id = ? OR assigned_user_id IS NULL)" clause):
+            // a plain rep without team-wide visibility now only sees
+            // customers assigned to them or still unclaimed, matching
+            // list_leads/list_opportunities' shape; a sales manager or any
+            // other PERM_READ_TEAM_SALES_DATA holder still sees everyone.
+            // Corrected per CLAUDE.md rule 6 rather than left standing --
+            // this file's guided-flow customer search (below) relies on
+            // the same already-narrowed list_customers.
+            try {{
+                const res = await fetch('/api/v1/customers', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                const tbody = document.getElementById('myCustomersList');
+                if (res.ok && data.customers && data.customers.length > 0) {{
+                    tbody.innerHTML = data.customers.map(c =>
+                        `<tr>
+                            <td>${{c.customer_number ? '#' + c.customer_number : '#' + c.id}}</td>
+                            <td>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}}</td>
+                            <td>${{escapeHtml(c.phone || '')}}</td>
+                            <td>${{escapeHtml(c.email || '')}}</td>
+                            <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openCustomer360Modal(${{c.id}})">View 360</button></td>
+                        </tr>`
+                    ).join('');
+                }} else {{
+                    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No customers.</td></tr>';
+                }}
+            }} catch (e) {{ /* network/parse failure: customers tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+
             // Load Leads
             try {{
                 const res = await fetch('/api/v1/leads', {{
@@ -5343,10 +6490,10 @@ def _render_sales_portal() -> str:
                 if (res.ok && data.leads && data.leads.length > 0) {{
                     tbody.innerHTML = data.leads.map(l =>
                         `<tr>
-                            <td>#${{l.id}}</td>
-                            <td>${{l.customer_id ? 'Cust #' + l.customer_id : '—'}}</td>
+                            <td><a href="#" onclick="openLeadDetailModal(${{l.id}}); return false;">#${{l.id}}</a></td>
+                            <td>${{l.customer_id ? escapeHtml(l.customer_name || ('Customer #' + l.customer_id)) : '—'}}</td>
                             <td><span class="badge badge-info">${{escapeHtml(l.status)}}</span></td>
-                            <td>${{l.assigned_user_id ? escapeHtml(String(l.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimLead(' + l.id + ')">Claim</button>'}}</td>
+                            <td>${{l.assigned_user_id ? escapeHtml(l.assigned_user_name || ('User #' + l.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimLead(' + l.id + ')">Claim</button>'}}</td>
                         </tr>`
                     ).join('');
                 }} else {{
@@ -5368,13 +6515,241 @@ def _render_sales_portal() -> str:
                             <td>#${{o.id}}</td>
                             <td>${{escapeHtml(o.title)}}</td>
                             <td><span class="badge badge-info">${{escapeHtml(o.pipeline_stage)}}</span></td>
-                            <td>${{o.assigned_user_id ? escapeHtml(String(o.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimOpportunity(' + o.id + ')">Claim</button>'}}</td>
+                            <td>${{o.assigned_user_id ? escapeHtml(o.assigned_user_name || ('User #' + o.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimOpportunity(' + o.id + ')">Claim</button>'}}</td>
                         </tr>`
                     ).join('');
                 }} else {{
                     tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No opportunities.</td></tr>';
                 }}
             }} catch (e) {{ /* network/parse failure: opportunities tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load Kanban board (B8.3, Part C)
+            try {{
+                await loadKanban(token);
+            }} catch (e) {{ /* network/parse failure: kanban board keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load stage-stuck analytics (B8.3, Part D)
+            try {{
+                await loadStageAnalytics(token);
+            }} catch (e) {{ /* network/parse failure: analytics panel keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load Communications Center (B8.10b)
+            try {{
+                await loadCommunicationsCenter(token);
+            }} catch (e) {{ /* network/parse failure: communications panel keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load Command Center Dashboard (B8.2b) -- Appointments, Follow-ups,
+            // Pipeline, Commissions, and (manager-only) Team panels, plus the
+            // NEW-552 viewer-scope banner fix, all fed by this one call.
+            try {{
+                const res = await fetch('/api/v1/sales/dashboard?days=7', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const errBanner = document.getElementById('dashboardErrorBanner');
+                const errMsg = document.getElementById('dashboardErrorMsg');
+                errBanner.style.display = 'none';
+                if (res.status === 403) {{
+                    // actor.user_id is None on the server -- not a real login
+                    // failure (token is valid), so no redirect; just surface it
+                    // inline in the new panels' area per this task's spec: the
+                    // top banner AND each new panel's own placeholder, so none
+                    // of them are left silently stuck on "Loading...".
+                    const dashboardUnavailableMsg = 'Cannot load dashboard: no associated user identity';
+                    errBanner.style.display = 'block';
+                    errMsg.textContent = dashboardUnavailableMsg;
+                    document.getElementById('dashApptTodayList').innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('dashApptUpcomingList').innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('followupsList').innerHTML = `<tr><td colspan="6" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('pipelineSummaryList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('pipelineTotals').textContent = '';
+                    document.getElementById('commissionsList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('teamSummaryCard').style.display = 'none';
+                    document.getElementById('summaryEarned').textContent = '—';
+                    document.getElementById('summaryPaid').textContent = '—';
+                    document.getElementById('summaryPending').textContent = '—';
+                    document.getElementById('summaryEntryCount').textContent = '—';
+                    document.getElementById('commissionRankingsCard').style.display = 'none';
+                }} else if (res.ok) {{
+                    const data = await res.json();
+
+                    // NEW-552: data.scope === 'team' is now the sole signal for
+                    // the viewer-scope banner -- no OR-fallback to the old
+                    // custom_permissions check (removed above).
+                    if (data.scope === 'team') {{
+                        scopeBanner.textContent = 'Viewing: Whole Team';
+                    }}
+
+                    // Appointments (distinct entity from My Schedule's
+                    // StaffSchedule records above -- these are Appointment rows).
+                    const apptToday = document.getElementById('dashApptTodayList');
+                    const apptUpcoming = document.getElementById('dashApptUpcomingList');
+                    const renderAppts = (list) => list.map(a =>
+                        `<tr>
+                            <td>${{escapeHtml(a.start_time)}}</td>
+                            <td>${{escapeHtml(a.title)}}</td>
+                            <td><span class="badge ${{a.status === 'confirmed' ? 'badge-info' : 'badge-gold'}}">${{escapeHtml(a.status)}}</span></td>
+                        </tr>`
+                    ).join('');
+                    apptToday.innerHTML = (data.appointments && data.appointments.today && data.appointments.today.length > 0)
+                        ? renderAppts(data.appointments.today)
+                        : '<tr><td colspan="3" style="color:var(--text-muted)">No appointments today.</td></tr>';
+                    apptUpcoming.innerHTML = (data.appointments && data.appointments.upcoming && data.appointments.upcoming.length > 0)
+                        ? renderAppts(data.appointments.upcoming)
+                        : '<tr><td colspan="3" style="color:var(--text-muted)">No upcoming appointments.</td></tr>';
+
+                    // New Leads badge (count only -- the My Leads table above stays
+                    // fed by the unparameterized /api/v1/leads fetch, NOT this
+                    // status='new'-only subset, per this task's spec).
+                    const newLeadsBadge = document.getElementById('newLeadsBadge');
+                    const newLeadsCount = (data.leads && data.leads.new) ? data.leads.new.length : 0;
+                    if (newLeadsCount > 0) {{
+                        newLeadsBadge.textContent = newLeadsCount + ' NEW';
+                        newLeadsBadge.style.display = 'inline-block';
+                    }} else {{
+                        newLeadsBadge.style.display = 'none';
+                    }}
+
+                    // Follow-ups -- overdue items flagged with the file's
+                    // established inline var(--danger) convention (e.g. lines
+                    // 2447, 2875); no badge-danger class exists in this file's
+                    // styles, so this matches existing practice rather than
+                    // inventing a new global CSS class for this alone.
+                    const followupsList = document.getElementById('followupsList');
+                    const fu = data.followups || {{}};
+                    const renderTask = (t, overdue) => `<tr>
+                        <td${{overdue ? ' style="color:var(--danger);font-weight:600;"' : ''}}>${{escapeHtml(t.title)}}</td>
+                        <td>${{taskTypeBadge(t)}}</td>
+                        <td${{overdue ? ' style="color:var(--danger);font-weight:600;"' : ''}}>${{escapeHtml(t.due_date)}}</td>
+                        <td>${{escapeHtml(t.priority)}}</td>
+                        <td>${{overdue ? 'OVERDUE' : escapeHtml(t.status)}}</td>
+                        <td>${{taskActionButtons(t)}}</td>
+                    </tr>`;
+                    const fuRows = [
+                        ...(fu.overdue || []).map(t => renderTask(t, true)),
+                        ...(fu.due_today || []).map(t => renderTask(t, false)),
+                        ...(fu.upcoming || []).map(t => renderTask(t, false)),
+                    ];
+                    followupsList.innerHTML = fuRows.length > 0
+                        ? fuRows.join('')
+                        : '<tr><td colspan="6" style="color:var(--text-muted)">No follow-ups due.</td></tr>';
+
+                    // Pipeline summary -- first UI surface for this data.
+                    const pipelineList = document.getElementById('pipelineSummaryList');
+                    const pipelineTotals = document.getElementById('pipelineTotals');
+                    const pl = data.pipeline || {{}};
+                    const stages = pl.stages || {{}};
+                    const stageOrder = pl.stage_order || [];
+                    // Per-stage dicts carry count/total_value/weighted_value --
+                    // NOT a per-stage win_rate (that only exists at the
+                    // pipeline-summary level below, and is a 0-1 fraction,
+                    // distinct from team.sales.win_rate_percent further down
+                    // which is already *100 -- formatted separately so the two
+                    // never read as the same number in different units).
+                    pipelineList.innerHTML = stageOrder.length > 0
+                        ? stageOrder.map(st => {{
+                            const s = stages[st] || {{ count: 0, total_value: 0, weighted_value: 0 }};
+                            return `<tr>
+                                <td>${{escapeHtml(st)}}</td>
+                                <td>${{s.count || 0}}</td>
+                                <td>$${{escapeHtml((s.total_value || 0).toLocaleString())}}</td>
+                                <td>$${{escapeHtml((s.weighted_value || 0).toLocaleString())}}</td>
+                            </tr>`;
+                        }}).join('')
+                        : '<tr><td colspan="4" style="color:var(--text-muted)">No pipeline data.</td></tr>';
+                    pipelineTotals.textContent = 'Total deals: ' + (pl.total_deals || 0) +
+                        ' | Active pipeline value: $' + (pl.active_pipeline_value || 0).toLocaleString() +
+                        ' | Won: ' + (pl.won_deals || 0) + ' ($' + (pl.won_value || 0).toLocaleString() + ')' +
+                        ' | Lost: ' + (pl.lost_deals || 0) + ' ($' + (pl.lost_value || 0).toLocaleString() + ')' +
+                        ' | Win rate: ' + Math.round((pl.win_rate || 0) * 100) + '%';
+
+                    // Commissions -- commissions_scope is a separate permission
+                    // axis from the page-level scope banner (B8.2a round-1
+                    // finding); label it independently, never conflate with
+                    // viewerScopeBanner above.
+                    const commissionsHeading = document.getElementById('commissionsHeading');
+                    commissionsHeading.textContent = 'Commissions (' + (data.commissions_scope === 'team' ? 'Team' : 'Mine') + ')';
+                    const commissionsList = document.getElementById('commissionsList');
+                    const commissionsByStatus = data.commissions || {{}};
+                    let commissionRows = [];
+                    Object.keys(commissionsByStatus).forEach(status => {{
+                        (commissionsByStatus[status] || []).forEach(c => {{
+                            commissionRows.push(`<tr>
+                                <td><span class="badge badge-slate">${{escapeHtml(status)}}</span></td>
+                                <td>${{escapeHtml(c.source_type)}}</td>
+                                <td>$${{escapeHtml((c.commission_amount || 0).toLocaleString())}}</td>
+                                <td>${{c.earned_at ? escapeHtml(c.earned_at) : '—'}}</td>
+                            </tr>`);
+                        }});
+                    }});
+                    commissionsList.innerHTML = commissionRows.length > 0
+                        ? commissionRows.join('')
+                        : '<tr><td colspan="4" style="color:var(--text-muted)">No commissions.</td></tr>';
+
+                    // Team snapshot -- gate on key presence ('team' in data),
+                    // not data.scope truthiness, matching the server's own gate
+                    // (route only sets response['team'] when the actor holds
+                    // PERM_READ_TEAM_SALES_DATA).
+                    const teamCard = document.getElementById('teamSummaryCard');
+                    const teamStrip = document.getElementById('teamSummaryStrip');
+                    if ('team' in data && data.team && data.team.sales) {{
+                        const ts = data.team.sales;
+                        teamStrip.innerHTML = `
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Total Leads</div><div style="font-size:1.25rem;font-weight:700;">${{ts.total_leads || 0}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Hot Leads</div><div style="font-size:1.25rem;font-weight:700;">${{ts.hot_leads || 0}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">New Leads</div><div style="font-size:1.25rem;font-weight:700;">${{ts.new_leads || 0}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Pipeline Opps</div><div style="font-size:1.25rem;font-weight:700;">${{ts.pipeline_opportunities || 0}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Pipeline Value</div><div style="font-size:1.25rem;font-weight:700;">$${{escapeHtml((ts.pipeline_value || 0).toLocaleString())}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Weighted Pipeline</div><div style="font-size:1.25rem;font-weight:700;">$${{escapeHtml((ts.weighted_pipeline_value || 0).toLocaleString())}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Win Rate</div><div style="font-size:1.25rem;font-weight:700;">${{ts.win_rate_percent || 0}}%</div></div>
+                        `;
+                        teamCard.style.display = 'block';
+                    }} else {{
+                        teamCard.style.display = 'none';
+                    }}
+
+                    // B8.7d: "This Month" rep-facing commission summary --
+                    // commission_summary is always present (never a gated
+                    // key like 'team'), since get_team_commission_summary
+                    // never raises and the route always supplies the
+                    // empty-defaults shape when a rep has no rows this
+                    // month.
+                    const cs = data.commission_summary || {{}};
+                    document.getElementById('summaryEarned').textContent = '$' + (cs.total_earned || 0).toLocaleString();
+                    document.getElementById('summaryPaid').textContent = '$' + (cs.total_paid || 0).toLocaleString();
+                    document.getElementById('summaryPending').textContent = '$' + (cs.total_pending || 0).toLocaleString();
+                    document.getElementById('summaryEntryCount').textContent = String(cs.entry_count || 0);
+
+                    // B8.7d: manager-facing commission rankings -- gated on
+                    // key presence ('team_commission_rankings' in data),
+                    // same pattern the team snapshot block above uses,
+                    // independently of the 'team' key (different
+                    // permission: PERM_READ_TEAM_COMMISSIONS, not
+                    // PERM_READ_TEAM_SALES_DATA).
+                    const rankingsCard = document.getElementById('commissionRankingsCard');
+                    const rankingsList = document.getElementById('commissionRankingsList');
+                    if ('team_commission_rankings' in data && Array.isArray(data.team_commission_rankings)) {{
+                        const rankings = data.team_commission_rankings;
+                        rankingsList.innerHTML = rankings.length > 0
+                            ? rankings.map(r => `<tr>
+                                <td>${{escapeHtml(r.rep_user_name || ('User #' + r.rep_user_id))}}</td>
+                                <td>$${{escapeHtml((r.total_earned || 0).toLocaleString())}}</td>
+                                <td>$${{escapeHtml((r.total_paid || 0).toLocaleString())}}</td>
+                                <td>$${{escapeHtml((r.total_pending || 0).toLocaleString())}}</td>
+                                <td>${{r.entry_count || 0}}</td>
+                            </tr>`).join('')
+                            : '<tr><td colspan="5" style="color:var(--text-muted)">No commission activity this month.</td></tr>';
+                        rankingsCard.style.display = 'block';
+                    }} else {{
+                        rankingsCard.style.display = 'none';
+                    }}
+                }}
+                // else: non-ok, non-401, non-403 response (e.g. 5xx) -- new
+                // panels keep their "Loading..." placeholders, matching the
+                // silent-fallback convention of every other fetch in this
+                // function; scopeBanner stays at its fail-closed 'My Own'
+                // default set above.
+            }} catch (e) {{ /* network/parse failure: new panels keep their "Loading..." placeholders, no further UI action needed */ }}
             }} finally {{
                 dashboardRefreshInFlight = false;
             }}
@@ -5424,6 +6799,1697 @@ def _render_sales_portal() -> str:
             }}
         }}
 
+        // -----------------------------------------------------------------
+        // B8.3 Part C: Pipeline Kanban board. Opportunity-only -- Lead.status
+        // is a separate, different enum and is never rendered as a kanban
+        // column here.
+        // -----------------------------------------------------------------
+        const KANBAN_STAGES = ['new_lead', 'contacted', 'appointment_set', 'estimate_scheduled', 'estimate_sent', 'proposal_sent', 'negotiation', 'won', 'lost'];
+        const KANBAN_STAGE_LABELS = {{
+            new_lead: 'New Lead', contacted: 'Contacted', appointment_set: 'Appointment Set',
+            estimate_scheduled: 'Estimate Scheduled', estimate_sent: 'Estimate Sent',
+            proposal_sent: 'Proposal Sent', negotiation: 'Negotiation', won: 'Won', lost: 'Lost',
+        }};
+
+        async function loadKanban(token) {{
+            const res = await fetch('/api/v1/opportunities', {{
+                headers: {{ 'Authorization': 'Bearer ' + token }}
+            }});
+            if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+            if (!res.ok) return;
+            const data = await res.json();
+            const opps = data.opportunities || [];
+            const byStage = {{}};
+            KANBAN_STAGES.forEach(s => {{ byStage[s] = []; }});
+            opps.forEach(o => {{
+                const st = KANBAN_STAGES.includes(o.pipeline_stage) ? o.pipeline_stage : 'new_lead';
+                byStage[st].push(o);
+            }});
+
+            const board = document.getElementById('kanbanBoard');
+            board.innerHTML = KANBAN_STAGES.map(stage => {{
+                const cards = byStage[stage].map(o => renderKanbanCard(o, stage)).join('');
+                return `<div class="kanban-col">
+                    <h4>${{escapeHtml(KANBAN_STAGE_LABELS[stage])}} (${{byStage[stage].length}})</h4>
+                    ${{cards || '<p style="color:var(--text-muted);font-size:0.78rem;">No deals.</p>'}}
+                </div>`;
+            }}).join('');
+        }}
+
+        function renderKanbanCard(o, stage) {{
+            const otherStages = KANBAN_STAGES.filter(s => s !== stage);
+            const isClaimed = !!o.assigned_user_id;
+            const actionHtml = isClaimed
+                ? `<select onchange="handleStageChange(this, ${{o.id}})">
+                        <option value="">Move to...</option>
+                        ${{otherStages.map(s => `<option value="${{s}}">${{escapeHtml(KANBAN_STAGE_LABELS[s])}}</option>`).join('')}}
+                   </select>`
+                : `<button class="btn-gold" style="padding:0.2rem 0.5rem;font-size:0.72rem;" onclick="claimOpportunity(${{o.id}})">Claim first</button>`;
+            return `<div class="kanban-card">
+                <strong>#${{o.id}} ${{escapeHtml(o.title)}}</strong><br>
+                $${{escapeHtml((o.estimated_value || 0).toLocaleString())}}
+                ${{actionHtml}}
+            </div>`;
+        }}
+
+        // Claim-before-transition (NEW-558): renderKanbanCard only renders the
+        // "Move to..." select for already-claimed opportunities, so an
+        // unclaimed card's transition action is always the Claim-first button
+        // above -- this is a client-side UI gate only; the server's existing
+        // permission model is unchanged.
+        async function handleStageChange(selectEl, id) {{
+            const newStage = selectEl.value;
+            if (!newStage) return;
+            const token = getAuthToken();
+            const body = {{ stage: newStage }};
+            if (newStage === 'lost') {{
+                const reason = prompt('A reason is required to mark this deal Lost:');
+                if (!reason || !reason.trim()) {{ selectEl.value = ''; return; }}
+                body.lost_reason = reason.trim();
+            }}
+            try {{
+                const res = await fetch('/api/v1/opportunities/' + id + '/transition', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to move opportunity (' + res.status + ').'));
+                }}
+            }} catch (e) {{
+                alert('Failed to move opportunity: network error.');
+            }}
+            loadKanban(token);
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.3 Part D: Stage-stuck analytics panel.
+        // -----------------------------------------------------------------
+        async function loadStageAnalytics(token) {{
+            const res = await fetch('/api/v1/sales/pipeline-stuck-analytics', {{
+                headers: {{ 'Authorization': 'Bearer ' + token }}
+            }});
+            if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+            const stageList = document.getElementById('stageAnalyticsList');
+            const coverage = document.getElementById('stageAnalyticsCoverage');
+            const stuckList = document.getElementById('currentlyStuckList');
+            if (!res.ok) {{
+                stageList.innerHTML = '<tr><td colspan="2" style="color:var(--danger)">Unable to load stage analytics.</td></tr>';
+                stuckList.innerHTML = '<tr><td colspan="3" style="color:var(--danger)">Unable to load.</td></tr>';
+                return;
+            }}
+            const data = await res.json();
+            const avg = data.avg_hours_per_stage || {{}};
+            const stages = Object.keys(avg);
+            stageList.innerHTML = stages.length > 0
+                ? stages.map(st => `<tr><td>${{escapeHtml(st)}}</td><td>${{(avg[st] || 0).toFixed(1)}}</td></tr>`).join('')
+                : '<tr><td colspan="2" style="color:var(--text-muted)">No stage-duration data yet.</td></tr>';
+            coverage.textContent = 'Full audit chain: ' + (data.opportunities_with_full_chain || 0) +
+                ' | Fallback (no/partial chain): ' + (data.opportunities_using_fallback || 0);
+            const stuck = data.currently_stuck || [];
+            stuckList.innerHTML = stuck.length > 0
+                ? stuck.map(s => `<tr><td>#${{s.opportunity_id}}</td><td>${{escapeHtml(s.stage)}}</td><td>${{(s.hours_in_stage || 0).toFixed(1)}}</td></tr>`).join('')
+                : '<tr><td colspan="3" style="color:var(--text-muted)">Nothing currently stuck.</td></tr>';
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.14b: tiered sales analytics rollup -- load-on-demand only
+        // (button-triggered, see the panel's own comment above), NOT
+        // called from loadDashboard/window.onload, per NEW-554.
+        // -----------------------------------------------------------------
+        async function loadAnalyticsRollup() {{
+            const token = getAuthToken();
+            const area = document.getElementById('analyticsRollupArea');
+            area.innerHTML = '<p style="color:var(--text-muted);">Loading analytics rollup...</p>';
+            try {{
+                const res = await fetch('/api/v1/sales/analytics-rollup', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const errData = await res.json().catch(() => ({{}}));
+                    area.innerHTML = `<p style="color:var(--danger)">${{escapeHtml(errData.error || 'Unable to load analytics rollup.')}}</p>`;
+                    return;
+                }}
+                const data = await res.json();
+                area.innerHTML = renderAnalyticsRollup(data);
+            }} catch (e) {{
+                area.innerHTML = '<p style="color:var(--danger)">Failed to load: network error.</p>';
+            }}
+        }}
+
+        function renderAnalyticsRollup(data) {{
+            const tier = data.tier || 'rep';
+            const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+            let body = '';
+            if (tier === 'executive') {{
+                // NEW-613: no AR/revenue figure in this rollup -- the
+                // server-side response already omits get_executive_
+                // dashboard's "financial" block entirely (see
+                // AnalyticsSearchService.get_sales_analytics_rollup's
+                // docstring), so this renderer never reads ex.financial.
+                const ex = data.executive || {{}};
+                const sales = ex.sales || {{}};
+                const ops = ex.operations || {{}};
+                body = `
+                    <h4 style="margin:0.5rem 0;">Sales</h4>
+                    <p style="margin:0;">Total leads: ${{sales.total_leads || 0}} | Hot leads: ${{sales.hot_leads || 0}} |
+                        Pipeline value: $${{(sales.pipeline_value || 0).toLocaleString()}} |
+                        Weighted: $${{(sales.weighted_pipeline_value || 0).toLocaleString()}} |
+                        Win rate: ${{sales.win_rate_percent || 0}}%</p>
+                    <h4 style="margin:1rem 0 0.5rem 0;">Operations</h4>
+                    <p style="margin:0;">Active projects: ${{ops.active_projects || 0}} | Active work orders: ${{ops.active_work_orders || 0}}</p>
+                `;
+            }} else {{
+                const pl = data.pipeline || {{}};
+                const commissions = data.commissions || [];
+                const commissionRows = commissions.length > 0
+                    ? commissions.map(c => `<tr>
+                        <td>${{c.rep_user_id != null ? '#' + c.rep_user_id : '—'}}</td>
+                        <td>$${{(c.total_earned || 0).toLocaleString()}}</td>
+                        <td>$${{(c.total_paid || 0).toLocaleString()}}</td>
+                        <td>$${{(c.total_pending || 0).toLocaleString()}}</td>
+                        <td>${{c.entry_count || 0}}</td>
+                    </tr>`).join('')
+                    : '<tr><td colspan="5" style="color:var(--text-muted)">No commission entries this month.</td></tr>';
+                body = `
+                    <h4 style="margin:0.5rem 0;">Pipeline</h4>
+                    <p style="margin:0;">Total deals: ${{pl.total_deals || 0}} |
+                        Active pipeline value: $${{(pl.active_pipeline_value || 0).toLocaleString()}} |
+                        Weighted: $${{(pl.active_weighted_value || 0).toLocaleString()}} |
+                        Win rate: ${{Math.round((pl.win_rate || 0) * 100)}}%</p>
+                    <h4 style="margin:1rem 0 0.5rem 0;">Commissions (This Month)</h4>
+                    <div class="table-scroll-wrapper"><table>
+                        <thead><tr><th>Rep</th><th>Earned</th><th>Paid</th><th>Pending</th><th>Entries</th></tr></thead>
+                        <tbody>${{commissionRows}}</tbody>
+                    </table></div>
+                `;
+            }}
+            const note = data.note ? `<p style="margin-top:1rem;font-size:0.8rem;color:var(--text-muted);">${{escapeHtml(data.note)}}</p>` : '';
+            return `<p style="margin:0 0 0.75rem 0;"><span class="badge badge-info">${{escapeHtml(tierLabel)}} view</span></p>${{body}}${{note}}`;
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.10b: Communications Center panel -- non-customer-scoped feed,
+        // narrowed server-side (NEW-618). Same fetch/render shape as
+        // loadStageAnalytics above.
+        // -----------------------------------------------------------------
+        async function loadCommunicationsCenter(token) {{
+            const res = await fetch('/api/v1/sales/communications-center?limit=50', {{
+                headers: {{ 'Authorization': 'Bearer ' + token }}
+            }});
+            if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+            const heading = document.getElementById('commsCenterHeading');
+            const list = document.getElementById('commsCenterList');
+            if (res.status === 403) {{
+                heading.textContent = 'Communications Center';
+                list.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Cannot load: no associated user identity.</td></tr>';
+                return;
+            }}
+            if (!res.ok) {{
+                list.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Unable to load communications.</td></tr>';
+                return;
+            }}
+            const data = await res.json();
+            heading.textContent = 'Communications Center (' + (data.scope === 'team' ? 'Team' : 'Mine') + ')'; // data.scope is 'rep' or 'team', matching /api/v1/sales/dashboard's convention
+            const comms = data.communications || [];
+            list.innerHTML = comms.length > 0
+                ? comms.map(c => {{
+                    const linkedTo = c.customer_id ? escapeHtml(c.customer_name || ('Customer #' + c.customer_id))
+                        : (c.lead_id ? 'Lead #' + c.lead_id : '—');
+                    return `<tr>
+                        <td>${{escapeHtml(c.timestamp || '')}}</td>
+                        <td>${{escapeHtml(c.channel || '')}}</td>
+                        <td>${{escapeHtml(c.direction || '')}}</td>
+                        <td>${{linkedTo}}</td>
+                        <td>${{escapeHtml(c.subject || c.content || '')}}</td>
+                    </tr>`;
+                }}).join('')
+                : '<tr><td colspan="5" style="color:var(--text-muted)">No communications.</td></tr>';
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.3 Part B: Lead detail modal.
+        // -----------------------------------------------------------------
+        let currentLeadDetail = null;
+
+        async function openLeadDetailModal(id) {{
+            const overlay = document.getElementById('leadDetailModal');
+            const body = document.getElementById('leadDetailBody');
+            overlay.classList.add('active');
+            body.innerHTML = '<p style="color:var(--text-muted);">Loading...</p>';
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/leads/' + id, {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    body.innerHTML = '<p style="color:var(--danger);">Lead not found.</p>';
+                    return;
+                }}
+                const data = await res.json();
+                currentLeadDetail = data.lead;
+                renderLeadDetail(currentLeadDetail);
+            }} catch (e) {{
+                body.innerHTML = '<p style="color:var(--danger);">Failed to load lead: network error.</p>';
+            }}
+        }}
+
+        function closeLeadDetailModal() {{
+            document.getElementById('leadDetailModal').classList.remove('active');
+            currentLeadDetail = null;
+        }}
+
+        function renderLeadDetail(l) {{
+            const body = document.getElementById('leadDetailBody');
+            const claimBtn = l.assigned_user_id
+                ? `<span class="badge badge-info">Assigned: ${{escapeHtml(l.assigned_user_name || ('User #' + l.assigned_user_id))}}</span>`
+                : `<button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="claimLead(${{l.id}})">Claim</button>`;
+            body.innerHTML = `
+                <div class="modal-field"><label>ID</label><div>#${{l.id}}</div></div>
+                <div class="modal-field"><label>Customer</label><div>${{l.customer_id ? escapeHtml(l.customer_name || ('Customer #' + l.customer_id)) : 'None linked'}}</div></div>
+                <div class="modal-field"><label>Assigned</label><div>${{claimBtn}}</div></div>
+                <div class="modal-field"><label>Status</label><input type="text" id="leadEditStatus" value="${{escapeHtml(l.status || '')}}"></div>
+                <div class="modal-field"><label>Source</label><div>${{escapeHtml(l.source || '')}}</div></div>
+                <div class="modal-field"><label>Score</label><div>${{l.score}} <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="scoreLeadFromModal(${{l.id}})">Score</button></div></div>
+                <div class="modal-field"><label>Property Type</label><input type="text" id="leadEditPropertyType" value="${{escapeHtml(l.property_type || '')}}"></div>
+                <div class="modal-field"><label>Project Scope</label><input type="text" id="leadEditProjectScope" value="${{escapeHtml(l.project_scope || '')}}"></div>
+                <div class="modal-field"><label>Urgency Level</label><input type="text" id="leadEditUrgencyLevel" value="${{escapeHtml(l.urgency_level || '')}}"></div>
+                <div class="modal-field"><label>Insurance Status</label><input type="text" id="leadEditInsuranceStatus" value="${{escapeHtml(l.insurance_status || '')}}"></div>
+                <div class="modal-field"><label>Estimated Value</label><input type="number" id="leadEditEstimatedValue" step="0.01" value="${{l.estimated_value || 0}}"></div>
+                <div class="modal-field"><label>First Contact</label><div>${{l.first_contact_at ? escapeHtml(l.first_contact_at) : '—'}}</div></div>
+                <div class="modal-field"><label>Last Contact</label><div>${{l.last_contact_at ? escapeHtml(l.last_contact_at) : '—'}}</div></div>
+                <div class="modal-field"><label>Next Follow-up</label><div>${{l.next_followup_at ? escapeHtml(l.next_followup_at) : '—'}}</div></div>
+                <div class="modal-field"><label>Notes</label><textarea id="leadEditNotes" rows="3">${{escapeHtml(l.notes || '')}}</textarea></div>
+                <div class="modal-field"><label>Lost Reason</label><div>${{l.lost_reason ? escapeHtml(l.lost_reason) : '—'}}</div></div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:1rem;">
+                    <button class="btn-gold" onclick="saveLeadEdit(${{l.id}})">Save Changes</button>
+                    <button class="btn-gold" onclick="convertLeadAction(${{l.id}})">Convert to Opportunity</button>
+                </div>
+            `;
+        }}
+
+        async function scoreLeadFromModal(id) {{
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/leads/' + id + '/score', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{}}),
+                }});
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to score lead (' + res.status + ').'));
+                    return;
+                }}
+                openLeadDetailModal(id);
+            }} catch (e) {{
+                alert('Failed to score lead: network error.');
+            }}
+        }}
+
+        // update_lead's real allowed_fields set (crm_service.py) is a
+        // superset of what this modal exposes as editable inputs -- only
+        // send the fields this form actually offers, matching the values
+        // currently rendered in renderLeadDetail above.
+        async function saveLeadEdit(id) {{
+            const token = getAuthToken();
+            const updates = {{
+                status: document.getElementById('leadEditStatus').value,
+                property_type: document.getElementById('leadEditPropertyType').value,
+                project_scope: document.getElementById('leadEditProjectScope').value,
+                urgency_level: document.getElementById('leadEditUrgencyLevel').value,
+                insurance_status: document.getElementById('leadEditInsuranceStatus').value,
+                estimated_value: parseFloat(document.getElementById('leadEditEstimatedValue').value) || 0,
+                notes: document.getElementById('leadEditNotes').value,
+            }};
+            try {{
+                const res = await fetch('/api/v1/leads/' + id + '/update', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(updates),
+                }});
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to save lead (' + res.status + ').'));
+                    return;
+                }}
+                openLeadDetailModal(id);
+                loadDashboard();
+            }} catch (e) {{
+                alert('Failed to save lead: network error.');
+            }}
+        }}
+
+        // Convert-to-opportunity (B8.3 Part A, NEW-556). If the lead has no
+        // linked customer, the service call requires customer_fields --
+        // prompt for the minimum identity fields inline (this portal has no
+        // richer form-builder convention for a rarely-hit sub-case) rather
+        // than failing silently.
+        async function convertLeadAction(id) {{
+            const token = getAuthToken();
+            const body = {{}};
+            if (currentLeadDetail && !currentLeadDetail.customer_id) {{
+                const firstName = prompt('This lead has no linked customer. Customer first name:');
+                if (firstName === null) return;
+                const lastName = prompt('Customer last name:') || '';
+                const phone = prompt('Customer phone (optional):') || '';
+                const email = prompt('Customer email (optional):') || '';
+                body.customer_fields = {{
+                    first_name: firstName,
+                    last_name: lastName,
+                    phone: phone || null,
+                    email: email || null,
+                }};
+            }}
+            try {{
+                const res = await fetch('/api/v1/leads/' + id + '/convert', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to convert lead (' + res.status + ').'));
+                    return;
+                }}
+                alert('Converted to opportunity #' + data.opportunity.id);
+                closeLeadDetailModal();
+                loadDashboard();
+            }} catch (e) {{
+                alert('Failed to convert lead: network error.');
+            }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.4a: Customer 360 view. Client-side fan-out over each entity's
+        // own customer_id-filtered route (no new server-side aggregate route,
+        // per this task's scoping) -- structural reference is the lead
+        // detail modal above (openLeadDetailModal/renderLeadDetail), but
+        // re-derived for this modal's own fields, not copied verbatim.
+        // -----------------------------------------------------------------
+        let currentCustomer360Id = null;
+        let currentCustomer360Email = null; // B8.10c: locks the Compose modal's To field
+        let currentCustomer360Properties = [];
+        let editingPropertyId = null;
+        let currentPropertyHistoryId = null;
+        // B8.8a: insurance/claim fields on Project (title, address, panel
+        // location -- mirrors currentCustomer360Properties/editingPropertyId
+        // above exactly). insurance_claim_status is deliberately NOT part of
+        // this panel: it lives on Opportunity, not Project (models.py,
+        // crm_service.py:1487's vocabulary-separation note), and Project has
+        // no column for it.
+        let currentCustomer360Projects = [];
+        let editingInsuranceProjectId = null;
+        // B8.5b: appointment scheduling UI + assessment records (sales_rep_portal.md
+        // §5 B8.5, request §6/§7). currentAppointmentDetailId/currentPropertyAssessmentsId
+        // mirror the toggle-tracking pattern already used above for
+        // currentPropertyHistoryId; assessmentFormScope carries which
+        // entity (kind/id -- exactly one of appointment/property) launched
+        // the open create-assessment form. This is launch-context only --
+        // it does not constrain the form's *submitted* body, which can and
+        // does send both property_id and appointment_id together (see
+        // submitAssessmentForm's comment on the propVal/apptVal selects).
+        let currentAppointmentDetailId = null;
+        let currentPropertyAssessmentsId = null;
+        let assessmentFormScope = null;
+        let assessmentChecklistRowCount = 0;
+        let currentCustomer360Appointments = [];
+        // Photo uploads collected for the currently-open assessment create
+        // form: [{{id, title}}, ...] of already-uploaded Document ids (the
+        // upload itself happens immediately on file selection, mirroring
+        // there being no separate "attach" step in the B6.5 doc-store flow
+        // this reuses -- the form only ever sends ids it already has).
+        let assessmentFormEvidenceDocs = [];
+
+        // B8.6c: proposal view + contract send/track/sign actions, wired
+        // into the Estimates/Contracts panels above. viewEstimateProposal
+        // reuses the documents-tab download precedent (window.open with
+        // ?token= -- see loadCustomer360's Documents fetch and the
+        // subcontractors tab's file download button) since a plain <a>
+        // navigation can't carry an Authorization header.
+        function viewEstimateProposal(estimateId) {{
+            window.open('/api/v1/estimates/' + estimateId + '/proposal?token=' + getAuthToken(), '_blank');
+        }}
+
+        // Status-gated action buttons, matching Contract.status's real
+        // CHECK values (draft/sent/signed/expired/superseded) -- draft can
+        // be sent, sent can be signed (an admin/manager/PM/rep counter-
+        // signature via PERM_SIGN_CONTRACTS, not a customer e-signature
+        // pad -- that already exists on the customer portal surface,
+        // render_portal_surface's Digital Contract E-Signature Pad),
+        // signed/expired/superseded show no action.
+        function renderContractActionButtons(c) {{
+            if (c.status === 'draft') {{
+                return `<button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="sendContractAction(${{c.id}})">Send</button>`;
+            }}
+            if (c.status === 'sent') {{
+                return `<button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="signContractAction(${{c.id}})">Sign</button>`;
+            }}
+            return '';
+        }}
+
+        async function sendContractAction(contractId) {{
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/contracts/' + contractId + '/send', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{}}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to send contract (' + res.status + ').'));
+                    return;
+                }}
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to send contract: network error.');
+            }}
+        }}
+
+        async function signContractAction(contractId) {{
+            const token = getAuthToken();
+            if (!confirm('Sign this contract? This is a binding signature action.')) return;
+            try {{
+                const res = await fetch('/api/v1/contracts/' + contractId + '/sign', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ signature_data: 'portal_countersignature' }}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to sign contract (' + res.status + ').'));
+                    return;
+                }}
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to sign contract: network error.');
+            }}
+        }}
+
+        async function openCustomer360Modal(customerId) {{
+            currentCustomer360Id = customerId;
+            const overlay = document.getElementById('customer360Modal');
+            const body = document.getElementById('c360Body');
+            overlay.classList.add('active');
+            body.innerHTML = '<p style="color:var(--text-muted);">Loading customer 360 view...</p>';
+            await loadCustomer360(customerId);
+        }}
+
+        function closeCustomer360Modal() {{
+            document.getElementById('customer360Modal').classList.remove('active');
+            currentCustomer360Id = null;
+            currentCustomer360Email = null;
+            currentCustomer360Properties = [];
+            editingPropertyId = null;
+            currentCustomer360Projects = [];
+            editingInsuranceProjectId = null;
+            currentPropertyHistoryId = null;
+            currentPropertyAssessmentsId = null;
+            assessmentFormScope = null;
+            currentAppointmentDetailId = null;
+            currentCustomer360Appointments = [];
+            assessmentFormEvidenceDocs = [];
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.10c: Compose/send email -- POST /api/v1/customers/<id>/compose-email.
+        // The To field is a locked, read-only display of
+        // currentCustomer360Email; there is no editable recipient input at
+        // all, so there is nothing here for a user to change even if they
+        // wanted to send to a different address.
+        // -----------------------------------------------------------------
+        function openComposeEmailModal() {{
+            if (!currentCustomer360Id || !currentCustomer360Email) return;
+            document.getElementById('composeEmailTo').textContent = currentCustomer360Email;
+            document.getElementById('composeEmailSubject').value = '';
+            document.getElementById('composeEmailBody').value = '';
+            const err = document.getElementById('composeEmailError');
+            err.style.display = 'none';
+            err.textContent = '';
+            document.getElementById('composeEmailModal').classList.add('active');
+        }}
+
+        function closeComposeEmailModal() {{
+            document.getElementById('composeEmailModal').classList.remove('active');
+        }}
+
+        async function sendComposeEmail() {{
+            const customerId = currentCustomer360Id;
+            if (!customerId) return;
+            const subject = document.getElementById('composeEmailSubject').value;
+            const body = document.getElementById('composeEmailBody').value;
+            const err = document.getElementById('composeEmailError');
+            const btn = document.getElementById('composeEmailSendBtn');
+            if (!body || !body.trim()) {{
+                err.textContent = 'Message body is required.';
+                err.style.display = 'block';
+                return;
+            }}
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            err.style.display = 'none';
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/customers/' + customerId + '/compose-email', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ subject: subject, body: body }}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const data = await res.json().catch(() => ({{}}));
+                    err.textContent = data.error || 'Failed to send email.';
+                    err.style.display = 'block';
+                    return;
+                }}
+                closeComposeEmailModal();
+                // Refresh Customer 360 so the just-sent email appears in
+                // its Communications panel immediately.
+                await loadCustomer360(customerId);
+            }} catch (e) {{
+                err.textContent = 'Failed to send email: network error.';
+                err.style.display = 'block';
+            }} finally {{
+                btn.disabled = false;
+                btn.textContent = 'Send';
+            }}
+        }}
+
+        // Each entity has its own customer_id-scoped route already (B8.1's
+        // Property routes added by this task, plus the pre-existing
+        // projects/estimates/contracts/invoices/documents/appointments/
+        // communications/tasks routes). Fetched with per-entry try/catch so
+        // one panel's failure (most notably Invoices 403ing for a plain
+        // sales rep lacking PERM_READ_FINANCIALS -- NEW-565, a flagged,
+        // not-yet-decided product question, not a bug to route around here)
+        // never blocks any other panel from rendering. Promise.allSettled
+        // (not Promise.all) is used for the same reason -- Promise.all
+        // would reject the whole batch on the first rejection.
+        async function loadCustomer360(customerId) {{
+            const token = getAuthToken();
+            const authHeaders = {{ 'Authorization': 'Bearer ' + token }};
+            const endpoints = {{
+                customer: '/api/v1/customers/' + customerId,
+                properties: '/api/v1/properties?customer_id=' + customerId,
+                projects: '/api/v1/projects?customer_id=' + customerId,
+                estimates: '/api/v1/estimates?customer_id=' + customerId,
+                contracts: '/api/v1/contracts?customer_id=' + customerId,
+                invoices: '/api/v1/invoices?customer_id=' + customerId,
+                creditBalance: '/api/v1/customers/' + customerId + '/credit-balance',
+                documents: '/api/v1/documents?customer_id=' + customerId,
+                appointments: '/api/v1/appointments?customer_id=' + customerId,
+                communications: '/api/v1/communications?customer_id=' + customerId,
+                tasks: '/api/v1/crm/tasks?customer_id=' + customerId,
+            }};
+            const keys = Object.keys(endpoints);
+            const settled = await Promise.allSettled(keys.map(async (k) => {{
+                try {{
+                    const res = await fetch(endpoints[k], {{ headers: authHeaders }});
+                    if (!res.ok) {{ return {{ key: k, ok: false, status: res.status }}; }}
+                    const data = await res.json();
+                    return {{ key: k, ok: true, status: res.status, data }};
+                }} catch (e) {{
+                    return {{ key: k, ok: false, status: null }};
+                }}
+            }}));
+            const byKey = {{}};
+            settled.forEach(r => {{ if (r.status === 'fulfilled') {{ byKey[r.value.key] = r.value; }} }});
+
+            // A 401 on any panel means the token itself is bad -- that's a
+            // real auth failure, unlike a single panel's 403, so redirect
+            // exactly like every other fetch in this file does.
+            if (Object.values(byKey).some(r => r.status === 401)) {{
+                window.location.href = '/admin/login';
+                return;
+            }}
+
+            renderCustomer360(customerId, byKey);
+        }}
+
+        function c360PanelSection(title, result, emptyMsg, renderRows, headerRow, headerAction) {{
+            // headerAction (B8.10c): optional extra HTML rendered inline
+            // in the panel's own <h3> header (e.g. the Communications
+            // panel's Compose button) -- a defaulted 6th param rather than
+            // a second helper function or a post-hoc string .replace()
+            // against this function's own template (fragile: a future
+            // edit to the <h3> markup here would silently no-op that
+            // replace with no error anywhere).
+            const action = headerAction || '';
+            const headerHtml = action
+                ? `<h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">${{title}} ${{action}}</h3>`
+                : `<h3 style="margin-top:0;">${{title}}</h3>`;
+            if (!result || !result.ok) {{
+                const msg = (result && result.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card">${{headerHtml}}<p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const rows = renderRows(result.data);
+            const table = rows.length > 0
+                ? `<div class="table-scroll-wrapper"><table>${{headerRow}}<tbody>${{rows.join('')}}</tbody></table></div>`
+                : `<p style="color:var(--text-muted);">${{emptyMsg}}</p>`;
+            return `<div class="erp-card">${{headerHtml}}${{table}}</div>`;
+        }}
+
+        // NEW-650 (UI half): credit_balance is a single scalar, not a
+        // list, so this doesn't fit c360PanelSection's table/renderRows
+        // shape -- mirrors the Info card above (a single-value erp-card)
+        // for the non-zero case, and c360PanelSection's own emptyMsg
+        // branch for the (most common) zero-balance case. Same 403/
+        // "No access." handling as every other panel here --
+        // get_customer_credit_balance uses the same PERM_READ_FINANCIALS/
+        // PERM_READ_OWN_FINANCIALS check as list_invoices, so this never
+        // 403s for a role that doesn't already get "No access." on
+        // Invoices. Not byte-identical gating, though: for a mismatched
+        // ROLE_CUSTOMER id, list_invoices silently narrows to the actor's
+        // own customer_id while get_customer_credit_balance raises --
+        // currently a dead distinction, since this file (the sales
+        // portal) has no ROLE_CUSTOMER code path at all.
+        function renderCreditBalancePanel(result) {{
+            const headerHtml = `<h3 style="margin-top:0;">Credit Balance</h3>`;
+            if (!result || !result.ok) {{
+                const msg = (result && result.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card">${{headerHtml}}<p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const balance = result.data.credit_balance || 0;
+            const body = balance > 0
+                ? `<div class="modal-field"><label>Available</label><div>$${{escapeHtml(balance.toLocaleString())}}</div></div>`
+                : `<p style="color:var(--text-muted);">No credit balance.</p>`;
+            return `<div class="erp-card">${{headerHtml}}${{body}}</div>`;
+        }}
+
+        function renderCustomer360(customerId, byKey) {{
+            const body = document.getElementById('c360Body');
+            const title = document.getElementById('c360Title');
+
+            if (!byKey.customer || !byKey.customer.ok) {{
+                title.textContent = 'Customer 360';
+                body.innerHTML = '<p style="color:var(--danger);">Customer not found.</p>';
+                return;
+            }}
+            const cust = byKey.customer.data.customer;
+            title.textContent = 'Customer 360 — ' + (cust.first_name || '') + ' ' + (cust.last_name || '');
+            currentCustomer360Email = cust.email || null;
+
+            currentCustomer360Properties = (byKey.properties && byKey.properties.ok && byKey.properties.data.properties) || [];
+            currentCustomer360Projects = (byKey.projects && byKey.projects.ok && byKey.projects.data.projects) || [];
+
+            let html = '';
+            html += `<div class="erp-card">
+                <h3 style="margin-top:0;">Info</h3>
+                <div class="modal-field"><label>Name</label><div>${{escapeHtml((cust.first_name || '') + ' ' + (cust.last_name || ''))}}</div></div>
+                <div class="modal-field"><label>Company</label><div>${{escapeHtml(cust.company_name || '—')}}</div></div>
+                <div class="modal-field"><label>Phone</label><div>${{escapeHtml(cust.phone || '—')}}</div></div>
+                <div class="modal-field"><label>Email</label><div>${{escapeHtml(cust.email || '—')}}</div></div>
+                <div class="modal-field"><label>Status</label><div>${{escapeHtml(cust.status || '—')}}</div></div>
+                <div class="modal-field"><label>Service Address</label><div>${{escapeHtml(cust.service_address || '—')}}</div></div>
+            </div>`;
+
+            html += renderPropertiesPanel(byKey.properties);
+
+            html += renderProjectsPanel(byKey.projects);
+
+            html += c360PanelSection('Estimates', byKey.estimates, 'No estimates.',
+                (d) => (d.estimates || []).map(e => `<tr><td>${{escapeHtml(e.estimate_number || '')}}</td><td>${{escapeHtml(e.status || '')}}</td><td>$${{escapeHtml((e.total_amount || 0).toLocaleString())}}</td><td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="viewEstimateProposal(${{e.id}})">View Proposal</button></td></tr>`),
+                '<thead><tr><th>Number</th><th>Status</th><th>Total</th><th></th></tr></thead>');
+
+            html += c360PanelSection('Contracts', byKey.contracts, 'No contracts.',
+                (d) => (d.contracts || []).map(c => `<tr><td>${{escapeHtml(c.contract_number || '')}}</td><td>${{escapeHtml(c.title || '')}}</td><td>${{escapeHtml(c.status || '')}}${{c.status === 'signed' && c.resolved_signed_at ? ' (' + escapeHtml(c.resolved_signed_at) + ')' : ''}}</td><td>${{renderContractActionButtons(c)}}</td></tr>`),
+                '<thead><tr><th>Number</th><th>Title</th><th>Status</th><th></th></tr></thead>');
+
+            html += c360PanelSection('Invoices', byKey.invoices, 'No invoices.',
+                (d) => (d.invoices || []).map(i => `<tr><td>${{escapeHtml(i.invoice_number || '')}}</td><td>${{escapeHtml(i.status || '')}}</td><td>$${{escapeHtml((i.amount || 0).toLocaleString())}}</td><td>$${{escapeHtml((i.balance_due || 0).toLocaleString())}}</td></tr>`),
+                '<thead><tr><th>Number</th><th>Status</th><th>Amount</th><th>Balance Due</th></tr></thead>');
+
+            html += renderCreditBalancePanel(byKey.creditBalance);
+
+            html += c360PanelSection('Documents', byKey.documents, 'No documents.',
+                (d) => (d.documents || []).map(doc => `<tr><td>${{escapeHtml(doc.title || '')}}</td><td>${{escapeHtml(doc.document_type || '')}}</td></tr>`),
+                '<thead><tr><th>Title</th><th>Type</th></tr></thead>');
+
+            html += renderAppointmentsPanel(byKey.appointments);
+
+            // B8.10c: Compose button -- disabled (not hidden) when the
+            // customer has no email on file, so the reason is visible
+            // rather than the action just silently not being there.
+            const composeBtn = currentCustomer360Email
+                ? `<button class="btn-gold" style="padding:0.3rem 0.7rem;font-size:0.8rem;" onclick="openComposeEmailModal()">Compose</button>`
+                : `<button class="btn-gold" style="padding:0.3rem 0.7rem;font-size:0.8rem;" disabled title="Customer has no email on file">Compose</button>`;
+            html += c360PanelSection('Communications', byKey.communications, 'No communications.',
+                (d) => (d.communications || []).map(m => `<tr><td>${{escapeHtml(m.channel || '')}}</td><td>${{escapeHtml(m.direction || '')}}</td><td>${{escapeHtml(m.subject || m.content || '')}}</td></tr>`),
+                '<thead><tr><th>Channel</th><th>Direction</th><th>Subject/Content</th></tr></thead>',
+                composeBtn);
+
+            html += c360PanelSection('Tasks', byKey.tasks, 'No tasks.',
+                (d) => (d.tasks || []).map(t => `<tr><td>${{escapeHtml(t.title || '')}}</td><td>${{taskTypeBadge(t)}}</td><td>${{escapeHtml(t.status || '')}}</td><td>${{escapeHtml(t.due_date || '')}}</td><td>${{taskActionButtons(t)}}</td></tr>`),
+                '<thead><tr><th>Title</th><th>Type</th><th>Status</th><th>Due</th><th>Actions</th></tr></thead>');
+
+            body.innerHTML = html;
+        }}
+
+        // Property panel. NEW-567 (Document/photo panel for Property) stays
+        // out of scope this round -- Document has no property_id field at
+        // all, per B8.5's deferred AssessmentRecord design. NEW-566's
+        // project-history panel is now in scope: projects.property_id is
+        // wired into the Project service layer (B8.4b), so "History" below
+        // fetches GET /api/v1/projects?property_id=<id> on demand (view is
+        // per-property, not preloaded with the rest of Customer 360).
+        function renderPropertiesPanel(propertiesResult) {{
+            // loadCustomer360() re-runs this on every refresh (including
+            // after savePropertyForm()), which wipes #propertyHistoryArea's
+            // HTML via the fresh template below -- reset the tracked id here
+            // too, or a stale currentPropertyHistoryId makes the next click
+            // on the same property's History button hit the toggle-closed
+            // branch and silently no-op instead of reloading it.
+            currentPropertyHistoryId = null;
+            currentPropertyAssessmentsId = null;
+            assessmentFormScope = null;
+            if (!propertiesResult || !propertiesResult.ok) {{
+                const msg = (propertiesResult && propertiesResult.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card"><h3 style="margin-top:0;">Properties</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const properties = propertiesResult.data.properties || [];
+            const rows = properties.map(p => `<tr>
+                <td>${{escapeHtml(p.address || '')}}</td>
+                <td>${{escapeHtml(p.property_type || '')}}</td>
+                <td>${{p.year_built || '—'}}</td>
+                <td>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openPropertyForm(${{p.id}})">Edit</button>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="togglePropertyHistory(${{p.id}})">History</button>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="togglePropertyAssessments(${{p.id}})">Assessments</button>
+                </td>
+            </tr>`);
+            const table = rows.length > 0
+                ? `<div class="table-scroll-wrapper"><table><thead><tr><th>Address</th><th>Type</th><th>Year Built</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`
+                : '<p style="color:var(--text-muted);">No properties on file.</p>';
+            return `<div class="erp-card">
+                <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                    <span>Properties</span>
+                    <button class="btn-gold" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="openPropertyForm(null)">+ Add Property</button>
+                </h3>
+                ${{table}}
+                <div id="propertyFormArea"></div>
+                <div id="propertyHistoryArea"></div>
+                <div id="propertyAssessmentsArea"></div>
+            </div>`;
+        }}
+
+        // B8.8a: Project insurance/claim/adjuster panel. Project already
+        // carries 6 insurance fields (insurance_claim_number,
+        // insurance_carrier, adjuster_name, adjuster_phone, adjuster_email,
+        // deductible) plus 2 added this round (coverage_amount,
+        // supplement_amount), all fully CRUD-wired server-side
+        // (update_project's ALLOWED_PROJECT_UPDATE_FIELDS) but previously
+        // exposed nowhere in the UI. Mirrors renderPropertiesPanel's
+        // table + inline-form-area shape exactly (openPropertyForm /
+        // savePropertyForm below). insurance_claim_status is NOT included
+        // here -- it lives on Opportunity, not Project (crm_service.py:1487
+        // documents the two fields use different value vocabularies; there
+        // is no Project column to persist it to).
+        function renderProjectsPanel(projectsResult) {{
+            editingInsuranceProjectId = null;
+            if (!projectsResult || !projectsResult.ok) {{
+                const msg = (projectsResult && projectsResult.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card"><h3 style="margin-top:0;">Projects</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const projects = projectsResult.data.projects || [];
+            const rows = projects.map(p => `<tr>
+                <td>${{escapeHtml(p.title || '')}}</td>
+                <td>${{escapeHtml(p.status || '')}}</td>
+                <td>$${{escapeHtml((p.contract_amount || 0).toLocaleString())}}</td>
+                <td>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openProjectInsuranceForm(${{p.id}})">Insurance</button>
+                </td>
+            </tr>`);
+            const table = rows.length > 0
+                ? `<div class="table-scroll-wrapper"><table><thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`
+                : '<p style="color:var(--text-muted);">No projects.</p>';
+            return `<div class="erp-card">
+                <h3 style="margin-top:0;">Projects</h3>
+                ${{table}}
+                <div id="projectInsuranceFormArea"></div>
+            </div>`;
+        }}
+
+        function openProjectInsuranceForm(projectId) {{
+            editingInsuranceProjectId = projectId;
+            const proj = currentCustomer360Projects.find(p => p.id === projectId);
+            const v = (field) => proj && proj[field] !== undefined && proj[field] !== null ? proj[field] : '';
+            const area = document.getElementById('projectInsuranceFormArea');
+            area.innerHTML = `
+                <div class="erp-card">
+                    <h4 style="margin-top:0;">Insurance / Claim — ${{escapeHtml(proj ? (proj.title || '') : '')}}</h4>
+                    <div class="modal-field"><label>Claim Number</label><input type="text" id="projInsuranceClaimNumber" value="${{escapeHtml(v('insurance_claim_number'))}}"></div>
+                    <div class="modal-field"><label>Carrier</label><input type="text" id="projInsuranceCarrier" value="${{escapeHtml(v('insurance_carrier'))}}"></div>
+                    <div class="modal-field"><label>Adjuster Name</label><input type="text" id="projAdjusterName" value="${{escapeHtml(v('adjuster_name'))}}"></div>
+                    <div class="modal-field"><label>Adjuster Phone</label><input type="text" id="projAdjusterPhone" value="${{escapeHtml(v('adjuster_phone'))}}"></div>
+                    <div class="modal-field"><label>Adjuster Email</label><input type="text" id="projAdjusterEmail" value="${{escapeHtml(v('adjuster_email'))}}"></div>
+                    <div class="modal-field"><label>Deductible</label><input type="number" step="0.01" id="projDeductible" value="${{v('deductible')}}"></div>
+                    <div class="modal-field"><label>Coverage Amount</label><input type="number" step="0.01" id="projCoverageAmount" value="${{v('coverage_amount')}}"></div>
+                    <div class="modal-field"><label>Supplement Amount</label><input type="number" step="0.01" id="projSupplementAmount" value="${{v('supplement_amount')}}"></div>
+                    <div style="display:flex;gap:0.5rem;">
+                        <button class="btn-gold" onclick="saveProjectInsuranceForm()">Save Changes</button>
+                        <button class="btn-gold" onclick="document.getElementById('projectInsuranceFormArea').innerHTML=''">Cancel</button>
+                    </div>
+                </div>
+            `;
+        }}
+
+        // update_project (crm_service.py) rejects None values outright and
+        // enforces an explicit allow-list, same as savePropertyForm's
+        // comment above -- only send fields actually filled in. Money
+        // fields use parseFloat (NOT parseInt, unlike savePropertyForm's
+        // numVal -- those are years/sqft/stories, these are dollars) and a
+        // Number.isFinite guard: parseFloat('') / parseFloat('abc') is NaN,
+        // and JSON.stringify(NaN) serializes to null, which would hit
+        // update_project's blanket None-guard and fail the whole save with
+        // a confusing "cannot be set to None" error instead of just
+        // omitting the field.
+        async function saveProjectInsuranceForm() {{
+            if (!editingInsuranceProjectId) {{ return; }}
+            const token = getAuthToken();
+            const strVal = (id) => {{ const v = document.getElementById(id).value.trim(); return v === '' ? null : v; }};
+            const numVal = (id) => {{ const n = parseFloat(document.getElementById(id).value); return Number.isFinite(n) ? n : null; }};
+
+            const updates = {{}};
+            const strFields = {{
+                insurance_claim_number: 'projInsuranceClaimNumber',
+                insurance_carrier: 'projInsuranceCarrier',
+                adjuster_name: 'projAdjusterName',
+                adjuster_phone: 'projAdjusterPhone',
+                adjuster_email: 'projAdjusterEmail',
+            }};
+            Object.keys(strFields).forEach(k => {{ const val = strVal(strFields[k]); if (val !== null) {{ updates[k] = val; }} }});
+            const numFields = {{
+                deductible: 'projDeductible',
+                coverage_amount: 'projCoverageAmount',
+                supplement_amount: 'projSupplementAmount',
+            }};
+            Object.keys(numFields).forEach(k => {{ const val = numVal(numFields[k]); if (val !== null) {{ updates[k] = val; }} }});
+
+            try {{
+                const res = await fetch('/api/v1/projects/' + editingInsuranceProjectId + '/update', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(updates),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to save insurance info (' + res.status + ').'));
+                    return;
+                }}
+                editingInsuranceProjectId = null;
+                await loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to save insurance info: network error.');
+            }}
+        }}
+
+        // NEW-566: property-scoped project history, fetched on demand (not
+        // part of loadCustomer360's Promise.allSettled fan-out) since it's
+        // per-property rather than per-customer. Toggles closed if the same
+        // property's history is already showing. currentPropertyHistoryId
+        // is declared with the other Customer 360 modal state near the top
+        // of this section (also reset there and in renderPropertiesPanel).
+        async function togglePropertyHistory(propertyId) {{
+            const area = document.getElementById('propertyHistoryArea');
+            if (currentPropertyHistoryId === propertyId) {{
+                area.innerHTML = '';
+                currentPropertyHistoryId = null;
+                return;
+            }}
+            currentPropertyHistoryId = propertyId;
+            area.innerHTML = '<p style="color:var(--text-muted);">Loading project history...</p>';
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/projects?property_id=' + propertyId, {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }},
+                }});
+                if (res.status === 401) {{
+                    window.location.href = '/admin/login';
+                    return;
+                }}
+                if (!res.ok) {{
+                    area.innerHTML = `<p style="color:var(--text-muted);">${{res.status === 403 ? 'No access.' : 'Failed to load.'}}</p>`;
+                    return;
+                }}
+                const data = await res.json();
+                const projects = data.projects || [];
+                const rows = projects.map(p => `<tr><td>${{escapeHtml(p.title || '')}}</td><td>${{escapeHtml(p.status || '')}}</td><td>$${{escapeHtml((p.contract_amount || 0).toLocaleString())}}</td></tr>`);
+                const table = rows.length > 0
+                    ? `<div class="table-scroll-wrapper"><table><thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`
+                    : '<p style="color:var(--text-muted);">No projects on file for this property.</p>';
+                area.innerHTML = `<div class="erp-card"><h3 style="margin-top:0;">Project History</h3>${{table}}</div>`;
+            }} catch (e) {{
+                area.innerHTML = '<p style="color:var(--text-muted);">Failed to load: network error.</p>';
+            }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.5b Part 1: Appointment scheduling UI (create + detail view).
+        // Appointment CRUD (SchedulingService.create_appointment/
+        // get_appointment/list_appointments) and its routes already exist
+        // and already work (used by B8.2a's dashboard, B8.3's kanban) --
+        // this is pure UI composition reusing them. routes.py constructs
+        // Appointment(**json_body) directly for POST /api/v1/appointments,
+        // so only real Appointment dataclass field names (models.py) may be
+        // sent.
+        // -----------------------------------------------------------------
+        function renderAppointmentsPanel(appointmentsResult) {{
+            currentAppointmentDetailId = null;
+            if (!appointmentsResult || !appointmentsResult.ok) {{
+                const msg = (appointmentsResult && appointmentsResult.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card"><h3 style="margin-top:0;">Appointments</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const appointments = appointmentsResult.data.appointments || [];
+            currentCustomer360Appointments = appointments;
+            const rows = appointments.map(a => `<tr>
+                <td>${{escapeHtml(a.title || '')}}</td>
+                <td>${{escapeHtml(a.start_time || '—')}}</td>
+                <td>${{escapeHtml(a.status || '')}}</td>
+                <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="toggleAppointmentDetail(${{a.id}})">Details</button></td>
+            </tr>`);
+            const table = rows.length > 0
+                ? `<div class="table-scroll-wrapper"><table><thead><tr><th>Title</th><th>Start</th><th>Status</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`
+                : '<p style="color:var(--text-muted);">No appointments on file.</p>';
+            return `<div class="erp-card">
+                <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                    <span>Appointments</span>
+                    <button class="btn-gold" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="openAppointmentForm()">+ Schedule Appointment</button>
+                </h3>
+                ${{table}}
+                <div id="appointmentFormArea"></div>
+                <div id="appointmentDetailArea"></div>
+            </div>`;
+        }}
+
+        function openAppointmentForm() {{
+            const area = document.getElementById('appointmentFormArea');
+            area.innerHTML = `
+                <div class="modal-field"><label>Title</label><input type="text" id="apptTitle" value=""></div>
+                <div class="modal-field"><label>Start</label><input type="datetime-local" id="apptStartTime" value=""></div>
+                <div class="modal-field"><label>End</label><input type="datetime-local" id="apptEndTime" value=""></div>
+                <div class="modal-field"><label>Modality</label>
+                    <select id="apptType">
+                        <option value="">—</option>
+                        <option value="call">Call</option>
+                        <option value="in_person">In Person</option>
+                    </select>
+                </div>
+                <div class="modal-field"><label>Notes</label><textarea id="apptNotes" rows="2"></textarea></div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn-gold" onclick="saveAppointmentForm()">Schedule</button>
+                    <button class="btn-gold" onclick="document.getElementById('appointmentFormArea').innerHTML=''">Cancel</button>
+                </div>
+            `;
+        }}
+
+        // start_time/end_time are sent as the raw `datetime-local` input
+        // value (no timezone) -- matches the existing precedent elsewhere
+        // in this codebase of not inventing a timezone conversion
+        // (list_appointments's substr(start_time,1,10) comment confirms
+        // start_time is just stored/compared as a string prefix).
+        async function saveAppointmentForm() {{
+            const token = getAuthToken();
+            const title = document.getElementById('apptTitle').value.trim();
+            if (!title) {{ alert('Title is required.'); return; }}
+            const body = {{
+                customer_id: currentCustomer360Id,
+                title: title,
+                start_time: document.getElementById('apptStartTime').value || null,
+                end_time: document.getElementById('apptEndTime').value || null,
+                appointment_type: document.getElementById('apptType').value || null,
+                notes: document.getElementById('apptNotes').value.trim() || null,
+            }};
+            try {{
+                const res = await fetch('/api/v1/appointments', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to schedule appointment (' + res.status + ').'));
+                    return;
+                }}
+                document.getElementById('appointmentFormArea').innerHTML = '';
+                await loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to schedule appointment: network error.');
+            }}
+        }}
+
+        // Toggles an appointment's detail view (fields + a "New Assessment"
+        // entry point + its assessment records), mirroring
+        // togglePropertyHistory's toggle-closed-on-repeat-click pattern.
+        function toggleAppointmentDetail(appointmentId) {{
+            const area = document.getElementById('appointmentDetailArea');
+            if (currentAppointmentDetailId === appointmentId) {{
+                area.innerHTML = '';
+                currentAppointmentDetailId = null;
+                return;
+            }}
+            currentAppointmentDetailId = appointmentId;
+            const appt = currentCustomer360Appointments.find(a => a.id === appointmentId);
+            if (!appt) {{ area.innerHTML = ''; return; }}
+            area.innerHTML = `
+                <div class="erp-card">
+                    <h3 style="margin-top:0;">${{escapeHtml(appt.title || '')}}</h3>
+                    <div class="modal-field"><label>Start</label><div>${{escapeHtml(appt.start_time || '—')}}</div></div>
+                    <div class="modal-field"><label>End</label><div>${{escapeHtml(appt.end_time || '—')}}</div></div>
+                    <div class="modal-field"><label>Status</label><div>${{escapeHtml(appt.status || '')}}</div></div>
+                    <div class="modal-field"><label>Notes</label><div>${{escapeHtml(appt.notes || '—')}}</div></div>
+                    <button class="btn-gold" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="openAssessmentForm('appointment', ${{appointmentId}}, 'appointmentAssessmentArea')">+ New Assessment</button>
+                    <div id="appointmentAssessmentArea"></div>
+                </div>
+            `;
+            loadAssessmentRecordsList('appointment', appointmentId, 'appointmentAssessmentArea');
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.5b Part 2: Assessment checklist + evidence UI. Shared between
+        // its two entry points -- a property's "Assessments" button
+        // (renderPropertiesPanel, mirrors the existing "History" button
+        // pattern) and an appointment's detail view above -- since
+        // GET/POST /api/v1/assessment-records already supports filtering/
+        // creating by either property_id or appointment_id independently
+        // (assessment_service.py). checklist_json is a deliberately opaque
+        // blob (database.py's assessment_records DDL comment), so a
+        // generic key/value row editor is the whole checklist UI rather
+        // than a fixed-field form.
+        // -----------------------------------------------------------------
+        async function togglePropertyAssessments(propertyId) {{
+            const area = document.getElementById('propertyAssessmentsArea');
+            if (currentPropertyAssessmentsId === propertyId) {{
+                area.innerHTML = '';
+                currentPropertyAssessmentsId = null;
+                assessmentFormScope = null;
+                return;
+            }}
+            currentPropertyAssessmentsId = propertyId;
+            area.innerHTML = `<div class="erp-card">
+                <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                    <span>Assessments</span>
+                    <button class="btn-gold" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="openAssessmentForm('property', ${{propertyId}}, 'propertyAssessmentListArea')">+ New Assessment</button>
+                </h3>
+                <div id="propertyAssessmentListArea"></div>
+            </div>`;
+            await loadAssessmentRecordsList('property', propertyId, 'propertyAssessmentListArea');
+        }}
+
+        async function loadAssessmentRecordsList(kind, id, areaId) {{
+            const area = document.getElementById(areaId);
+            area.innerHTML = '<p style="color:var(--text-muted);">Loading assessments...</p>';
+            const token = getAuthToken();
+            const qs = kind === 'property' ? ('property_id=' + id) : ('appointment_id=' + id);
+            try {{
+                const res = await fetch('/api/v1/assessment-records?' + qs, {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }},
+                }});
+                if (res.status === 401) {{
+                    window.location.href = '/admin/login';
+                    return;
+                }}
+                if (!res.ok) {{
+                    area.innerHTML = `<p style="color:var(--text-muted);">${{res.status === 403 ? 'No access.' : 'Failed to load.'}}</p>`;
+                    return;
+                }}
+                const data = await res.json();
+                const records = data.assessment_records || [];
+                if (records.length === 0) {{
+                    area.innerHTML = '<p style="color:var(--text-muted);">No assessments on file.</p>';
+                    return;
+                }}
+                const rows = records.map(r => {{
+                    const checklistSummary = Object.keys(r.checklist || {{}}).length + ' item(s)';
+                    const photoCount = (r.evidence_document_ids || []).length;
+                    return `<tr>
+                        <td>${{escapeHtml(r.created_at || '')}}</td>
+                        <td>${{escapeHtml(checklistSummary)}}</td>
+                        <td>${{photoCount}} photo(s)</td>
+                        <td>${{escapeHtml(r.customer_statements || '—')}}</td>
+                    </tr>`;
+                }});
+                area.innerHTML = `<div class="table-scroll-wrapper"><table><thead><tr><th>Created</th><th>Checklist</th><th>Evidence</th><th>Customer Statement</th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`;
+            }} catch (e) {{
+                area.innerHTML = '<p style="color:var(--text-muted);">Failed to load: network error.</p>';
+            }}
+        }}
+
+        // A record can legitimately carry both appointment_id and
+        // property_id (assessment_service.py/models.py both support it,
+        // e.g. an appointment tied to a specific property) -- and the
+        // "retrievable from both" exit criterion requires that a rep be
+        // able to set both from either entry point. The field the caller
+        // launched from is prefilled but not locked; the other is a free
+        // choice from whichever of currentCustomer360Properties/
+        // currentCustomer360Appointments this Customer 360 modal already
+        // has loaded.
+        function openAssessmentForm(kind, id, areaId) {{
+            assessmentFormScope = {{ kind, id, areaId }};
+            assessmentChecklistRowCount = 0;
+            assessmentFormEvidenceDocs = [];
+            const area = document.getElementById(areaId);
+            const propOptions = currentCustomer360Properties.map(p =>
+                `<option value="${{p.id}}" ${{kind === 'property' && p.id === id ? 'selected' : ''}}>${{escapeHtml(p.address || ('#' + p.id))}}</option>`
+            ).join('');
+            const apptOptions = currentCustomer360Appointments.map(a =>
+                `<option value="${{a.id}}" ${{kind === 'appointment' && a.id === id ? 'selected' : ''}}>${{escapeHtml(a.title || ('#' + a.id))}}</option>`
+            ).join('');
+            area.innerHTML = `
+                <div class="erp-card">
+                    <h4 style="margin-top:0;">New Assessment</h4>
+                    <div class="modal-field"><label>Property</label>
+                        <select id="assessmentPropertySelect"><option value="">—</option>${{propOptions}}</select>
+                    </div>
+                    <div class="modal-field"><label>Appointment</label>
+                        <select id="assessmentAppointmentSelect"><option value="">—</option>${{apptOptions}}</select>
+                    </div>
+                    <div id="assessmentChecklistRows"></div>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="addAssessmentChecklistRow()">+ Add Checklist Item</button>
+                    <div class="modal-field" style="margin-top:0.75rem;"><label>Customer Statements</label><textarea id="assessmentCustomerStatements" rows="2"></textarea></div>
+                    <div class="modal-field"><label>Photos</label><input type="file" id="assessmentPhotoInput" accept="image/*" multiple onchange="handleAssessmentPhotoUpload(event)"></div>
+                    <div id="assessmentPhotoList" style="font-size:0.8rem;color:var(--text-muted);"></div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                        <button class="btn-gold" onclick="submitAssessmentForm()">Save Assessment</button>
+                        <button class="btn-gold" onclick="closeAssessmentForm()">Cancel</button>
+                    </div>
+                </div>
+            `;
+            addAssessmentChecklistRow();
+        }}
+
+        function closeAssessmentForm() {{
+            if (!assessmentFormScope) {{ return; }}
+            const {{ kind, id, areaId }} = assessmentFormScope;
+            assessmentFormScope = null;
+            assessmentFormEvidenceDocs = [];
+            loadAssessmentRecordsList(kind, id, areaId);
+        }}
+
+        function addAssessmentChecklistRow() {{
+            const idx = assessmentChecklistRowCount++;
+            const rows = document.getElementById('assessmentChecklistRows');
+            const row = document.createElement('div');
+            row.id = 'assessmentChecklistRow' + idx;
+            row.style.display = 'flex';
+            row.style.gap = '0.5rem';
+            row.style.marginBottom = '0.3rem';
+            row.innerHTML = `
+                <input type="text" placeholder="Item (e.g. roof_condition)" id="assessmentChecklistKey${{idx}}" style="flex:1;">
+                <input type="text" placeholder="Value" id="assessmentChecklistValue${{idx}}" style="flex:1;">
+                <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="removeAssessmentChecklistRow(${{idx}})">Remove</button>
+            `;
+            rows.appendChild(row);
+        }}
+
+        function removeAssessmentChecklistRow(idx) {{
+            const row = document.getElementById('assessmentChecklistRow' + idx);
+            if (row) {{ row.remove(); }}
+        }}
+
+        // Reuses B6.5's existing 25MB local-disk Document upload path
+        // (POST /api/v1/documents, multipart/form-data) -- no new storage
+        // layer. Uploads happen immediately on file selection (there is no
+        // separate "attach" step in the reused flow), each returning a
+        // Document id that is accumulated into assessmentFormEvidenceDocs
+        // and sent as evidence_document_ids on submit.
+        // Field order matters here: routes.py's multipart parser only
+        // populates `metadata` (document_type/customer_id/etc.) from parts
+        // it has already streamed through `on_part_data` by the time it
+        // hits `on_headers_finished` for the file part -- so the
+        // non-file fields MUST be appended (and therefore streamed)
+        // before `file`, or the server computes the storage sub-directory
+        // with an empty metadata dict (falls back to uploads/general/)
+        // even though the resulting Document row still looks correct.
+        async function handleAssessmentPhotoUpload(event) {{
+            const files = Array.from(event.target.files || []);
+            if (files.length === 0) {{ return; }}
+            const token = getAuthToken();
+            const listEl = document.getElementById('assessmentPhotoList');
+            for (const file of files) {{
+                const formData = new FormData();
+                // 'assessment_photo' is not a valid document_type (see the
+                // CHECK constraint on documents.document_type in
+                // database.py) -- send the real 'photo' enum value and tag
+                // it 'assessment' server-side instead, the same pattern
+                // routes.py already uses for subcontractor_id-scoped
+                // uploads (tags.append(f"subcontractor_id:{{...}}")).
+                formData.append('document_type', 'photo');
+                formData.append('assessment', 'true');
+                formData.append('title', file.name);
+                if (currentCustomer360Id) {{ formData.append('customer_id', String(currentCustomer360Id)); }}
+                formData.append('file', file);
+                try {{
+                    const res = await fetch('/api/v1/documents', {{
+                        method: 'POST',
+                        headers: {{ 'Authorization': 'Bearer ' + token }},
+                        body: formData,
+                    }});
+                    const data = await res.json();
+                    if (!res.ok) {{
+                        listEl.innerHTML += `<div style="color:var(--danger);">${{escapeHtml(file.name)}}: ${{escapeHtml(data.error || 'upload failed')}}</div>`;
+                        continue;
+                    }}
+                    assessmentFormEvidenceDocs.push({{ id: data.document.id, title: file.name }});
+                    listEl.innerHTML += `<div>${{escapeHtml(file.name)}} uploaded (doc #${{data.document.id}})</div>`;
+                }} catch (e) {{
+                    listEl.innerHTML += `<div style="color:var(--danger);">${{escapeHtml(file.name)}}: network error.</div>`;
+                }}
+            }}
+            event.target.value = '';
+        }}
+
+        async function submitAssessmentForm() {{
+            if (!assessmentFormScope) {{ return; }}
+            const {{ kind, id, areaId }} = assessmentFormScope;
+            const token = getAuthToken();
+            const checklist = {{}};
+            for (let i = 0; i < assessmentChecklistRowCount; i++) {{
+                const keyEl = document.getElementById('assessmentChecklistKey' + i);
+                const valEl = document.getElementById('assessmentChecklistValue' + i);
+                if (!keyEl || !valEl) {{ continue; }}
+                const k = keyEl.value.trim();
+                const v = valEl.value.trim();
+                if (k) {{ checklist[k] = v; }}
+            }}
+            const body = {{
+                checklist: checklist,
+                evidence_document_ids: assessmentFormEvidenceDocs.map(d => d.id),
+                customer_statements: document.getElementById('assessmentCustomerStatements').value.trim() || null,
+            }};
+            // Both selects are independently optional and not mutually
+            // exclusive -- see openAssessmentForm's comment. This is what
+            // makes a record retrievable from both a property panel and an
+            // appointment detail view when a rep sets both.
+            const propVal = document.getElementById('assessmentPropertySelect').value;
+            const apptVal = document.getElementById('assessmentAppointmentSelect').value;
+            if (propVal) {{ body.property_id = parseInt(propVal, 10); }}
+            if (apptVal) {{ body.appointment_id = parseInt(apptVal, 10); }}
+            try {{
+                const res = await fetch('/api/v1/assessment-records', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to save assessment (' + res.status + ').'));
+                    return;
+                }}
+                assessmentFormScope = null;
+                assessmentFormEvidenceDocs = [];
+                await loadAssessmentRecordsList(kind, id, areaId);
+            }} catch (e) {{
+                alert('Failed to save assessment: network error.');
+            }}
+        }}
+
+        function openPropertyForm(propertyId) {{
+            editingPropertyId = propertyId;
+            const prop = propertyId
+                ? currentCustomer360Properties.find(p => p.id === propertyId)
+                : null;
+            const v = (field, fallback) => prop && prop[field] !== undefined && prop[field] !== null ? prop[field] : (fallback === undefined ? '' : fallback);
+            const area = document.getElementById('propertyFormArea');
+            area.innerHTML = `
+                <div class="modal-field"><label>Address</label><input type="text" id="propAddress" value="${{escapeHtml(v('address'))}}"></div>
+                <div class="modal-field"><label>Parcel Number</label><input type="text" id="propParcelNumber" value="${{escapeHtml(v('parcel_number'))}}"></div>
+                <div class="modal-field"><label>Property Type</label><input type="text" id="propPropertyType" value="${{escapeHtml(v('property_type'))}}"></div>
+                <div class="modal-field"><label>Year Built</label><input type="number" id="propYearBuilt" value="${{v('year_built')}}"></div>
+                <div class="modal-field"><label>Square Footage</label><input type="number" id="propSquareFootage" value="${{v('square_footage')}}"></div>
+                <div class="modal-field"><label>Stories</label><input type="number" id="propStories" value="${{v('stories')}}"></div>
+                <div class="modal-field"><label>Roof Type</label><input type="text" id="propRoofType" value="${{escapeHtml(v('roof_type'))}}"></div>
+                <div class="modal-field"><label>Exterior Type</label><input type="text" id="propExteriorType" value="${{escapeHtml(v('exterior_type'))}}"></div>
+                <div class="modal-field"><label>Insurance Carrier</label><input type="text" id="propInsuranceCarrier" value="${{escapeHtml(v('insurance_carrier'))}}"></div>
+                <div class="modal-field"><label>Notes</label><textarea id="propNotes" rows="2">${{escapeHtml(v('notes'))}}</textarea></div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn-gold" onclick="savePropertyForm()">${{propertyId ? 'Save Changes' : 'Create Property'}}</button>
+                    <button class="btn-gold" onclick="document.getElementById('propertyFormArea').innerHTML=''">Cancel</button>
+                </div>
+            `;
+        }}
+
+        // update_property (crm_service.py) rejects None values outright and
+        // enforces an explicit allow-list -- only send fields the user
+        // actually filled in (create uses the same shape; empty optional
+        // fields are simply omitted rather than sent as null/empty string).
+        async function savePropertyForm() {{
+            const token = getAuthToken();
+            const strVal = (id) => {{ const v = document.getElementById(id).value.trim(); return v === '' ? null : v; }};
+            const numVal = (id) => {{ const raw = document.getElementById(id).value; return raw === '' ? null : parseInt(raw, 10); }};
+
+            const address = strVal('propAddress');
+            const fields = {{
+                parcel_number: strVal('propParcelNumber'),
+                property_type: strVal('propPropertyType'),
+                year_built: numVal('propYearBuilt'),
+                square_footage: numVal('propSquareFootage'),
+                stories: numVal('propStories'),
+                roof_type: strVal('propRoofType'),
+                exterior_type: strVal('propExteriorType'),
+                insurance_carrier: strVal('propInsuranceCarrier'),
+                notes: strVal('propNotes'),
+            }};
+
+            try {{
+                if (editingPropertyId) {{
+                    const updates = {{}};
+                    if (address !== null) {{ updates.address = address; }}
+                    Object.keys(fields).forEach(k => {{ if (fields[k] !== null) {{ updates[k] = fields[k]; }} }});
+                    const res = await fetch('/api/v1/properties/' + editingPropertyId + '/update', {{
+                        method: 'POST',
+                        headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                        body: JSON.stringify(updates),
+                    }});
+                    const data = await res.json();
+                    if (!res.ok) {{
+                        alert(data.error || ('Failed to save property (' + res.status + ').'));
+                        return;
+                    }}
+                }} else {{
+                    const body = {{ customer_id: currentCustomer360Id, address: address || '' }};
+                    Object.keys(fields).forEach(k => {{ if (fields[k] !== null) {{ body[k] = fields[k]; }} }});
+                    const res = await fetch('/api/v1/properties', {{
+                        method: 'POST',
+                        headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                        body: JSON.stringify(body),
+                    }});
+                    const data = await res.json();
+                    if (!res.ok) {{
+                        alert(data.error || ('Failed to create property (' + res.status + ').'));
+                        return;
+                    }}
+                }}
+                editingPropertyId = null;
+                await loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to save property: network error.');
+            }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.6d-c (NEW-579): guided customer -> template -> fill -> sign
+        // flow. gflowState holds the in-progress customer/contract chosen
+        // across the four steps; nothing here is persisted until the
+        // corresponding "Create"/"Save" button fires its fetch() call --
+        // each step's data lives only in gflowState/the form fields until
+        // then, same as createLeadModal's plain-form-fields pattern above.
+        // -----------------------------------------------------------------
+        let gflowState = {{ customer: null, contractId: null }};
+
+        function guidedFlowError(msg) {{
+            const el = document.getElementById('gflowError');
+            el.textContent = msg;
+            el.style.display = msg ? 'block' : 'none';
+        }}
+
+        function showGuidedStep(n) {{
+            for (let i = 1; i <= 4; i++) {{
+                document.getElementById('gflowStep' + i).style.display = (i === n) ? 'block' : 'none';
+            }}
+            guidedFlowError('');
+        }}
+
+        function openGuidedContractModal() {{
+            gflowState = {{ customer: null, contractId: null }};
+            clearTimeout(gflowSearchDebounce);
+            document.getElementById('gflowCustomerSearch').value = '';
+            document.getElementById('gflowCustomerResults').innerHTML = '';
+            gflowSearchResults = [];
+            document.getElementById('gflowNewCustomerForm').style.display = 'none';
+            document.getElementById('gflowSignerStatus').innerHTML = '';
+            showGuidedStep(1);
+            document.getElementById('guidedContractModal').classList.add('active');
+        }}
+
+        function closeGuidedContractModal() {{
+            document.getElementById('guidedContractModal').classList.remove('active');
+        }}
+
+        function guidedShowNewCustomerForm() {{
+            document.getElementById('gflowNewCustomerForm').style.display = 'block';
+        }}
+
+        // NOTE (same shape as the "Load Customers" comment above,
+        // 2026-09-16 correction): list_customers DOES apply NEW-568
+        // rep-ownership narrowing today -- a plain rep only searches
+        // customers assigned to them or unclaimed, a sales manager (or
+        // any PERM_READ_TEAM_SALES_DATA holder) searches everyone. No
+        // client-side scoping needed here; the server already narrows the
+        // result set the search query runs against.
+        let gflowSearchDebounce = null;
+        let gflowSearchResults = [];
+        async function guidedSearchCustomers() {{
+            clearTimeout(gflowSearchDebounce);
+            const term = document.getElementById('gflowCustomerSearch').value.trim();
+            const resultsEl = document.getElementById('gflowCustomerResults');
+            if (!term) {{ resultsEl.innerHTML = ''; return; }}
+            gflowSearchDebounce = setTimeout(async () => {{
+                try {{
+                    const token = getAuthToken();
+                    const res = await fetch('/api/v1/customers?search=' + encodeURIComponent(term), {{
+                        headers: {{ 'Authorization': 'Bearer ' + token }}
+                    }});
+                    if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                    const data = await res.json();
+                    if (!res.ok) {{ guidedFlowError(data.error || 'Search failed.'); return; }}
+                    const matches = data.customers || [];
+                    gflowSearchResults = matches;
+                    if (matches.length === 0) {{
+                        resultsEl.innerHTML = '<p style="color:var(--text-muted);">No matches. Create a new customer below.</p>';
+                        return;
+                    }}
+                    resultsEl.innerHTML = matches.map(c => `
+                        <div style="padding:0.5rem;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+                            <span>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}} ${{c.customer_number ? '(#' + c.customer_number + ')' : ''}} — ${{escapeHtml(c.phone || c.email || '')}}</span>
+                            <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="guidedSelectCustomer(${{c.id}})">Select</button>
+                        </div>`
+                    ).join('');
+                }} catch (e) {{ guidedFlowError('Search failed: network error.'); }}
+            }}, 250);
+        }}
+
+        // Looks up the customer object by id from the held search-results
+        // array rather than taking it inline from the onclick attribute --
+        // JSON.stringify(c) inlined into a single-quoted onclick is a
+        // stored-XSS vector (a customer name containing a single quote
+        // breaks out of the attribute). See guidedSelectCustomerObj() for
+        // the actual selection logic, also used by the new-customer path.
+        function guidedSelectCustomer(customerId) {{
+            const customer = gflowSearchResults.find(c => c.id === customerId);
+            if (!customer) {{ console.warn('guidedSelectCustomer: id not found in last search results', customerId); return; }}
+            guidedSelectCustomerObj(customer);
+        }}
+
+        function guidedSelectCustomerObj(customer) {{
+            gflowState.customer = customer;
+            document.getElementById('gflowSelectedCustomerLabel').textContent =
+                'Customer: ' + (customer.first_name || '') + ' ' + (customer.last_name || '') +
+                (customer.customer_number ? ' (#' + customer.customer_number + ')' : '');
+            showGuidedStep(2);
+        }}
+
+        async function guidedSubmitNewCustomer() {{
+            const body = {{
+                first_name: document.getElementById('gflowNewFirstName').value,
+                last_name: document.getElementById('gflowNewLastName').value,
+                phone: document.getElementById('gflowNewPhone').value || null,
+                email: document.getElementById('gflowNewEmail').value || null,
+                service_address: document.getElementById('gflowNewAddress').value || null,
+            }};
+            if (!body.first_name || !body.last_name) {{
+                guidedFlowError('First and last name are required.');
+                return;
+            }}
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/customers', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ guidedFlowError(data.error || 'Failed to create customer.'); return; }}
+                guidedSelectCustomerObj(data.customer);
+            }} catch (e) {{ guidedFlowError('Failed to create customer: network error.'); }}
+        }}
+
+        function guidedGoToStep3() {{
+            const c = gflowState.customer;
+            document.getElementById('gflowFieldName').value = ((c.first_name || '') + ' ' + (c.last_name || '')).trim();
+            document.getElementById('gflowFieldAddress').value = c.service_address || c.mailing_address || '';
+            document.getElementById('gflowFieldPhone').value = c.phone || '';
+            document.getElementById('gflowFieldEmail').value = c.email || '';
+            showGuidedStep(3);
+        }}
+
+        async function guidedSubmitContract() {{
+            const number = document.getElementById('gflowContractNumber').value.trim();
+            const title = document.getElementById('gflowContractTitle').value.trim();
+            if (!number || !title) {{ guidedFlowError('Contract # and title are required.'); return; }}
+            const body = {{
+                contract_number: number,
+                customer_id: gflowState.customer.id,
+                title: title,
+                template_name: document.getElementById('gflowTemplateSelect').value,
+                content: document.getElementById('gflowContractContent').value || '',
+            }};
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/contracts', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ guidedFlowError(data.error || 'Failed to create contract.'); return; }}
+                gflowState.contractId = data.contract.id;
+                showGuidedStep(4);
+            }} catch (e) {{ guidedFlowError('Failed to create contract: network error.'); }}
+        }}
+
+        async function guidedConfigureSigners() {{
+            const signers = [];
+            if (document.getElementById('gflowSignerCustomer').checked) signers.push({{ party_role: 'customer' }});
+            if (document.getElementById('gflowSignerRep').checked) signers.push({{ party_role: 'rep' }});
+            if (document.getElementById('gflowSignerPM').checked) signers.push({{ party_role: 'project_manager' }});
+            if (document.getElementById('gflowSignerAdmin').checked) signers.push({{ party_role: 'admin' }});
+            if (signers.length === 0) {{ guidedFlowError('Select at least one required signer.'); return; }}
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/contracts/' + gflowState.contractId + '/signers', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ signers: signers }}),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ guidedFlowError(data.error || 'Failed to configure signers.'); return; }}
+                document.getElementById('gflowSignerStatus').innerHTML =
+                    '<p style="color:var(--bronze);">Required signers saved. The contract is now ready for each party to sign from their own portal (Send + Sign actions on the Customer 360 Contracts panel).</p>';
+                loadDashboard();
+            }} catch (e) {{ guidedFlowError('Failed to configure signers: network error.'); }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.3 Part B: Lead create form. POST /api/v1/leads constructs
+        // Lead(**json_body) directly (routes.py) -- only real Lead dataclass
+        // field names may be sent, or the route 400s on an unexpected kwarg.
+        // -----------------------------------------------------------------
+        // Type-ahead customer search for the New Lead modal, same
+        // 250ms-debounce-then-fetch-then-render-Select-buttons shape as
+        // guidedSearchCustomers() above -- kept as its own parallel
+        // function (not a call into guidedSearchCustomers()) since that
+        // one writes into the guided-contract-flow's own gflowCustomer*
+        // elements/state; coupling the two modals' state together isn't
+        // worth the few lines saved.
+        let newLeadSearchDebounce = null;
+        let newLeadSearchResults = [];
+        async function searchNewLeadCustomers() {{
+            clearTimeout(newLeadSearchDebounce);
+            const term = document.getElementById('newLeadCustomerSearch').value.trim();
+            const resultsEl = document.getElementById('newLeadCustomerResults');
+            if (!term) {{ resultsEl.innerHTML = ''; return; }}
+            newLeadSearchDebounce = setTimeout(async () => {{
+                try {{
+                    const token = getAuthToken();
+                    const res = await fetch('/api/v1/customers?search=' + encodeURIComponent(term), {{
+                        headers: {{ 'Authorization': 'Bearer ' + token }}
+                    }});
+                    if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                    const data = await res.json();
+                    if (!res.ok) {{ resultsEl.innerHTML = '<p style="color:var(--danger);">' + escapeHtml(data.error || 'Search failed.') + '</p>'; return; }}
+                    const matches = data.customers || [];
+                    newLeadSearchResults = matches;
+                    if (matches.length === 0) {{
+                        resultsEl.innerHTML = '<p style="color:var(--text-muted);">No matches.</p>';
+                        return;
+                    }}
+                    resultsEl.innerHTML = matches.map(c => `
+                        <div style="padding:0.5rem;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+                            <span>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}} ${{c.customer_number ? '(#' + c.customer_number + ')' : ''}} — ${{escapeHtml(c.phone || c.email || '')}}</span>
+                            <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="selectNewLeadCustomer(${{c.id}})">Select</button>
+                        </div>`
+                    ).join('');
+                }} catch (e) {{ resultsEl.innerHTML = '<p style="color:var(--danger);">Search failed: network error.</p>'; }}
+            }}, 250);
+        }}
+
+        // Looks up the customer object by id from the held search-results
+        // array rather than taking it inline from the onclick attribute --
+        // JSON.stringify(c) inlined into a single-quoted onclick is a
+        // stored-XSS vector (a customer name containing a single quote
+        // breaks out of the attribute). Same fix as guidedSelectCustomer()
+        // above.
+        function selectNewLeadCustomer(customerId) {{
+            const customer = newLeadSearchResults.find(c => c.id === customerId);
+            if (!customer) {{ console.warn('selectNewLeadCustomer: id not found in last search results', customerId); return; }}
+            document.getElementById('newLeadCustomerId').value = customer.id;
+            document.getElementById('newLeadSelectedCustomerLabel').textContent =
+                'Selected: ' + (customer.first_name || '') + ' ' + (customer.last_name || '') +
+                (customer.customer_number ? ' (#' + customer.customer_number + ')' : '');
+            document.getElementById('newLeadClearCustomerBtn').style.display = 'inline-block';
+            document.getElementById('newLeadCustomerSearch').value = '';
+            document.getElementById('newLeadCustomerResults').innerHTML = '';
+        }}
+
+        function clearNewLeadCustomer() {{
+            document.getElementById('newLeadCustomerId').value = '';
+            document.getElementById('newLeadSelectedCustomerLabel').textContent = '';
+            document.getElementById('newLeadClearCustomerBtn').style.display = 'none';
+        }}
+
+        function openCreateLeadModal() {{
+            clearTimeout(newLeadSearchDebounce);
+            document.getElementById('newLeadCustomerSearch').value = '';
+            document.getElementById('newLeadCustomerResults').innerHTML = '';
+            newLeadSearchResults = [];
+            clearNewLeadCustomer();
+            document.getElementById('createLeadModal').classList.add('active');
+        }}
+
+        function closeCreateLeadModal() {{
+            document.getElementById('createLeadModal').classList.remove('active');
+        }}
+
+        async function submitCreateLead() {{
+            const token = getAuthToken();
+            const custIdRaw = document.getElementById('newLeadCustomerId').value;
+            const body = {{
+                source: document.getElementById('newLeadSource').value || 'manual_entry',
+                property_type: document.getElementById('newLeadPropertyType').value || null,
+                project_scope: document.getElementById('newLeadProjectScope').value || null,
+                urgency_level: document.getElementById('newLeadUrgencyLevel').value || null,
+                insurance_status: document.getElementById('newLeadInsuranceStatus').value || null,
+                estimated_value: parseFloat(document.getElementById('newLeadEstimatedValue').value) || 0,
+                notes: document.getElementById('newLeadNotes').value || null,
+            }};
+            if (custIdRaw) {{ body.customer_id = parseInt(custIdRaw, 10); }}
+            try {{
+                const res = await fetch('/api/v1/leads', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to create lead (' + res.status + ').'));
+                    return;
+                }}
+                closeCreateLeadModal();
+                loadDashboard();
+            }} catch (e) {{
+                alert('Failed to create lead: network error.');
+            }}
+        }}
+
         window.onload = loadDashboard;
         // Browsers throttle setInterval to ~once/minute in a backgrounded tab,
         // so the ~12s cadence only holds while this tab is in the foreground.
@@ -5431,6 +8497,211 @@ def _render_sales_portal() -> str:
     </script>
 </body>
 </html>"""
+
+def render_estimate_proposal(
+    estimate,
+    customer,
+    business_profile=None,
+    compliance_items=None,
+    package_options=None,
+) -> str:
+    """B8.6c proposal builder (sales_rep_portal.md B8.6, request §9-12).
+
+    Server-rendered, print-friendly HTML -- deliberately NOT a PDF.
+    Confirmed during scoping: no PDF dependency (weasyprint/reportlab/
+    jinja2/pdfkit/wkhtmltopdf) exists in requirements.txt/install.sh
+    today, and real PDF rendering on this device class (Termux/Android)
+    is genuinely painful; building it is its own future Ish decision.
+    The browser's own "Print to PDF" over this page's @media print
+    styling is the intended path for now.
+
+    License/insurance content is pulled from the `ComplianceItem` model
+    (category in business_license/general_liability/workers_comp/etc,
+    entity_type="company"), NOT `BusinessProfile` -- BusinessProfile only
+    carries a single license_number field, no insurance data at all.
+    The original spec text (B8.6's "existing BusinessProfile... license/
+    insurance info already modeled") is a known spec inaccuracy, corrected
+    here rather than propagated.
+
+    Deliberately renders ONLY customer-facing numbers from `estimate` --
+    unlike get_estimate's response, this function is handed the raw
+    (unredacted-for-admin/rep) Estimate object by its caller, so the
+    redaction responsibility is this function's own: it prints
+    description/quantity/unit_price/subtotal/discount_amount/tax_amount/
+    total_amount, and never materials_cost/labor_cost/subcontractor_cost/
+    markup_percent/notes (internal-only fields) or a PackageOption's
+    gross_profit/margin (internal-only fields, mirrors
+    _row_to_package_option's customer redaction).
+
+    business_profile/compliance_items are Optional: the caller
+    (routes.py) fetches them through their own permission-gated service
+    methods and passes None/[] through on a PermissionError (a
+    ROLE_SALES actor today lacks read:business_profile/read:compliance --
+    see NEW-578) rather than this function
+    reaching around that gate itself.
+    """
+    package_options = package_options or []
+    compliance_items = compliance_items or []
+
+    biz_name = _pesc((business_profile.business_name if business_profile else None) or "Restoricon, LLC")
+    biz_phone = _pesc((business_profile.business_phone if business_profile else None) or "(860) 337-1820")
+    biz_email = _pesc((business_profile.business_email if business_profile else None) or "")
+    biz_license = _pesc((business_profile.license_number if business_profile else None) or "")
+
+    cust_name = _pesc(f"{customer.first_name or ''} {customer.last_name or ''}".strip())
+    cust_company = _pesc(customer.company_name or "")
+    cust_address = _pesc(customer.service_address or customer.mailing_address or "")
+    cust_phone = _pesc(customer.phone or "")
+    cust_email = _pesc(customer.email or "")
+
+    def _line_item_price_cell(item) -> str:
+        # Never fall back to unit_cost (internal-only field, see docstring
+        # above) -- an estimate's real line_items shape (see
+        # CRMService._compute_line_item_costs) only ever carries unit_cost,
+        # never unit_price, so a unit_cost fallback here would leak internal
+        # cost to the customer on every estimate built through the normal
+        # create/update flow. Guard against an explicit `unit_price: None`
+        # too, not just a missing key -- `.get(key, default)` only covers
+        # absence.
+        price = item.get("unit_price")
+        if price is None:
+            return "&mdash;"
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            # _compute_line_item_costs only validates quantity/unit_cost, so
+            # a blank/non-numeric unit_price is storable via create_estimate
+            # today and must not crash this customer-facing page -- treat
+            # it the same as "no price" rather than propagating the error.
+            return "&mdash;"
+        return f"${_pesc('{:,.2f}'.format(price))}"
+
+    line_item_rows = "".join(
+        f"""<tr>
+            <td>{_pesc(item.get('description', ''))}</td>
+            <td class="num">{_pesc(item.get('quantity', ''))}</td>
+            <td class="num">{_line_item_price_cell(item)}</td>
+        </tr>"""
+        for item in (estimate.line_items or [])
+    )
+    if not line_item_rows:
+        line_item_rows = '<tr><td colspan="3">No line items.</td></tr>'
+
+    package_cards = "".join(
+        f"""<div class="pkg-card">
+            <h3>{_pesc(po.tier.capitalize())}</h3>
+            <div class="pkg-price">${_pesc('{:,.2f}'.format(po.price))}</div>
+            <ul>{"".join(f"<li>{_pesc(i.get('description', ''))}</li>" for i in (po.included_items or []))}</ul>
+        </div>"""
+        for po in package_options
+    )
+
+    compliance_rows = "".join(
+        f"""<tr>
+            <td>{_pesc(item.title)}</td>
+            <td>{_pesc(item.category.replace('_', ' ').title())}</td>
+            <td>{_pesc(item.expiration_date or '-')}</td>
+        </tr>"""
+        for item in compliance_items
+    )
+    compliance_section = ""
+    if compliance_rows:
+        compliance_section = f"""
+        <div class="section">
+            <h2>Licensed &amp; Insured</h2>
+            <table>
+                <thead><tr><th>Credential</th><th>Type</th><th>Expiration</th></tr></thead>
+                <tbody>{compliance_rows}</tbody>
+            </table>
+        </div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal """ + _pesc(estimate.estimate_number) + """ &mdash; Restoricon, LLC</title>
+<style>
+    :root {
+        --navy: #0A192F; --slate: #1E293B; --bronze: #D4AF37; --offwhite: #F8FAFC;
+    }
+    body {
+        font-family: 'Segoe UI', Arial, sans-serif; color: var(--slate); background: var(--offwhite);
+        margin: 0; padding: 2rem;
+    }
+    .sheet { max-width: 800px; margin: 0 auto; background: #fff; padding: 2.5rem; box-shadow: 0 0 12px rgba(0,0,0,0.08); }
+    .letterhead { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid var(--bronze); padding-bottom: 1rem; margin-bottom: 1.5rem; }
+    .letterhead h1 { color: var(--navy); margin: 0; font-size: 1.6rem; }
+    .letterhead .biz-contact { text-align: right; font-size: 0.85rem; color: #475569; }
+    h2 { color: var(--navy); border-bottom: 1px solid #E2E8F0; padding-bottom: 0.3rem; margin-top: 2rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
+    th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #E2E8F0; font-size: 0.9rem; }
+    td.num, th.num { text-align: right; }
+    .section { margin-bottom: 1rem; }
+    .totals { margin-top: 1rem; float: right; width: 260px; }
+    .totals table td { border-bottom: none; padding: 0.25rem 0.6rem; }
+    .totals .grand-total td { font-weight: 700; border-top: 2px solid var(--navy); font-size: 1.1rem; }
+    .pkg-row { display: flex; gap: 1rem; clear: both; padding-top: 1rem; }
+    .pkg-card { flex: 1; border: 1px solid #E2E8F0; border-radius: 6px; padding: 1rem; text-align: center; }
+    .pkg-card h3 { color: var(--bronze); margin: 0 0 0.5rem 0; text-transform: uppercase; }
+    .pkg-price { font-size: 1.4rem; font-weight: 700; color: var(--navy); margin-bottom: 0.5rem; }
+    .pkg-card ul { text-align: left; font-size: 0.85rem; padding-left: 1.2rem; }
+    .print-btn { margin: 1rem 0; }
+    .print-btn button { background: var(--bronze); border: none; color: var(--navy); font-weight: 700; padding: 0.6rem 1.2rem; border-radius: 4px; cursor: pointer; }
+    @media print {
+        body { padding: 0; background: #fff; }
+        .sheet { box-shadow: none; padding: 0; max-width: 100%; }
+        .print-btn { display: none; }
+    }
+</style>
+</head>
+<body>
+<div class="print-btn"><button onclick="window.print()">Print / Save as PDF</button></div>
+<div class="sheet">
+    <div class="letterhead">
+        <div>
+            <h1>""" + biz_name + """</h1>
+            <div>Proposal &amp; Estimate #""" + _pesc(estimate.estimate_number) + """</div>
+        </div>
+        <div class="biz-contact">
+            """ + biz_phone + ("<br>" + biz_email if biz_email else "") + ("<br>License #" + biz_license if biz_license else "") + """
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Prepared For</h2>
+        <div>""" + cust_name + (" &mdash; " + cust_company if cust_company else "") + """</div>
+        <div>""" + cust_address + """</div>
+        <div>""" + cust_phone + (" &middot; " + cust_email if cust_email else "") + """</div>
+    </div>
+
+    <div class="section">
+        <h2>Scope of Work</h2>
+        <table>
+            <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th></tr></thead>
+            <tbody>""" + line_item_rows + """</tbody>
+        </table>
+        <div class="totals">
+            <table>
+                <tr><td>Subtotal</td><td class="num">$""" + _pesc('{:,.2f}'.format(estimate.subtotal or 0)) + """</td></tr>
+                <tr><td>Discount</td><td class="num">-$""" + _pesc('{:,.2f}'.format(estimate.discount_amount or 0)) + """</td></tr>
+                <tr><td>Tax</td><td class="num">$""" + _pesc('{:,.2f}'.format(estimate.tax_amount or 0)) + """</td></tr>
+                <tr class="grand-total"><td>Total</td><td class="num">$""" + _pesc('{:,.2f}'.format(estimate.total_amount or 0)) + """</td></tr>
+            </table>
+        </div>
+    </div>
+
+    """ + (f'<div class="section" style="clear:both;"><h2>Package Options</h2><div class="pkg-row">{package_cards}</div></div>' if package_cards else '') + """
+
+    """ + compliance_section + """
+
+    <div class="section" style="clear:both;">
+        <p style="font-size:0.8rem;color:#64748B;">This proposal is valid until """ + _pesc(estimate.expiration_date or 'the date specified by your sales representative') + """. Estimate status: """ + _pesc(estimate.status) + """.</p>
+    </div>
+</div>
+</body>
+</html>"""
+
 
 def render_pm_surface() -> str:
     return _render_staff_portal_base("Project Manager", "Projects I Manage", "project_manager")

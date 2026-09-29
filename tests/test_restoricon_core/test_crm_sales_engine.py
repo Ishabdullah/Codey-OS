@@ -596,6 +596,90 @@ def test_api_tasks_and_cadence(env):
     assert any(t["id"] == task_id for t in list_data["tasks"])
 
 
+def test_api_task_cancel_via_update_route(env):
+    """B8.10a: the portal's Cancel button posts {"status": "cancelled"}
+    to the existing POST /api/v1/crm/tasks/{id}/update route -- no new
+    route, but this exact UI-triggered call shape wasn't previously
+    exercised at the route level (only via the crm.update_task service
+    call directly, e.g. test_custom_task_crud). "Pause" has no backing
+    Task.status value (only pending/in_progress/completed/cancelled),
+    so the portal's pause-like action is implemented as this same
+    cancel call, not a separate status."""
+    router = env["router"]
+    token = env["tokens"][ROLE_SALES]
+
+    s, _, task_data = router.handle_request(
+        "POST",
+        "/api/v1/crm/tasks",
+        {"Authorization": f"Bearer {token}"},
+        json.dumps({"title": "Task to cancel", "task_type": "follow_up"}).encode("utf-8"),
+    )
+    assert s == 201
+    task_id = task_data["task"]["id"]
+
+    s, _, upd_data = router.handle_request(
+        "POST",
+        f"/api/v1/crm/tasks/{task_id}/update",
+        {"Authorization": f"Bearer {token}"},
+        json.dumps({"status": "cancelled"}).encode("utf-8"),
+    )
+    assert s == 200
+    assert upd_data["task"]["status"] == "cancelled"
+
+    s, _, get_data = router.handle_request(
+        "GET",
+        f"/api/v1/crm/tasks/{task_id}",
+        {"Authorization": f"Bearer {token}"},
+        b"",
+    )
+    assert s == 200
+    assert get_data["task"]["status"] == "cancelled"
+
+
+def test_api_task_snooze_due_date_round_trips_via_update_route(env):
+    """B8.10a: the portal's Snooze button posts a pushed due_date to the
+    existing POST /api/v1/crm/tasks/{id}/update route. Confirms the new
+    value round-trips through a real update + a real re-read, both at
+    the route level, not just the already-covered service layer."""
+    router = env["router"]
+    token = env["tokens"][ROLE_SALES]
+
+    s, _, task_data = router.handle_request(
+        "POST",
+        "/api/v1/crm/tasks",
+        {"Authorization": f"Bearer {token}"},
+        json.dumps({
+            "title": "Task to snooze",
+            "task_type": "follow_up",
+            "due_date": "2026-09-20",
+        }).encode("utf-8"),
+    )
+    assert s == 201
+    task_id = task_data["task"]["id"]
+    assert task_data["task"]["due_date"] == "2026-09-20"
+
+    s, _, upd_data = router.handle_request(
+        "POST",
+        f"/api/v1/crm/tasks/{task_id}/update",
+        {"Authorization": f"Bearer {token}"},
+        json.dumps({"due_date": "2026-09-21"}).encode("utf-8"),
+    )
+    assert s == 200
+    assert upd_data["task"]["due_date"] == "2026-09-21"
+    # status is untouched by a snooze -- the route-level update is
+    # additive over allowed_fields, not a full-record overwrite.
+    assert upd_data["task"]["status"] == "pending"
+
+    s, _, get_data = router.handle_request(
+        "GET",
+        f"/api/v1/crm/tasks/{task_id}",
+        {"Authorization": f"Bearer {token}"},
+        b"",
+    )
+    assert s == 200
+    assert get_data["task"]["due_date"] == "2026-09-21"
+
+
 def test_rbac_crm_permissions(env):
     router = env["router"]
     tech_token = env["tokens"][ROLE_TECHNICIAN]
@@ -852,6 +936,255 @@ def test_real_sales_manager_role_sees_team_data_with_no_custom_permission_grant(
     assert crm.get_lead(lead.id, sales_manager_actor) is not None
     assert crm.get_opportunity(opp.id, sales_manager_actor) is not None
     assert crm.get_task(task.id, sales_manager_actor) is not None
+
+
+# ==========================================
+# 8b. NEW-568: CUSTOMER REP-OWNERSHIP NARROWING + ADMIN ASSIGN/REASSIGN
+# ==========================================
+
+def test_list_and_get_customers_narrowed_to_own_and_unclaimed(env):
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust_a = crm.update_customer(
+        crm.create_customer(Customer(first_name="Owned", last_name="ByA"), actor_a).id,
+        {"assigned_user_id": actor_a.user_id},
+        env["actors"][ROLE_ADMIN],
+    )
+    # NEW-598: create_customer auto-assigns a plain rep-tier actor
+    # (actor_a, no PERM_READ_TEAM_SALES_DATA) to themselves, so an
+    # actually-unclaimed customer for this test must be created by a
+    # PERM_READ_TEAM_SALES_DATA holder instead (the same tier trusted to
+    # leave assigned_user_id unset/None, mirroring cust_a's admin-driven
+    # assignment above).
+    cust_unclaimed = crm.create_customer(Customer(first_name="No", last_name="Owner"), env["actors"][ROLE_ADMIN])
+
+    # Actor B (plain sales, no PERM_READ_TEAM_SALES_DATA) must not see
+    # actor A's assigned customer, but must see the unclaimed one.
+    customers_b = crm.list_customers(actor_b)
+    ids_b = {c.id for c in customers_b}
+    assert cust_a.id not in ids_b
+    assert cust_unclaimed.id in ids_b
+
+    # get_customer on another rep's assigned customer is treated as
+    # not-found, matching get_lead's established pattern.
+    assert crm.get_customer(cust_a.id, actor_b) is None
+    assert crm.get_customer(cust_unclaimed.id, actor_b) is not None
+
+
+def test_customers_full_tier_actors_unaffected_by_narrowing(env):
+    """Regression guard: PERM_READ_TEAM_SALES_DATA holders (admin/manager/
+    ai_agent/sales_manager) must still see every customer, unscoped,
+    exactly as before this change."""
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    manager_actor = env["actors"][ROLE_MANAGER]
+    agent_actor = env["actors"][ROLE_AI_AGENT]
+
+    cust_a = crm.update_customer(
+        crm.create_customer(Customer(first_name="Owned", last_name="ByA2"), actor_a).id,
+        {"assigned_user_id": actor_a.user_id},
+        admin_actor,
+    )
+
+    for full_tier_actor in (admin_actor, manager_actor, agent_actor):
+        ids = {c.id for c in crm.list_customers(full_tier_actor)}
+        assert cust_a.id in ids
+        assert crm.get_customer(cust_a.id, full_tier_actor) is not None
+
+
+def test_customer_role_self_only_access_unaffected(env):
+    """ROLE_CUSTOMER's existing self-only branch is untouched by the new
+    rep-ownership narrowing (which only applies to non-customer roles).
+    Builds its own properly-scoped ROLE_CUSTOMER AuthContext (the shared
+    `env["actors"][ROLE_CUSTOMER]` fixture entry has customer_id=None --
+    only usable for permission-denied-shape assertions, not a real
+    self-access success path)."""
+    crm = env["crm"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+
+    own_cust = crm.create_customer(Customer(first_name="Self", last_name="Access"), admin_actor)
+    other_cust = crm.create_customer(Customer(first_name="Other", last_name="Cust"), admin_actor)
+
+    cust_user = env["auth"].create_user(
+        "cust_user_self", "Pass123!", "Cust Self", "custself@test.com", ROLE_CUSTOMER, customer_id=own_cust.id
+    )
+    cust_actor = AuthContext(cust_user.id, "cust_user_self", ROLE_CUSTOMER, "human", customer_id=own_cust.id)
+
+    own = crm.list_customers(cust_actor)
+    assert len(own) == 1
+    assert own[0].id == own_cust.id
+    assert crm.get_customer(own_cust.id, admin_actor) is not None
+    assert crm.get_customer(own_cust.id, cust_actor) is not None
+
+    with pytest.raises(PermissionError):
+        crm.get_customer(other_cust.id, cust_actor)
+
+
+def test_admin_can_assign_and_reassign_customer_with_audit_and_visibility_flip(env):
+    crm = env["crm"]
+    audit = env["audit"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="Reassign", last_name="Me"), admin_actor)
+    assert cust.assigned_user_id is None
+
+    assigned = crm.update_customer(cust.id, {"assigned_user_id": actor_a.user_id}, admin_actor)
+    assert assigned.assigned_user_id == actor_a.user_id
+
+    logs = audit.query_logs(admin_actor, entity_type="customer", entity_id=cust.id, action="update")
+    assert logs
+    changed = logs[0].details.get("changed_fields", {})
+    assert changed.get("assigned_user_id") == {"old": None, "new": actor_a.user_id}
+
+    # Newly-assigned rep (actor_a) can now see it; actor_b cannot.
+    assert crm.get_customer(cust.id, actor_a) is not None
+    assert crm.get_customer(cust.id, actor_b) is None
+
+    # Reassign from actor_a to actor_b.
+    reassigned = crm.update_customer(cust.id, {"assigned_user_id": actor_b.user_id}, admin_actor)
+    assert reassigned.assigned_user_id == actor_b.user_id
+
+    logs2 = audit.query_logs(admin_actor, entity_type="customer", entity_id=cust.id, action="update")
+    changed2 = logs2[0].details.get("changed_fields", {})
+    assert changed2.get("assigned_user_id") == {"old": actor_a.user_id, "new": actor_b.user_id}
+
+    # Previously-assigned rep (actor_a) no longer sees it; actor_b does.
+    assert crm.get_customer(cust.id, actor_a) is None
+    assert crm.get_customer(cust.id, actor_b) is not None
+
+    # Unassign back to the unclaimed pool -- explicit None must be accepted
+    # and audited, not rejected by the general None-guard.
+    unassigned = crm.update_customer(cust.id, {"assigned_user_id": None}, admin_actor)
+    assert unassigned.assigned_user_id is None
+    logs3 = audit.query_logs(admin_actor, entity_type="customer", entity_id=cust.id, action="update")
+    changed3 = logs3[0].details.get("changed_fields", {})
+    assert changed3.get("assigned_user_id") == {"old": actor_b.user_id, "new": None}
+    # Unclaimed again -- both reps' narrowed views must see it.
+    assert crm.get_customer(cust.id, actor_a) is not None
+    assert crm.get_customer(cust.id, actor_b) is not None
+
+
+def test_new598_rep_actor_creating_customer_is_auto_assigned_to_self(env):
+    """NEW-598: a plain rep-tier actor (no PERM_READ_TEAM_SALES_DATA)
+    creating a customer must have it auto-assigned to themselves
+    server-side, matching create_contract's ownership pattern -- and any
+    client-supplied assigned_user_id in the Customer object must be
+    ignored/overridden, not trusted, since routes.py builds
+    Customer(**json_body) directly from client input."""
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="Guided", last_name="Flow"), actor_a)
+    assert cust.assigned_user_id == actor_a.user_id
+
+    # A rep attempting to hand the new customer to someone else via a
+    # client-supplied assigned_user_id must be overridden, not trusted.
+    spoofed = crm.create_customer(
+        Customer(first_name="Spoofed", last_name="Owner", assigned_user_id=actor_b.user_id), actor_a
+    )
+    assert spoofed.assigned_user_id == actor_a.user_id
+    assert spoofed.assigned_user_id != actor_b.user_id
+
+
+def test_new598_full_tier_actor_creating_customer_keeps_explicit_or_unclaimed_assignment(env):
+    """NEW-598: actors holding PERM_READ_TEAM_SALES_DATA (admin/manager/
+    sales-manager/system-intake tiers) are unaffected by the new
+    auto-assign gate -- they may still create an unclaimed customer
+    (assigned_user_id left None, the pre-existing default relied on by
+    web-intake and admin bulk data entry) or explicitly assign it to a
+    specific rep on creation."""
+    crm = env["crm"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    actor_a = env["actors"][ROLE_SALES]
+
+    unclaimed = crm.create_customer(Customer(first_name="Still", last_name="Unclaimed"), admin_actor)
+    assert unclaimed.assigned_user_id is None
+
+    assigned_on_create = crm.create_customer(
+        Customer(first_name="Assigned", last_name="OnCreate", assigned_user_id=actor_a.user_id), admin_actor
+    )
+    assert assigned_on_create.assigned_user_id == actor_a.user_id
+
+
+def test_plain_sales_actor_cannot_reassign_customer_ownership(env):
+    """A ROLE_SALES actor holds PERM_WRITE_CUSTOMERS (so update_customer's
+    top-level gate alone would let the call through) but NOT
+    PERM_READ_TEAM_SALES_DATA -- the assign/reassign action must still be
+    refused."""
+    crm = env["crm"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="Guarded", last_name="Cust"), admin_actor)
+
+    with pytest.raises(PermissionError):
+        crm.update_customer(cust.id, {"assigned_user_id": actor_b.user_id}, actor_a)
+
+    # A non-write-customers actor (technician) also cannot call it.
+    tech_actor = env["actors"][ROLE_TECHNICIAN]
+    with pytest.raises(PermissionError):
+        crm.update_customer(cust.id, {"assigned_user_id": actor_b.user_id}, tech_actor)
+
+    # Other fields are unaffected by this specific gate -- a plain sales
+    # actor can still update ordinary customer fields.
+    updated = crm.update_customer(cust.id, {"notes": "still allowed"}, actor_a)
+    assert updated.notes == "still allowed"
+
+
+def test_assign_customer_route_accepts_explicit_null_to_unassign(env):
+    """Route-level check for the exact JSON payload {"assigned_user_id":
+    null} reaching the relaxed None-guard through the existing
+    /api/v1/customers/<id>/update POST route (no new route added -- the
+    field was already allow-listed on update_customer)."""
+    router = env["router"]
+    crm = env["crm"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    actor_a = env["actors"][ROLE_SALES]
+
+    cust = crm.update_customer(
+        crm.create_customer(Customer(first_name="Route", last_name="Test"), admin_actor).id,
+        {"assigned_user_id": actor_a.user_id},
+        admin_actor,
+    )
+
+    status, _headers, body = router.handle_request(
+        "POST",
+        f"/api/v1/customers/{cust.id}/update",
+        {"Authorization": f"Bearer {env['tokens'][ROLE_ADMIN]}"},
+        json.dumps({"assigned_user_id": None}).encode("utf-8"),
+    )
+    assert status == 200, body
+    assert body["customer"]["assigned_user_id"] is None
+
+
+def test_new598_create_customer_route_overrides_client_supplied_assigned_user_id(env):
+    """Route-level close of NEW-598: POST /api/v1/customers builds
+    Customer(**json_body) directly from client input (routes.py), so a
+    plain rep-tier token attempting to hand the new customer straight to
+    another rep via the request body must have it overridden to the
+    authenticated actor, not silently trusted."""
+    router = env["router"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    status, _headers, body = router.handle_request(
+        "POST",
+        "/api/v1/customers",
+        {"Authorization": f"Bearer {env['tokens'][ROLE_SALES]}"},
+        json.dumps(
+            {"first_name": "Route", "last_name": "Guided", "assigned_user_id": actor_b.user_id}
+        ).encode("utf-8"),
+    )
+    assert status == 201, body
+    assert body["customer"]["assigned_user_id"] == actor_a.user_id
+    assert body["customer"]["assigned_user_id"] != actor_b.user_id
 
 
 # ==========================================

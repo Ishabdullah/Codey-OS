@@ -12,6 +12,13 @@ tqdm>=4.65.0
 hnswlib>=0.7.0          # vector search (falls back to numpy if missing)
 pytest>=9.0.0           # optional: run tests with  pytest tests/
 networkx>=3.0           # symbolic graph layer (Mentalese Engine)
+reportlab>=5.0.0        # PDF rendering (restoricon_core/services/pdf_service.py, B8.6d-a).
+                         # reportlab itself is pure Python (0 .so files, verified), but
+                         # reportlab>=5's own install_requires pulls in Pillow (compiled)
+                         # for image embedding -- unlike hnswlib, this needs no separate
+                         # `pkg install` step on this device: PyPI ships a prebuilt
+                         # cp314-cp314-android_24_arm64_v8a wheel for Pillow, confirmed
+                         # installed here via that wheel tag, not a source build.
 
 # LLM inference — we use the llama-server binary, not the Python binding
 # llama-cpp-python>=0.2.50  # uncomment only if you need the Python API directly

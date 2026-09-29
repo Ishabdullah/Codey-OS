@@ -13,6 +13,7 @@ from ..auth import (
     AuthContext,
     PERM_LOG_COMMUNICATION,
     PERM_READ_COMMUNICATIONS,
+    PERM_READ_TEAM_SALES_DATA,
     ROLE_CUSTOMER,
 )
 from ..database import DatabaseManager
@@ -49,6 +50,7 @@ class CommunicationService:
         customer_id: Optional[int] = None,
         project_id: Optional[int] = None,
         opportunity_id: Optional[int] = None,
+        lead_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
         provider_message_id: Optional[str] = None,
     ) -> CommunicationRecord:
@@ -119,8 +121,8 @@ class CommunicationService:
                 INSERT INTO communication_history (
                     timestamp, channel, direction, subject, content,
                     actor_id, actor_role, actor_type, customer_id, project_id,
-                    opportunity_id, metadata_json, provider_message_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    opportunity_id, lead_id, metadata_json, provider_message_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(provider_message_id) WHERE provider_message_id IS NOT NULL
                 DO NOTHING;
                 """,
@@ -136,6 +138,7 @@ class CommunicationService:
                     customer_id,
                     project_id,
                     opportunity_id,
+                    lead_id,
                     metadata_json,
                     provider_message_id,
                 ),
@@ -168,6 +171,7 @@ class CommunicationService:
             customer_id=customer_id,
             project_id=project_id,
             opportunity_id=opportunity_id,
+            lead_id=lead_id,
             metadata=metadata or {},
             provider_message_id=provider_message_id,
         )
@@ -197,6 +201,11 @@ class CommunicationService:
             customer_id=row["customer_id"],
             project_id=row["project_id"],
             opportunity_id=row["opportunity_id"],
+            # lead_id (B8.10b): unguarded direct access, same justification
+            # as customer_number in crm_service.py's _row_to_customer --
+            # _migrate_schema()'s ALTER always runs before any row can be
+            # read on any reachable connection.
+            lead_id=row["lead_id"],
             metadata=meta,
             provider_message_id=row["provider_message_id"],
         )
@@ -206,11 +215,21 @@ class CommunicationService:
         actor: AuthContext,
         customer_id: Optional[int] = None,
         project_id: Optional[int] = None,
+        lead_id: Optional[int] = None,
         channel: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[CommunicationRecord]:
-        """Query communication history with strict role-based visibility filtering."""
+        """Query communication history with strict role-based visibility filtering.
+
+        customer_id is a one-of-several optional filter, not a required
+        scope -- this is what lets B8.10b's non-customer-scoped
+        "Communications Center" feed call this same method with no
+        customer_id at all and still get correctly-narrowed results,
+        while every existing customer_id-scoped caller (Customer 360's
+        panel, the customer portal's own web_chat thread) keeps working
+        unchanged.
+        """
         query = "SELECT * FROM communication_history WHERE 1=1"
         params: List[Any] = []
 
@@ -226,6 +245,78 @@ class CommunicationService:
             if customer_id is not None:
                 query += " AND customer_id = ?"
                 params.append(customer_id)
+            if lead_id is not None:
+                query += " AND lead_id = ?"
+                params.append(lead_id)
+
+            # NEW-618 rep-ownership narrowing, reusing list_customers()'s
+            # exact clause (crm_service.py, `assigned_user_id = ? OR
+            # assigned_user_id IS NULL`, gated on PERM_READ_TEAM_SALES_DATA)
+            # via a customer_id/lead_id IN (subquery) join against the
+            # narrowed customer/lead sets -- not a naive full-table scan
+            # with a bolt-on filter. Composes with the explicit customer_id/
+            # lead_id filters above rather than replacing them, so an
+            # explicit customer_id filter from an already-narrowed caller
+            # (e.g. Customer 360, which only ever reaches here with a
+            # customer_id the actor already passed get_customer's own
+            # NEW-568 narrowing check) is unaffected -- this clause never
+            # further restricts a customer/lead the actor is already
+            # allowed to see, it only removes ones they aren't.
+            #
+            # Deliberately NOT the same "no owner set == visible" leniency
+            # list_customers/list_leads use for an unclaimed row
+            # (assigned_user_id IS NULL): a row with NEITHER customer_id
+            # NOR lead_id set is not "unclaimed," it's unknown provenance
+            # (e.g. the /api/v1/communications POST path's from_email
+            # resolution failing open to customer_id=None, or a
+            # project_id-only row) -- there is no customer/lead record to
+            # check an assigned_user_id against at all, so it cannot be
+            # proven unclaimed the way a real customer/lead row with a NULL
+            # assigned_user_id can. Requiring an explicit, checked owner
+            # match on customer_id OR lead_id (rather than falling through
+            # on either being NULL) fails closed on that ambiguity instead
+            # of exposing it to every narrowed actor.
+            #
+            # This applies uniformly regardless of which route/param shape
+            # a caller uses -- including an explicit customer_id passed
+            # directly to this method by a non-team-tier actor who is not
+            # that customer's assigned rep (e.g. a ROLE_PROJECT_MANAGER,
+            # which holds PERM_READ_COMMUNICATIONS without
+            # PERM_READ_TEAM_SALES_DATA).
+            #
+            # CORRECTION (code-reviewer, 2026-09-24): the original comment
+            # here claimed render_admin_surface's Customer 360 panel
+            # (which DOES pass an explicit customer_id) was "admin/
+            # manager-only" and therefore unreachable by a PM-tier actor.
+            # That's false -- routes.py serves render_admin_surface() for
+            # any GET to /admin with no server-side role check, and the
+            # rendered JS has no client-side role gate either, so this
+            # panel is architecturally reachable by any authenticated
+            # actor with a valid token, including ROLE_PROJECT_MANAGER or
+            # even ROLE_SALES. This does NOT make the fix incorrect --
+            # the narrowing lives here, in this one service-layer choke
+            # point, applied uniformly to every caller regardless of
+            # route, so nothing is more exposed than before this diff. If
+            # anything this fix closes a BROADER live gap than originally
+            # described: the pre-existing unscoped admin "Comms" tab
+            # (loadComms(), no customer_id filter at all) was reachable by
+            # any PERM_READ_COMMUNICATIONS holder -- including a plain
+            # ROLE_SALES rep -- with ZERO narrowing before this change.
+            # See NEW-625 for the underlying /admin route-gating gap this
+            # surfaced (out of this round's scope to fix).
+            if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+                query += (
+                    " AND ("
+                    " (customer_id IS NOT NULL AND customer_id IN ("
+                    "SELECT id FROM customers WHERE assigned_user_id = ? OR assigned_user_id IS NULL"
+                    "))"
+                    " OR (lead_id IS NOT NULL AND lead_id IN ("
+                    "SELECT id FROM leads WHERE assigned_user_id = ? OR assigned_user_id IS NULL"
+                    "))"
+                    ")"
+                )
+                params.append(actor.user_id)
+                params.append(actor.user_id)
 
         if project_id is not None:
             query += " AND project_id = ?"

@@ -4365,10 +4365,20 @@ requested capability (lead capture, pipeline, estimates, contracts,
 tasks, customer 360, global search, executive dashboard) already exists
 in the Core and only needs UI wiring. Genuinely net-new schema is small
 and named explicitly in `sales_rep_portal.md` §2: a `Property` table, an
-append-only `CommissionLedgerEntry` table, `InsuranceClaim`,
-`FinancingRecord`, `AssessmentRecord`, `PackageOption`, and
-`ProductionHandoffChecklist`. Found in scoping: `NEW-533` (the current
-`/sales` surface shows every rep's projects, unfiltered).
+append-only `CommissionLedgerEntry` table, `FinancingRecord`,
+`AssessmentRecord`, `PackageOption`, and `ProductionHandoffChecklist`.
+**CORRECTION (rule 6, 2026-09-23, B8.8 scoping):** this line originally
+also listed `InsuranceClaim` as genuinely net-new schema — that was
+false even at the time this section was written. Insurance/claim/
+adjuster fields (`insurance_claim_number`/`insurance_carrier`/
+`adjuster_name`/`adjuster_phone`/`adjuster_email`/`deductible`) already
+existed on both `Project` (commit `07c5f85`) and `Opportunity` (commit
+`470d87f`), both predating this plan, fully CRUD-wired and audit-logged
+— confirmed live against the real production DB. What's actually
+missing is UI exposing these fields to a rep, not schema. See B8.8's
+own `PROJECT_LOG.md` entry for the full correction. Found in scoping:
+`NEW-533` (the current `/sales` surface shows every rep's projects,
+unfiltered).
 
 **All five open decisions (D1-D5) answered by Ish, 2026-09-16 — see §8
 item 12 and `sales_rep_portal.md` §4/§4a for full detail.** Two answers
@@ -4962,7 +4972,27 @@ Numbered for reference. Nothing here is guessed at in this document.
     - **`NEW-534` priority:** Ish chose to prioritize a fix now rather
       than defer to Phase B8.3 — claim workflow with race protection,
       not yet built (`sales_rep_portal.md` §4a item 2).
-13. **B9.2+ scoping pass (2026-09-27), five items — ANSWERED by Ish,
+13. **D6 (raised during B8.7 scoping, 2026-09-22) — ANSWERED
+    2026-09-23, unblocks B8.7c:**
+    - **"Gross collected revenue"** (for D4's Phase-3 5% portfolio-
+      override): the actual money collected from the customer to date
+      — deposit + all payments actually received — **not** the
+      contract's full value. Example given directly by Ish: a $50,000
+      contract with only $20,000 paid in has a gross collected revenue
+      of $20,000, so the override basis is $20,000 × 5% = $1,000, not
+      $50,000 × 5%. Maps to `Invoice.deposit_amount + SUM(payments)` —
+      the full-sum reading, confirmed, not the narrower "excluding a
+      predates-signing deposit" alternative that was on the table.
+    - **"Major general-contracting project"**: anything that is NOT
+      HomeCare (any of the 4 tiers), NOT an assessment, and NOT an
+      add-on/upsell to a HomeCare plan. In practice: any `Contract`
+      whose `template_name` is `general_remodeling` (not one of the
+      four `homecare_*` values) and any `Invoice` whose `invoice_type`
+      is not `assessment`/`subscription` — i.e., the inverse of the
+      already-established HomeCare/assessment classification, not a
+      new taxonomy to invent.
+    - **B8.7c can now be scoped in implementation detail.**
+14. **B9.2+ scoping pass (2026-09-27), five items — ANSWERED by Ish,
     2026-09-27.** Full context and binding detail for each:
     `codey_estimator_service.md` §9 (updated with the answers, not left as
     open questions).
@@ -6427,6 +6457,65 @@ Then:
       forwarding, and deployed manifests for `Codey-Aigentik` and `Private-Codey-Agent`.
 - [ ] **11.x** — Model Orchestrator. **Parked** until a domain agent
       needing it is scoped.
+- [ ] **12.x — CCOS read-only CRM query capability (B8.11's actual
+      prerequisite).** Added 2026-09-26. Coordinator verified directly
+      that CCOS today has no path into Restoricon Core's sales/CRM
+      data: `domain_router.py`'s CRM domain classifies requests but its
+      default capability (`crm.customer_query`) is registered by no
+      plugin (`NEW-652`); `ccos/core/device_bridge.py` is write-only
+      (device-limb comms logging); no plugin under `ccos/plugins/`
+      calls Restoricon Core's HTTP API at all. This is the literal
+      block condition B8.11 names ("depends on CCOS reaching a state
+      where it can serve read-only advisory queries") — this item is
+      CCOS-layer infrastructure, deliberately not nested under B8 since
+      it isn't sales-portal work.
+      **Scoped 2026-09-26 by project-architect** (spec in
+      `PROJECT_LOG.md`'s 2026-09-26 entry). First-slice scope: one new
+      `crm.count_open_leads` capability (`in_process`, not
+      `external_process` — stays outside rule 4's mandatory
+      process-lifecycle review), new plugin
+      `ccos/plugins/crm/core_query/` (manifest + client + capability
+      entry point, mirroring `ccos/plugins/device/bridge/`'s
+      structure), backed by one existing Core read endpoint
+      (`GET /api/v1/leads?assigned_user_id=`, no new API route needed).
+      Demonstrates one real end-to-end question ("how many open leads
+      does rep X have") through the planner's real dispatch path
+      (`planner.py` → `plugin_manager.call_capability()`). Auth/config
+      placement: reuses `utils.config.get_restoricon_api_config()` for
+      host/port; a new token lives under `CODEY_STATE_DIR`
+      (`~/.codeyOS/ccos_crm_read_token`, gitignored), provisioned via an
+      extended `tools/provision_ai_agent_auth.py` with a distinct
+      `--username` (not Aigentik's — see `NEW-654`).
+      **Blocked on an Ish decision before implementation starts**
+      (open question 5.1 in the spec, load-bearing, not a detail):
+      `ROLE_AI_AGENT` is a full company-wide read/write grant
+      (`NEW-655`) — a token minted today is "read-only" only because
+      this plugin's own code chooses to send GETs, not because the
+      credential itself is restricted. Two options, genuinely different
+      in size: (a) a `custom_permissions_json` deny-list on the token
+      (small, legal today with zero `auth.py` changes, but drifts if
+      `ROLE_AI_AGENT` gains new write permissions later that the
+      deny-list isn't updated to match) or (b) a new dedicated
+      `ROLE_AI_AGENT_READONLY` role in `auth.py`'s `ROLE_PERMISSIONS`
+      (bigger, rule-4-adjacent, additive/non-drifting). Two further
+      open questions, not blocking but to confirm before slice 2: which
+      read endpoints get exposed next (opportunities? pipeline summary?
+      the analytics rollup?), and whether Ish is fine with the local
+      Qwen3.5-4B model itself having retrieval access to this business
+      data in a live conversational context, not just admin-dashboard
+      human users. Explicitly out of scope for slice 1: any write
+      access, multi-step/chained reasoning, the B8.11 UI itself, any
+      new Core API endpoint, any `auth.py`/`crm_service.py` change
+      beyond whatever the 5.1 decision requires, and anything
+      commission/analytics-rollup-gated (deferred — RBAC shape varies
+      by permission tier, would multiply the same ambiguity 5.1 is
+      trying to isolate). Findings from this scoping pass logged as
+      `NEW-652`/`653`/`654`/`655`.
+      **Ish decided 2026-09-26: option (a), the `custom_permissions_json`
+      deny-list** — smallest change, zero `auth.py` edits required. Ish
+      also decided to **hold implementation for now** rather than start
+      the implementer pipeline this round; spec stands as
+      implementer-ready whenever picked back up. Not started.
 
 ### Phase B — business layer (§6.3–§6.10)
 
@@ -6988,6 +7077,10 @@ this file's own don't-duplicate rule.
       portal's poll-on-load design (not yet scoped — its own phase,
       see `sales_rep_portal.md` §4a). None of this invalidates what's
       already shipped; it's additive follow-on work.
+      **B8.1's remaining schema half (Property, CommissionLedgerEntry,
+      PERM_READ/WRITE_TEAM_COMMISSIONS) is now DONE 2026-09-17** — see
+      the dedicated entry below. **B8.1 is now fully closed** —
+      permission half, `sales_manager` role, and schema, all shipped.
 - [x] **B8.1a (follow-on)** — migrate the `NEW-533` permission-grant
       sales-manager design to a real `sales_manager` role. **DONE
       2026-09-16, code-complete + code-reviewer APPROVED + LIVE-VERIFIED**
@@ -7108,30 +7201,1196 @@ this file's own don't-duplicate rule.
       self-healing timing window, swallow the one call that would have
       redirected on an indeterminate response — no data-exposure risk,
       not fixed this round). 1945 passed, 1 skipped.
-- [ ] **B8.3** — lead & pipeline UX.
-- [ ] **B8.4** — Customer 360 & multi-property records.
-- [ ] **B8.5** — appointments & property assessment/inspection.
-- [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
-      builder, contracts.
-- [ ] **B8.7** — commission engine & compensation dashboards.
+- [x] **B8.1 schema (follow-on)** — `Property` table, append-only
+      `CommissionLedgerEntry` table (D4's real `source_type` enum),
+      `projects.property_id`, and split `PERM_READ_TEAM_COMMISSIONS`/
+      `PERM_WRITE_TEAM_COMMISSIONS` permissions. **DONE 2026-09-17,
+      code-complete + code-reviewer APPROVED (round 2, after a round-1
+      CHANGES-REQUESTED on three real money-relevant bugs)**, commit
+      `5a47208`. **This closes B8.1 in full** (permission half +
+      `sales_manager` role + schema, all three pieces now shipped).
+      Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry. New
+      `CommissionService` (`record_commission`/`get_commission`/
+      `list_commissions`/`reverse_commission`) — **not yet wired into
+      `api/server.py`**, queued for B8.2 or B8.7. **Not yet
+      live-verified** against the real production DB's migration path
+      beyond a direct `sqlite3` query confirming no pre-existing
+      `commission_ledger_entries` table — rule 7's full tier still
+      needs a live-verifier pass. Logged `NEW-544` (`PERM_READ_TEAM_
+      PIPELINE` superseded, not built), `NEW-545` (D4's `source_type`
+      enum drops `referral`, needs a B8.9-time decision), `NEW-546`
+      (pre-existing `user_id=None` fail-open in rep-scoping filters,
+      currently unreachable, not this round's regression).
+- [x] **B8.2a** — `GET /api/v1/sales/dashboard` aggregation route.
+      **DONE 2026-09-17, code-complete + code-reviewer APPROVED
+      (round 2, after a round-1 CHANGES-REQUESTED on a real
+      independently-grantable-permission composition bug)**, commit
+      `a5206a5`. Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry.
+      Composes `SchedulingService`/`CRMService`/`CommissionService` —
+      wired `CommissionService` into `APIRouter`/`RestoriconAPIServer`
+      for the first time. Team block gated explicitly at the route on
+      `PERM_READ_TEAM_SALES_DATA`; commissions independently gated on
+      `PERM_READ_TEAM_COMMISSIONS` via a separate `commissions_scope`
+      field (round-1 finding). Found/fixed a live security bug ahead
+      of this route's own build: `NEW-549` (`global_search` leaked
+      every rep's leads/opportunities, commit `1dfedc1`). Logged,
+      not fixed: `NEW-547` (staff-schedules 403, → B8.5), `NEW-548`
+      (`Estimate`/`Contract` have no rep field, → B8.6), `NEW-550`
+      (`get_executive_dashboard` aggregate leak, own round), `NEW-551`
+      (appointments strict-scoping divergence, informational).
+- [x] **B8.2b** — wire `_render_sales_portal`'s UI to B8.2a's route.
+      **DONE 2026-09-17, code-complete + code-reviewer APPROVED with
+      zero findings** (`node --check` on real rendered output + live
+      negative-control test reverts, not diff-reading alone), commit
+      `84c1e4c`. Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry.
+      New Appointments/Follow-ups/Pipeline/Commissions/Team panels;
+      My Schedule/Leads/Opportunities kept their existing data
+      sources (`NEW-553` — full consolidation would have regressed
+      shipped functionality). Fixed `NEW-552` (viewer-scope banner
+      missed `ROLE_SALES_MANAGER`-role actors) as a byproduct. Logged,
+      not fixed: `NEW-555` (undefined `.badge`/`.badge-info` CSS,
+      cosmetic, pre-existing). **B8.2 is now closed in full**
+      (B8.2a + B8.2b both shipped).
+- [x] **B8.3** — lead & pipeline UX. **DONE 2026-09-17, code-complete
+      + code-reviewer APPROVED (round 2, after a round-1 CHANGES-
+      REQUESTED on a live-reproduced bug: a converted lead's new
+      Customer id was never written back to the lead)**, commit
+      `fd0efd3`. Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry.
+      New `CRMService.convert_lead_to_opportunity` (closes `NEW-556`,
+      a genuine blocker found during scoping — no conversion path
+      existed at all) and `get_stage_duration_analytics` (rep-scoped,
+      deliberately built in `CRMService` not `AnalyticsSearchService`
+      per the spec doc's wrong-permission-model assumption). Sales
+      portal gains a lead detail/create view and an Opportunity-only
+      kanban board. Also fixed `NEW-557` (missing `customer_id`
+      validation). Logged, not fixed: `NEW-561` (narrow
+      non-atomicity residual risk), `NEW-559`/`560` (pre-existing,
+      from scoping), `NEW-562`/`563` (suggestion-level, round 2).
+- [x] **B8.4a** — Property API routes + Customer 360 view. **DONE
+      2026-09-17, code-complete + code-reviewer APPROVED with zero
+      findings** (reviewer live-executed the rendered fan-out JS
+      under Node with a mocked fetch/DOM, not just string-shape
+      tests), commit `7fa3aad`. Full detail in `PROJECT_LOG.md`'s
+      2026-09-17 entry. Exposed B8.1's previously-unrouted Property
+      CRUD over HTTP (`NEW-564`); client-side fan-out modal (10
+      panels) over each entity's existing `customer_id`-filtered
+      route, `Promise.allSettled`-based so one panel's failure never
+      blocks the rest. Found: `NEW-565` (`ROLE_SALES` couldn't read
+      invoices) — **fixed 2026-09-22, commit `a6fdd93`**. Found:
+      `NEW-568` (`list_customers` had no per-rep scoping) — **fixed
+      2026-09-22, commit `e8db392`**, full detail in `PROJECT_LOG.md`'s
+      2026-09-22 entry. Found while fixing: `NEW-587` (a real
+      regression — this narrowing could 404 a rep's own B8.6c
+      estimate proposal if the customer gets reassigned) — **fixed
+      same day, commit `8a01c5e`**. Logged, not fixed: `NEW-588`
+      (the `NEW-587` fix also bypasses a permission gate, currently
+      unexploitable). Logged, not fixed: `NEW-584`/`NEW-585` (two other
+      customer-lookup paths that don't apply the new narrowing /
+      handle it cleanly).
+- [x] **B8.4b** — `projects.property_id` wiring + Property
+      project-history panel. **DONE 2026-09-17, code-complete +
+      code-reviewer APPROVED** (pre-fix bug independently reproduced,
+      role-scoping independently live-tested under `ROLE_TECHNICIAN`
+      not just the test suite's admin coverage), commit `6cdda2a`.
+      Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry. Closes
+      `NEW-566`. A real bug (`create_project` with a bad `property_id`
+      raised an uncaught 500 instead of a clean 400) was found and
+      fixed mid-round. `Document`/`NEW-567` deliberately stays out of
+      scope, deferred to B8.5's `AssessmentRecord`. Logged, not
+      fixed: `NEW-569` (pre-existing `project_manager_id` bool-as-int
+      gotcha, unrelated, found while verifying this round's own
+      claim), `NEW-570` (minor UI staleness edge case). **B8.4 is now
+      closed in full** (B8.4a + B8.4b both shipped).
+- [x] **B8.5a** — fix `NEW-547` (sales reps' My Schedule panel 403s).
+      **DONE 2026-09-17, code-complete + code-reviewer APPROVED with
+      zero findings** (reviewer live-reverted the fix to confirm the
+      fail-open regression test catches it, then restored), commit
+      `bc667ac`. Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry.
+      New narrow `PERM_READ_OWN_STAFF_SCHEDULE` permission (not the
+      full company-wide one) — `ROLE_SALES`/`ROLE_SALES_MANAGER` get
+      self-only staff-schedule visibility; `list_staff_schedules`/
+      `get_staff_schedule` gained a tiered check, unconditional for
+      the narrow tier (avoids the `NEW-546` fail-open class).
+- [x] **B8.5b** — appointment scheduling UI + `assessment_records`
+      table. **DONE 2026-09-17, code-complete + code-reviewer
+      APPROVED (round 2, after a round-1 CHANGES-REQUESTED on a
+      live-reproduced Critical bug the round's own tests never
+      exercised)**, commit `946f231`. Full detail in `PROJECT_LOG.md`'s
+      2026-09-17 entry. New `assessment_records` table/`AssessmentService`
+      resolves `NEW-567`. Photo-upload used an invalid `document_type`
+      enum value (every real upload would 500) — fixed by reusing the
+      valid `'photo'` value + an `assessment` tag, verified via an
+      independent differential repro. Also closed `NEW-571`'s
+      "reasoned, not observed" gap (a pre-existing multipart
+      field-ordering trap, now confirmed real via live repro). Logged,
+      not fixed: `NEW-572` (photo-upload loop lacks 401 redirect,
+      disclosed scope boundary). **B8.5 is now closed in full**
+      (B8.5a + B8.5b both shipped).
+- [x] **B8.6a** — estimate/contract rep-ownership schema + RBAC.
+      **DONE 2026-09-17, code-complete + code-reviewer APPROVED with
+      zero findings**, commit `a2c88d6`. Full detail in
+      `PROJECT_LOG.md`'s 2026-09-17 entry. Closes `NEW-548`
+      (no rep-ownership field) and `NEW-573` (`sign_contract` had no
+      re-sign guard or ownership check, IDOR-shaped). Disclosed:
+      `NEW-575` (unintentionally strips `ROLE_PROJECT_MANAGER`'s
+      existing `NEW-192` contract-signing grant) — **fixed 2026-09-22,
+      commit `a6fdd93`**, via the narrowest of the three directions
+      (exempt actors that can never own a contract from the ownership
+      check, rather than granting broader team-sales or write access).
+      Logged, not fixed: `NEW-581` (PM's restored signing has no
+      in-app discovery path for an unowned contract's id).
+- [x] **B8.6b** — `PackageOption` table + server-side estimate/package
+      pricing computation. **DONE 2026-09-18, code-complete +
+      code-reviewer APPROVED (round 2, after a round-1 CHANGES-
+      REQUESTED on two real money-visibility/authorization leaks)**,
+      commit `9aefba6`. Full detail in `PROJECT_LOG.md`'s 2026-09-18
+      entry. Closes `NEW-574`. New `update_estimate`/`send_estimate`
+      (neither existed before). Logged, not fixed: `NEW-576`
+      (line_items/included_items shape has no enforcement yet,
+      forward-looking landmine for B8.6c's UI).
+- [x] **B8.6c** — proposal builder + contract send/track/sign UI.
+      **DONE 2026-09-22, code-complete + code-reviewer APPROVED (round
+      2, after a round-1 CHANGES-REQUESTED on a Critical money-
+      visibility bug)**, commit `2edb00b`. Full detail in
+      `PROJECT_LOG.md`'s 2026-09-22 entry. New `update_contract`/
+      `send_contract`, HTML/print-only proposal builder (pulls
+      license/insurance from `ComplianceItem`, not `BusinessProfile`
+      — corrects a spec inaccuracy). Found and fixed: proposal's
+      per-line-item price column was falling back to internal
+      `unit_cost` for every real estimate. Logged, not fixed:
+      `NEW-578` (`ROLE_SALES` can't see business profile/compliance
+      data, degrades gracefully), `NEW-580` (a sibling vacuous audit
+      test on `sign_contract`'s real signature path). **B8.6 is now
+      closed in full** (B8.6a + B8.6b + B8.6c all shipped). Real PDF
+      + multi-party signatures queued separately as B8.6d (`NEW-577`,
+      extended by Ish with auto-population/template-selection/
+      customer-search/document-visibility requirements, `NEW-579`).
+- [x] **B8.6d-a** — PDF renderer + structured template/signature-anchor
+      model (single-signer, contracts only this round). **DONE
+      2026-09-22, code-complete + code-reviewer APPROVED**, commit
+      `6242ee2`. Full detail in `PROJECT_LOG.md`'s 2026-09-22 entry.
+      New `pdf_service.py` (reportlab-based), wired into `sign_contract`
+      as a best-effort, non-authorization-touching side effect —
+      live-verified by the reviewer that a forced render failure
+      leaves the signature committed and audits the failure, not
+      silently or destructively. Closes `NEW-589` (undeclared
+      dependency). A real test-isolation leak into the user's actual
+      `~/.codeyOS/restoricon_documents/` was found and fixed within
+      the same round. Logged, not fixed: `NEW-590` (incomplete
+      image-decode exception coverage, low severity), `NEW-591`
+      (pre-existing `user_id=1` system-actor pattern, not new to this
+      round). Estimate/proposal PDF generation deliberately deferred,
+      contracts only this sub-phase.
+- [x] **B8.6d-b** — multi-party signer model. **DONE 2026-09-22,
+      code-complete + code-reviewer APPROVED (round 2, after a round-1
+      CHANGES-REQUESTED on a live-proven Critical: a non-atomic status
+      flip could permanently strand a fully-signed contract)**,
+      commit `718f692`. Full detail in `PROJECT_LOG.md`'s 2026-09-22
+      entry. New `contract_signers` table; `sign_contract` extended,
+      not duplicated — legacy single-signer path verified byte-for-
+      byte unchanged both review rounds. The atomicity fix itself
+      avoided introducing a second, subtler concurrency bug, caught
+      before it ever reached review. Logged, not fixed: `NEW-592`
+      (no route surface yet), `NEW-593` (party_role has no identity
+      validation, pre-existing pattern), `NEW-594`/`595` (PDF anchor
+      overflow for 4+ signers, missing per-party audit attribution),
+      `NEW-596`/`597` (PDF regenerated on every partial sign,
+      `add_contract_signers` has no idempotency guard — both
+      non-blocking).
+- [x] **B8.6d-c** — guided customer→template→fill→sign UI (`NEW-579`).
+      **DONE 2026-09-22, code-complete + code-reviewer APPROVED round 1
+      (first B8.6d sub-round to clear on round 1)**, commit `e3a13a7`
+      (code) + `45431d6` (ledger). Full detail in `PROJECT_LOG.md`'s
+      2026-09-22 entry. Human-facing sequential `customer_number`,
+      server-generated via a single atomic `INSERT...SELECT` statement
+      (not split read/write — no `UNIQUE` backstop exists on this
+      column), live-stress-tested at 60 concurrent threads with zero
+      collisions; one-time idempotent backfill for pre-existing rows.
+      `Contract.template_name` given real meaning (`general_remodeling`
+      + the 4 real HomeCare tiers). Closes `NEW-592` (new
+      `POST /api/v1/contracts/<id>/signers` route + `party_role`
+      threaded through both `/sign` routes), `NEW-597` (atomic
+      `INSERT...WHERE NOT EXISTS` + `UNIQUE(contract_id, party_role)`,
+      live-stress-tested at 30 concurrent threads, exactly 1 row
+      created), and `NEW-593` for the multi-party branch (`sign_contract`
+      now rejects a supplied `party_role` that doesn't match the
+      actor's role). Guided 4-step UI in the sales portal (search/create
+      customer → pick template → fill contract, auto-prefilled → 
+      configure required signers). Logged, not fixed: `NEW-598`
+      (guided-flow customer creation lands unclaimed — no
+      `assigned_user_id`, needs a product decision), `NEW-599`
+      (legacy single-signer path still has no `party_role` identity
+      check — confirmed not a regression via live differential, now
+      reachable via a real route for the first time). **This closes
+      the full B8.6 chain (a/b/c/d-a/d-b/d-c) — B8.6 is DONE.**
+- [x] **B8.7** — commission engine & compensation dashboards. **DONE
+      in full** (a/b/c/d all shipped — see below); this top-level box
+      was stale (never flipped after the last sub-phase closed) until
+      corrected 2026-09-25 during B8.14 wrap-up, per rule 6/9.
       **Rule-4 category** (money). **D4 ANSWERED 2026-09-16** — real
       plan read from `Sales_Rep_Contract.docx`, full numbers in
-      `sales_rep_portal.md` §4. No longer blocked on the decision, only
-      on being picked up and built.
-- [ ] **B8.8** — insurance restoration workflow & financing tracking.
-      Financing integration blocked on Open Decision D5.
-- [ ] **B8.9** — territory management & referral compensation.
-- [ ] **B8.10** — communications center & follow-up visibility. Blocked
-      on Open Decision D1 (SMS) for anything beyond email + the
-      existing communication log.
+      `sales_rep_portal.md` §4. **SCOPED 2026-09-22** (project-architect,
+      design-only), full detail in `PROJECT_LOG.md`. Existing
+      `commission_ledger_entries`/`CommissionService`/RBAC split (B8.1/
+      B8.2) confirmed reusable, not rebuilt. Split into B8.7a (plan
+      config singleton + invoice/assessment classification + Phase 1
+      flat $100 commission, triggered off `record_payment`'s paid-
+      transition edge) → B8.7b (new `homecare_subscriptions` table +
+      Phase 2 bonus + lazy-evaluated 90-day clawback, no scheduler
+      exists in Core so day-90 can't be a background job) → B8.7c
+      (Phase 3 portfolio override — **blocked on Ish's decision**, see
+      Open Decisions below) → B8.7d (dashboards, folds in the
+      pre-existing `NEW-546` fail-open fix). **Was blocked pending
+      `NEW-598`** (a guided-flow-created customer had no owning rep to
+      attribute commission to) — **NEW-598 fixed and closed 2026-09-22**
+      (commit `f16f717`), unblocked. Two more attribution-adjacent
+      findings logged from that fix's review: `NEW-600`
+      (lead-conversion-created customers still land unclaimed when an
+      admin converts), `NEW-601` (inert `ROLE_CUSTOMER`+
+      `custom_permissions` edge case).
+      - [x] **B8.7a** — plan config + invoice classification + Phase 1
+            flat $100 commission. **DONE 2026-09-22, code-complete +
+            code-reviewer APPROVED (round 2, after a round-1
+            CHANGES-REQUESTED on a live-proven Critical: a
+            commission-plan-config read sat outside its own try/except,
+            so a failure there would raise past an already-committed
+            payment)**, commit `cd658be`. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-22 entry. New
+            `commission_plan_config` singleton (dashboard-editable in a
+            future round, seeded with D4's real numbers, not Python
+            constants). `Invoice.invoice_type`/`assigned_user_id`
+            (inherited from the linked Customer, since `create_invoice`
+            is admin/manager-gated and can't trust the creating actor
+            as the owning rep). Partial unique index on
+            `commission_ledger_entries(source_type, source_id)` as a
+            second-layer double-fire defense (had to exclude
+            `reverse_commission`'s own same-source reversal rows — a
+            real bug the implementer caught before it reached review).
+            `record_payment` fires the commission automatically on the
+            not-paid→paid transition edge; no assigned rep → audit-
+            logged skip, never silent, never a crash. `NEW-600`'s
+            framing corrected (rule 6) — it's now live-relevant to
+            commission attribution, not inert. Logged, not fixed:
+            `NEW-602` (hardcoded system-actor `user_id=1` is FK-fragile
+            for this call site specifically), `NEW-603`
+            (`create_invoice` accepts an unvalidated `assigned_user_id`),
+            `NEW-604` (an invoice already `paid` at creation bypasses
+            the transition-edge trigger), `NEW-605` (pre-existing
+            `payments_json` race, unrelated to this diff).
+      - [x] **B8.7b** — `homecare_subscriptions` table + Phase 2 bonus +
+            lazy-evaluated 90-day clawback. **DONE 2026-09-22,
+            code-complete + code-reviewer APPROVED round 1**, commit
+            `a68e16c`. Full detail in `PROJECT_LOG.md`'s 2026-09-22
+            entry. New `homecare_subscriptions` table (`UNIQUE
+            (contract_id)` double-fire guard). `sign_contract` gained a
+            second, independent best-effort side effect (own
+            try/except, separate from the PDF block) enrolling a
+            subscription + recording the Phase 2 bonus (`monthly_fee -
+            assessment_flat_commission`, snapshotted at enrollment) when
+            a HomeCare contract reaches `status='signed'`. New
+            `cancel_homecare_subscription()` — status update + lazy
+            90-day clawback via the existing `reverse_commission`
+            mechanism, not a hand-rolled chargeback path. **Mid-round
+            product correction folded in cleanly**: HomeCare Basic
+            repriced $179/mo → $119/mo (Ish, 2026-09-22) — seed default
+            + a scoped, idempotent corrective `UPDATE` for any
+            already-seeded DB, live-verified via a 3x-reopen repro;
+            `sales_rep_portal.md`'s D4 numbers corrected in place.
+            Logged, not fixed: `NEW-606` (TOCTOU gap in the cancel
+            method's idempotency check, traced to confirm harmless —
+            no money corruption), `NEW-607` (three "no route yet" gaps
+            bundled — no dedicated RBAC permission, a disclosed
+            not-found-shape deviation, unclamped-at-zero bonus formula
+            — deferred to B8.7d).
+      - [x] **D6 ANSWERED 2026-09-23** — see Open Decisions §8 item 13.
+            Gross collected revenue = deposit + payments actually
+            received to date (not contract value). Major GC project =
+            anything not HomeCare/assessment/HomeCare-add-on.
+      - [x] **B8.7c** — Phase 3 portfolio-override commission. **DONE
+            2026-09-23, code-complete + code-reviewer APPROVED round 2
+            (round 1: CHANGES REQUESTED on a live-proven Critical)**,
+            commit `4c69d5a`. Full detail in `PROJECT_LOG.md`'s
+            2026-09-23 combined B8.9a+B8.7c entry. Scoped by reading
+            the actual signed contractor agreement directly, not just
+            the D4/D6 summaries — the termination rule is genuinely
+            counter-intuitive: a GC contract signed BEFORE a rep's
+            departure still pays the override on payments collected
+            even AFTER they leave, no "currently active" check. New
+            `users.terminated_at` (set/cleared by `set_user_active` on
+            genuine transitions only). **Round 1 found a real, live-
+            proven Critical**: the termination gate was silently
+            bypassed for any GC contract signed via multi-party
+            signing (that path never writes `customer_signed_at`),
+            letting a real $2,500 override pay out to a rep terminated
+            before the contract even existed. Fixed via a
+            `contract_signers.signed_at`-aware timestamp resolution
+            applied to both the termination gate and the contract-
+            selection ordering (which had the same NULL-sorts-last
+            gap), plus fail-closed hardening. Round 2 independently
+            re-reproduced the original exploit and confirmed it's
+            closed; also corrected a rule-5/6 inaccuracy in the
+            implementer's own self-verification account (didn't
+            change the outcome — the fix is genuinely correct).
+            Logged, not fixed: `NEW-615` (`set_user_active` TOCTOU
+            could silently withhold a legitimate override, opposite
+            failure direction from the Critical), `NEW-616` (a real,
+            disclosed attribution-asymmetry design question — needs
+            Ish's input on re-enrollment semantics), `NEW-617`
+            (cosmetic — multi-party contract PDFs/admin UI show a
+            blank "Signed At"). **This closes B8.7's entire build
+            queue in full.**
+      - [x] **B8.7d** — `get_team_commission_summary`, rep/manager
+            dashboards, partial `NEW-546` fix. **DONE 2026-09-22,
+            code-complete + code-reviewer APPROVED round 1**, commit
+            `b7b4e39`. Full detail in `PROJECT_LOG.md`'s 2026-09-22
+            entry. New `get_team_commission_summary` (this-month
+            per-rep aggregate, `_scoped_rep_filter`-narrowed). `GET
+            /api/v1/sales/dashboard` gains `commission_summary` (own
+            row) + `team_commission_rankings` (independently
+            `PERM_READ_TEAM_COMMISSIONS`-gated). Sales portal gains a
+            "This Month" panel + manager rankings table. **`NEW-546`
+            fixed on the `CommissionService` side only** — sentinel-
+            based fail-closed fix, verified call-site-safe by the
+            reviewer — **`CRMService._scoped_assignee_filter` confirmed
+            still unfixed**, tracked separately as `NEW-608` (do not
+            treat `NEW-546` as fully closed). Logged, not fixed:
+            `NEW-609` (no status guard on `reverse_commission`,
+            latent/unreachable today). **This closes B8.7's entire
+            build queue except B8.7c**, which was blocked on D6 —
+            **D6 answered 2026-09-23**, B8.7c now unblocked, next up.
+- [x] **B8.8** — insurance restoration workflow & financing tracking.
+      **DONE 2026-09-23** (B8.8a + B8.8b-1 + B8.8b-2 all shipped, code-
+      complete + code-reviewer approved). Only open piece: `NEW-613`'s
+      follow-on (extending the financing offset to two more AR
+      aggregates outside `finance_service.py`), not yet scheduled.
+      **D5 confirmed 2026-09-16, manual tracking only, no integration.**
+      **SCOPED 2026-09-23** (project-architect, both halves), full
+      detail in `PROJECT_LOG.md`. Split into B8.8a (insurance workflow
+      UI, plain data-entry) → B8.8b-1 (`FinancingRecord` table + CRUD,
+      deliberately inert — reads nothing into AR) → B8.8b-2 (wiring the
+      financing offset into `get_ar_aging`/`get_financial_summary`/
+      `get_project_pnl`, rule-4 money category, isolated as the
+      highest-risk piece). **Ish decided 2026-09-23 that a recorded
+      financed amount should offset AR** (not pure display), and
+      answered two follow-on questions: eligibility = `approved` +
+      `funded` application statuses (not merely `submitted`); the two
+      other independent `balance_due` aggregates outside
+      `finance_service.py` (`AnalyticsSearchService`'s KPI, `Operations
+      Service`'s per-project list — logged as `NEW-613`) should get the
+      same offset in a follow-on round, not stay cash-only.
+      - [x] **B8.8a** — insurance workflow UI. **DONE 2026-09-23,
+            code-complete + code-reviewer APPROVED round 1, no
+            findings**, commit `795b4c8`. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-23 entry. Corrected a stale
+            "InsuranceClaim is net-new schema" claim in both this file
+            and `sales_rep_portal.md` (rule 6, commit `e2f3a87`) — the
+            real gap was UI, not schema; `Project`/`Opportunity` have
+            carried insurance/claim/adjuster fields since Phase B3.
+            Added 2 new fields (`coverage_amount`/`supplement_amount`)
+            and built the first-ever UI panel exposing all 8. Logged,
+            not fixed: `NEW-610` (no opportunity→project field
+            carryover), `NEW-611` (`insurance_carrier` duplicated
+            across 3 tables).
+      - [x] **B8.8b-1** — `financing_records` table + CRUD, RBAC.
+            **DONE 2026-09-23, code-complete + code-reviewer APPROVED
+            round 1 (2 Warnings, both fixed inline before commit)**,
+            commit `84c8260`. Full detail in `PROJECT_LOG.md`'s
+            2026-09-23 entry. Deliberately inert (no AR wiring) — new
+            dedicated `FinancingService` (`PERM_WRITE_CUSTOMERS` write /
+            `PERM_READ_FINANCIALS` read), `invoice_id` nullable,
+            `customer_contribution` never enters offset math, partial
+            unique index against double-financing on one invoice.
+            **`get_ar_aging`/`get_financial_summary`/`get_project_pnl`
+            independently verified completely untouched** by both the
+            implementer and the reviewer. Logged, not fixed —
+            structural prerequisite for B8.8b-2, do not start that
+            round without re-reading: `NEW-614` (two distinct
+            double-count shapes the offset query must filter for:
+            NULL-`invoice_id` rows on the same project, and a voided
+            `'approved'`/`'funded'` record coexisting with an active
+            one on the same invoice — voiding never clears
+            `application_status`).
+      - [x] **B8.8b-2** — wire the financing offset into
+            `get_ar_aging`/`get_financial_summary`/`get_project_pnl`.
+            **DONE 2026-09-23, code-complete + code-reviewer APPROVED
+            round 1 (1 Warning fixed inline before commit)**, commit
+            `150654d`. Full detail in `PROJECT_LOG.md`'s 2026-09-23
+            entry. Live re-evaluation at query time, no reversal
+            mechanism — designed explicitly around `NEW-614`'s two
+            double-count shapes (both `status='active' AND
+            application_status IN ('approved','funded')`, never the
+            latter alone). **A real misattribution bug was caught by
+            the implementer's own process and independently
+            live-reproduced from scratch by the reviewer**: a stale
+            financing record linked to an already-paid invoice could
+            have spilled over and offset a *different* invoice's real
+            balance in the same project — fixed via per-invoice
+            clamping before summing, confirmed live to produce zero
+            spillover. Existing key names (`total_ar`,
+            `total_ar_outstanding`, `ar_buckets`) now carry netted
+            figures; new `total_ar_gross`/`total_financed_offset`
+            keys added for reconciliation, nothing silently changed
+            meaning. Logged, not fixed: `NEW-612` (pre-existing,
+            `get_financial_summary`'s revenue figure is disconnected
+            from real invoice payments — unrelated to B8.8b itself),
+            `NEW-613` (two more AR aggregates outside this round's
+            scope, Ish confirmed they should get the same offset in a
+            follow-on round, not yet scheduled). **This closes B8.8b
+            in full — B8.8 is otherwise DONE**, its only remaining
+            open piece being `NEW-613`'s follow-on.
+- [x] **B8.9** — territory management & referral compensation. **DONE
+      2026-09-23** (B8.9a). Scoping found "referral compensation" was
+      never a separate concept — it's D4's Phase 3 portfolio-override
+      residual, already fully modeled (`NEW-545` resolved) and built
+      as B8.7c. B8.9a itself (territory management: `territories`
+      table, `territory_id` on `users`/`leads`/`customers`, dedicated
+      `TerritoryService` + RBAC pair) is code-complete + code-reviewer
+      approved, commit `4c69d5a`. Full detail in `PROJECT_LOG.md`'s
+      2026-09-23 combined entry. No auto-assignment by territory
+      (deferred, `NEW-534`'s future consumer), no dashboard UI panel
+      yet (routes only), no delete on territories — all disclosed,
+      deliberate deferrals. At-most-one-territory-per-rep is a
+      documented default, not yet confirmed with Ish.
+- [x] **B8.10** — communications center & follow-up visibility. **DONE
+      in full** (a/b/c all shipped — see below); this top-level box
+      was stale until corrected 2026-09-25 during B8.14 wrap-up, per
+      rule 6/9.
+      **CORRECTION (2026-09-23): not actually blocked.** D1 was
+      answered 2026-09-16 (email only for now, no SMS — see item 12
+      above). That already IS this phase's scope (email + the existing
+      communication log) — the "Blocked on D1" framing predates the
+      answer and was never updated. **SCOPED 2026-09-23**
+      (project-architect) — found the phase is much smaller than its
+      original write-up implies (most backing infrastructure already
+      exists: `Task` fields, rep-narrowed `list_tasks`, the dashboard's
+      `followups` block, `CommunicationRecord`/`CommunicationService`,
+      real configured SMTP). Split into three sub-phases: B8.10a
+      (follow-up action wiring, zero Ish dependency) → B8.10b
+      (communications center feed, needs RBAC narrowing per `NEW-618`,
+      needs the just-answered lead-linkage schema addition) → B8.10c
+      (compose/send email, needs the just-answered sender-identity
+      decision, needs the SMTP-timeout check per `NEW-623`). Ish
+      answered both open questions 2026-09-23: leads get a `lead_id`
+      addition (covered in the communications feed), portal-composed
+      email sends from the existing shared company account with the
+      rep's name in the signature.
+      - [x] **B8.10a** — follow-up action wiring. **DONE 2026-09-23,
+            code-complete + code-reviewer APPROVED round 1**, commit
+            `9bcb9e0`. Full detail in `PROJECT_LOG.md`'s 2026-09-23
+            entry. Complete/Cancel/Snooze buttons on the dashboard
+            Follow-ups panel and Customer 360 Tasks panel, over
+            already-existing routes — no new backend, no RBAC delta.
+            "Pause" implemented as Cancel, not a new `Task.status`
+            value. New `task_type`/`trigger_source`/`rule_name` "Auto"
+            badge — the mechanism discharging "no black-box
+            automation." A real self-caught timezone bug was fixed
+            before review and independently live-verified by the
+            reviewer via real date-math execution. Logged, not fixed:
+            `NEW-624` (date-only-string snooze parsing would break for
+            a future full-timestamp `due_date` writer, not reachable
+            today).
+      - [x] **B8.10b** — communications center feed. **DONE 2026-09-24,
+            code-complete + code-reviewer APPROVED round 1**, commit
+            `381b807`. Full detail in `PROJECT_LOG.md`'s 2026-09-24
+            entry. New `GET /api/v1/sales/communications-center` feed.
+            `NEW-618` closed — `query_communications()`'s previously-
+            zero rep-ownership narrowing now reuses `list_customers()`'s
+            exact clause. New `CommunicationRecord.lead_id` (additive,
+            FK-less by design). A row with neither `customer_id` nor
+            `lead_id` is treated as unknown-provenance and hidden from
+            narrowed actors — deliberately not the `list_customers`/
+            `list_leads` "NULL == unclaimed" leniency, live-verified by
+            the reviewer. Reviewer caught and corrected an inaccurate
+            disclosure comment (Customer 360's admin panel was wrongly
+            called "admin/manager-only" — `/admin` has no server-side
+            role check at all) — didn't change the fix's correctness,
+            but surfaced a broader pre-existing gap. Logged, not fixed:
+            `NEW-625` (the underlying `/admin` route-gating gap),
+            `NEW-626` (project-linked-only rows conservatively hidden,
+            a real design question), `NEW-627` (unvalidated `lead_id`
+            on the POST route, matching a pre-existing pattern).
+      - [x] **B8.10c** — compose/send email from the portal. **DONE
+            2026-09-24, code-complete + code-reviewer APPROVED round 1,
+            zero blocking findings**, commit `af213bf`. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-24 entry. Sends from the shared
+            company account with the rep's name in the signature. Send-
+            then-log ordering (`NEW-620`) and recipient-locking
+            (reusing `NEW-568`'s narrowing) both independently live-
+            reproduced by the reviewer, not just tested. `NEW-623`'s
+            SMTP-timeout risk confirmed (not just suspected) by reading
+            Aigentik's send path directly — mitigated for this route
+            only (`timeout=15.0`), the three pre-existing callers left
+            unchanged at 2.0s, explicitly still open. **This closes
+            B8.10 in full (a/b/c all shipped).**
 - [ ] **B8.11** — AI Sales Copilot. Deliberately last; depends on CCOS
       reaching a state where it can serve read-only advisory queries.
       Not designed further until then.
-- [ ] **B8.12** — sales-to-production handoff & read-only job
-      visibility. **Rule-4 category** (RBAC narrowing).
-- [ ] **B8.13** — mobile-first pass & audit completeness sweep across
-      every B8 write path.
-- [ ] **B8.14** — analytics rollups (rep/manager/executive tiers).
+- [x] **B8.12** — sales-to-production handoff & read-only job
+      visibility. **DONE in full** (a/b both shipped — see below);
+      this top-level box was stale until corrected 2026-09-25 during
+      B8.14 wrap-up, per rule 6/9. **Rule-4 category** (RBAC narrowing). **SCOPED
+      2026-09-24** (project-architect) — reframed: `sales_rep_portal.md`'s
+      own text ("reuse `PERM_READ_ASSIGNED_PROJECTS`") doesn't work as
+      written; the real finding was that `ROLE_SALES` already held two
+      flat, company-wide, zero-ownership-filter permissions
+      (`PERM_READ_ALL_PROJECTS`/`PERM_READ_OPERATIONS`) — a live over-
+      grant, not a missing feature. Split into B8.12a (the narrowing
+      fix, zero Ish dependency) → B8.12b (`ProductionHandoffChecklist` +
+      signed/deposit guard, needed Ish's input, all three questions
+      answered 2026-09-24: deposit-received = an explicit `payment_type`
+      field tags a payment as the deposit, not a sum check; the guard
+      blocks checklist completion only, not project creation; checklist
+      items can be marked N/A per job type).
+      - [x] **B8.12a** — narrow `ROLE_SALES`'s project/operations
+            visibility. **DONE 2026-09-24, code-complete + code-reviewer
+            APPROVED round 1 (1 Warning fixed inline before commit)**,
+            commit `fb996db`. Full detail in `PROJECT_LOG.md`'s
+            2026-09-24 entry. New `PERM_READ_OWN_SOLD_PROJECTS`,
+            narrowed via `Contract.assigned_user_id`. Unclaimed
+            (`NULL`) contracts denied, not visible — deliberately
+            fail-closed, live-verified by the reviewer. `PERM_READ_TEAM_
+            SALES_DATA` reused as the team-wide bypass; `ROLE_SALES_
+            MANAGER` needs no direct grant. **`NEW-630`**: the manager's
+            derived-permissions union silently lost equipment/
+            deployment visibility as a side effect (project/work-order
+            visibility itself is a genuine no-op, live-verified) —
+            logged, not fixed, needs a product decision. A second gap
+            (bypass helper not exempting two other independent
+            entitlements) was found and fixed inline with a regression
+            test before commit. Logged, not fixed: `NEW-628`
+            (`operations_service.py`'s zero-ownership-filter pattern is
+            broader than just `ROLE_SALES`), `NEW-629` (a pre-existing,
+            non-bug observation about `PERM_READ_OWN_PROJECTS`).
+      - [x] **B8.12b** — `ProductionHandoffChecklist` + signed/deposit
+            guard. **DONE 2026-09-24, code-complete + code-reviewer
+            APPROVED**, commit `a261de5`. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-24 entry. New table keyed on
+            `project_id` (a deliberate reconciliation against the
+            source doc's literal "contract_id" — `Invoice` has no
+            `contract_id`). New explicit `payment_type` deposit-tagging
+            on `payments_json` entries. Completion guard blocks
+            checklist completion only, never project creation. Gated
+            `PERM_WRITE_PROJECTS`; read delegates to `get_project`'s
+            own gate + B8.12a's narrowing. **`NEW-631` (CRITICAL) and
+            `NEW-632` — RESOLVED 2026-09-25, commit `f410827`**, fixed
+            same day as top priority ahead of any other phase. Design B
+            (Ish-confirmed): `deposit_amount` is now purely a target
+            figure, never feeding `balance_due`/`status` math — a new
+            shared `_recalculate_invoice_balance` helper computes both
+            from real payments only. Deposit guard now filters to
+            `invoice_type == 'project'`, requires `deposit_amount > 0`,
+            and sums multiple deposit-tagged payments. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-25 entry. Logged, not fixed:
+            `NEW-634`/`NEW-635` (both Warning, zero live blast radius
+            today — check before any invoice-creation UI is built).
+            **This closes B8.12 in full (a/b both shipped).**
+- [x] **B8.13** — mobile-first pass & audit completeness sweep across
+      every B8 write path. **DONE in full 2026-09-25 (both halves
+      shipped).** **B8.13a (audit completeness), commit `a1b15d8`** —
+      `delete_subcontractor` audit call moved into the service layer
+      (was route-only, so a direct service caller was previously
+      unaudited); `NEW-595`/`NEW-580` closed; `NEW-559` fixed as a
+      trivial included judgment call. **B8.13b (mobile horizontal-
+      scroll table wrapper), commit `245712c`** — all 19 `<table>`
+      sites in the sales portal (`_render_sales_portal()`) wrapped in
+      a shared `.table-scroll-wrapper` class per Ish's "horizontal
+      scroll" answer; other surfaces (admin/quote/portal/staff) not
+      yet wrapped — logged as scope for a future pass if/when needed.
+      See `PROJECT_LOG.md`'s two 2026-09-25 B8.13a/B8.13b entries.
+- [x] **B8.15** — findings-backlog sweep: `NEW-628`/`NEW-636`/`NEW-625`,
+      scoped and closed together as the M-lane/B-lane continuation round
+      once M-lane's `U.x` register and B8.1–B8.14 were fully checked off.
+      Per rule 8, these had all been logged as "Confirmed, not fixed"
+      during earlier B8.10b/B8.12/B8.13 rounds but never promoted to a
+      queue line here — this stub closes that gap. **DONE 2026-09-25, all
+      three shipped and code-reviewer APPROVED.**
+      **NEW-628, commit `661ce48`** — `ROLE_TECHNICIAN` (not
+      `ROLE_PROJECT_MANAGER`, a rule-6 correction to the original finding
+      text) had zero ownership narrowing across nine `operations_service.py`
+      read methods despite holding only `PERM_READ_ASSIGNED_PROJECTS`.
+      Narrowed to `projects.assigned_employees_json` membership, mirroring
+      `crm_service.py`'s existing identical check. **Read-path only** —
+      four sibling write-path gaps found and deliberately left open,
+      logged as `NEW-643`–`NEW-646`.
+      **NEW-636, commit `c9c2f1d`** — `business_ops_service.py`'s
+      `submit_timesheet`/`approve_timesheet` had zero audit trail; added
+      `self.audit.log()` calls matching the file's existing per-entity
+      convention.
+      **NEW-625, commit `3f77344`, live-verified** — `/admin` had no
+      role gate beyond token validity. A true server-side route gate
+      isn't reachable (routes don't do their own RBAC by design here);
+      added a client-side redirect (defense-in-depth, not the real
+      security boundary) sending `project_manager`/`sales`/`technician`/
+      `customer` to their own dedicated portals. `sales_manager` has a
+      portal too but was deliberately deferred (`NEW-642`, needs a
+      product decision); `subcontractor` excluded because the role can
+      never be issued (`NEW-641`, a real dead-route finding). Round 1
+      code-reviewer caught a false comment claim and a vacuous test;
+      round 2 fixed both. Live-verifier confirmed the real `/auth/me`
+      response shape matches what the JS reads and the actual extracted
+      redirect logic fires correctly against a real running server; the
+      browser `window.location.href` navigation primitive itself remains
+      unverified (no browser-automation harness in this repo) — treat as
+      code-complete + logic-verified, not full live-verified, per rule 7.
+      **Round 2, NEW-643/644/645/646, commit `146d71a`** — write-path
+      counterpart to NEW-628's read-path-only fix, same file, same
+      helpers reused (`_actor_assigned_to_project`/
+      `_technician_assigned_project_ids`). Narrowed `create_milestone`,
+      `create_work_order`, `update_work_order`, `deploy_equipment`,
+      `return_equipment`, `get_active_work_orders_for_subcontractor` (two
+      new gaps — `create_milestone`/`create_work_order` — found and
+      fixed same-round via a full method audit, not just the four named
+      findings). `update_work_order` checks the work order's CURRENT
+      DB-read `project_id`, never the caller-supplied model's copy.
+      `get_active_work_orders_for_subcontractor` required care: its
+      shared query helper is also called unguarded by
+      `crm_service.py`'s subcontractor-delete precheck — filtering was
+      added only in the RBAC-gated public method so a narrowed
+      technician's empty result can never defeat that precheck.
+      `create_equipment`'s similar-shaped gap deliberately left open as
+      `NEW-647` (a product-scope question — should technicians register
+      new equipment at all — not a mechanical fix). code-reviewer
+      APPROVED (rule 4); full-suite reconciled at 2514 passed, 1 skipped
+      (2399 core + 114 ccos + 1 confirmed-flaky test reproduced isolated
+      and passing). `NEW-630` (needs an Ish decision) and `NEW-613`/
+      `NEW-633` (a separate money-correctness cluster — AR aggregates
+      and `record_payment`'s void-resurrection/overpayment gaps) remain
+      open, explicitly out of both rounds' scope.
+      **Round 3, NEW-617/NEW-627, commit `2801eb2`** — before scoping,
+      re-verified `NEW-633`'s void half against the live repo and found
+      it's currently unreachable through any code path (schema permits
+      `status='void'`, nothing writes it) — downgraded per rule 6,
+      spec banked for later rather than picked this round. Fixed two
+      live-reachable, decision-free findings instead: `NEW-627`
+      (`POST /api/v1/communications`'s `lead_id`/`project_id`/
+      `opportunity_id` now validated via the router's existing
+      `_parse_int_body_field` helper) and `NEW-617` (a multi-party-
+      signed contract's "Signed At" rendered blank in its PDF and the
+      admin/sales portal — the originally-cited fix location turned out
+      not to be a bug; the real gap was `render_contract_pdf_multi`
+      having no "Signed At" field at all, fixed by extracting the
+      existing single-signer-resolution logic into a shared
+      `CRMService._resolve_signed_at_value`/`resolve_contract_signed_at`
+      and wiring it into PDF rendering and the contracts API). A real
+      bug caught before commit: an initial version would have resolved
+      "Signed At" to the latest partial signer's timestamp on a
+      still-partially-signed contract; fixed to require full completion,
+      matching `sign_contract`'s own `all_signed` gate. code-reviewer
+      APPROVED both; full suite clean (2526 passed, 1 skipped).
+      **Round 4, Ish's four pending decisions, commits `dd244d5` +
+      `571f038`** — Ish answered all four open questions from round 3
+      directly: NEW-630 ("grant PERM_READ_OPERATIONS back to
+      ROLE_SALES_MANAGER" — full org-wide grant, not ownership-scoped,
+      since NEW-628's narrowing keys on `actor.role`, not the
+      permission), NEW-642 ("add it" — `sales_manager` → `/sales` in
+      the `/admin` redirect map), NEW-647 ("deploy/return yes, create
+      no" — flat `PermissionError` denial for `ROLE_TECHNICIAN` on
+      `create_equipment`, `deploy_equipment`/`return_equipment`
+      untouched), and NEW-613 ("fix it now, extend the offset to all
+      sites" — a rule-6 correction during scoping found only 2 of the
+      3 originally-named sites actually needed it, `get_project_pnl`
+      already had B8.8b-2's offset; two new internal `FinanceService`
+      helpers now make `get_executive_dashboard`'s `total_ar` and
+      `transition_project_stage`'s CLOSED-gate reconcile to
+      `get_ar_aging`/`get_project_pnl` by construction). Two follow-on
+      sub-decisions from NEW-613's own credit-tracking half also
+      answered: overpayments logged as a manual-only `customer_credits`
+      ledger (no auto-apply), kept separate from AR reporting — **not
+      yet implemented, still queued** (see Appendix A/`NEW_ISSUES.md`
+      for the design). **Process incident, same round:** a cross-agent
+      commit collision left `dd244d5` bisect-broken in isolation — a
+      concurrent session's `git add <exact-path>` on
+      `operations_service.py` swept up another implementer's
+      in-progress, uncommitted NEW-613 edit to that same file alongside
+      its own legitimate NEW-647 change. Not rewritten (per rule on
+      destructive actions); `571f038` supplies the missing piece,
+      restoring HEAD consistency. Logged as `NEW-649` (process finding)
+      plus `NEW-648` (a real test-coverage gap the collision review
+      surfaced: unlinked financing records untested at the new
+      CLOSED-gate site). code-reviewer APPROVED all of round 4's code
+      changes across two review passes.
+      **Round 5, commit `a8365a7`** — the credit-tracking design banked in
+      round 4 was implemented: a new append-only `customer_credits` table
+      (customer-linked, not invoice-trapped), `record_payment` now inserts
+      the incremental overage delta on every call (correct across
+      retries and genuine repeat overpayments — hand-verified by
+      code-reviewer with concrete numbers, not just trusted), and a
+      gated `get_customer_credit_balance()` read method. Manual-only, no
+      auto-apply; kept separate from AR reporting (confirmed zero
+      references in `finance_service.py`/`analytics_search_service.py`).
+      NEW-633's overpayment half closed; its void half remains open
+      (spec banked, not picked). code-reviewer APPROVED. Two follow-ups
+      logged, not fixed: `NEW-650` (no route/UI exists yet — write-only
+      from an operator's perspective) and `NEW-651` (pre-existing:
+      `record_payment` doesn't validate non-negative payment amounts).
+      This closes all four of Ish's round-4 decisions in full.
+      **Round 6, commit `86106b4`** — closed `NEW-633`'s remaining void
+      half (decision-free, spec banked since round 3) and `NEW-651`
+      together, since both are `record_payment` guards, bundled per
+      Ish's standing preference. `record_payment` now rejects a payment
+      against a `status='void'` invoice and a negative `payment_amount`,
+      both checked before any side effect. A second rule-6 correction
+      landed mid-fix: the original `NEW-633` claim that
+      `operations_service.py` also excludes void on reads was itself
+      wrong — only `finance_service.py` does. code-reviewer APPROVED,
+      including a concrete worked example of the bug `NEW-651` prevents
+      (a $200 phantom credit-ledger liability). Full suite: 2436
+      passed, 1 skipped.
+      **Round 7, commit `c94824c`** — closed `NEW-648`, a test-coverage
+      gap flagged during `NEW-613`'s review (the CLOSED-gate financing
+      offset was untested for unlinked, `invoice_id=None` records).
+      Three tests added confirming existing behavior is already correct
+      — no production code changed, no bug found.
+      **Round 8, commit `e82c41f`** — closed `NEW-650`'s route half:
+      `GET /api/v1/customers/{id}/credit-balance`, delegating RBAC
+      entirely to the already-reviewed service method's own gate.
+      code-reviewer APPROVED; hand-traced the malformed-path guard
+      arithmetic.
+      **Round 9, commits `ba7f3e3`+`e69fd66`** — Ish asked to wire the
+      credit balance into the Customer 360 view. Discovered mid-
+      implementation that Customer 360 lives only in
+      `_render_sales_portal()`, not the admin/tech surfaces as
+      originally assumed — corrected. Added a dedicated single-value
+      panel (the existing `c360PanelSection` helper is table-shaped,
+      doesn't fit a scalar), matching this view's currency-formatting
+      and 403-handling conventions exactly, deliberately not hidden by
+      any client-side role inference per this view's own existing test
+      rationale. code-reviewer APPROVED; one wording overclaim it
+      flagged ("gated identically to Invoices," not quite true for a
+      currently-dead `ROLE_CUSTOMER` edge case) was fixed inline the
+      same round rather than left standing. **This closes NEW-650 in
+      full and closes the entire B8.15 findings-backlog sweep down to
+      one intentionally-open item**: `NEW-649` (a process finding, no
+      code fix applies).
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (nine rounds).
+- [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
+      **DONE in full 2026-09-25 (both halves shipped).** Split into
+      B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per
+      project-architect scoping 2026-09-25 — `sales_rep_portal.md`'s
+      "three permission-gated views of the same query" exit criterion
+      was unsatisfiable while `get_executive_dashboard` stayed leaky.
+      **B8.14a, commit `e58a7a3`** — closed `NEW-550` (any `ROLE_SALES`
+      actor could pull company-wide executive pipeline/lead/win-rate
+      aggregates); `get_executive_dashboard` now requires
+      `PERM_READ_TEAM_SALES_DATA` in addition to `PERM_VIEW_REPORTS`.
+      Side effect resolved by decision (Ish, 2026-09-25): `NEW-637`
+      (`ROLE_PROJECT_MANAGER` also demoted) — grant case-by-case via
+      `custom_permissions`, no default-role or code change. **B8.14b,
+      commit `63f0dfd`** — `AnalyticsSearchService.get_sales_analytics_rollup`,
+      one method/one route (`GET /api/v1/sales/analytics-rollup`)
+      covering all three tiers, reusing `get_pipeline_summary`/
+      `get_team_commission_summary`/`get_executive_dashboard` rather
+      than three separate queries; load-on-demand panel added to the
+      sales portal (not wired into dashboard polling, per `NEW-554`).
+      Excludes AR/revenue (`NEW-613`, two divergent AR truths not yet
+      reconciled — `"financial"` popped from the executive-tier
+      response), territory/handoff dimensions, and auto-refresh —
+      deferred to future rounds, not silently dropped. Two cosmetic
+      findings logged: `NEW-639`, `NEW-640`. See `PROJECT_LOG.md`'s two
+      2026-09-25 B8.14a/B8.14b entries.
+- [x] **B8.16** — Work-order intake pipeline (real service-call job entry
+      + a reusable sub/tech-facing intake form, replacing ad hoc manual
+      admin entry). Ish-driven, 2026-09-26/27, scoped across two
+      project-architect rounds with an advisor sanity-check between them
+      that caught two blocking defects before dispatch (a mislabeled
+      `invoice_type` that would have corrupted the assessment/project
+      distinction, and an unresolved model-number OCR conflict in the
+      source document — both resolved by Ish before Phase 0-slim
+      started). Six phases, sequenced so Ish sees a real record in the
+      admin portal early rather than last:
+      **Phase 0-slim + Phase 1, DONE, commit `fece7f8`** —
+      `invoices.line_items_json` column added (schema migration, same
+      precedented `ALTER TABLE ADD COLUMN` pattern as the table's two
+      prior migrations); `Invoice.line_items` field; `create_invoice`
+      computes `amount` server-side from line items (never trusts a
+      client-supplied amount), mirroring `WorkOrder`'s existing
+      cost-computation pattern; verified the $790 water-heater-job
+      fixture (including a negative SCF credit line) sums and nets
+      correctly. Code-reviewer's first pass found a real bug —
+      `record_payment`'s hand-built `Invoice(...)` was a second
+      construction site that missed the new `line_items` field
+      entirely, silently dropping line items from the
+      `POST /invoices/{id}/pay` response only (DB and `get_invoice`
+      were always correct) — fixed and covered by a red/green-verified
+      regression test. `NEW-666` logged (line_items absent from
+      `_AUDITABLE_INVOICE_FIELDS`, Confirmed, non-blocking, not fixed
+      this round).
+      **Phase 0b (`ROLE_SUBCONTRACTOR`), DONE, code-reviewer APPROVED
+      after three rounds, not yet committed as of this write-up** —
+      closes `NEW-641` for real (today no subcontractor user account
+      could even be created; `create_user` rejected any role outside
+      `ALL_ROLES` and `subcontractor` wasn't in it, despite
+      `/subcontractor`/`render_subcontractor_surface()` already
+      existing as reachable routes). Adds `ROLE_SUBCONTRACTOR` (final
+      grant: `PERM_READ_OPERATIONS`, `PERM_WRITE_OPERATIONS`,
+      `PERM_LOG_COMMUNICATION` only), `AuthContext.subcontractor_id`
+      threaded through `authenticate_token`, `users.subcontractor_id`
+      column, and a full-table-rebuild migration widening
+      `users.role`'s inline `CHECK` constraint (SQLite can't `ALTER` a
+      `CHECK` in place) to accept `'subcontractor'`.
+      **Notable process event, logged because it's a real and
+      non-obvious risk this project should watch for again:** this
+      phase was independently worked on by two separate agent sessions
+      at the same time without either knowing about the other — caught
+      only because Ish, watching both, told this session directly.
+      The concurrent session's production-code changes were already
+      gone by the time this was caught (stopped/reverted on its own
+      side), but it left two uncommitted, unstaged test-file edits
+      behind in the shared working tree with no matching implementation
+      (both failing red). Both attempts had independently found and
+      correctly solved the *same* CHECK-constraint-rebuild gotcha,
+      including the identical "a bare `'subcontractor'` substring
+      check would falsely never fire, because the same migration also
+      adds a `subcontractor_id` *column*, and SQLite rewrites
+      `sqlite_master.sql` to include ALTER-added columns" collision —
+      independent convergence on a real, non-obvious bug, not a
+      coincidence worth dismissing. Resolved by: stopping this
+      session's own in-flight implementer immediately, stashing (never
+      discarding) both this session's attempt and the concurrent
+      session's leftover test edits separately, confirming the leftover
+      test edits were the *coherent, complementary* other half of the
+      same fix (not competing/conflicting work) by reading them
+      directly rather than assuming, then merging both non-conflicting
+      halves back into the tree and re-running the full suite (clean,
+      1290 passed) before proceeding to review. **Takeaway for future
+      sessions**: this project's "Working alongside another agent"
+      section (CLAUDE.md) covers tracking-doc collisions explicitly but
+      not concurrent *code* edits on the same feature — treat any
+      report of "another agent is also working on X" as an immediate
+      stop-and-verify signal, not something to route around.
+      Three code-reviewer rounds on Phase 0b, in order: **round 1**
+      found two real, live-reproduced permission escapes — (C1)
+      `update_work_order` let a subcontractor reassign
+      `assigned_subcontractor_id` to a *different* subcontractor,
+      hijacking the work order (fixed: ownership re-checked against
+      the fresh DB row, reassignment of that field rejected outright);
+      (C2) the `PERM_READ_COMPLIANCE` grant was unnarrowed at
+      `list_compliance_items`, leaking every party's license/insurance/
+      COI data to an external subcontractor (fixed: permission removed
+      from the grant entirely, not narrowed — `NEW-668` logged for the
+      future real-narrowing work). Also corrected a false comment
+      (rule 6) claiming an unrelated `get_project()` over-grant was
+      "logged" when no such entry existed and the claim didn't hold up
+      on inspection. **Round 2** found the identical bug shape one
+      permission over: `PERM_READ_DOCUMENTS`/`PERM_WRITE_DOCUMENTS`
+      were also unnarrowed at `get_document`/`list_documents`/
+      `create_document` (raw-bytes download by id with no ownership
+      check; unrestricted create under any customer/project) — fixed
+      the same way, removed rather than narrowed under review pressure
+      (`NEW-669` logged for the future work). **Round 3: APPROVED**,
+      full suite 1291 passed. Two warning-level findings surfaced
+      during review, confirmed accurate but deliberately left
+      unfixed pending a product decision, logged as `NEW-670`
+      (`get_active_work_orders_for_subcontractor` has no
+      `ROLE_SUBCONTRACTOR` narrowing — a subcontractor can query any
+      other subcontractor's active work orders) and `NEW-671`
+      (`create_work_order`'s `ROLE_SUBCONTRACTOR` branch has no
+      project-membership check — a subcontractor can self-assign a
+      work order into any project; needs Ish's call on whether
+      subcontractors should ever self-originate work orders at all).
+      **Phase 2 (service-layer orchestrator), DONE, code-reviewer
+      APPROVED after two review rounds, not yet committed as of this
+      write-up** — `CRMService.submit_work_order_intake` drives
+      customer find-or-create (conjunctive, false-merge-safe dedup:
+      exact email match, else normalized-phone-digits AND last-name
+      match, else create new — 2+ ambiguous matches on either path
+      never guesses, creates new) → project find-or-create (keyed on
+      `customer_id + property_address`, real `ProjectStage.INTAKE`
+      enum, not the `'Lead'` string bug) → work order creation (DRAFT,
+      unassigned, diagnostic fields with no dedicated column folded
+      into `notes` rather than dropped) → invoice creation
+      (`invoice_type="project"`, `line_items` passed through, server
+      amount computed by Phase 1), all in one call for a
+      `ROLE_TECHNICIAN`/`ROLE_SUBCONTRACTOR` actor holding only
+      `PERM_WRITE_OPERATIONS`. Internal steps neither role can do
+      directly run under a scoped `intake_system_actor` (same shape as
+      the existing `commission_system_actor`/`pdf_system_actor`
+      precedent); the real submitting actor is recorded on a separate
+      outer `"intake_submitted"` audit entry, confirmed genuinely
+      queryable via `AuditService.query_logs`, not write-only. Also
+      widened `record_payment`'s flat-commission trigger to
+      `invoice_type in ("assessment", "project")` per Ish's 2026-09-27
+      decision.
+      **Round 1 review found a real, live-reproduced money bug**: the
+      orchestrator's customer-REUSE branch (an existing customer
+      matched via dedup) silently dropped `salesperson_user_id` — the
+      new invoice inherited whatever `assigned_user_id` the *existing*
+      customer already had (often `None` or a stale prior owner)
+      instead of the salesperson actually named on the intake form.
+      Fixed by setting `Invoice.assigned_user_id` explicitly to
+      `salesperson_user_id` on both branches (bypassing
+      `create_invoice`'s inherit-from-customer fallback for this call
+      site only, confirmed not to affect any other caller), without
+      touching the reused customer's own ownership — a separate,
+      bigger decision this phase deliberately didn't make. Two
+      regression tests added confirming both invoice attribution AND
+      that customer ownership stays untouched on reuse.
+      **A second commission interaction was caught mid-round and taken
+      straight to Ish, not silently resolved**: the widened trigger
+      overlaps with a pre-existing "portfolio override" mechanism —
+      a single paid, portfolio-override-eligible `project` invoice
+      could produce TWO commission_ledger rows (the flat commission +
+      the override residual), potentially to two different reps.
+      **Ish decided: prevent it, portfolio-override wins.** Fixed by
+      checking `_resolve_portfolio_override_eligibility` (the same
+      method the override block itself already calls) before firing
+      the flat commission; skips the flat block entirely if eligible.
+      Fails open (fires flat commission) with an audit log
+      (`commission_precedence_check_failed`) on any resolution error —
+      round-1 review caught that the fail-open rationale comment
+      overclaimed safety ("whatever broke this will also break the
+      override's own check, so it's one row not zero" — false: they're
+      two independent try/except blocks, so an isolated failure here
+      *can* still double-pay on the error path) and this was corrected
+      per rule 6 without changing the fail-open behavior itself (a
+      possible future fail-closed change, not made this round).
+      `NEW-672` (found-existing-project path has no membership gate,
+      informational-only exposure, deferred), `NEW-674` (flat
+      commission's `basis_amount` reflects the flat reference price,
+      not the real invoice amount, for `project` invoices — cosmetic,
+      deferred), and `NEW-675` (the four-step pipeline has no wrapping
+      transaction — a mid-pipeline failure can leave orphaned,
+      untraceable rows; disclosed as possibly consistent with this
+      file's existing style, not confirmed, deferred) all logged, not
+      fixed, per rule 8.
+      **Phase 3 (admin split), DONE 2026-09-29, code-complete + full
+      suite green (1333 passed, round 3), code-reviewer round 3
+      pending re-verification** —
+      one DRAFT work order can be split into 2+ child work orders
+      across different trades/subcontractors, admin-gated via
+      `PERM_DISPATCH_WORK_ORDERS`. `WorkOrderStatus.SPLIT` (a
+      non-terminal status distinct from `CANCELLED`, per advisor's
+      original flag that a `CANCELLED`-parent design would be
+      audit-destroying and roll-up-breaking) added to `ALL_STATUSES`/
+      `TRANSITIONS` (`DRAFT -> SPLIT` only); `WorkOrder.
+      parent_work_order_id` (FK-less, immutable-by-construction)
+      added. `OperationsService.split_work_order(work_order_id,
+      splits, actor)`: fetches the parent fresh from the DB (never
+      trusts a caller-supplied line_items array), requires `splits` to
+      fully PARTITION the parent's own `line_items` by index (no
+      overlap, no gap, no out-of-range index — line items are
+      unhashable plain dicts, so index-into-the-parent's-list is the
+      only unambiguous reference scheme) and the recomputed subset sum
+      to match the parent's stored `total_cost` within a 1-cent
+      tolerance (refuses to split an internally-inconsistent parent
+      row rather than silently redistributing). Each child is created
+      via `create_work_order` (reusing its existing cost-computation,
+      not reimplementing it) with `parent_work_order_id` set and, if
+      an entry specified `assigned_subcontractor_id`, immediately
+      dispatched via `dispatch_work_order` (reusing its compliance
+      checks, not reimplemented). Children created first, parent
+      zeroed (`status=SPLIT`, `line_items=[]`, `total_cost=0.0`) last
+      — the zeroing step is destructive/irrecoverable, so ordering it
+      last keeps a mid-failure state visibly recoverable (`NEW-675`'s
+      no-wrapping-transaction gap, disclosed not fixed, same as
+      Phase 2). Schema: `work_orders.status`'s inline `CHECK`
+      constraint (verified present by reading the DDL directly, not
+      assumed) required the same full-table-rebuild migration Phase 0b
+      established for `users.role` — `_migrate_work_orders_status_
+      constraint()` mirrors that method's never-rename-the-real-table
+      procedure exactly, live-tested against a scratch pre-Phase-3 DB
+      file with real rows in both FK-referencing child tables
+      (`equipment_deployments`, `timesheets` — both `ON DELETE SET
+      NULL`) — confirmed data preserved, children's `REFERENCES
+      work_orders(...)` DDL untouched, `PRAGMA foreign_key_check`
+      clean, idempotent re-open (rule 12, not just reasoned about
+      against the in-memory fresh-schema suite). Two integrity holes
+      the new `SPLIT` value opened were also closed this round (found
+      via advisor review before writing, not after): `create_work_
+      order`'s INSERT was missing `parent_work_order_id` entirely (a
+      NEW-259-shaped silent-no-op risk) and `_row_to_work_order`
+      didn't read it back — both fixed and covered by a test that
+      round-trips through `get_work_order`, not the object returned
+      from the create call; `update_work_order`/`update_work_order_
+      execution_status` had no guard against `status='split'` being
+      set by any `PERM_WRITE_OPERATIONS` holder outside
+      `split_work_order`, or against further-mutating an already-SPLIT
+      row (both now raise `ValueError`). The two `status NOT IN
+      (...)` "active work order" queries (`QUALITY_INSPECTION`
+      stage-transition guard, `_query_active_work_orders_for_
+      subcontractor`) were widened to also treat `'split'` as
+      terminal-for-that-purpose, matching the doc comment's claim.
+      Verified directly (not assumed): `get_project_summary`'s cost
+      roll-up (`sum(wo.total_cost for wo in work_orders)`, unfiltered
+      by status) is naturally correct post-split with zero additional
+      filtering — the SPLIT parent contributes `0.0` and its children
+      contribute their real costs, summing back to the original total;
+      covered by a regression test comparing the roll-up before vs.
+      after a split. Also verified `Invoice` has `customer_id`/
+      `project_id` and no `work_order_id` column, so Phase 2's one
+      invoice per job is completely unaffected by a later split.
+      Minimal `POST /api/v1/operations/work-orders/{id}/split` route
+      added mirroring `/dispatch`; no admin UI button yet (Phase 4/a
+      later addition). 16 new tests (round 1) in
+      `tests/test_restoricon_core/test_b8_16_phase3_split_work_order.py`
+      (valid split, roll-up regression, six rejection cases, RBAC x3,
+      both SPLIT-immutability guards, invoice-unaffected, migration
+      against a legacy DB with data). `NEW-676` (SPLIT parent inflates
+      `get_project_summary`'s work-order count denominator, cosmetic),
+      `NEW-677` (`dispatch_work_order`/`accept_work_order` have no
+      SPLIT-specific guard, consistent with their pre-existing
+      no-status-precondition permissiveness for every other status,
+      not a novel gap), and `NEW-678` (task spec's
+      `assigned_technician_user_id` doesn't exist on `WorkOrder` —
+      subcontractor-only assignment support, not a bug) logged, not
+      fixed, per rule 8.
+      **Round 2 fixes (code-reviewer, same day):** three findings from
+      the round-1 review, all fixed and re-verified: (1) `NEW-679`'s
+      existence-only half — `split_work_order` had no up-front check
+      that every `splits[i]["assigned_subcontractor_id"]` refers to a
+      real subcontractor, so a bad id on a later split entry left an
+      earlier entry's already-committed child permanently
+      double-counted against the still-unzeroed parent (live-reproduced
+      by the reviewer: `total_cost` went from `500.0` to `1000.0`) — a
+      pre-write existence-validation pass over every entry, before the
+      children-creation loop, closed it; (2) `update_work_order`'s
+      SPLIT-immutability guard read the row's current status AFTER its
+      own permission-oracle checks instead of before, an ordering bug
+      the reviewer flagged as its own narrow permission-oracle-order
+      concern, reordered to check-status-first; (3) a concurrency guard
+      (`AND status = 'draft'` + rowcount check, mirroring `NEW-631`/
+      `NEW-632`'s claim-race idiom from `crm_service.py`) added on the
+      final parent-zeroing UPDATE, closing a TOCTOU window where two
+      concurrent `split_work_order` calls on the same parent could both
+      pass the earlier DRAFT-status read and both attempt to zero the
+      same row.
+      **Round 3 fix (code-reviewer, same day):** `NEW-679`'s
+      compliance-path half — round 2's existence pre-check didn't cover
+      `dispatch_work_order`'s other rejection reasons (DNC status,
+      expired COI, inactive license), so the identical roll-up
+      double-count was still reachable via a split entry naming a
+      real-but-noncompliant subcontractor (live-reproduced by the
+      reviewer with a `dnc_status=1` subcontractor on a later split
+      entry). Fixed by extracting `dispatch_work_order`'s DNC/COI/
+      license checks into a new shared private helper,
+      `OperationsService._check_subcontractor_compliance`, called both
+      by `dispatch_work_order` itself and by `split_work_order`'s
+      pre-check loop (now also covering compliance, not just
+      existence) — so the two paths can never drift on what counts as
+      "dispatchable." 1 more test added this round (20 total in
+      `test_b8_16_phase3_split_work_order.py` — 16 from round 1, 3 from
+      round 2's own three fixes, 1 from this round); full suite 1333
+      passed.
+      `NEW-679`'s ledger entry updated to reflect both rounds are now
+      closed, with two residuals still explicitly open under
+      `NEW-675`'s no-wrapping-transaction gap: a genuine mid-loop DB
+      error on a child's own INSERT, and a narrower TOCTOU race where
+      a subcontractor's existence/compliance can change between the
+      pre-check's read and `dispatch_work_order`'s own later re-read
+      inside the children-creation loop.
+      **Phase 4 (intake form UI), DONE, code-reviewer APPROVED (round 2,
+      after two Critical fixes)** — `_render_work_order_intake_section()`
+      (`web_surfaces.py`): the paper-work-order-styled intake form
+      (customer info, sales attribution, diagnostic/service-call
+      fields, a repeatable line-items builder, Appointment Details),
+      gated at the Python call site so its markup is genuinely absent
+      from PM/sales/admin portal bytes, submitting to new route
+      `POST /api/v1/operations/work-order-intake` (thin wrapper over
+      Phase 2's `submit_work_order_intake`, unmodified). A second new
+      route, `GET /api/v1/operations/salesperson-roster`
+      (`AuthService.list_salesperson_roster`), was added mid-phase per
+      Ish's decision: rather than a raw numeric salesperson-id input,
+      built a deliberately narrow id+name-only endpoint behind a new
+      `PERM_READ_SALESPERSON_ROSTER` permission (rejected reusing
+      `PERM_MANAGE_USERS` — too broad — and `PERM_READ_TEAM_SALES_DATA`
+      — verified to be treated as an ownership-narrowing bypass
+      elsewhere in this codebase, which would have been a worse
+      over-grant), scoped to a new `SALES_ATTRIBUTION_ROLES` constant.
+      Round 1 review found two real Critical bugs, not style nits: the
+      line-item builder's `oninput` handler triggered a full
+      `tbody.innerHTML` re-render on every keystroke, destroying input
+      focus and making the form's primary text-entry interaction
+      unusable (fixed: edits now update only the derived total cells
+      in place, full re-render reserved for add/remove-row); and the
+      roster-load 401 handler called an undefined `logoutUser()`,
+      silently swallowed by the surrounding try/catch instead of
+      redirecting to login (fixed: matched this page's own actual
+      401 convention, `window.location.href = '/admin/login'`). Also
+      corrected `NEW-682`'s Impact wording (rule 6) after review traced
+      a concrete, real money-diversion path — `submit_work_order_intake`'s
+      unvalidated `salesperson_user_id` flows into `record_payment`'s
+      commission trigger with zero role check anywhere in
+      `commission_service.py`, so a technician naming their own user id
+      can have themselves paid a flat commission — understated in the
+      first draft as "correctness-only," corrected to lead with the
+      real risk. `NEW-680` (roster endpoint) and `NEW-682` (the
+      unvalidated-salesperson-id gap itself, deferred — Phase 2's
+      orchestrator wasn't to be touched this round) logged; `NEW-681`
+      (Service Call Fee stays note-only, not billed) resolved as
+      accepted per Ish's explicit decision, no code change.
+      **Phase 5, DONE, code-reviewer APPROVED + live-verified against
+      the real production DB (2026-09-29) — B8.16 CLOSED IN FULL.**
+      Joy Clark's WO #351695937 (water heater replacement, $790
+      invoice, technician/salesperson Mike Regina — the original job
+      Ish pasted at the very start of this effort) backfilled directly
+      via the service layer (`restoricon_core/backfill_wo_351695937.py`,
+      a one-off script mirroring `migrate_aigentik.py`'s bootstrap
+      pattern), not through the intake form, since the job is
+      already completed/paid — the intake flow's DRAFT terminus can't
+      express that. Code-reviewer live-executed the script against a
+      COPY of the real production DB before approving (not just the
+      in-memory test suite) and found a real blocker this way: the
+      live DB had never had recent migrations applied — missing Phase
+      3's `work_orders.parent_work_order_id`/`status` CHECK widening
+      entirely (`NEW-683`, confirmed by the crash itself, not
+      theorized). live-verifier backed up the real DB (SHA256-verified),
+      brought its schema current via the same additive migration path
+      every other part of this codebase already uses, verified the
+      migration was additive-only (identical row counts before/after
+      across every table), then ran the backfill's dry-run and
+      `--apply` against the real file. **Direct SQL confirmation
+      against production, not the script's own printed report**:
+      exactly one customer, one work order (`notes` carries both the
+      diagnostic detail and the historical `351695937` reference
+      number; confirmed `Model: XE30S06ST45U1`, confirmed the rejected
+      `XE30S06ST4501` OCR alternative is absent), one invoice
+      (`invoice_type='project'`, `assigned_user_id`=Mike Regina's real
+      id, `amount=790.0`, `status='paid'`, `balance_due=0.0`), and
+      **exactly one** `commission_ledger_entries` row tied to that
+      invoice's id — not zero, not a double-fire, the exact class of
+      bug Phases 2/3 spent multiple review rounds getting right
+      elsewhere in this pipeline, verified to hold here too.
+      `PRAGMA integrity_check` clean. `NEW-683` resolved.
+      Findings logged, not fixed this round: `web_surfaces.py:3403`
+      still hardcodes an invalid `stage: 'Lead'` string in the admin
+      CRM's `submitProject()` (adjacent to Phase 2's project-creation
+      work but a different call site — Ish to decide whether to bundle
+      the fix into Phase 2); `web_surfaces.py`'s "Add Customer" modal
+      has no address field at all — moot for Joy Clark's own record
+      now (entered via the service layer, bypassing that gap), but
+      still a live gap for any future customer entered by hand through
+      the admin UI.
+- [ ] **B9 — Codey-Estimator integration, QUEUED for immediately after
+      B8.16 Phase 5** (Ish, 2026-09-29: this work is fully owned by this
+      session/coordinator going forward, folded into Codey-OS/Restoricon
+      proper — not a separate repo, not another session's territory).
+      In-repo merge into `restoricon_core`, on branch
+      `feat/estimator-phase3-schema` (not `main` — do not start this
+      until switching branches, and confirm nothing else has the shared
+      working tree checked out on a conflicting branch first, per the
+      Phase 0b concurrent-session collision this project already hit
+      once on this exact pairing of branches).
+      **B9.1, DONE** (commit `1ac1e25` on that branch): estimating-system
+      schema — rebuilds `estimates` (customer_id CASCADE→RESTRICT, adds
+      creator/assignee/opportunity/lead/property links, versioning
+      pointers, `workflow_status`) via the established
+      `_migrate_users_role_constraint`-style full-rebuild procedure; adds
+      `estimate_versions`, `estimate_line_items`, `estimate_share_links`,
+      `estimate_decisions` tables with lock-immutability triggers; adds
+      `users.requires_estimate_approval`,
+      `documents.estimate_id`/`customer_visible`; six new permission
+      constants, `ROLE_PERMISSIONS` updated across all 8 roles.
+      **B9.2, SCOPED ONLY** (commit `6c8f4d5`, plan not implemented):
+      estimate service layer, API, UI, delivery.
+      **New requirement, added mid-B8.16 (Ish, 2026-09-29), fold into
+      B9.2's scope before implementation starts, don't bolt on after**:
+      each estimate line item (material lines specifically) needs a
+      per-line-item markup percentage field — editable, fluctuates per
+      line, defaults to 30%. Check `estimate_line_items`' real B9.1
+      schema for whatever pricing-related field shape already exists
+      (category/unit_cost/etc.) before deciding whether this is a new
+      column or fits an existing structure — don't invent a new field
+      shape that duplicates something B9.1 already built.
 
 ### Phase B9 — Estimating System (§6.13)
 

@@ -25,20 +25,26 @@ from ..models import AuditRecord, utc_now_iso
 _AUDITABLE_USER_FIELDS = frozenset({
     "full_name", "email", "phone", "role", "department",
     "customer_id", "custom_permissions", "active",
+    "territory_id",  # B8.9a
+    "terminated_at",  # B8.7c
 })
 
 # NEW-314: Contract diff domain -- excludes customer_signature_data / content.
+# B8.6a: assigned_user_id added (NEW-548) -- same rationale as
+# _AUDITABLE_APPOINTMENT_FIELDS' inclusion of appointments.assigned_user_id.
 _AUDITABLE_CONTRACT_FIELDS = frozenset({
     "id", "contract_number", "customer_id", "project_id", "estimate_id",
     "title", "template_name", "status", "customer_signed_at", "version",
-    "created_at", "updated_at",
+    "assigned_user_id", "created_at", "updated_at",
 })
 
 # NEW-314: Invoice diff domain -- excludes payments.
+# B8.7a: assigned_user_id/invoice_type added -- same rationale as
+# _AUDITABLE_CONTRACT_FIELDS' inclusion of contracts.assigned_user_id.
 _AUDITABLE_INVOICE_FIELDS = frozenset({
     "id", "invoice_number", "customer_id", "project_id", "status", "amount",
     "deposit_amount", "balance_due", "due_date", "notes",
-    "created_at", "updated_at",
+    "assigned_user_id", "invoice_type", "created_at", "updated_at",
 })
 
 # NEW-314: Subcontractor diff domain -- excludes license_number,
@@ -74,8 +80,9 @@ _AUDITABLE_PROJECT_FIELDS = frozenset({
     "subcontractors", "scope_of_work", "estimated_cost", "contract_amount",
     "actual_cost", "profit", "notes", "warranty_info", "stage_entered_at",
     "insurance_claim_number", "insurance_carrier", "adjuster_name",
-    "adjuster_phone", "adjuster_email", "deductible", "created_at",
-    "updated_at",
+    "adjuster_phone", "adjuster_email", "deductible", "coverage_amount",
+    "supplement_amount", "property_id",
+    "created_at", "updated_at",
 })
 
 # NEW-314: WorkOrder diff domain. Excludes nothing -- WorkOrder carries no
@@ -84,7 +91,9 @@ _AUDITABLE_PROJECT_FIELDS = frozenset({
 # to_dict key), not the `line_items_json` column.
 _AUDITABLE_WORK_ORDER_FIELDS = frozenset({
     "id", "work_order_number", "title", "project_id", "trade",
-    "assigned_subcontractor_id", "assigned_crew_lead", "scheduled_start",
+    "assigned_subcontractor_id", "assigned_crew_lead",
+    "parent_work_order_id",  # B8.16 Phase 3
+    "scheduled_start",
     "scheduled_end", "actual_start", "actual_end", "status", "line_items",
     "total_cost", "instructions", "notes", "dispatched_at", "accepted_at",
     "completed_at", "verified_at", "created_at", "updated_at",
@@ -161,6 +170,48 @@ _AUDITABLE_PURCHASE_ORDER_FIELDS = frozenset({
     "id", "po_number", "vendor_id", "project_id", "status", "items",
     "subtotal", "tax_amount", "total_amount", "ordered_date", "expected_date",
     "received_date", "notes", "created_at", "updated_at",
+})
+
+# B8.8b-1: FinancingRecord diff domain. Excludes nothing -- drift guard
+# only. Uses the dataclass field name `document_ids` (not the `_json`
+# column) since build_audit_details sees to_dict() keys, mirroring
+# _AUDITABLE_APPOINTMENT_TYPE_FIELDS' `scheduling_hours` precedent.
+_AUDITABLE_FINANCING_RECORD_FIELDS = frozenset({
+    "id", "project_id", "invoice_id", "provider", "application_status",
+    "amount_financed", "customer_contribution", "document_ids", "status",
+    "created_by", "created_at", "updated_at",
+})
+
+# B8.9a: Territory diff domain. Excludes nothing -- drift guard only,
+# same rationale as _AUDITABLE_FINANCING_RECORD_FIELDS above.
+_AUDITABLE_TERRITORY_FIELDS = frozenset({
+    "id", "name", "code", "notes", "created_at",
+})
+
+# NEW-636: Timesheet diff domain. Excludes nothing -- drift guard only,
+# same rationale as _AUDITABLE_PURCHASE_ORDER_FIELDS above. hourly_rate /
+# total_cost ARE included here, unlike _AUDITABLE_EMPLOYEE_FIELDS's exclusion
+# of the employee's standing rate: submit_timesheet defaults ts.hourly_rate
+# from the employee's own rate when not explicitly supplied, so this is
+# often a direct copy of it, not a distinct transaction amount -- included
+# anyway per the drift-guard-only rationale, not because it's a different
+# kind of value. No new disclosure surface either way: PERM_READ_AUDIT_LOG
+# holders (ROLE_ADMIN/ROLE_MANAGER) already hold PERM_READ_HR and can read
+# Employee.hourly_rate directly. Note: Timesheet has no updated_at field,
+# unlike its neighbors.
+_AUDITABLE_TIMESHEET_FIELDS = frozenset({
+    "id", "employee_id", "project_id", "work_order_id", "work_date",
+    "hours_worked", "work_type", "hourly_rate", "total_cost", "notes",
+    "approved_by_id", "status", "created_at",
+})
+
+# B8.12b: ProductionHandoffChecklist diff domain. Excludes nothing --
+# drift guard only, same rationale as _AUDITABLE_FINANCING_RECORD_FIELDS
+# above. Uses the dataclass field name `items` (not the `_json` column),
+# same convention as _AUDITABLE_FINANCING_RECORD_FIELDS' `document_ids`.
+_AUDITABLE_HANDOFF_CHECKLIST_FIELDS = frozenset({
+    "id", "project_id", "items", "completed_at", "completed_by",
+    "created_by", "created_at", "updated_at",
 })
 
 

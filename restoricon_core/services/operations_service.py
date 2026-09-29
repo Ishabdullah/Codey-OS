@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from ..auth import (
     AuthContext,
     PERM_DISPATCH_WORK_ORDERS,
     PERM_MANAGE_PROJECTS,
     PERM_READ_OPERATIONS,
+    PERM_READ_OWN_SOLD_PROJECTS,
     PERM_READ_SUBCONTRACTORS,
+    PERM_READ_TEAM_SALES_DATA,
     PERM_WRITE_OPERATIONS,
     ROLE_CUSTOMER,
+    ROLE_SUBCONTRACTOR,
+    ROLE_TECHNICIAN,
 )
 from ..database import DatabaseManager
 from ..models import (
@@ -42,14 +46,28 @@ from .audit_service import (
     _AUDITABLE_PROJECT_FIELDS,
     _AUDITABLE_WORK_ORDER_FIELDS,
 )
+from .finance_service import FinanceService
 
 
 class OperationsService:
     """Core domain operations engine for Restoricon Core."""
 
-    def __init__(self, db_manager: DatabaseManager, audit_service: AuditService):
+    def __init__(
+        self,
+        db_manager: DatabaseManager,
+        audit_service: AuditService,
+        finance_service: Optional[FinanceService] = None,
+    ):
         self.db = db_manager
         self.audit = audit_service
+        # NEW-613: lazily default-constructed only when not supplied, same
+        # pattern as CRMService's `operations_service or OperationsService(
+        # self.db, audit_service)` (crm_service.py:198). Only used by
+        # transition_project_stage's CLOSED-stage gate below
+        # (FinanceService.get_project_ar_net, an internal read-only,
+        # no-actor helper -- see its own docstring), so a fallback instance
+        # built with this same audit_service is harmless.
+        self.finance_service = finance_service or FinanceService(db_manager, audit_service)
 
     # ==========================================
     # ROW CONVERTERS
@@ -85,6 +103,10 @@ class OperationsService:
             trade=row["trade"],
             assigned_subcontractor_id=row["assigned_subcontractor_id"] if "assigned_subcontractor_id" in keys else None,
             assigned_crew_lead=row["assigned_crew_lead"] if "assigned_crew_lead" in keys else None,
+            # B8.16 Phase 3: same "x in keys else None" guard as its
+            # neighbors (a pre-migration legacy DB row won't have this
+            # column yet).
+            parent_work_order_id=row["parent_work_order_id"] if "parent_work_order_id" in keys else None,
             scheduled_start=row["scheduled_start"] if "scheduled_start" in keys else None,
             scheduled_end=row["scheduled_end"] if "scheduled_end" in keys else None,
             actual_start=row["actual_start"] if "actual_start" in keys else None,
@@ -185,10 +207,122 @@ class OperationsService:
     # PROJECT LIFECYCLE & STAGE TRANSITIONS
     # ==========================================
 
+    def _actor_reaches_only_via_sold_projects(self, actor: AuthContext) -> bool:
+        """True iff `actor` holds PERM_READ_OWN_SOLD_PROJECTS (B8.12a) but
+        neither PERM_READ_OPERATIONS/PERM_MANAGE_PROJECTS (this domain's
+        existing flat gates) nor PERM_READ_TEAM_SALES_DATA (the team-wide
+        bypass -- this is how ROLE_SALES_MANAGER keeps full, unfiltered
+        operations visibility, same mechanism as crm_service.py's
+        identical narrowing). NEW-630 briefly granted PERM_READ_OPERATIONS
+        itself to ROLE_SALES_MANAGER (dd244d5, 2026-09-25), which would
+        have made this bypass a second, redundant route to the same
+        unfiltered result for that role -- that grant was reversed
+        (2026-09-27, direct Ish decision), so PERM_READ_TEAM_SALES_DATA
+        remains the only route. Keyed on permission, never
+        `actor.role`, so a custom_permissions_json grant of
+        PERM_READ_OWN_SOLD_PROJECTS to any other role is narrowed
+        identically."""
+        return (
+            actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
+            and not actor.has_permission(PERM_READ_OPERATIONS)
+            and not actor.has_permission(PERM_MANAGE_PROJECTS)
+            and not actor.has_permission(PERM_READ_TEAM_SALES_DATA)
+        )
+
+    def _actor_owns_sold_project(self, project_id: int, actor: AuthContext) -> bool:
+        """True iff a `contracts` row exists with `project_id` matching and
+        `assigned_user_id == actor.user_id`. A Contract row with
+        assigned_user_id IS NULL (unclaimed) never matches this query --
+        fail-closed, deliberately NOT the leads/opportunities unclaimed-pool
+        leniency (see PERM_READ_OWN_SOLD_PROJECTS in auth.py)."""
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT 1 FROM contracts WHERE project_id = ? AND assigned_user_id = ? LIMIT 1;",
+            (project_id, actor.user_id),
+        ).fetchone()
+        return row is not None
+
+    def _actor_assigned_to_project(self, project_id: int, actor: AuthContext) -> bool:
+        """True iff `actor.user_id` appears in the owning project's
+        `projects.assigned_employees_json` list (NEW-628). Deliberately
+        role-keyed (`actor.role == ROLE_TECHNICIAN` at each call site, not a
+        permission check) to mirror crm_service.py's identical, already-shipped
+        ROLE_TECHNICIAN check on the same column (crm_service.py ~L2833) --
+        unlike `_actor_reaches_only_via_sold_projects` above (permission-keyed,
+        so a custom_permissions_json grant of PERM_READ_OWN_SOLD_PROJECTS to
+        any role gets narrowed), assigned_employees ownership has no
+        standalone permission of its own to key on; ROLE_TECHNICIAN's actual
+        grant is PERM_READ_ASSIGNED_PROJECTS, which no other built-in role
+        holds, so keying on role vs. that permission is equivalent for every
+        role defined today. Python-side json.loads decode, not a SQL
+        `json_each` subquery -- this codebase has never used json_each
+        anywhere (checked), and crm_service.py's identical check decodes in
+        Python too; matching that convention over inventing a third style."""
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT assigned_employees_json FROM projects WHERE id = ?;",
+            (project_id,),
+        ).fetchone()
+        if not row or not row["assigned_employees_json"]:
+            return False
+        assigned = json.loads(row["assigned_employees_json"])
+        return actor.user_id in assigned
+
+    def _actor_owns_work_order_via_subcontractor(self, work_order_row, actor: AuthContext) -> bool:
+        """True iff `actor` is a ROLE_SUBCONTRACTOR actor whose own
+        `actor.subcontractor_id` matches `work_order_row`'s
+        `assigned_subcontractor_id` (Phase 0b, B8.16). Mirrors
+        `_actor_assigned_to_project`'s role-keyed shape for ROLE_TECHNICIAN
+        above -- a subcontractor actor holds flat PERM_READ_OPERATIONS/
+        PERM_WRITE_OPERATIONS (see ROLE_PERMISSIONS[ROLE_SUBCONTRACTOR] in
+        auth.py) with no company-wide operations visibility of its own, so
+        every call site gating on those permissions for a work order must
+        also narrow via this helper.
+
+        `work_order_row` may be a `sqlite3.Row` (real query result) or a
+        plain `dict` (a not-yet-persisted `create_work_order` call, before
+        an `id` exists) -- both support `row["assigned_subcontractor_id"]`.
+
+        Deliberately requires `actor.subcontractor_id is not None` --
+        without that guard, a subcontractor-role user whose own
+        `subcontractor_id` was never set (NULL) would match a work order
+        with no subcontractor assigned at all (`assigned_subcontractor_id`
+        also NULL), which is a real permission bypass, not a false
+        positive worth tolerating. This is a deliberate strengthening of
+        this phase's own spec text (which compares the two fields directly
+        with no None-guard) -- flagged explicitly since it's a change from
+        what was asked, not an oversight.
+        """
+        return (
+            actor.role == ROLE_SUBCONTRACTOR
+            and actor.subcontractor_id is not None
+            and work_order_row["assigned_subcontractor_id"] == actor.subcontractor_id
+        )
+
+    def _technician_assigned_project_ids(self, actor: AuthContext) -> Set[int]:
+        """Set of project ids `actor.user_id` is assigned to, for narrowing
+        a *different* table's rows (work_orders/equipment) by their
+        project_id/current_project_id in one pass instead of N+1 calls to
+        `_actor_assigned_to_project`. Scans+decodes all `projects` rows in
+        Python rather than a SQL subquery for the same json_each-avoidance
+        reason as `_actor_assigned_to_project` above; mirrors
+        crm_service.py's list_projects, which already does an unfiltered
+        `SELECT * FROM projects` and filters technician rows in Python
+        (crm_service.py ~L2888-2897)."""
+        conn = self.db.get_connection()
+        rows = conn.execute("SELECT id, assigned_employees_json FROM projects;").fetchall()
+        ids: Set[int] = set()
+        for r in rows:
+            assigned = json.loads(r["assigned_employees_json"]) if r["assigned_employees_json"] else []
+            if actor.user_id in assigned:
+                ids.add(r["id"])
+        return ids
+
     def get_project(self, project_id: int, actor: AuthContext) -> Optional[Project]:
         if not (
             actor.has_permission(PERM_READ_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
             or (actor.role == ROLE_CUSTOMER and actor.customer_id is not None)
         ):
             raise PermissionError("Actor lacks permission to view projects in operations domain")
@@ -201,6 +335,19 @@ class OperationsService:
         if actor.role == ROLE_CUSTOMER:
             if not actor.customer_id or actor.customer_id != row["customer_id"]:
                 raise PermissionError("Customer cannot view other customers' projects")
+        elif self._actor_reaches_only_via_sold_projects(actor):
+            # B8.12a (NEW-628): actor reached this gate only via
+            # PERM_READ_OWN_SOLD_PROJECTS -- narrow to projects they sold.
+            if not self._actor_owns_sold_project(project_id, actor):
+                raise PermissionError("Actor cannot view a project they did not sell")
+        elif actor.role == ROLE_TECHNICIAN:
+            # NEW-628: ROLE_TECHNICIAN holds PERM_READ_OPERATIONS/
+            # PERM_WRITE_OPERATIONS org-wide but only
+            # PERM_READ_ASSIGNED_PROJECTS -- narrow to projects they're
+            # assigned to, mirroring crm_service.py's identical check.
+            assigned = json.loads(row["assigned_employees_json"]) if row["assigned_employees_json"] else []
+            if actor.user_id not in assigned:
+                raise PermissionError("Technician cannot view a project they are not assigned to")
 
         return self._row_to_project(row, actor.role)
 
@@ -275,8 +422,14 @@ class OperationsService:
                 raise ValueError("Transition to in_progress requires at least one work order or a scheduled start date")
 
         elif target == ProjectStage.QUALITY_INSPECTION:
+            # B8.16 Phase 3: 'split' added to the terminal-for-this-purpose
+            # set -- a SPLIT parent's own line_items/total_cost are zeroed
+            # at write time (the work moved to its children), so it must
+            # never block this gate the way a still-open DRAFT/DISPATCHED/
+            # etc. work order legitimately does. See WorkOrderStatus.SPLIT's
+            # own docstring (models.py) for the full rationale.
             active_wos = conn.execute(
-                "SELECT id, status FROM work_orders WHERE project_id = ? AND status NOT IN ('completed', 'verified', 'cancelled');",
+                "SELECT id, status FROM work_orders WHERE project_id = ? AND status NOT IN ('completed', 'verified', 'cancelled', 'split');",
                 (project_id,),
             ).fetchall()
             if active_wos:
@@ -295,13 +448,27 @@ class OperationsService:
                 project.actual_completion = utc_now_iso()
 
         elif target == ProjectStage.CLOSED:
-            unpaid_invoices = conn.execute(
-                "SELECT id, balance_due FROM invoices WHERE project_id = ? AND balance_due > 0 AND status NOT IN ('void', 'paid');",
-                (project_id,),
-            ).fetchall()
-            if unpaid_invoices and not reason:
-                total_unpaid = sum(r["balance_due"] for r in unpaid_invoices)
-                raise ValueError(f"Cannot close project with outstanding balance of ${total_unpaid:.2f} without an override reason")
+            # NEW-613: was a raw balance_due query with no financing
+            # offset, disagreeing with FinanceService.get_project_pnl on
+            # the same project's AR. Now sourced from the same shared,
+            # no-actor get_project_ar_net() helper get_project_pnl itself
+            # calls, so this gate reconciles to
+            # get_project_pnl(project_id)["total_outstanding"] by
+            # construction. Behavior change (intended, not an incidental
+            # refactor side effect): a project whose outstanding balance
+            # is now fully covered by an eligible financing record can
+            # transition to CLOSED with no override `reason`, where
+            # previously it always required one regardless of financing.
+            # Rounded before the `> 0` comparison -- total_outstanding is
+            # a raw (unrounded) float subtraction, and float noise from
+            # summing several invoice balances/offsets could otherwise
+            # leave a residue like 4.5e-13 that reads as ">0" while every
+            # displayed dollar figure is $0.00, producing a
+            # self-contradictory error message.
+            ar_net = self.finance_service.get_project_ar_net(project_id)
+            net_outstanding = round(ar_net["total_outstanding"], 2)
+            if net_outstanding > 0 and not reason:
+                raise ValueError(f"Cannot close project with outstanding balance of ${net_outstanding:.2f} without an override reason")
 
         # Map to legacy status
         status_map = {
@@ -432,11 +599,20 @@ class OperationsService:
     # ==========================================
 
     def create_milestone(self, milestone: ProjectMilestone, actor: AuthContext) -> ProjectMilestone:
+        """Create a milestone under `milestone.project_id`. Write-path
+        counterpart to NEW-628: a ROLE_TECHNICIAN actor is additionally
+        narrowed to projects they are assigned to
+        (`_actor_assigned_to_project`) -- otherwise any technician with
+        org-wide PERM_WRITE_OPERATIONS could create milestones on a project
+        they have no assignment to at all."""
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
         ):
             raise PermissionError("Actor lacks permission to create project milestones")
+
+        if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(milestone.project_id, actor):
+            raise PermissionError("Technician cannot create a milestone for a project they are not assigned to")
 
         if not milestone.name or not milestone.name.strip():
             raise ValueError("Milestone name cannot be empty")
@@ -482,18 +658,36 @@ class OperationsService:
         return milestone
 
     def get_milestone(self, milestone_id: int, actor: AuthContext) -> Optional[ProjectMilestone]:
-        if not actor.has_permission(PERM_READ_OPERATIONS):
+        if not (
+            actor.has_permission(PERM_READ_OPERATIONS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
+        ):
             raise PermissionError("Actor lacks permission to view milestones")
 
         conn = self.db.get_connection()
         row = conn.execute("SELECT * FROM project_milestones WHERE id = ?;", (milestone_id,)).fetchone()
         if not row:
             return None
+
+        # B8.12a (NEW-628): actor reached this gate only via
+        # PERM_READ_OWN_SOLD_PROJECTS -- narrow to milestones on projects
+        # they sold. (PERM_READ_OPERATIONS holders remain unfiltered here,
+        # same as before this round -- see NEW-628 for that broader gap.)
+        if self._actor_reaches_only_via_sold_projects(actor):
+            if not self._actor_owns_sold_project(row["project_id"], actor):
+                raise PermissionError("Actor cannot view a milestone for a project they did not sell")
+        elif actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to milestones on projects the technician is
+            # assigned to.
+            if not self._actor_assigned_to_project(row["project_id"], actor):
+                raise PermissionError("Technician cannot view a milestone for a project they are not assigned to")
+
         return self._row_to_milestone(row)
 
     def list_milestones(self, project_id: int, actor: AuthContext) -> List[ProjectMilestone]:
         if not (
             actor.has_permission(PERM_READ_OPERATIONS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
             or (actor.role == ROLE_CUSTOMER and actor.customer_id is not None)
         ):
             raise PermissionError("Actor lacks permission to list milestones")
@@ -503,6 +697,14 @@ class OperationsService:
             proj = conn.execute("SELECT customer_id FROM projects WHERE id = ?;", (project_id,)).fetchone()
             if not proj or proj["customer_id"] != actor.customer_id:
                 raise PermissionError("Customer cannot view milestones for other customers' projects")
+        elif self._actor_reaches_only_via_sold_projects(actor):
+            if not self._actor_owns_sold_project(project_id, actor):
+                raise PermissionError("Actor cannot list milestones for a project they did not sell")
+        elif actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to milestones on projects the technician is
+            # assigned to.
+            if not self._actor_assigned_to_project(project_id, actor):
+                raise PermissionError("Technician cannot list milestones for a project they are not assigned to")
 
         rows = conn.execute(
             "SELECT * FROM project_milestones WHERE project_id = ? ORDER BY id ASC;",
@@ -612,11 +814,29 @@ class OperationsService:
         return "WO-0001"
 
     def create_work_order(self, work_order: WorkOrder, actor: AuthContext) -> WorkOrder:
+        """Create a work order under `work_order.project_id`. Write-path
+        counterpart to NEW-628: a ROLE_TECHNICIAN actor is additionally
+        narrowed to projects they are assigned to
+        (`_actor_assigned_to_project`). Phase 0b, B8.16: a ROLE_SUBCONTRACTOR
+        actor is additionally narrowed to only create work orders assigned
+        to themselves (`_actor_owns_work_order_via_subcontractor`)."""
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
         ):
             raise PermissionError("Actor lacks permission to create work orders")
+
+        # `elif` here (and at every other ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR
+        # branch pair in this file) is safe because the two roles are
+        # mutually exclusive on a single AuthContext, not because the checks
+        # compose -- an actor is never both at once, so only one branch is
+        # ever relevant per call.
+        if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(work_order.project_id, actor):
+            raise PermissionError("Technician cannot create a work order for a project they are not assigned to")
+        elif actor.role == ROLE_SUBCONTRACTOR and not self._actor_owns_work_order_via_subcontractor(
+            {"assigned_subcontractor_id": work_order.assigned_subcontractor_id}, actor
+        ):
+            raise PermissionError("Subcontractor cannot create a work order not assigned to themselves")
 
         if not work_order.title or not work_order.title.strip():
             raise ValueError("Work order title cannot be empty")
@@ -649,11 +869,12 @@ class OperationsService:
                 INSERT INTO work_orders (
                     work_order_number, title, project_id, trade,
                     assigned_subcontractor_id, assigned_crew_lead,
+                    parent_work_order_id,
                     scheduled_start, scheduled_end, actual_start, actual_end,
                     status, line_items_json, total_cost, instructions, notes,
                     dispatched_at, accepted_at, completed_at, verified_at,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     work_order.work_order_number,
@@ -662,6 +883,12 @@ class OperationsService:
                     work_order.trade.strip().lower(),
                     work_order.assigned_subcontractor_id,
                     work_order.assigned_crew_lead,
+                    # B8.16 Phase 3: only ever non-None when this INSERT is
+                    # reached via OperationsService.split_work_order (which
+                    # sets it on the in-memory WorkOrder before calling
+                    # create_work_order) -- every other caller constructs a
+                    # WorkOrder with the field left at its None default.
+                    work_order.parent_work_order_id,
                     work_order.scheduled_start,
                     work_order.scheduled_end,
                     work_order.actual_start,
@@ -692,13 +919,39 @@ class OperationsService:
         return work_order
 
     def get_work_order(self, work_order_id: int, actor: AuthContext) -> Optional[WorkOrder]:
-        if not actor.has_permission(PERM_READ_OPERATIONS):
+        if not (
+            actor.has_permission(PERM_READ_OPERATIONS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
+        ):
             raise PermissionError("Actor lacks permission to view work orders")
 
         conn = self.db.get_connection()
         row = conn.execute("SELECT * FROM work_orders WHERE id = ?;", (work_order_id,)).fetchone()
         if not row:
             return None
+
+        # B8.12a (NEW-628): actor reached this gate only via
+        # PERM_READ_OWN_SOLD_PROJECTS -- narrow to work orders on projects
+        # they sold.
+        if self._actor_reaches_only_via_sold_projects(actor):
+            if not self._actor_owns_sold_project(row["project_id"], actor):
+                raise PermissionError("Actor cannot view a work order for a project they did not sell")
+        elif actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to work orders on projects the technician is
+            # assigned to.
+            if not self._actor_assigned_to_project(row["project_id"], actor):
+                raise PermissionError("Technician cannot view a work order for a project they are not assigned to")
+        elif actor.role == ROLE_SUBCONTRACTOR:
+            # Phase 0b, B8.16: narrow to work orders assigned to this
+            # subcontractor themselves -- not part of the phase's own
+            # enumerated call-site list (create_work_order/update_work_order/
+            # list_work_orders only), added here too since without it a
+            # subcontractor's flat PERM_READ_OPERATIONS grant would let them
+            # read any work order by id, contradicting this phase's own
+            # stated invariant.
+            if not self._actor_owns_work_order_via_subcontractor(row, actor):
+                raise PermissionError("Subcontractor cannot view a work order not assigned to themselves")
+
         return self._row_to_work_order(row)
 
     def list_work_orders(
@@ -709,7 +962,10 @@ class OperationsService:
         status: Optional[str] = None,
         subcontractor_id: Optional[int] = None,
     ) -> List[WorkOrder]:
-        if not actor.has_permission(PERM_READ_OPERATIONS):
+        if not (
+            actor.has_permission(PERM_READ_OPERATIONS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
+        ):
             raise PermissionError("Actor lacks permission to list work orders")
 
         query = "SELECT * FROM work_orders WHERE 1=1"
@@ -718,6 +974,17 @@ class OperationsService:
         if project_id is not None:
             query += " AND project_id = ?"
             params.append(project_id)
+
+        # B8.12a: rep-ownership narrowing. When project_id is given, this
+        # composes with the clause above (both AND-ed); when it isn't, this
+        # is the only thing keeping a narrowed rep's list to their own sold
+        # projects' work orders instead of leaking the whole company's --
+        # see NEW-628 for why every OTHER caller of this method still gets
+        # zero row-level filtering.
+        if self._actor_reaches_only_via_sold_projects(actor):
+            query += " AND project_id IN (SELECT project_id FROM contracts WHERE assigned_user_id = ?)"
+            params.append(actor.user_id)
+
         if trade:
             query += " AND trade = ?"
             params.append(trade.strip().lower())
@@ -731,25 +998,57 @@ class OperationsService:
         query += " ORDER BY id ASC;"
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
+
+        if actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to work orders on projects the technician is
+            # assigned to. Python-side filter (not a SQL clause) since
+            # assigned_employees_json isn't a queryable FK column -- mirrors
+            # crm_service.py's list_projects, same reasoning as
+            # `_technician_assigned_project_ids`'s docstring above.
+            allowed_project_ids = self._technician_assigned_project_ids(actor)
+            rows = [r for r in rows if r["project_id"] in allowed_project_ids]
+        elif actor.role == ROLE_SUBCONTRACTOR:
+            # Phase 0b, B8.16: narrow to work orders assigned to this
+            # subcontractor themselves.
+            rows = [r for r in rows if self._actor_owns_work_order_via_subcontractor(r, actor)]
+
         return [self._row_to_work_order(r) for r in rows]
 
     def _query_active_work_orders_for_subcontractor(self, subcontractor_id: int) -> List[Dict[str, Any]]:
         """Unguarded query -- 'active' = non-terminal work_orders rows
-        assigned to this subcontractor. Terminal statuses
-        ('completed', 'verified', 'cancelled') come from
-        work_orders.status's own CHECK constraint (database.py) and match
-        the same NOT IN set this module already uses for the
-        QUALITY_INSPECTION stage-transition guard above. Shared,
+        assigned to this subcontractor. Terminal-for-this-purpose statuses
+        ('completed', 'verified', 'cancelled', 'split') match the same
+        NOT IN set this module already uses for the QUALITY_INSPECTION
+        stage-transition guard above -- NOT the full set of
+        work_orders.status's own CHECK constraint values (B8.16 Phase 3
+        correction: the CHECK constraint now has 8 values, including
+        'draft'/'dispatched'/etc which are very much non-terminal; 'split'
+        is included here despite the parent's own row still nominally
+        "belonging" to the subcontractor at split time, because a SPLIT
+        parent's line_items/total_cost are zeroed and the real remaining
+        work lives on its children -- a subcontractor being deleted with
+        only a SPLIT parent left on their record has no real outstanding
+        work order to block that delete on). Shared,
         unfiltered core for both the RBAC-gated public read
         (get_active_work_orders_for_subcontractor) and the subcontractor
         DELETE route's server-side re-check, so the two can never drift
         (NEW-507, mirrors the staff_schedules/appointment_types
-        active-reference precedent, Delete-buttons round 2026-09-11)."""
+        active-reference precedent, Delete-buttons round 2026-09-11).
+
+        NEW-646: `project_id` was added to the SELECT (additive column) so
+        the RBAC-gated public method below can narrow its own return value
+        for ROLE_TECHNICIAN by assigned-project membership. Deliberately NOT
+        row-filtered in here -- crm_service.py's subcontractor-delete
+        precheck (crm_service.py ~L6742) calls this exact unguarded method
+        directly, bypassing the narrowed public method entirely, so a
+        technician's narrowed (possibly empty) result must never reach it;
+        doing so would let a subcontractor with real active work orders get
+        deleted. Any future filtering belongs ONLY in the public method."""
         conn = self.db.get_connection()
         rows = conn.execute(
-            "SELECT id, work_order_number, title, status FROM work_orders "
+            "SELECT id, work_order_number, title, status, project_id FROM work_orders "
             "WHERE assigned_subcontractor_id = ? "
-            "AND status NOT IN ('completed', 'verified', 'cancelled');",
+            "AND status NOT IN ('completed', 'verified', 'cancelled', 'split');",
             (subcontractor_id,),
         ).fetchall()
         return [dict(row) for row in rows]
@@ -759,12 +1058,31 @@ class OperationsService:
     ) -> List[Dict[str, Any]]:
         """RBAC-gated read of active (non-terminal) work orders assigned to
         a subcontractor -- backs the admin-surface subcontractor-delete
-        precheck popup (NEW-507)."""
+        precheck popup (NEW-507).
+
+        NEW-646: ROLE_TECHNICIAN is narrowed to rows whose `project_id` is
+        one of their assigned projects (`_technician_assigned_project_ids`).
+        This filtering lives here, not in the shared
+        `_query_active_work_orders_for_subcontractor` helper, because that
+        helper is also called unguarded by crm_service.py's
+        subcontractor-delete precheck -- see that helper's docstring."""
         if not actor.has_permission(PERM_READ_OPERATIONS):
             raise PermissionError("Actor lacks permission to read work orders")
-        return self._query_active_work_orders_for_subcontractor(subcontractor_id)
+        rows = self._query_active_work_orders_for_subcontractor(subcontractor_id)
+        if actor.role == ROLE_TECHNICIAN:
+            allowed_project_ids = self._technician_assigned_project_ids(actor)
+            rows = [r for r in rows if r["project_id"] in allowed_project_ids]
+        return rows
 
     def update_work_order(self, work_order: WorkOrder, actor: AuthContext) -> WorkOrder:
+        """Update an existing work order's dispatch/execution fields.
+        NEW-643: for ROLE_TECHNICIAN, ownership is checked against the
+        CURRENT `project_id` read fresh from the `work_orders` row in the
+        DB -- never `work_order.project_id` off the caller-supplied model.
+        The `UPDATE` below never writes `project_id` (it isn't a mutable
+        field of this call), so the model's copy could be stale or spoofed;
+        the DB row is the only authoritative source for which project this
+        work order actually belongs to."""
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
@@ -773,6 +1091,83 @@ class OperationsService:
 
         if not work_order.id:
             raise ValueError("Work order ID is required for update")
+
+        # B8.16 Phase 3 round-2 fix (code-reviewer, 2026-09-29): the
+        # SPLIT-immutability checks (originally here, ahead
+        # of the ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR ownership branches below)
+        # were reordered to run AFTER those ownership/permission branches.
+        # Running them first was a new permission-oracle leak: a technician
+        # or subcontractor with no legitimate relationship to an arbitrary
+        # work order id could probe it and get back this method's
+        # SPLIT-specific ValueError (revealing the row exists and its
+        # split-status) instead of the PermissionError they should get for
+        # having no relationship to it at all. An actor must clear ownership
+        # first, same as before this round; only then is SPLIT-immutability
+        # relevant.
+        if actor.role == ROLE_TECHNICIAN:
+            conn = self.db.get_connection()
+            row = conn.execute(
+                "SELECT project_id FROM work_orders WHERE id = ?;", (work_order.id,)
+            ).fetchone()
+            if not row or not self._actor_assigned_to_project(row["project_id"], actor):
+                raise PermissionError("Technician cannot update a work order for a project they are not assigned to")
+        elif actor.role == ROLE_SUBCONTRACTOR:
+            # Phase 0b, B8.16: ownership checked against the CURRENT
+            # `assigned_subcontractor_id` read fresh from the DB row, same
+            # NEW-643 discipline as the ROLE_TECHNICIAN branch above -- never
+            # the caller-supplied (possibly stale/spoofed) model field.
+            conn = self.db.get_connection()
+            row = conn.execute(
+                "SELECT assigned_subcontractor_id FROM work_orders WHERE id = ?;", (work_order.id,)
+            ).fetchone()
+            if not row or not self._actor_owns_work_order_via_subcontractor(row, actor):
+                raise PermissionError("Subcontractor cannot update a work order not assigned to themselves")
+            # C1 fix (code-reviewer, 2026-09-27): unlike ROLE_TECHNICIAN's
+            # `project_id`, `assigned_subcontractor_id` IS one of the columns
+            # the UPDATE below writes -- it isn't made immutable "by
+            # construction" the way `project_id` is. Without this explicit
+            # guard, a subcontractor who legitimately owns this work order
+            # could still change `assigned_subcontractor_id` to a different
+            # subcontractor's id in the same call, handing that other
+            # subcontractor read/write access to it -- effectively
+            # self-service PERM_DISPATCH_WORK_ORDERS behavior, which this
+            # role's permission grant explicitly excludes. Reassignment is a
+            # dispatch/admin action, not something a subcontractor can do to
+            # their own work order.
+            if work_order.assigned_subcontractor_id != row["assigned_subcontractor_id"]:
+                raise PermissionError(
+                    "Subcontractor cannot reassign a work order's assigned_subcontractor_id"
+                )
+
+        # B8.16 Phase 3: SPLIT is only ever settable via
+        # OperationsService.split_work_order, never through this generic
+        # update -- and once a row IS split, it is immutable (its
+        # line_items/total_cost were deliberately zeroed; the real work
+        # lives on its children now). Both directions are guarded against
+        # the row's CURRENT status read fresh from the DB, same NEW-643
+        # discipline as the ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR ownership
+        # checks above -- never the caller-supplied (possibly stale) model
+        # field. Without the reject-going-in half, flipping a SPLIT
+        # parent's status back to e.g. DRAFT with line items restored would
+        # double-count it in get_project_summary's roll-up alongside its
+        # already-created children. Deliberately placed AFTER the
+        # ROLE_TECHNICIAN/ROLE_SUBCONTRACTOR ownership branches above (see
+        # the round-2 fix note near the top of this method) so an actor without
+        # a legitimate relationship to this work order is rejected with
+        # PermissionError before ever reaching these row-existence-leaking
+        # checks.
+        conn = self.db.get_connection()
+        _current_status_row = conn.execute(
+            "SELECT status FROM work_orders WHERE id = ?;", (work_order.id,)
+        ).fetchone()
+        if _current_status_row and _current_status_row["status"] == WorkOrderStatus.SPLIT:
+            raise ValueError(
+                f"Work order #{work_order.id} has been split and can no longer be updated directly"
+            )
+        if work_order.status == WorkOrderStatus.SPLIT:
+            raise ValueError(
+                "status='split' can only be set via OperationsService.split_work_order"
+            )
 
         if work_order.line_items:
             total = 0.0
@@ -987,6 +1382,60 @@ class OperationsService:
         matches.sort(key=lambda m: m["match_score"], reverse=True)
         return matches
 
+    def _check_subcontractor_compliance(
+        self,
+        sub_row,
+        subcontractor_id: int,
+        override_compliance: bool = False,
+        error_prefix: str = "",
+    ) -> bool:
+        """Shared DNC / COI-expiration / license-active compliance checks.
+
+        Extracted (NEW-679 round 3, code-reviewer 2026-09-29) so
+        dispatch_work_order and split_work_order's pre-write compliance
+        pre-check can never drift on what counts as "dispatchable" --
+        round 2 of NEW-679 only pre-checked subcontractor *existence*
+        before split_work_order's children-creation loop, leaving the
+        exact same reachable roll-up double-count (children created
+        before the parent is zeroed, see split_work_order's own
+        docstring) whenever a split entry named a real-but-noncompliant
+        subcontractor (DNC / expired COI / inactive license) instead of
+        a nonexistent id.
+
+        `sub_row` must already be a confirmed-existing `subcontractors`
+        row -- existence is intentionally checked separately by each
+        caller, since dispatch_work_order and split_work_order want
+        different wording for "no such subcontractor". Returns whether
+        compliance was overridden (only possible when
+        `override_compliance=True`, which split_work_order never
+        passes -- it has no override parameter of its own). Raises
+        ValueError with dispatch_work_order's own original wording,
+        with `error_prefix` prepended so split_work_order's caller can
+        still name the offending split entry and subcontractor id.
+        """
+        if sub_row["dnc_status"] == 1:
+            raise ValueError(f"{error_prefix}Subcontractor #{subcontractor_id} is on Do-Not-Contact list")
+
+        compliance_overridden = False
+        today_str = utc_now_iso()[:10]
+        coi_expiration = sub_row["coi_expiration"]
+        if coi_expiration and coi_expiration < today_str:
+            if not override_compliance:
+                raise ValueError(
+                    f"{error_prefix}Subcontractor #{subcontractor_id} compliance failure: "
+                    f"COI expired on {coi_expiration}"
+                )
+            compliance_overridden = True
+
+        if sub_row["license_required"] == 1:
+            license_status = (sub_row["license_status"] or "").strip().lower()
+            if license_status != "active" and not sub_row["license_number"]:
+                if not override_compliance:
+                    raise ValueError(f"{error_prefix}Subcontractor #{subcontractor_id} license is not active")
+                compliance_overridden = True
+
+        return compliance_overridden
+
     def dispatch_work_order(
         self,
         work_order_id: int,
@@ -1007,33 +1456,15 @@ class OperationsService:
         if not wo:
             raise ValueError(f"Work order #{work_order_id} not found")
         _before = wo.to_dict()
-        _compliance_overridden = False
 
         conn = self.db.get_connection()
         sub_row = conn.execute("SELECT * FROM subcontractors WHERE id = ?;", (subcontractor_id,)).fetchone()
         if not sub_row:
             raise ValueError(f"Subcontractor #{subcontractor_id} not found")
 
-        # Do-not-contact check
-        if sub_row["dnc_status"] == 1:
-            raise ValueError(f"Subcontractor #{subcontractor_id} is on Do-Not-Contact list")
-
-        # Compliance checks
-        today_str = utc_now_iso()[:10]
-        coi_expiration = sub_row["coi_expiration"]
-        if coi_expiration and coi_expiration < today_str:
-            if not override_compliance:
-                raise ValueError(
-                    f"Subcontractor #{subcontractor_id} compliance failure: COI expired on {coi_expiration}"
-                )
-            _compliance_overridden = True
-
-        if sub_row["license_required"] == 1:
-            license_status = (sub_row["license_status"] or "").strip().lower()
-            if license_status != "active" and not sub_row["license_number"]:
-                if not override_compliance:
-                    raise ValueError(f"Subcontractor #{subcontractor_id} license is not active")
-                _compliance_overridden = True
+        _compliance_overridden = self._check_subcontractor_compliance(
+            sub_row, subcontractor_id, override_compliance=override_compliance
+        )
 
         now = utc_now_iso()
         wo.assigned_subcontractor_id = subcontractor_id
@@ -1163,9 +1594,30 @@ class OperationsService:
         if new_status not in WorkOrderStatus.ALL_STATUSES:
             raise ValueError(f"Invalid work order status: {new_status}")
 
+        # B8.16 Phase 3: SPLIT is in ALL_STATUSES (it must be, to round-trip
+        # through get_work_order/list_work_orders/audit diffs) but is NOT a
+        # status this execution-lifecycle method may ever set -- it is only
+        # ever settable via OperationsService.split_work_order. Without
+        # this, any PERM_WRITE_OPERATIONS holder (e.g. ROLE_TECHNICIAN)
+        # could set status='split' on any work order they can otherwise
+        # touch, bypassing split_work_order's line-item partitioning and
+        # child-creation invariants entirely. See WorkOrderStatus.SPLIT's
+        # own docstring (models.py), which already documents this method as
+        # rejecting it.
+        if new_status == WorkOrderStatus.SPLIT:
+            raise ValueError(
+                "status='split' can only be set via OperationsService.split_work_order"
+            )
+
         wo = self.get_work_order(work_order_id, actor)
         if not wo:
             raise ValueError(f"Work order #{work_order_id} not found")
+        # B8.16 Phase 3: a SPLIT parent is immutable once split (its
+        # line_items/total_cost were deliberately zeroed; the real work
+        # lives on its children) -- same reject-the-current-row-too
+        # discipline as update_work_order's own SPLIT guard above.
+        if wo.status == WorkOrderStatus.SPLIT:
+            raise ValueError(f"Work order #{work_order_id} has been split and can no longer change status")
         _before = wo.to_dict()
 
         now = utc_now_iso()
@@ -1247,6 +1699,303 @@ class OperationsService:
             work_order_id, WorkOrderStatus.VERIFIED, actor, notes=notes
         )
 
+    def split_work_order(
+        self,
+        work_order_id: int,
+        splits: List[Dict[str, Any]],
+        actor: AuthContext,
+    ) -> Dict[str, Any]:
+        """B8.16 Phase 3 (2026-09-29): split one DRAFT work order into
+        multiple child work orders across different trades/techs/
+        subcontractors, e.g. when a single reported job actually needs
+        both drywall and plumbing dispatched to different subs.
+
+        Gate: PERM_DISPATCH_WORK_ORDERS -- same permission
+        dispatch_work_order already requires (verified against auth.py's
+        real grants, not assumed). Confirmed neither ROLE_TECHNICIAN nor
+        ROLE_SUBCONTRACTOR holds it (Phase 0b's grants), so this is
+        admin/manager/project_manager-only, same as dispatch itself. Every
+        role holding PERM_DISPATCH_WORK_ORDERS in ROLE_PERMISSIONS also
+        holds PERM_READ_OPERATIONS and (PERM_WRITE_OPERATIONS or
+        PERM_MANAGE_PROJECTS) (verified directly against auth.py, not
+        assumed) -- so, unlike Phase 2's submit_work_order_intake, this
+        method passes the real `actor` straight through to
+        get_work_order/create_work_order/dispatch_work_order below with no
+        scoped system actor needed; none of those roles is ROLE_TECHNICIAN
+        or ROLE_SUBCONTRACTOR either, so create_work_order's row-level
+        narrowing branches for those roles are never reached.
+
+        `splits`: a non-empty list of at least two dicts, each describing
+        one child work order:
+          - "trade" (required, non-empty str)
+          - "line_item_indices" (required, list of ints -- 0-based indices
+            into the PARENT's own `line_items` list, fetched fresh from the
+            DB below, never a caller-supplied line_items array). Every
+            index 0..len(parent.line_items)-1 must appear in EXACTLY one
+            split's indices -- this is a partition, not an arbitrary
+            subset selection: overlapping indices, an out-of-range index,
+            and an incomplete partition (indices left unassigned) are all
+            rejected. Line items are plain dicts with no id and are not
+            hashable/comparable for equality (two items can have identical
+            fields), so index-into-the-parent's-list is the only
+            unambiguous reference scheme.
+          - "assigned_subcontractor_id" (optional int) -- if present, the
+            child is dispatched immediately via dispatch_work_order (not
+            reimplemented here) instead of being left DRAFT/unassigned.
+            NOTE: WorkOrder has no `assigned_technician_user_id` field
+            (verified directly against models.py -- only
+            `assigned_subcontractor_id` and free-text
+            `assigned_crew_lead` exist), so technician-only assignment via
+            this call is not supported; report this task-spec discrepancy
+            rather than adding a new column.
+
+        Additionally rejects (all ValueError, before any write): the
+        parent not existing, the parent not being in DRAFT status (SPLIT
+        is only reachable from DRAFT -- see WorkOrderStatus.TRANSITIONS),
+        and the recomputed sum of every child's line items (same
+        qty * unit_cost logic create_work_order already applies, reused via
+        that call rather than reimplemented) not matching the parent's own
+        stored `total_cost` within a 1-cent float tolerance -- this is a
+        parent-row-internal-consistency check distinct from the partition
+        check above: create_work_order only recomputes `total_cost` when
+        `line_items` is non-empty, so a parent's stored `total_cost` can in
+        principle already disagree with its own line items; this method
+        refuses to silently redistribute an inconsistent total rather than
+        picking one of the two numbers to trust.
+
+        Ordering (NEW-675: this file has no wrapping-transaction mechanism
+        for multi-row orchestrations spanning multiple `with conn:` blocks,
+        same disclosed-not-fixed gap Phase 2 logged): children are created
+        (and dispatched, if requested) FIRST, the parent is zeroed LAST.
+        Zeroing the parent's line_items/total_cost is destructive and
+        irrecoverable (the original line items are gone once overwritten);
+        a mid-failure after that step with some children missing would
+        leave no way to reconstruct the split. Failing earlier (some
+        children created, parent still DRAFT with its original line items
+        intact) is visibly recoverable -- an operator can see the orphaned
+        children and either finish the split by hand or delete them and
+        retry -- BUT recoverable is not the same as roll-up-safe: until an
+        operator acts, the parent's still-unzeroed total_cost and the
+        already-created children's costs both count in
+        get_project_summary's roll-up simultaneously, double-counting it.
+        NEW-679 closes the two reachable causes of a mid-loop failure this
+        method's own validation can prevent (a nonexistent
+        assigned_subcontractor_id; a real-but-noncompliant one -- DNC,
+        expired COI, inactive license) by checking both up front, before
+        any child is created. The residual is narrower but not zero: a
+        subcontractor's existence/compliance state can still change in the
+        window between this method's pre-check read and
+        dispatch_work_order's own re-read inside the children-creation
+        loop (a genuine TOCTOU race), or a child's own INSERT can fail for
+        an unrelated DB-level reason -- both still land in this same
+        "some children created, parent not yet zeroed, roll-up
+        double-counted until an operator intervenes" state. See NEW-679's
+        NEW_ISSUES.md entry for the full detail.
+        """
+        if not actor.has_permission(PERM_DISPATCH_WORK_ORDERS):
+            raise PermissionError("Actor lacks permission to split work orders")
+
+        parent = self.get_work_order(work_order_id, actor)
+        if not parent:
+            raise ValueError(f"Work order #{work_order_id} not found")
+        if parent.status != WorkOrderStatus.DRAFT:
+            raise ValueError(
+                f"Work order #{work_order_id} must be in '{WorkOrderStatus.DRAFT}' status to be split "
+                f"(currently '{parent.status}')"
+            )
+
+        if not splits:
+            raise ValueError("splits cannot be empty")
+        if len(splits) < 2:
+            raise ValueError("A single-entry split is not a split -- use dispatch_work_order instead")
+
+        parent_item_count = len(parent.line_items)
+        if parent_item_count == 0:
+            raise ValueError(f"Work order #{work_order_id} has no line items to split")
+
+        seen_indices: Set[int] = set()
+        for i, entry in enumerate(splits):
+            trade = entry.get("trade")
+            if not trade or not str(trade).strip():
+                raise ValueError(f"splits[{i}] is missing a non-empty 'trade'")
+            indices = entry.get("line_item_indices")
+            if not indices:
+                raise ValueError(f"splits[{i}] is missing non-empty 'line_item_indices'")
+            for idx in indices:
+                if not isinstance(idx, int) or idx < 0 or idx >= parent_item_count:
+                    raise ValueError(
+                        f"splits[{i}] references line_item_indices index {idx!r}, "
+                        f"which does not exist on work order #{work_order_id} "
+                        f"(has {parent_item_count} line item(s))"
+                    )
+                if idx in seen_indices:
+                    raise ValueError(
+                        f"splits[{i}] line_item_indices overlap: index {idx} is claimed by more than one split"
+                    )
+                seen_indices.add(idx)
+
+        if seen_indices != set(range(parent_item_count)):
+            missing = sorted(set(range(parent_item_count)) - seen_indices)
+            raise ValueError(
+                f"splits must partition ALL of work order #{work_order_id}'s line items "
+                f"-- index(es) {missing} are not claimed by any split"
+            )
+
+        # Parent-row-internal-consistency check: recompute what each child's
+        # total_cost WOULD be (same qty * unit_cost logic create_work_order
+        # applies below) and confirm the sum matches the parent's own
+        # stored total_cost within a 1-cent tolerance, before writing
+        # anything.
+        recomputed_total = 0.0
+        for entry in splits:
+            for idx in entry["line_item_indices"]:
+                item = parent.line_items[idx]
+                qty = float(item.get("quantity", 1.0))
+                unit_cost = float(item.get("unit_cost", 0.0))
+                recomputed_total += round(qty * unit_cost, 2)
+        recomputed_total = round(recomputed_total, 2)
+        if abs(recomputed_total - round(parent.total_cost, 2)) > 0.01:
+            raise ValueError(
+                f"Work order #{work_order_id}'s line items recompute to {recomputed_total}, "
+                f"which does not match its stored total_cost of {parent.total_cost} -- "
+                "refusing to split an internally inconsistent work order"
+            )
+
+        # NEW-679 fix (round 3, code-reviewer 2026-09-29): validate every
+        # splits[i]["assigned_subcontractor_id"] (when provided) refers to a
+        # real, DISPATCHABLE subcontractor -- existing AND not DNC AND
+        # compliant on COI/license -- BEFORE creating any child work order
+        # below. dispatch_work_order (reused per-entry in the
+        # children-creation loop) already raises ValueError on any of these,
+        # but that check happens per-entry, DURING the loop -- by the time it
+        # fires on e.g. the 2nd of 3 split entries, the 1st entry's child has
+        # already been created and committed, and the parent has not yet
+        # been zeroed (children-first-parent-last is deliberate, see this
+        # method's own docstring), which permanently double-counts the
+        # parent's cost against the already-committed first child. Round 2
+        # of this fix only pre-checked existence, leaving the exact same
+        # reachable double-count whenever a split named a real-but-
+        # noncompliant subcontractor (DNC / expired COI / inactive license)
+        # instead of a nonexistent id (live-reproduced by the reviewer with
+        # a DNC subcontractor on a later split entry). Checking existence
+        # AND compliance for every entry up front, before any write, closes
+        # that reachable roll-up double-count for both rejection classes.
+        # The compliance checks are shared with dispatch_work_order via
+        # _check_subcontractor_compliance so the two can never drift on what
+        # counts as "dispatchable"; split_work_order has no override
+        # mechanism of its own, so override_compliance is always False here
+        # -- same as the per-entry dispatch_work_order call further below,
+        # which also never passes override_compliance.
+        conn = self.db.get_connection()
+        for i, entry in enumerate(splits):
+            assigned_subcontractor_id = entry.get("assigned_subcontractor_id")
+            if assigned_subcontractor_id is None:
+                continue
+            sub_row = conn.execute(
+                "SELECT * FROM subcontractors WHERE id = ?;", (assigned_subcontractor_id,)
+            ).fetchone()
+            if not sub_row:
+                raise ValueError(
+                    f"splits[{i}] references assigned_subcontractor_id "
+                    f"{assigned_subcontractor_id}, which does not exist"
+                )
+            self._check_subcontractor_compliance(
+                sub_row,
+                assigned_subcontractor_id,
+                override_compliance=False,
+                error_prefix=(
+                    f"splits[{i}] references assigned_subcontractor_id "
+                    f"{assigned_subcontractor_id}, but "
+                ),
+            )
+
+        children: List[WorkOrder] = []
+        for entry in splits:
+            child_line_items = [dict(parent.line_items[idx]) for idx in entry["line_item_indices"]]
+            child = self.create_work_order(
+                WorkOrder(
+                    title=f"{parent.title} (split: {str(entry['trade']).strip()})",
+                    project_id=parent.project_id,
+                    trade=str(entry["trade"]).strip(),
+                    line_items=child_line_items,
+                    parent_work_order_id=parent.id,
+                    status=WorkOrderStatus.DRAFT,
+                ),
+                actor,
+            )
+            assigned_subcontractor_id = entry.get("assigned_subcontractor_id")
+            if assigned_subcontractor_id is not None:
+                # Reuses dispatch_work_order's own compliance checks/
+                # assignment logic rather than reimplementing them.
+                child = self.dispatch_work_order(child.id, assigned_subcontractor_id, actor)
+            children.append(child)
+
+        _before = parent.to_dict()
+        now = utc_now_iso()
+        # B8.16 Phase 3 round-2 fix (code-reviewer, 2026-09-29) / mirrors
+        # NEW-631/NEW-632's claim-race idiom
+        # (crm_service.py's `WHERE id = ? AND assigned_user_id IS NULL` +
+        # rowcount check): this final UPDATE is the parent-zeroing write
+        # that follows children-creation above. Two concurrent
+        # split_work_order calls on the same parent could both pass the
+        # earlier DRAFT-status validation read (both read before either
+        # writes), both create their own full set of children, and then
+        # both attempt to zero the same parent -- a permanent double-count.
+        # `AND status = 'draft'` plus a rowcount check closes that specific
+        # TOCTOU window on this write; on the losing call, its
+        # already-created children are left orphaned, an accepted
+        # consequence of NEW-675's no-wrapping-transaction gap (not fixed
+        # here -- out of scope for this concurrency guard).
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                UPDATE work_orders SET
+                    status = ?,
+                    line_items_json = ?,
+                    total_cost = ?,
+                    updated_at = ?
+                WHERE id = ? AND status = 'draft';
+                """,
+                (WorkOrderStatus.SPLIT, json.dumps([]), 0.0, now, work_order_id),
+            )
+        if cursor.rowcount == 0:
+            # ValueError, not RuntimeError -- matches every other rejection
+            # in this method (and the whole file's convention: the API
+            # layer's top-level handler maps ValueError to a clean 400/409,
+            # while an uncaught RuntimeError falls through to the generic
+            # `except Exception` -> 500 (restoricon_core/api/routes.py's
+            # split endpoint has no dedicated except clause of its own).
+            raise ValueError(
+                f"Work order #{work_order_id} was split by a concurrent request "
+                "-- this call's children were created but the parent could not "
+                "be claimed"
+            )
+
+        _after = self.get_work_order(work_order_id, actor)
+        self.audit.log(
+            action="work_order_split",
+            entity_type="work_order",
+            entity_id=work_order_id,
+            change_summary=(
+                f"Split work order {parent.work_order_number} into "
+                f"{len(children)} child work order(s): "
+                f"{', '.join(c.work_order_number for c in children)}"
+            ),
+            actor=actor,
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+                fields=_AUDITABLE_WORK_ORDER_FIELDS,
+                side_effects={"child_work_order_ids": [c.id for c in children]},
+            ),
+        )
+
+        return {
+            "parent": _after.to_dict() if _after else None,
+            "children": [c.to_dict() for c in children],
+        }
+
     # ==========================================
     # EQUIPMENT & RESOURCE TRACKING
     # ==========================================
@@ -1257,6 +2006,19 @@ class OperationsService:
             or actor.has_permission(PERM_MANAGE_PROJECTS)
         ):
             raise PermissionError("Actor lacks permission to create equipment records")
+
+        # NEW-647: flat denial, role-keyed like _actor_assigned_to_project's
+        # ROLE_TECHNICIAN checks elsewhere in this file (no standalone
+        # permission to key on instead). ROLE_TECHNICIAN holds
+        # PERM_WRITE_OPERATIONS org-wide, so it passes the gate above and
+        # must be checked here explicitly, before field validation -- a
+        # technician's `equipment` payload could otherwise fail on a
+        # ValueError (e.g. empty asset_tag) instead of the intended
+        # PermissionError. Technicians may still deploy_equipment/
+        # return_equipment existing stock (narrowed by NEW-644/NEW-645);
+        # they may never register new equipment records.
+        if actor.role == ROLE_TECHNICIAN:
+            raise PermissionError("Technicians cannot register new equipment; use deploy_equipment on existing stock")
 
         if not equipment.asset_tag or not equipment.asset_tag.strip():
             raise ValueError("Asset tag cannot be empty")
@@ -1310,6 +2072,18 @@ class OperationsService:
         row = conn.execute("SELECT * FROM equipment WHERE id = ?;", (equipment_id,)).fetchone()
         if not row:
             return None
+
+        # NEW-628: narrow to equipment currently deployed to a project the
+        # technician is assigned to. Equipment with no current project
+        # (current_project_id IS NULL, i.e. available warehouse stock) is
+        # deliberately NOT narrowed -- deploy_equipment's own pre-read
+        # (below) calls this same method on AVAILABLE equipment before it
+        # has any project_id to check against, so denying NULL here would
+        # make deploy_equipment permanently unusable for every technician.
+        if actor.role == ROLE_TECHNICIAN and row["current_project_id"] is not None:
+            if not self._actor_assigned_to_project(row["current_project_id"], actor):
+                raise PermissionError("Technician cannot view equipment deployed to a project they are not assigned to")
+
         return self._row_to_equipment(row)
 
     def list_equipment(
@@ -1338,6 +2112,17 @@ class OperationsService:
         query += " ORDER BY id ASC;"
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
+
+        if actor.role == ROLE_TECHNICIAN:
+            # NEW-628: same NULL-current_project_id allowance as
+            # get_equipment above -- available stock stays visible so a
+            # technician can find something to deploy.
+            allowed_project_ids = self._technician_assigned_project_ids(actor)
+            rows = [
+                r for r in rows
+                if r["current_project_id"] is None or r["current_project_id"] in allowed_project_ids
+            ]
+
         return [self._row_to_equipment(r) for r in rows]
 
     def deploy_equipment(
@@ -1353,6 +2138,15 @@ class OperationsService:
     ) -> EquipmentDeployment:
         """
         Deploy available equipment to a project job site with moisture/environmental logs.
+
+        NEW-645 (deploy_equipment write-path counterpart to NEW-628): for
+        ROLE_TECHNICIAN, ownership is checked against `project_id` -- the
+        deploy TARGET -- BEFORE the INSERT/UPDATE below, not after. A
+        post-write check here would have the same problem the NEW-628
+        comment further down (~L1595) documents for the audit re-read: it
+        would raise PermissionError after the write already committed,
+        producing a real deployment with no audit trail. Checking before
+        the write means a denied technician never mutates any row.
         """
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
@@ -1367,6 +2161,9 @@ class OperationsService:
 
         if eq.status != EquipmentStatus.AVAILABLE:
             raise ValueError(f"Equipment #{equipment_id} is not available (current status: {eq.status})")
+
+        if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(project_id, actor):
+            raise PermissionError("Technician cannot deploy equipment to a project they are not assigned to")
 
         now = utc_now_iso()
         conn = self.db.get_connection()
@@ -1411,7 +2208,19 @@ class OperationsService:
                 ),
             )
 
-        _after = self.get_equipment(equipment_id, actor)
+        # NEW-628: NOT self.get_equipment(equipment_id, actor) here. That
+        # method now denies a technician read of equipment whose
+        # current_project_id doesn't match one of their assigned projects --
+        # and the UPDATE just above set current_project_id = project_id,
+        # which this technician's own write just committed. Re-checking RBAC
+        # on an actor's own just-completed write would raise PermissionError
+        # AFTER the INSERT/UPDATE already committed and BEFORE audit.log
+        # below runs, silently dropping the audit trail for a real
+        # deployment. The actor already cleared the write gate and the
+        # pre-read above; this is a same-transaction audit snapshot, not a
+        # fresh access decision, so a direct read is safe here.
+        _after_row = conn.execute("SELECT * FROM equipment WHERE id = ?;", (equipment_id,)).fetchone()
+        _after = self._row_to_equipment(_after_row) if _after_row else None
         _se = {
             "deployment_created": {
                 "deployment_id": deployment_id,
@@ -1454,6 +2263,12 @@ class OperationsService:
     ) -> EquipmentDeployment:
         """
         Record equipment return from job site with final dry-down readings.
+
+        NEW-644 (return_equipment write-path counterpart to NEW-628): for
+        ROLE_TECHNICIAN, ownership is checked against `dep_row["project_id"]`
+        -- the project this deployment was made to -- BEFORE any UPDATE
+        below, matching deploy_equipment's pre-write ordering for the same
+        reason (see that method's docstring).
         """
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
@@ -1468,6 +2283,9 @@ class OperationsService:
 
         if dep_row["returned_at"]:
             raise ValueError("Equipment deployment has already been returned")
+
+        if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(dep_row["project_id"], actor):
+            raise PermissionError("Technician cannot return equipment for a project they are not assigned to")
 
         equipment_id = dep_row["equipment_id"]
         now = utc_now_iso()
@@ -1552,6 +2370,14 @@ class OperationsService:
         if not actor.has_permission(PERM_READ_OPERATIONS):
             raise PermissionError("Actor lacks permission to list equipment deployments")
 
+        if actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to deployments for a project the technician is
+            # assigned to. project_id is required here (unlike list_equipment),
+            # so raise rather than silently filter, matching this file's
+            # required-project_id convention (list_milestones above).
+            if not self._actor_assigned_to_project(project_id, actor):
+                raise PermissionError("Technician cannot list equipment deployments for a project they are not assigned to")
+
         query = "SELECT * FROM equipment_deployments WHERE project_id = ?"
         params: List[Any] = [project_id]
 
@@ -1570,6 +2396,14 @@ class OperationsService:
     def get_project_summary(self, project_id: int, actor: AuthContext) -> Dict[str, Any]:
         """
         Aggregate full operational status for a project: stage, milestones, work orders, equipment.
+
+        NEW-628: no ROLE_TECHNICIAN-specific narrowing needed directly in
+        this method -- it composes get_project/list_milestones/
+        list_work_orders/list_project_deployments, all narrowed above, so an
+        unassigned technician is denied at the get_project call below
+        (PermissionError, same as B8.12a's rep case) and an assigned
+        technician's downstream calls all resolve against the same
+        already-verified project_id.
         """
         project = self.get_project(project_id, actor)
         if not project:
@@ -1577,7 +2411,26 @@ class OperationsService:
 
         milestones = self.list_milestones(project_id, actor)
         work_orders = self.list_work_orders(actor, project_id=project_id)
-        deployments = self.list_project_deployments(project_id, actor, active_only=True)
+
+        # B8.12a: equipment/deployment visibility is deliberately NOT part
+        # of PERM_READ_OWN_SOLD_PROJECTS' grant (no sales-rep use case, see
+        # auth.py) -- list_project_deployments still only accepts
+        # PERM_READ_OPERATIONS, so calling it unconditionally would raise
+        # PermissionError for a plain rep and break this whole summary read.
+        # Guard it explicitly rather than fabricating a deployments=[]/
+        # active_deployed_count=0 that would misrepresent "not visible to
+        # this actor" as "nothing deployed" -- equipment_summary is simply
+        # omitted (None) for an actor who can't see it. No current UI
+        # surface reads equipment_summary yet (checked web_surfaces.py), so
+        # there is nothing to regress for a rep hitting this path today.
+        if actor.has_permission(PERM_READ_OPERATIONS) or actor.has_permission(PERM_MANAGE_PROJECTS):
+            deployments = self.list_project_deployments(project_id, actor, active_only=True)
+            equipment_summary = {
+                "active_deployed_count": len(deployments),
+                "deployments": [d.to_dict() for d in deployments],
+            }
+        else:
+            equipment_summary = None
 
         total_milestones = len(milestones)
         completed_milestones = sum(1 for m in milestones if m.status == MilestoneStatus.COMPLETED)
@@ -1602,8 +2455,5 @@ class OperationsService:
                 "total_cost": total_wo_cost,
                 "work_orders": [wo.to_dict() for wo in work_orders],
             },
-            "equipment_summary": {
-                "active_deployed_count": len(deployments),
-                "deployments": [d.to_dict() for d in deployments],
-            },
+            "equipment_summary": equipment_summary,
         }

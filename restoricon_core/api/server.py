@@ -25,6 +25,8 @@ from ..services.finance_service import FinanceService
 from ..services.business_ops_service import BusinessOpsService
 from ..services.notification_service import NotificationService
 from ..services.analytics_search_service import AnalyticsSearchService
+from ..services.commission_service import CommissionService
+from ..services.territory_service import TerritoryService
 from .routes import APIRouter
 
 logger = logging.getLogger("restoricon_core.api")
@@ -156,13 +158,45 @@ class RestoriconAPIServer:
         self.audit_service = AuditService(self.db)
         self.comm_service = CommunicationService(self.db)
         self.notification_service = NotificationService()
-        self.crm_service = CRMService(self.db, self.audit_service, self.notification_service)
+        # B8.7a: constructed before crm_service so the same shared
+        # instance (also used directly by routes.py for the
+        # commission-ledger endpoints) can be passed into CRMService's
+        # record_payment trigger, rather than CRMService lazily
+        # default-constructing its own separate instance.
+        self.commission_service = CommissionService(self.db, self.audit_service)
+        self.crm_service = CRMService(
+            self.db,
+            self.audit_service,
+            self.notification_service,
+            commission_service=self.commission_service,
+        )
         self.scheduling_service = SchedulingService(self.db, self.audit_service, self.notification_service)
         self.automation_service = AutomationService(self.db, self.audit_service)
-        self.operations_service = OperationsService(self.db, self.audit_service)
+        # NEW-613: finance_service constructed before operations_service/
+        # analytics_search_service (reordered from its previous position
+        # after operations_service) so the same shared instance can be
+        # passed into both -- OperationsService.transition_project_stage's
+        # CLOSED gate and AnalyticsSearchService.get_executive_dashboard
+        # both now call through FinanceService's internal
+        # get_project_ar_net()/get_ar_net_totals() helpers, rather than
+        # each lazily default-constructing its own separate FinanceService.
         self.finance_service = FinanceService(self.db, self.audit_service)
+        self.operations_service = OperationsService(self.db, self.audit_service, finance_service=self.finance_service)
         self.business_ops_service = BusinessOpsService(self.db, self.audit_service)
-        self.analytics_search_service = AnalyticsSearchService(self.db)
+        # B8.14: pass the already-constructed shared crm_service/
+        # commission_service instances (same reasoning as the
+        # commission_service comment above self.crm_service) rather than
+        # letting AnalyticsSearchService default-construct its own
+        # separate ones for get_sales_analytics_rollup's underlying calls.
+        # finance_service (NEW-613) is passed the same way, for
+        # get_executive_dashboard's total_ar figure.
+        self.analytics_search_service = AnalyticsSearchService(
+            self.db,
+            crm_service=self.crm_service,
+            commission_service=self.commission_service,
+            finance_service=self.finance_service,
+        )
+        self.territory_service = TerritoryService(self.db, self.audit_service)
 
         # RBAC for these services is enforced in the service layer, not here -- see
         # APIRouter's own class docstring.
@@ -177,6 +211,8 @@ class RestoriconAPIServer:
             finance_service=self.finance_service,
             business_ops_service=self.business_ops_service,
             analytics_search_service=self.analytics_search_service,
+            commission_service=self.commission_service,
+            territory_service=self.territory_service,
         )
 
         class CustomHandler(RestoriconRequestHandler):

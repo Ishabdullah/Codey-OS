@@ -324,3 +324,67 @@ def test_admin_surface_edit_user_modal_adds_back_nonstandard_current_role():
     assert "standardRoles.includes(u.role)" in fn_body
     assert "data-dynamic-role" in fn_body
     assert "roleSelect.appendChild(opt)" in fn_body
+
+
+def test_admin_surface_redirects_dedicated_portal_roles_away_from_admin():
+    """NEW-625: an authenticated actor whose role has its own dedicated
+    staff/customer portal (B6.8) must not be able to sail through to the
+    full 11-domain admin ERP shell just by holding a valid token. The JS
+    *behavior* of this redirect (does the browser actually navigate) has
+    no Python harness here -- only the presence of the correct role->path
+    map is pinned; live-verifier is needed to confirm the redirect fires."""
+    html = render_admin_surface()
+    for role, portal_path in (
+        ("project_manager", "/pm"),
+        ("sales", "/sales"),
+        ("sales_manager", "/sales"),
+        ("technician", "/tech"),
+        ("customer", "/portal"),
+        ("subcontractor", "/subcontractor"),
+    ):
+        assert f"'{role}': '{portal_path}'" in html, role
+
+
+def test_admin_surface_does_not_redirect_roles_without_a_dedicated_portal():
+    """Negative list: ROLE_MANAGER and ROLE_AI_AGENT have no dedicated
+    portal of their own, so they must continue to land on /admin --
+    getting this wrong risks silently locking one of them out.
+    'sales_manager' is NOT in this negative list -- as of NEW-642
+    (resolved 2026-09-25), it DOES have a dedicated portal (/sales, see
+    _render_sales_portal()'s docstring and the pre-existing login-redirect
+    at web_surfaces.py:713-714) and IS now a key in rolePortals, covered
+    instead by test_admin_surface_redirects_dedicated_portal_roles_away_from_admin
+    above.
+    'subcontractor' is likewise NOT in this negative list as of Phase 0b/
+    B8.16 (2026-09-27, NEW-641 resolved) -- ROLE_SUBCONTRACTOR is now a
+    real member of auth.py's ALL_ROLES and IS now a key in rolePortals,
+    covered instead by test_admin_surface_redirects_dedicated_portal_roles_away_from_admin
+    above."""
+    html = render_admin_surface()
+    i = html.find("const rolePortals = {")
+    assert i != -1
+    j = html.find("};", i)
+    assert j != -1
+    role_portal_map_js = html[i:j]
+    for role in ("manager", "ai_agent", "admin"):
+        assert f"'{role}':" not in role_portal_map_js, role
+
+
+def test_admin_surface_documents_panel_renders_names_not_raw_ids():
+    """NEW-661: the admin Documents panel's loadDocuments() used to render
+    bare 'Cust: <id>' / 'Proj: <id>' text. GET /api/v1/documents now
+    additively returns customer_name/project_name (routes.py), and the
+    client renders those, falling back to 'Customer #id'/'Project #id'
+    (matching this project's established fallback convention) only when a
+    name failed to resolve -- customer_id/project_id keys/behaviour are
+    otherwise unchanged."""
+    html = render_admin_surface()
+    start = html.index("async function loadDocuments()")
+    end = html.index("async function searchAuditLog()")
+    documents_js = html[start:end]
+    assert "'Cust: ' + d.customer_id" not in documents_js
+    assert "'Proj: ' + d.project_id" not in documents_js
+    assert "d.customer_name || ('Customer #' + d.customer_id)" in documents_js
+    assert "d.project_name || ('Project #' + d.project_id)" in documents_js
+    assert "escapeHtml(d.customer_name" in documents_js
+    assert "escapeHtml(d.project_name" in documents_js

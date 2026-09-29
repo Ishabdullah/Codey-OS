@@ -265,6 +265,165 @@ def test_api_customer_and_project_get_by_id(api_server):
     assert status == 404
 
 
+def test_api_customer_credit_balance_route(api_server):
+    """NEW-650: GET /api/v1/customers/{id}/credit-balance -- the first
+    route/caller for CRMService.get_customer_credit_balance (added
+    a8365a7 for B8.15's overpayment-credit ledger). Covers (a) an
+    authorized actor reading a real balance, (b) a ROLE_CUSTOMER actor
+    denied for a different customer's balance (403, the service's own
+    same-customer narrowing), and (c) an actor with no financial-read
+    permission at all denied (403)."""
+    server, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    admin_headers = {"Authorization": f"Bearer {body['token']}"}
+
+    # Create a customer and an invoice, then overpay it via the API so a
+    # real customer_credits row exists (mirrors
+    # test_b8_15_overpayment_credit.py's service-level setup, done here
+    # through the HTTP surface instead).
+    status, body = make_request(
+        f"{base_url}/api/v1/customers",
+        method="POST",
+        headers=admin_headers,
+        data={
+            "first_name": "Carla",
+            "last_name": "Diaz",
+            "email": "carla@example.com",
+            "service_address": "5 Oak St",
+            "customer_type": "residential",
+            "status": "active",
+        },
+    )
+    assert status == 201
+    cust_id = body["customer"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/invoices",
+        method="POST",
+        headers=admin_headers,
+        data={"customer_id": cust_id, "amount": 1000.0, "invoice_type": "other"},
+    )
+    assert status == 201
+    inv_id = body["invoice"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/invoices/{inv_id}/pay",
+        method="POST",
+        headers=admin_headers,
+        data={"amount": 1500.0, "payment_method": "check", "reference": "TXN-1"},
+    )
+    assert status == 200
+
+    # (a) Admin (PERM_READ_FINANCIALS) reads the correct balance.
+    status, body = make_request(
+        f"{base_url}/api/v1/customers/{cust_id}/credit-balance", headers=admin_headers
+    )
+    assert status == 200
+    assert body["customer_id"] == cust_id
+    assert body["credit_balance"] == 500.0
+
+    # Create a customer user for Carla, and a second unrelated customer.
+    server.auth_service.create_user(
+        username="carla",
+        plain_password="CarlaPassword123",
+        full_name="Carla Diaz",
+        email="carla@example.com",
+        role=ROLE_CUSTOMER,
+        customer_id=cust_id,
+    )
+    status, body = make_request(
+        f"{base_url}/api/v1/customers",
+        method="POST",
+        headers=admin_headers,
+        data={
+            "first_name": "Derek",
+            "last_name": "Fox",
+            "email": "derek@example.com",
+            "service_address": "7 Pine St",
+            "customer_type": "residential",
+            "status": "active",
+        },
+    )
+    assert status == 201
+    other_cust_id = body["customer"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "carla", "password": "CarlaPassword123"},
+    )
+    assert status == 200
+    carla_headers = {"Authorization": f"Bearer {body['token']}"}
+
+    # (a, continued) Carla (ROLE_CUSTOMER, PERM_READ_OWN_FINANCIALS) reads
+    # her own balance successfully.
+    status, body = make_request(
+        f"{base_url}/api/v1/customers/{cust_id}/credit-balance", headers=carla_headers
+    )
+    assert status == 200
+    assert body["credit_balance"] == 500.0
+
+    # (b) Carla is denied reading a different customer's balance.
+    status, body = make_request(
+        f"{base_url}/api/v1/customers/{other_cust_id}/credit-balance", headers=carla_headers
+    )
+    assert status == 403
+    assert "error" in body
+
+    # (c) A technician (no PERM_READ_FINANCIALS/PERM_READ_OWN_FINANCIALS)
+    # is denied entirely.
+    server.auth_service.create_user(
+        username="tim",
+        plain_password="TimPassword123",
+        full_name="Tim Tech",
+        email="tim@example.com",
+        role=ROLE_TECHNICIAN,
+    )
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "tim", "password": "TimPassword123"},
+    )
+    assert status == 200
+    tech_headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers/{cust_id}/credit-balance", headers=tech_headers
+    )
+    assert status == 403
+    assert "error" in body
+
+    # Malformed-path shapes, matching this router's established
+    # NEW-525/526/531 guard contract for suffix routes: a non-integer id
+    # is a clean 400 (no raw Python exception text), while an omitted id
+    # or an extra path segment must fall through to the generic 404
+    # rather than being misrouted or mis-parsed.
+    status, body = make_request(
+        f"{base_url}/api/v1/customers/abc/credit-balance", headers=admin_headers
+    )
+    assert status == 400
+    assert body == {"error": "Invalid 'customer_id' path segment: 'abc'"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers/credit-balance", headers=admin_headers
+    )
+    assert status == 404
+    assert body == {"error": "Endpoint not found: GET /api/v1/customers/credit-balance"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers/{cust_id}/{other_cust_id}/credit-balance", headers=admin_headers
+    )
+    assert status == 404
+    assert body == {
+        "error": f"Endpoint not found: GET /api/v1/customers/{cust_id}/{other_cust_id}/credit-balance"
+    }
+
+
 def test_api_subcontractors_crud(api_server):
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)
@@ -903,6 +1062,89 @@ def test_api_communications_non_string_provider_message_id_returns_400(api_serve
     )
     assert status == 400
     assert "error" in body
+
+
+@pytest.mark.parametrize("field_name", ["lead_id", "project_id", "opportunity_id"])
+def test_api_new627_communications_post_non_integer_id_fields_return_400(api_server, field_name):
+    """NEW-627: lead_id/project_id/opportunity_id on POST
+    /api/v1/communications previously flowed straight through
+    unvalidated into record_communication(), reaching a downstream type
+    error instead of a clean 400. All three now go through the same
+    _parse_int_body_field helper every other body-field integer on this
+    router already uses (NEW-528)."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/communications",
+        method="POST",
+        headers=headers,
+        data={
+            "channel": "phone",
+            "direction": "inbound",
+            "content": "Call with a malformed id field",
+            field_name: "not-an-int",
+        },
+    )
+    assert status == 400, f"{field_name}: expected 400, got {status} ({body})"
+    assert body == {"error": f"Invalid '{field_name}' body field: 'not-an-int'"}
+
+
+def test_api_new627_communications_post_valid_integer_id_fields_still_work(api_server):
+    """NEW-627 spot-check: valid integer lead_id/project_id values still
+    round-trip correctly after the validation fix. project_id carries a
+    real FK (ON DELETE SET NULL) so it must reference a row that exists;
+    lead_id is deliberately FK-less by design (see database.py's
+    communication_history.lead_id comment), so an arbitrary integer is
+    valid there. opportunity_id shares project_id's real-FK shape and is
+    exercised by the non-integer-rejection test above; a full round trip
+    would need a real opportunity row, out of scope for this validation
+    fix."""
+    server, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    admin_headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers",
+        method="POST",
+        headers=headers,
+        data={"first_name": "Dana", "last_name": "Customer", "email": "dana@example.com"},
+    )
+    assert status == 201
+    cust_id = body["customer"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/projects",
+        method="POST",
+        headers=admin_headers,
+        data={"customer_id": cust_id, "title": "NEW-627 Project"},
+    )
+    assert status == 201, body
+    project_id = body["project"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/communications",
+        method="POST",
+        headers=headers,
+        data={
+            "channel": "phone",
+            "direction": "inbound",
+            "content": "Call with valid integer id fields",
+            "customer_id": cust_id,
+            "project_id": project_id,
+            "lead_id": 42,
+        },
+    )
+    assert status == 201, body
+    assert body["communication"]["project_id"] == project_id
+    assert body["communication"]["lead_id"] == 42
 
 
 def test_api_ai_chat_auth_and_validation(api_server, monkeypatch):

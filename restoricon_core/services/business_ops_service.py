@@ -40,6 +40,7 @@ from .audit_service import (
     _AUDITABLE_EMPLOYEE_FIELDS,
     _AUDITABLE_PURCHASE_ORDER_FIELDS,
     _AUDITABLE_REVIEW_REQUEST_FIELDS,
+    _AUDITABLE_TIMESHEET_FIELDS,
 )
 
 
@@ -465,6 +466,24 @@ class BusinessOpsService:
             updated_at=row["updated_at"],
         )
 
+    @staticmethod
+    def _row_to_timesheet(row: Any) -> Timesheet:
+        return Timesheet(
+            id=row["id"],
+            employee_id=row["employee_id"],
+            project_id=row["project_id"],
+            work_order_id=row["work_order_id"],
+            work_date=row["work_date"],
+            hours_worked=float(row["hours_worked"]),
+            work_type=row["work_type"],
+            hourly_rate=float(row["hourly_rate"]),
+            total_cost=float(row["total_cost"]),
+            notes=row["notes"],
+            approved_by_id=row["approved_by_id"],
+            status=row["status"],
+            created_at=row["created_at"],
+        )
+
     def create_employee(self, emp: Employee, actor: AuthContext) -> Employee:
         """Create a new employee record."""
         if not actor.has_permission(PERM_WRITE_HR):
@@ -590,6 +609,14 @@ class BusinessOpsService:
             )
             ts.id = cursor.lastrowid
 
+        self.audit.log(
+            action="create",
+            entity_type="timesheet",
+            entity_id=ts.id,
+            change_summary=f"Submitted timesheet for employee {ts.employee_id} ({ts.hours_worked}h, {ts.work_type})",
+            actor=actor,
+            details=build_audit_details(after=ts.to_dict(), fields=_AUDITABLE_TIMESHEET_FIELDS),
+        )
         return ts
 
     def approve_timesheet(self, ts_id: int, actor: AuthContext) -> Timesheet:
@@ -602,27 +629,33 @@ class BusinessOpsService:
         if not row:
             raise ValueError(f"Timesheet {ts_id} not found")
 
+        _before = self._row_to_timesheet(row)
+
         with conn:
             conn.execute(
                 "UPDATE timesheets SET status = 'approved', approved_by_id = ? WHERE id = ?;",
                 (actor.user_id, ts_id),
             )
 
-        return Timesheet(
-            id=row["id"],
-            employee_id=row["employee_id"],
-            project_id=row["project_id"],
-            work_order_id=row["work_order_id"],
-            work_date=row["work_date"],
-            hours_worked=float(row["hours_worked"]),
-            work_type=row["work_type"],
-            hourly_rate=float(row["hourly_rate"]),
-            total_cost=float(row["total_cost"]),
-            notes=row["notes"],
-            approved_by_id=actor.user_id,
-            status="approved",
-            created_at=row["created_at"],
+        # after-image mirrors the SET clause exactly (no new read); same
+        # _row_to_timesheet builder as _before.
+        _after = self._row_to_timesheet(
+            {**dict(row), "status": "approved", "approved_by_id": actor.user_id}
         )
+
+        self.audit.log(
+            action="update",
+            entity_type="timesheet",
+            entity_id=ts_id,
+            change_summary=f"Approved timesheet #{ts_id} for employee {row['employee_id']}",
+            actor=actor,
+            details=build_audit_details(
+                before=_before.to_dict(),
+                after=_after.to_dict(),
+                fields=_AUDITABLE_TIMESHEET_FIELDS,
+            ),
+        )
+        return _after
 
     def list_timesheets(
         self,

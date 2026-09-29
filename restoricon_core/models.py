@@ -27,6 +27,9 @@ class User:
     customer_id: Optional[int] = None
     custom_permissions: Dict[str, bool] = field(default_factory=dict)
     active: int = 1
+    terminated_at: Optional[str] = None  # B8.7c: set/cleared by AuthService.set_user_active, see database.py's ALTER comment
+    territory_id: Optional[int] = None  # B8.9a: at most one territory per rep, see database.py's ALTER comment
+    subcontractor_id: Optional[int] = None  # Phase 0b, B8.16: populated for a ROLE_SUBCONTRACTOR user's own account
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -41,6 +44,7 @@ class User:
 class Customer:
     id: Optional[int] = None
     external_id: Optional[str] = None  # NEW-212/NEW-232, 2026-08-27: external system's own string ID
+    customer_number: Optional[int] = None  # B8.6d-c: server-generated, sequential, see create_customer
     first_name: str = ""
     last_name: str = ""
     company_name: Optional[str] = None
@@ -52,6 +56,7 @@ class Customer:
     customer_source: Optional[str] = None
     assigned_user_id: Optional[int] = None
     status: str = "lead"  # lead, prospect, active, past, lost
+    territory_id: Optional[int] = None  # B8.9a: FK-less, see database.py's territories table comment
     tags: List[str] = field(default_factory=list)
     notes: Optional[str] = None
     custom_fields: Dict[str, Any] = field(default_factory=dict)
@@ -144,6 +149,7 @@ class Lead:
     insurance_status: Optional[str] = None
     estimated_value: float = 0.0
     assigned_user_id: Optional[int] = None
+    territory_id: Optional[int] = None  # B8.9a: FK-less, see database.py's territories table comment
     first_contact_at: Optional[str] = None
     last_contact_at: Optional[str] = None
     next_followup_at: Optional[str] = None
@@ -345,17 +351,31 @@ class WorkOrderStatus:
     COMPLETED = "completed"
     VERIFIED = "verified"
     CANCELLED = "cancelled"
+    # B8.16 Phase 3: a non-terminal status distinct from CANCELLED (see
+    # OperationsService.split_work_order's docstring for why CANCELLED was
+    # explicitly rejected as this phase's original design -- the job is
+    # still proceeding, just divided across child work orders). A SPLIT
+    # parent's own line_items/total_cost are zeroed at write time (the work
+    # moved to its children), so it is intentionally treated like a
+    # terminal status by every "active work order" query in
+    # operations_service.py (the QUALITY_INSPECTION transition guard and
+    # the subcontractor active-work-orders query) even though the project
+    # as a whole is still live. Settable ONLY via
+    # OperationsService.split_work_order -- update_work_order_execution_
+    # status explicitly rejects it (see that method).
+    SPLIT = "split"
 
-    ALL_STATUSES = {DRAFT, DISPATCHED, ACCEPTED, IN_PROGRESS, COMPLETED, VERIFIED, CANCELLED}
+    ALL_STATUSES = {DRAFT, DISPATCHED, ACCEPTED, IN_PROGRESS, COMPLETED, VERIFIED, CANCELLED, SPLIT}
 
     TRANSITIONS: Dict[str, List[str]] = {
-        DRAFT: [DISPATCHED, CANCELLED],
+        DRAFT: [DISPATCHED, CANCELLED, SPLIT],
         DISPATCHED: [ACCEPTED, DRAFT, CANCELLED],  # Returning to draft on sub rejection
         ACCEPTED: [IN_PROGRESS, DISPATCHED, CANCELLED],
         IN_PROGRESS: [COMPLETED, CANCELLED],
         COMPLETED: [VERIFIED, IN_PROGRESS],  # Can be rejected back to in_progress during QA
         VERIFIED: [],
         CANCELLED: [],
+        SPLIT: [],
     }
 
 
@@ -380,6 +400,13 @@ class WorkOrder:
     trade: str = ""  # e.g. "mitigation", "drywall", "plumbing", "electrical", "flooring", "paint"
     assigned_subcontractor_id: Optional[int] = None
     assigned_crew_lead: Optional[str] = None
+    # B8.16 Phase 3: FK-less ref to the parent WorkOrder this row was split
+    # from (same "loosely-linked, additive ALTER TABLE ADD COLUMN" pattern
+    # as Invoice.assigned_user_id/Contract.assigned_user_id above), NOT a
+    # real FOREIGN KEY -- only populated on a child created by
+    # OperationsService.split_work_order. Immutable by construction: never
+    # written by update_work_order's UPDATE (same treatment as project_id).
+    parent_work_order_id: Optional[int] = None
     scheduled_start: Optional[str] = None
     scheduled_end: Optional[str] = None
     actual_start: Optional[str] = None
@@ -502,6 +529,9 @@ class Project:
     adjuster_phone: Optional[str] = None
     adjuster_email: Optional[str] = None
     deductible: Optional[float] = None
+    coverage_amount: Optional[float] = None
+    supplement_amount: Optional[float] = None
+    property_id: Optional[int] = None
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -528,6 +558,7 @@ class Estimate:
     expiration_date: Optional[str] = None
     version: int = 1
     notes: Optional[str] = None
+    assigned_user_id: Optional[int] = None  # FK-less ref to users (who's assigned)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -707,6 +738,59 @@ class EstimateDecision:
 
 
 @dataclass
+class PackageOption:
+    """Good/Better/Best tiered pricing option scoped to an Estimate
+    (B8.6b, sales_rep_portal.md §B8.6). Deliberately distinct from and
+    never mixed with home-care.html's real published subscription tiers
+    (Basic/Plus/Complete/Estate) -- settled by the B8 scoping pass,
+    not a naming decision made here. price/gross_profit/margin are
+    always server-computed from included_items by
+    CRMService.create_package_option -- never trusted from a client,
+    same discipline as Estimate's computed cost fields."""
+    id: Optional[int] = None
+    estimate_id: Optional[int] = None
+    tier: str = "good"  # good, better, best
+    price: float = 0.0
+    gross_profit: Optional[float] = None
+    margin: Optional[float] = None
+    included_items: List[Dict[str, Any]] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+# B8.6d-c: the small, fixed set of legal Contract.template_name values.
+# 'general_remodeling' is the original free-form contract path; the other
+# four are the real published HomeCare subscription tiers (confirmed
+# against home-care.html during B8.6 scoping) -- Basic/Plus/Complete/
+# Estate, NOT PackageOption's unrelated good/better/best estimate-pricing
+# tiers. template_name stays a plain TEXT column (no CHECK constraint --
+# same "can't be widened later without a full table rebuild" reasoning as
+# contract_signers.party_role) -- this tuple is the single Python-level
+# source of truth create_contract/update_contract validate against and the
+# sales portal's template picker renders from.
+CONTRACT_TEMPLATE_NAMES = (
+    "general_remodeling",
+    "homecare_basic",
+    "homecare_plus",
+    "homecare_complete",
+    "homecare_estate",
+)
+
+# B8.7b: maps each of CONTRACT_TEMPLATE_NAMES' four 'homecare_*' values to
+# the CommissionPlanConfig attribute holding that tier's monthly fee --
+# single source of truth so CRMService.sign_contract's enrollment trigger
+# doesn't hand-roll a second if/elif tier-to-field mapping.
+HOMECARE_TIER_FEE_FIELDS = {
+    "homecare_basic": "homecare_basic_monthly_fee",
+    "homecare_plus": "homecare_plus_monthly_fee",
+    "homecare_complete": "homecare_complete_monthly_fee",
+    "homecare_estate": "homecare_estate_monthly_fee",
+}
+
+
+@dataclass
 class Contract:
     id: Optional[int] = None
     contract_number: str = ""
@@ -720,8 +804,31 @@ class Contract:
     customer_signed_at: Optional[str] = None
     customer_signature_data: Optional[str] = None
     version: int = 1
+    assigned_user_id: Optional[int] = None  # FK-less ref to users (who's assigned)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ContractSigner:
+    """One required signer on a Contract (B8.6d-b, multi-party signing).
+    Additive on top of Contract.customer_signed_at/customer_signature_data
+    -- a contract with no ContractSigner rows uses that original
+    single-signer pair unchanged; a contract opted into multi-party
+    signing (CRMService.add_contract_signers) tracks each party's
+    signature here instead, and Contract.status only reaches 'signed'
+    once every row's signed_at is non-null."""
+    id: Optional[int] = None
+    contract_id: Optional[int] = None
+    party_role: str = ""  # e.g. 'customer', 'rep', 'project_manager', 'admin'
+    signer_name: Optional[str] = None
+    anchor_label: Optional[str] = None  # matches a pdf_service.SignatureAnchor.label
+    signature_data: Optional[str] = None  # nullable until signed
+    signed_at: Optional[str] = None  # nullable until signed
+    created_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -760,6 +867,28 @@ class Invoice:
     due_date: Optional[str] = None
     payments: List[Dict[str, Any]] = field(default_factory=list)
     notes: Optional[str] = None
+    # B8.7a: which rep earns a commission on this invoice (FK-less ref to
+    # users, same pattern as Contract.assigned_user_id/Estimate.assigned_
+    # user_id). Invoice has no reliable link to a Contract/Opportunity to
+    # trace a rep through (verified directly -- no contract_id/opportunity_id
+    # column exists here), so this is populated at create_invoice() time
+    # from the linked Customer's own assigned_user_id (falls back to None,
+    # same "unclaimed" semantics as Customer.assigned_user_id, if the
+    # customer itself has no owning rep -- see NEW-600 for the known gap
+    # where an admin-converted lead's Customer can land unclaimed).
+    assigned_user_id: Optional[int] = None
+    # B8.7a: classifies what this invoice is for, distinct from any other
+    # invoice -- 'assessment' is the only value B8.7a's trigger logic acts
+    # on. No CHECK constraint (same reasoning as ContractSigner.party_role
+    # -- a real DB's CHECK constraint can't be widened later without a full
+    # table rebuild); validated in Python instead, mirroring
+    # CommissionService._VALID_SOURCE_TYPES.
+    invoice_type: str = "other"  # assessment, subscription, project, other
+    # Phase 0-slim: itemized line items, mirroring WorkOrder.line_items'
+    # shape ({"description", "quantity", "unit_cost", "total_cost"}).
+    # When non-empty, create_invoice() computes `amount` server-side from
+    # these rather than trusting a client-supplied amount.
+    line_items: List[Dict[str, Any]] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -782,6 +911,10 @@ class CommunicationRecord:
     customer_id: Optional[int] = None
     project_id: Optional[int] = None
     opportunity_id: Optional[int] = None
+    lead_id: Optional[int] = None  # B8.10b: pre-conversion correspondence -- a
+    # lead's own communications (before it becomes a customer) link here
+    # instead of customer_id, per Ish's 2026-09-23 decision that lead
+    # correspondence must show up in the communications feed too.
     metadata: Dict[str, Any] = field(default_factory=dict)
     provider_message_id: Optional[str] = None  # NEW-233: originating channel's own
     # message id (e.g. IMAP Message-ID header), used as an idempotency key so a
@@ -1283,4 +1416,291 @@ class StaffSchedule:
             created_at=row["created_at"],
             updated_at=row["updated_at"]
         )
+
+
+@dataclass
+class Property:
+    id: Optional[int] = None
+    external_id: Optional[str] = None
+    customer_id: Optional[int] = None
+    address: str = ""
+    parcel_number: Optional[str] = None
+    property_type: Optional[str] = None
+    year_built: Optional[int] = None
+    square_footage: Optional[int] = None
+    stories: Optional[int] = None
+    roof_type: Optional[str] = None
+    exterior_type: Optional[str] = None
+    existing_systems: Dict[str, Any] = field(default_factory=dict)
+    insurance_carrier: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CommissionLedgerEntry:
+    """Strictly append-only commission ledger entry (B8.1, D4,
+    sales_rep_portal.md §4, Ish-approved 2026-09-16). Corrections and
+    chargebacks are new rows referencing the original via
+    reversed_entry_id -- never an UPDATE or DELETE of an existing row.
+    See CommissionService.reverse_commission."""
+    id: Optional[int] = None
+    rep_user_id: Optional[int] = None
+    source_type: str = "assessment"  # assessment, subscription_upsell, portfolio_override, bonus, adjustment, chargeback
+    source_id: Optional[int] = None
+    basis_amount: Optional[float] = None
+    commission_rate_or_flat: Optional[float] = None
+    commission_amount: float = 0.0
+    status: str = "pending"  # pending, earned, paid, reversed
+    earned_at: Optional[str] = None
+    paid_at: Optional[str] = None
+    reversed_entry_id: Optional[int] = None
+    created_by: Optional[int] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CommissionPlanConfig:
+    """Singleton commission-plan configuration (B8.7a, D4,
+    sales_rep_portal.md §4, Ish-approved 2026-09-16). There is exactly one
+    row (id fixed to 1), same pattern as BusinessProfile/ScheduleConfig --
+    lives in the DB (not Python constants) so a future dashboard round can
+    edit these numbers without a schema change, per the standing "everything
+    configurable must be dashboard-editable" rule (Ish, 2026-09-10).
+
+    Values seeded from D4's real numbers, read directly from
+    `Sales_Rep_Contract.docx` (not guessed): Phase 1 is a $100 flat
+    commission per $299 Initial Property Assessment sold/booked/paid.
+    The four HomeCare monthly tier fees (Basic/Plus/Complete/Estate) are
+    seeded here for Phase 2's future bonus calculation (bonus = first
+    month's fee minus the $100 already paid in Phase 1) -- not used by
+    B8.7a's own trigger logic, which only reads assessment_flat_commission,
+    but seeded now so the whole plan lives in one config row rather than
+    being added piecemeal across B8.7a/b. Estate's real contract value is
+    "$999+/mo" (variable/negotiated at the top end); the seeded value is
+    the floor, not a hard ceiling -- no range mechanism is invented here,
+    that's B8.7b/d's concern if it's ever needed.
+
+    homecare_basic_monthly_fee repriced 179.0 -> 119.0 (Ish, 2026-09-22,
+    mid-B8.7b) -- confirmed against the live home-care.html pricing
+    table, which already reflects $119. database.py's _migrate_schema()
+    carries a one-time corrective UPDATE for any DB whose singleton row
+    was already seeded with the old 179.0 default before this change.
+
+    portfolio_override_rate/portfolio_override_window_months (B8.7c, D6,
+    Phase 3): the 5% residual on gross collected revenue from major GC
+    projects, for 12 months from a customer's initial HomeCare enrollment.
+    Snapshotted at each ledger write (CRMService.record_payment reads the
+    live config value at write time, same as every other field here) so a
+    later rate edit never retroactively changes historical ledger rows."""
+    id: int = 1
+    assessment_price: float = 299.0
+    assessment_flat_commission: float = 100.0
+    homecare_basic_monthly_fee: float = 119.0
+    homecare_plus_monthly_fee: float = 399.0
+    homecare_complete_monthly_fee: float = 599.0
+    homecare_estate_monthly_fee: float = 999.0
+    portfolio_override_rate: float = 0.05
+    portfolio_override_window_months: int = 12
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class HomecareSubscription:
+    """One HomeCare enrollment (B8.7b, D4, sales_rep_portal.md §4,
+    Ish-approved 2026-09-16). Created by CRMService.sign_contract as a
+    best-effort side effect when a contract whose template_name is one of
+    CONTRACT_TEMPLATE_NAMES' four 'homecare_*' values reaches
+    status='signed'.
+
+    monthly_fee is a SNAPSHOT of commission_plan_config's corresponding
+    tier field at enrollment time -- deliberately not re-read live later,
+    so a future dashboard edit to the plan config doesn't retroactively
+    change historical Phase 2 bonus math.
+
+    property_id is nullable: Contract has no direct property column (only
+    project_id), and a contract's own project's property_id is itself
+    nullable (B8.1) -- this is a best-effort resolution, not a guarantee.
+
+    status is 'active'/'cancelled', no CHECK constraint at either layer
+    -- same enum-like-text-column pattern as Invoice.invoice_type/
+    ContractSigner.party_role (see database.py's homecare_subscriptions
+    comment for why)."""
+    id: Optional[int] = None
+    customer_id: int = 0
+    property_id: Optional[int] = None
+    contract_id: int = 0
+    tier: str = "homecare_basic"
+    monthly_fee: float = 0.0
+    originating_rep_user_id: Optional[int] = None
+    status: str = "active"
+    enrolled_at: str = field(default_factory=utc_now_iso)
+    cancelled_at: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class AssessmentRecord:
+    """Property/appointment assessment record (B8.5b, sales_rep_portal.md
+    §5/§6/§7, resolves NEW-567's deferred decision: property ->
+    assessment_record -> documents via evidence_document_ids is the real
+    mechanism for pre-project property photos, not a Document.property_id
+    schema change). checklist mirrors Property.existing_systems' pattern
+    (opaque dict, structure not yet settled). evidence_document_ids is a
+    KNOWN, ACCEPTED LIMITATION: an unenforced list of Document.id values,
+    no FK/cascade/validation -- a deleted Document leaves a dangling id."""
+    id: Optional[int] = None
+    appointment_id: Optional[int] = None
+    property_id: Optional[int] = None
+    checklist: Dict[str, Any] = field(default_factory=dict)
+    evidence_document_ids: List[int] = field(default_factory=list)
+    customer_statements: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Territory:
+    """Territory management lookup (B8.9a, sales_rep_portal.md §5 B8.9,
+    corrected scope 2026-09-23). Explicit, human-set only -- no ZIP/
+    geocoding inference, see database.py's territories table comment for
+    why. `code` is a short rep-facing label (e.g. "NORTH"), NOT a ZIP
+    code."""
+    id: Optional[int] = None
+    name: str = ""
+    code: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class FinancingRecord:
+    """Third-party financing application/status tracking for a project
+    (B8.8b-1, sales_rep_portal.md §4/§8). Deliberately inert this round --
+    reads into nothing else. B8.8b-2 will wire ``amount_financed`` into
+    ``FinanceService.get_ar_aging``/``get_financial_summary``/
+    ``get_project_pnl`` as an AR offset for records whose
+    ``application_status IN ('approved', 'funded') AND status == 'active'``
+    -- BOTH conditions together, never application_status alone: a
+    voided record can still carry application_status='approved' (voiding
+    never clears it), so status='active' is load-bearing for the offset,
+    not incidental. That eligibility concept belongs entirely to
+    B8.8b-2, not here.
+
+    invoice_id is nullable: financing is often initiated before the
+    invoice exists.
+
+    customer_contribution is the customer's OWN out-of-pocket share of
+    the financed project (already reflected in invoices.balance_due if
+    paid via the normal record_payment path) -- it must NEVER be summed
+    into the AR offset B8.8b-2 computes. amount_financed is the only
+    field B8.8b-2 will ever read from; a future implementer should not
+    double-count by also reading customer_contribution.
+
+    application_status ('submitted'/'approved'/'funded'/'denied'/
+    'cancelled') and status ('active'/'voided', an administrative flag
+    that gates whether a row counts at all -- NOT independent of
+    application_status for AR-offset purposes, see above) carry no CHECK
+    constraint at the DB layer, same enum-like-text-column pattern as
+    ContractSigner.party_role/Invoice.invoice_type -- FinancingService
+    enforces both at the service layer instead."""
+    id: Optional[int] = None
+    project_id: int = 0
+    invoice_id: Optional[int] = None
+    provider: Optional[str] = None
+    application_status: str = "submitted"
+    amount_financed: float = 0.0
+    customer_contribution: float = 0.0
+    document_ids: List[int] = field(default_factory=list)
+    status: str = "active"
+    created_by: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+# B8.12b, sales_rep_portal.md §B8.12 (`production handoff checklist`): the
+# fixed set of 7 required items, confirmed against the source doc's own
+# text ("scope, materials, customer selections, permits, insurance info,
+# financing, deposit status") -- NOT invented here. Always all 7 present on
+# every checklist row; each is individually 'done'/'na'/'pending', never a
+# partial/some-required scheme beyond that (Ish, 2026-09-24). A plain
+# Python tuple validated at the service layer, same "can't be widened
+# later without a full table rebuild" reasoning as CONTRACT_TEMPLATE_NAMES
+# -- not a DB CHECK constraint.
+PRODUCTION_HANDOFF_CHECKLIST_ITEMS = (
+    "scope",
+    "materials",
+    "customer_selections",
+    "permits",
+    "insurance",
+    "financing",
+    "deposit",
+)
+
+PRODUCTION_HANDOFF_ITEM_STATUSES = ("pending", "done", "na")
+
+
+@dataclass
+class ProductionHandoffChecklist:
+    """Sales-to-production handoff gate (B8.12b). Keyed on `project_id`,
+    NOT `contract_id` as sales_rep_portal.md's B8.12 text literally says --
+    deliberate reconciliation, not an arbitrary choice: Invoice (the other
+    half of the completion guard, for deposit status) has no contract_id
+    column at all (verified directly, see Invoice.assigned_user_id's own
+    B8.7a comment), only project_id, while Contract does carry project_id.
+    Keying this table on contract_id would make the deposit half of the
+    guard unreachable. The completion guard resolves "is there a signed
+    contract for this project" via a direct `contracts.status = 'signed'`
+    existence check (mirroring crm_service.py's
+    `_resolve_gc_contract_for_portfolio_override` gate-1b query shape) --
+    it does not store or pin to one specific contract row, since a project
+    can have more than one contract (e.g. a HomeCare enrollment alongside
+    a general_remodeling contract) and the guard only needs "a signed one
+    exists", not "which one".
+
+    One checklist per project (UNIQUE(project_id) at the DB layer,
+    financing_records.invoice_id's own precedent for this shape of
+    guard). FK-less by design on project_id/completed_by/created_by,
+    matching financing_records' project_id/invoice_id/created_by
+    precedent -- a checklist row must survive a linked row's deletion
+    without cascading.
+
+    `completed_at`/`completed_by` are both nullable and only ever set
+    together, atomically, by `CRMService.complete_handoff_checklist` once
+    every guard condition passes (contract signed + qualifying deposit
+    payment recorded + every one of the 7 items done-or-na)."""
+    id: Optional[int] = None
+    project_id: int = 0
+    items: Dict[str, str] = field(
+        default_factory=lambda: {k: "pending" for k in PRODUCTION_HANDOFF_CHECKLIST_ITEMS}
+    )
+    completed_at: Optional[str] = None
+    completed_by: Optional[int] = None
+    created_by: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 

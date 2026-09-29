@@ -219,10 +219,16 @@ treated as still-current.
     the assessment: bonus = first month's subscription fee minus the
     $100 already paid in Phase 1. Confirms the real four-tier pricing
     (matches `home-care.html`'s Basic/Plus/Complete/Estate naming from
-    §2's ground-truth note): Basic $179/mo → $79 bonus; Plus $399/mo →
-    $299 bonus; Complete $599/mo → $499 bonus; Estate $999+/mo → $899+
-    bonus (tier price variable/negotiated at the top end, per the
-    contract's own "$899+" phrasing).
+    §2's ground-truth note): **Basic $119/mo → $19 bonus** (repriced
+    2026-09-22, Ish, mid-B8.7b, from an original $179/mo → $79 bonus --
+    confirmed against the live `home-care.html` pricing table, `$119
+    Basic`/`HomeCare Basic ($119/mo)`, which already reflects the new
+    price); Plus $399/mo → $299 bonus; Complete $599/mo → $499 bonus;
+    Estate $999+/mo → $899+ bonus (tier price variable/negotiated at the
+    top end, per the contract's own "$899+" phrasing). Plus/Complete/
+    Estate are unchanged. See `commission_plan_config`'s
+    `homecare_basic_monthly_fee` (B8.7a seed, corrected in B8.7b) for
+    where this lives in the DB.
   - **Phase 3 — portfolio override, residual, 5%,** on gross collected
     revenue of any major general-contracting project (roofing, siding,
     storm damage repair, flood restoration, etc.) generated from a
@@ -525,18 +531,30 @@ Ish).
 
 ### B8.8 — Insurance restoration workflow & financing tracking (request §21, §22)
 
-- **`InsuranceClaim`** table (net-new): `id`, `property_id`,
-  `customer_id`, `carrier`, `claim_number`, `adjuster_name`,
-  `adjuster_contact`, `date_of_loss`, `loss_type`, `status`
-  (`reported`→`inspection`→`documentation`→`estimate`→`carrier_review`→
-  `supplement`→`approved`→`contract`→`production`, matching the
-  request's stated chain), `coverage_amount`, `deductible`,
-  `supplement_amount`, `notes`. Linked from `Property`/`Project`, photos
-  via existing `Document`.
+- **CORRECTION (rule 6, 2026-09-23, B8.8 scoping):** the original text
+  here proposed a net-new `InsuranceClaim` table — that was never
+  actually needed. Insurance/claim/adjuster fields already existed on
+  both `Project` (`insurance_claim_number`/`insurance_carrier`/
+  `adjuster_name`/`adjuster_phone`/`adjuster_email`/`deductible`,
+  commit `07c5f85`) and `Opportunity` (`insurance_carrier`/
+  `claim_number`/`adjuster_name`/`adjuster_phone`/`adjuster_email`/
+  `deductible`/`insurance_claim_status`, commit `470d87f`), both
+  predating this document, fully CRUD-wired and audit-logged —
+  confirmed live against the real production DB. `Property` separately
+  carries its own `insurance_carrier`. `ProjectStage` already has a
+  real `INSURANCE_APPROVAL` lifecycle stage with a live transition
+  guard. What was actually missing was UI exposing these fields to a
+  rep, plus two claim-dollar fields (coverage vs. supplement amount)
+  that didn't exist anywhere — see B8.8's `PROJECT_LOG.md` entry for
+  the real build.
 - **`FinancingRecord`** table (net-new): `id`, `project_id`, `provider`,
   `application_status`, `amount_financed`, `customer_contribution`,
-  `document_ids_json`, `status`. **Manual-entry only until D5 is
-  answered** — no external financing API integration assumed.
+  `document_ids_json`, `status`. **Manual-entry only, D5 confirmed
+  2026-09-16** — no external financing API integration. **Ish decided
+  2026-09-23 that a recorded financed amount SHOULD offset AR
+  aging/financial-summary computation** (not pure display) — this
+  makes the financing piece a rule-4 money-computation change, split
+  into its own round rather than bundled with the insurance-UI piece.
 - **Exit criterion:** an insurance-involved project shows claim status
   alongside the normal project record, with no separate insurance
   database — this is columns/tables in the same Core, queried the same
@@ -549,11 +567,26 @@ Ish).
   Map view reuses existing address fields — no new geocoding service
   unless Ish asks for one; this phase is assignment/filtering, not a
   mapping platform build.
-- Referral compensation is a `CommissionLedgerEntry` with
-  `source_type='referral'` (B8.1) — **not** a new table, per §2's gap
-  analysis.
-- **Exit criterion:** leads can be filtered/auto-assigned by territory;
-  a referral produces a correctly-attributed ledger row.
+- **CORRECTION (rule 6, 2026-09-23, B8.9 scoping):** the `source_type=
+  'referral'` line below was never accurate against D4's real numbers
+  and is stale. "Referral compensation" is not a separate concept —
+  D4 (`sales_rep_portal.md` §4, Ish, 2026-09-16) describes exactly this
+  as the Phase 3 5% portfolio-override residual, already modeled via
+  `source_type='portfolio_override'` (B8.1, shipped) with
+  `originating_rep_user_id` attribution already wired (B8.7b, shipped).
+  No `referral` `source_type` exists or is needed — see `NEW-545`'s
+  resolution. The remaining gap is entirely **B8.7c** (the actual
+  override-calculation logic), blocked on **D6**, not a B8.9 concern.
+  B8.9 itself is territory management only. ~~Referral compensation is
+  a `CommissionLedgerEntry` with `source_type='referral'` (B8.1) — not
+  a new table, per §2's gap analysis.~~ (superseded, see above)
+- **Exit criterion (narrowed 2026-09-23):** leads/customers can be
+  filtered by territory; a rep and a territory can be associated.
+  Auto-assignment by territory match is a future consumer of this work
+  (`NEW-534`), not part of B8.9's own exit criterion. The referral half
+  of the original exit criterion ("a referral produces a correctly-
+  attributed ledger row") is automatically satisfied once B8.7c ships —
+  B8.9 does not build anything referral-specific.
 
 ### B8.10 — Communications center & follow-up visibility (request §14, §15, §16, §31)
 
@@ -571,11 +604,23 @@ communication log.
   black-box automation"* per the request is satisfied by making every
   rule and its next scheduled task readable and editable in this UI,
   not by adding new automation infrastructure.
-- Notification center: **poll-based** (D3), reusing `NotificationService`.
+- Notification center: **poll-based** (D3). Corrected 2026-09-23 per
+  `NEW-622` — `NotificationService` is an outbound-email sender, not a
+  notification store or entity, and no notification-entity model exists
+  anywhere in this codebase, so there is nothing to "reuse" in that
+  sense. The dashboard's existing poll-on-load surfaces (the new-leads
+  badge, the Follow-ups panel — the latter given Complete/Cancel/Snooze
+  actions plus automation-source badges in B8.10a) already are the
+  substance of a notification center; no separate notification store was
+  built or needed.
 - **Exit criterion:** every communication auto-attaches to the correct
   customer/lead record (already true at the data layer — this verifies
-  the UI reflects it), and a rep can see and pause any pending automated
-  follow-up before it fires.
+  the UI reflects it), and a rep can see and act on (complete, cancel,
+  or snooze) any pending automated follow-up before it fires. Corrected
+  2026-09-23, B8.10a: "pause" is implemented as Cancel — `Task.status`
+  has no `paused` value, and inventing one would need a schema/CHECK-
+  constraint change this phase doesn't otherwise need (see B8.10a's
+  own `PROJECT_LOG.md` entry).
 
 ### B8.11 — AI Sales Copilot (request §8, §27, §28)
 

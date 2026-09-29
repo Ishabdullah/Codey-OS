@@ -23,8 +23,8 @@ _SCHEMA_SQL = """
 -- role CHECK list must stay byte-for-byte identical to
 -- _USERS_TABLE_WIDENED_ROLE_SQL below (its rebuilt-table copy, used by
 -- _migrate_users_role_constraint() to widen a legacy DB's `users.role`
--- CHECK; the 'sales_manager' substring check there is also this file's
--- idempotency gate) -- keep the two in sync any time a role is added.
+-- CHECK; the quoted `'subcontractor'` literal there is also this file's
+-- idempotency gate -- keep the two in sync any time a role is added.
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL COLLATE NOCASE,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL COLLATE NOCASE,
     phone TEXT,
-    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer')),
+    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer', 'subcontractor')),
     department TEXT,
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
@@ -41,6 +41,21 @@ CREATE TABLE IF NOT EXISTS users (
     -- approval before an estimate they created can be sent" flag (D5).
     -- About the creator, not any one estimate, so it lives on users.
     requires_estimate_approval INTEGER NOT NULL DEFAULT 0 CHECK(requires_estimate_approval IN (0, 1)),
+    -- terminated_at (B8.7c, D6, sales_rep_portal.md §4 Phase 3): set to the
+    -- current timestamp by AuthService.set_user_active ONLY on a genuine
+    -- active 1->0 transition (never on every suspend call), cleared back to
+    -- NULL on a 0->1 reactivation -- a rehired rep isn't "still terminated"
+    -- for future projects. Read by CRMService's portfolio-override
+    -- eligibility check (record_payment): a GC contract whose resolved
+    -- signed timestamp (customer_signed_at for a single-signer contract,
+    -- or MAX(contract_signers.signed_at) for one signed via multi-party
+    -- signing -- see _resolve_portfolio_override_eligibility gate 1b) is
+    -- <= the originating rep's terminated_at still pays the override on
+    -- payments collected even after the rep left; NULL (never
+    -- terminated) is always eligible on this gate.
+    terminated_at TEXT,
+    territory_id INTEGER, -- B8.9a: FK-less, see the territories table's own DDL comment below
+    subcontractor_id INTEGER, -- Phase 0b, B8.16: FK-less by design (same convention as territory_id above); only populated if role == 'subcontractor'
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
@@ -170,6 +185,33 @@ CREATE TABLE IF NOT EXISTS tasks (
     FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Properties (B8.1, D4, sales_rep_portal.md §4, Ish-approved 2026-09-16).
+-- external_id inline TEXT UNIQUE -- wholly new table, matches the
+-- subcontractors.external_id pattern (not the customers/leads/contacts/
+-- tasks retrofit pattern, which uses a separate post-migration unique
+-- index because those tables predate external_id). existing_systems_json
+-- is an opaque JSON blob (HVAC/plumbing/electrical/etc. -- key shape not
+-- yet settled) mirroring schedule_config.duration_by_relationship_json's
+-- precedent for not inventing structure ahead of the real data.
+CREATE TABLE IF NOT EXISTS properties (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT UNIQUE,
+    customer_id INTEGER,
+    address TEXT NOT NULL,
+    parcel_number TEXT,
+    property_type TEXT,
+    year_built INTEGER,
+    square_footage INTEGER,
+    stories INTEGER,
+    roof_type TEXT,
+    exterior_type TEXT,
+    existing_systems_json TEXT NOT NULL DEFAULT '{}',
+    insurance_carrier TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+);
+
 -- Projects / Jobs
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -199,10 +241,21 @@ CREATE TABLE IF NOT EXISTS projects (
     adjuster_phone TEXT,
     adjuster_email TEXT,
     deductible REAL,
+    coverage_amount REAL,
+    supplement_amount REAL,
+    -- property_id: link to the properties table (B8.1). Present here for
+    -- a fresh DB's CREATE TABLE (with FK); a migrated DB gets the bare
+    -- column via the ALTER TABLE entry in _migrate_schema() instead,
+    -- since SQLite's ALTER TABLE ADD COLUMN cannot attach a FOREIGN KEY --
+    -- same deliberate fresh-vs-migrated asymmetry as
+    -- appointment_type_id/assigned_user_id on appointments and user_id on
+    -- subcontractors.
+    property_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
-    FOREIGN KEY (project_manager_id) REFERENCES users(id) ON DELETE SET NULL
+    FOREIGN KEY (project_manager_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
 );
 
 -- Estimates / Quotes. REBUILT (Codey-Estimator Phase B9.1) to widen
@@ -266,6 +319,14 @@ CREATE TABLE IF NOT EXISTS estimates (
     expiration_date TEXT,
     version INTEGER NOT NULL DEFAULT 1,
     notes TEXT,
+    -- assigned_user_id: the rep who owns this estimate (defaults to the
+    -- creating actor server-side, see CRMService.create_estimate). Bare
+    -- INTEGER, no FK -- matches the appointments.assigned_user_id
+    -- precedent (NEW-487/488): SQLite's ALTER TABLE ADD COLUMN (used in
+    -- _migrate_schema for existing DB files) can't attach a FK, so the
+    -- fresh-DB CREATE TABLE path deliberately stays FK-less too, to keep
+    -- both paths identical.
+    assigned_user_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,  -- widened from CASCADE
@@ -503,12 +564,79 @@ CREATE TABLE IF NOT EXISTS contracts (
     customer_signed_at TEXT,
     customer_signature_data TEXT,
     version INTEGER NOT NULL DEFAULT 1,
+    -- assigned_user_id: the rep who owns this contract (defaults to the
+    -- creating actor server-side, see CRMService.create_contract). Bare
+    -- INTEGER, no FK -- same rationale as estimates.assigned_user_id above.
+    assigned_user_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
     FOREIGN KEY (estimate_id) REFERENCES estimates(id) ON DELETE SET NULL
 );
+
+-- Contract Signers (B8.6d-b): multi-party signer tracking, additive on top
+-- of the single customer_signed_at/customer_signature_data pair on
+-- contracts above. A contract with zero rows here uses the original
+-- single-signer path in CRMService.sign_contract unchanged; a contract
+-- opted into multi-party signing (via CRMService.add_contract_signers)
+-- gets one row per required signer and only reaches contracts.status =
+-- 'signed' once every row here has a non-null signed_at. Deliberately a
+-- new child table rather than new columns on contracts -- a one-to-many
+-- relationship doesn't fit ALTER TABLE ADD COLUMN (no UNIQUE, no FOREIGN
+-- KEY attachable that way), and CREATE TABLE IF NOT EXISTS has no such
+-- limit. party_role is free-form TEXT, not CHECK-constrained, since new
+-- signer roles may be added later and (per the users-role-rebuild
+-- precedent elsewhere in this file) a CHECK constraint on an
+-- already-created real DB cannot be widened without a full table rebuild
+-- -- avoided here by simply not adding one. New table, no migration entry
+-- needed.
+--
+-- UNIQUE(contract_id, party_role) (NEW-597, B8.6d-c): this table is new
+-- enough (introduced in this same round, B8.6d-b, never yet reachable
+-- through a route -- see NEW-592) that adding this constraint directly to
+-- CREATE TABLE carries none of the "already-shipped data shape" risk that
+-- rules out a CHECK-constraint widening elsewhere in this file. IMPORTANT:
+-- CREATE TABLE IF NOT EXISTS is a silent no-op against any DB file where
+-- this table was already created (by the B8.6d-b commit) before this
+-- constraint was added -- such a DB's contract_signers table has NO
+-- UNIQUE constraint and this line will never retrofit one. The real,
+-- load-bearing guard against duplicate (contract_id, party_role) rows is
+-- therefore the explicit NOT EXISTS check in add_contract_signers()
+-- (crm_service.py), not this constraint -- this is defense-in-depth for
+-- fresh DBs only.
+CREATE TABLE IF NOT EXISTS contract_signers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contract_id INTEGER NOT NULL,
+    party_role TEXT NOT NULL,
+    signer_name TEXT,
+    anchor_label TEXT,
+    signature_data TEXT,
+    signed_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE,
+    UNIQUE (contract_id, party_role)
+);
+CREATE INDEX IF NOT EXISTS idx_contract_signers_contract_id ON contract_signers(contract_id);
+
+-- Package Options (B8.6b, sales_rep_portal.md §B8.6): Good/Better/Best
+-- tiered pricing options scoped to an estimate. tier is deliberately
+-- distinct from and never mixed with home-care.html's real published
+-- subscription tiers (Basic/Plus/Complete/Estate). price/gross_profit/
+-- margin are always server-computed by CRMService.create_package_option,
+-- never client-trusted. New table, no migration entry needed.
+CREATE TABLE IF NOT EXISTS package_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id INTEGER,
+    tier TEXT NOT NULL CHECK(tier IN ('good', 'better', 'best')),
+    price REAL NOT NULL,
+    gross_profit REAL,
+    margin REAL,
+    included_items_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_package_options_estimate_id ON package_options(estimate_id);
 
 -- Documents
 CREATE TABLE IF NOT EXISTS documents (
@@ -557,6 +685,50 @@ CREATE TABLE IF NOT EXISTS invoices (
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 );
 
+-- Customer Credits (B8.15, NEW-613/633 cluster, Ish-approved 2026-09-25:
+-- "overpayments should be logged as credit" -- manual-only, no auto-apply
+-- to future invoices this round, and DELIBERATELY kept out of AR
+-- reporting -- get_ar_aging/get_financial_summary/get_project_pnl
+-- (finance_service.py) and AnalyticsSearchService.total_ar must never
+-- reference this table. Belongs to the customer, not the invoice
+-- (source_invoice_id just records provenance) -- a credit is, in
+-- principle, reusable against ANY future invoice for that customer, even
+-- though no application mechanism is built this round. Deliberately
+-- append-only: no applied/status/remaining_amount column, no
+-- credit-application method -- the minimal shape that stops an
+-- overpayment from vanishing (a recorded, queryable, customer-linked
+-- liability) without building a refund/credit-application system nobody
+-- asked for yet. amount is always positive (the overage itself, never a
+-- running balance). No UNIQUE constraint on source_invoice_id: unlike
+-- commission_ledger_entries' one-commission-per-source invariant,
+-- multiple credit rows against the same invoice are legitimate -- an
+-- invoice's overage can grow across more than one record_payment call
+-- (e.g. overpaid by $500 today, then a further $200 misdirected payment
+-- next week), so record_payment's own delta-against-already-recorded
+-- guard (crm_service.py) is what prevents double-counting on a retried
+-- call, not a DB constraint. No FK on created_by_user_id (unlike this
+-- codebase's usual created_by convention) -- this INSERT runs inside the
+-- SAME transaction as the invoice-balance UPDATE it accompanies (PRAGMA
+-- foreign_keys = ON on this connection), and adding a FK here would be a
+-- new, avoidable way for an otherwise-legitimate payment to abort and
+-- roll back over an unrelated users-table integrity detail. customer_id
+-- and source_invoice_id are both valid by construction (sourced directly
+-- from the invoice row's own already-FK-checked columns), so those two
+-- FKs add no equivalent risk.
+CREATE TABLE IF NOT EXISTS customer_credits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    source_invoice_id INTEGER,
+    amount REAL NOT NULL,
+    reason TEXT NOT NULL DEFAULT 'overpayment',
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+    FOREIGN KEY (source_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_customer_credits_customer_id ON customer_credits(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_credits_source_invoice_id ON customer_credits(source_invoice_id);
+
 -- Communication History (DAY-ONE-OR-NEVER, STRICTLY APPEND-ONLY).
 -- provider_message_id (NEW-233, 2026-08-27, Ish-approved -- "reliable
 -- log" requirement) holds the originating channel's own message
@@ -582,6 +754,15 @@ CREATE TABLE IF NOT EXISTS communication_history (
     customer_id INTEGER,
     project_id INTEGER,
     opportunity_id INTEGER,
+    -- lead_id: bare INTEGER, no FK -- matches the appointments.
+    -- assigned_user_id / estimates.assigned_user_id precedent (NEW-487/488,
+    -- B8.9a's territory_id): SQLite's ALTER TABLE ADD COLUMN (used in
+    -- _migrate_schema for existing DB files) can't attach a FK, so the
+    -- fresh-DB CREATE TABLE path deliberately stays FK-less too, to keep
+    -- both paths identical rather than a fresh DB enforcing referential
+    -- integrity/ON DELETE SET NULL cascade on this column while a migrated
+    -- DB silently doesn't.
+    lead_id INTEGER,
     metadata_json TEXT NOT NULL DEFAULT '{}',
     provider_message_id TEXT,
     FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -776,6 +957,50 @@ CREATE TABLE IF NOT EXISTS schedule_config (
     updated_at TEXT NOT NULL
 );
 
+-- Commission plan configuration (B8.7a, D4, sales_rep_portal.md §4,
+-- Ish-approved 2026-09-16). Deliberately a dedicated singleton table (id
+-- fixed to 1 via CHECK), same pattern as business_profile/schedule_config
+-- above -- lives in the DB, not Python constants, so a future dashboard
+-- round can edit these numbers without a schema change (the standing
+-- "everything configurable must be dashboard-editable" rule, Ish,
+-- 2026-09-10). Unlike schedule_config (left unseeded until an actor
+-- explicitly configures it), this singleton IS seeded automatically in
+-- _migrate_schema() with D4's real numbers -- B8.7a's commission trigger
+-- needs a real, non-null flat-commission amount to exist from the moment
+-- this column set ships, not after a manual admin setup step. See
+-- models.py's CommissionPlanConfig docstring for the full D4 rationale
+-- and the Estate-tier "$999+/mo" caveat.
+CREATE TABLE IF NOT EXISTS commission_plan_config (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    assessment_price REAL NOT NULL DEFAULT 299.0,
+    assessment_flat_commission REAL NOT NULL DEFAULT 100.0,
+    -- homecare_basic_monthly_fee: repriced 179.0 -> 119.0 (Ish,
+    -- 2026-09-22, mid-B8.7b) -- confirmed against the live
+    -- home-care.html pricing table, which already shows $119. This
+    -- DEFAULT only affects a fresh CREATE TABLE (a brand-new DB); an
+    -- existing DB's already-seeded row is fixed by the one-time
+    -- corrective UPDATE in _migrate_schema() below, since INSERT OR
+    -- IGNORE below is a no-op once the row exists.
+    homecare_basic_monthly_fee REAL NOT NULL DEFAULT 119.0,
+    homecare_plus_monthly_fee REAL NOT NULL DEFAULT 399.0,
+    homecare_complete_monthly_fee REAL NOT NULL DEFAULT 599.0,
+    homecare_estate_monthly_fee REAL NOT NULL DEFAULT 999.0,
+    -- portfolio_override_rate/portfolio_override_window_months (B8.7c, D6,
+    -- sales_rep_portal.md §4 Phase 3, Ish-answered 2026-09-23): the 5%
+    -- residual on gross collected revenue from major GC projects, for N
+    -- months from a customer's initial HomeCare enrollment. Deliberately
+    -- NOT hardcoded as Python constants -- same "everything configurable
+    -- must be dashboard-editable" rationale as every other field in this
+    -- table. NOT NULL DEFAULT on the ALTER (see _migrate_schema below)
+    -- means an existing DB's row gets these real numbers automatically on
+    -- migration -- no corrective UPDATE needed, unlike the homecare_basic_
+    -- monthly_fee reprice above, since these are brand-new columns with no
+    -- prior value that could conflict with the real default.
+    portfolio_override_rate REAL NOT NULL DEFAULT 0.05,
+    portfolio_override_window_months INTEGER NOT NULL DEFAULT 12,
+    updated_at TEXT NOT NULL
+);
+
 -- Appointment service types (final scheduling round, Phase 2). The
 -- "service type" axis (Emergency / Standard estimate / Consultation),
 -- SEPARATE from appointments.appointment_type (the call/in_person modality
@@ -896,11 +1121,25 @@ CREATE TABLE IF NOT EXISTS work_orders (
     trade TEXT NOT NULL,
     assigned_subcontractor_id INTEGER,
     assigned_crew_lead TEXT,
+    -- B8.16 Phase 3: FK-less ref to the parent work order this row was
+    -- split from -- see WorkOrder.parent_work_order_id's own docstring
+    -- (models.py) for why this is not a real FOREIGN KEY. Additive on a
+    -- legacy DB via _migrate_schema()'s ALTER TABLE ADD COLUMN list below.
+    parent_work_order_id INTEGER,
     scheduled_start TEXT,
     scheduled_end TEXT,
     actual_start TEXT,
     actual_end TEXT,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'dispatched', 'accepted', 'in_progress', 'completed', 'verified', 'cancelled')),
+    -- B8.16 Phase 3 (2026-09-29): widened to add 'split', a non-terminal
+    -- status distinct from 'cancelled' for a work order divided into child
+    -- work orders (see OperationsService.split_work_order). SQLite cannot
+    -- ALTER a CHECK constraint in place -- a legacy DB's copy is widened by
+    -- _migrate_work_orders_status_constraint() below via the same
+    -- never-rename-the-real-table full-rebuild procedure
+    -- _migrate_users_role_constraint() established (D2, sales_rep_portal.md
+    -- §4). Keep this list and _WORK_ORDERS_TABLE_WIDENED_STATUS_SQL's copy
+    -- in sync.
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'dispatched', 'accepted', 'in_progress', 'completed', 'verified', 'cancelled', 'split')),
     line_items_json TEXT NOT NULL DEFAULT '[]',
     total_cost REAL NOT NULL DEFAULT 0.0,
     instructions TEXT,
@@ -1158,6 +1397,272 @@ CREATE TABLE IF NOT EXISTS staff_schedules_archive (
     archived_reason TEXT NOT NULL DEFAULT 'user_deleted'
 );
 
+-- Commission Ledger (B8.1, D4, sales_rep_portal.md §4, Ish-approved
+-- 2026-09-16). Append-only by convention, same discipline as audit_log
+-- above (no DB-level enforcement -- CommissionService must never issue
+-- UPDATE/DELETE against an existing row; corrections/chargebacks are new
+-- rows referencing the original via reversed_entry_id). source_type enum
+-- per D4 -- supersedes an earlier placeholder list in
+-- sales_rep_portal.md §5 B8.1 itself (dropped 'referral', logged as
+-- NEW-545). source_id is deliberately a bare INTEGER, no FK (polymorphic
+-- reference to Invoice/Project/Contract/etc., matches audit_log's
+-- entity_id). rep_user_id is nullable+SET NULL at the schema level
+-- (matches financial_transactions.recorded_by_id) so historical rows
+-- survive a user deletion, but CommissionService enforces non-null on
+-- create at the service layer.
+CREATE TABLE IF NOT EXISTS commission_ledger_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rep_user_id INTEGER,
+    source_type TEXT NOT NULL CHECK(source_type IN ('assessment', 'subscription_upsell', 'portfolio_override', 'bonus', 'adjustment', 'chargeback')),
+    source_id INTEGER,
+    basis_amount REAL,
+    commission_rate_or_flat REAL,
+    commission_amount REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'earned', 'paid', 'reversed')),
+    earned_at TEXT,
+    paid_at TEXT,
+    reversed_entry_id INTEGER,
+    created_by INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (rep_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (reversed_entry_id) REFERENCES commission_ledger_entries(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- HomeCare Subscriptions (B8.7b, D4, sales_rep_portal.md §4, Ish-approved
+-- 2026-09-16). One row per HomeCare enrollment, created by
+-- CRMService.sign_contract as a best-effort side effect when a contract
+-- whose template_name is one of CONTRACT_TEMPLATE_NAMES' four
+-- 'homecare_*' values reaches status='signed' (single- or multi-party).
+-- monthly_fee is a SNAPSHOT of commission_plan_config's corresponding
+-- tier field AT ENROLLMENT TIME, deliberately not re-read live later --
+-- this protects historical Phase 2 bonus math (bonus = monthly_fee -
+-- assessment_flat_commission) from changing retroactively if the plan
+-- config is edited after enrollment via a future dashboard round.
+-- property_id is nullable: Contract has no direct property column (only
+-- project_id); a contract's own project may or may not have a
+-- property_id set (projects.property_id is itself nullable, B8.1) --
+-- so this is a best-effort snapshot of whatever CRMService could resolve
+-- at enrollment time, not a guaranteed link.
+-- originating_rep_user_id mirrors commission_ledger_entries.rep_user_id's
+-- own nullable+SET NULL shape (a historical subscription row must
+-- survive its originating rep's user account being deleted later).
+-- status has no CHECK constraint, same "can't be widened later without a
+-- full table rebuild" reasoning as contract_signers.party_role and
+-- Invoice.invoice_type -- CRMService enforces the two legal values
+-- ('active', 'cancelled') at the service layer.
+-- tier ALSO has no CHECK constraint, for the same reason -- and
+-- deliberately NOT constrained to CONTRACT_TEMPLATE_NAMES' current four
+-- 'homecare_*' values either: that tuple's own comment in models.py
+-- states template_name stays CHECK-free specifically because a real
+-- CHECK constraint can't be widened later without a full table rebuild.
+-- A CHECK here would reintroduce exactly that problem one hop downstream
+-- -- a future fifth HomeCare tier would be accepted by contracts.
+-- template_name but rejected by this column, silently breaking
+-- enrollment for that tier via an IntegrityError. CRMService enforces
+-- tier against HOMECARE_TIER_FEE_FIELDS at the service layer instead,
+-- consistent with status above.
+-- UNIQUE(contract_id): a contract can enroll at most one subscription --
+-- this is the DB-level second-layer defense (matches B8.7a's
+-- idx_commission_ledger_source_unique philosophy) against a double-fire
+-- of sign_contract's enrollment side effect producing two subscription
+-- rows for the same contract, which idx_commission_ledger_source_unique
+-- alone would NOT catch (that index keys on subscription_upsell's
+-- source_id = this table's own id, i.e. it guarantees one bonus per
+-- subscription row, not one subscription per contract).
+CREATE TABLE IF NOT EXISTS homecare_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    property_id INTEGER,
+    contract_id INTEGER NOT NULL,
+    tier TEXT NOT NULL,
+    monthly_fee REAL NOT NULL,
+    originating_rep_user_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'active',
+    enrolled_at TEXT NOT NULL,
+    cancelled_at TEXT,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (originating_rep_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(contract_id)
+);
+CREATE INDEX IF NOT EXISTS idx_homecare_subscriptions_customer_id ON homecare_subscriptions(customer_id);
+CREATE INDEX IF NOT EXISTS idx_homecare_subscriptions_status ON homecare_subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_homecare_subscriptions_rep_user_id ON homecare_subscriptions(originating_rep_user_id);
+
+-- Assessment Records (B8.5b, sales_rep_portal.md §5/§6/§7, resolves
+-- NEW-567's deferred decision): property -> assessment_record ->
+-- documents (via evidence_document_ids_json) is the real mechanism for
+-- pre-project property photos -- deliberately NOT a Document.property_id
+-- schema change. A rep completes an assessment checklist and attaches
+-- in-app photos (reusing B6.5's existing 25MB local-disk Document upload
+-- path -- no new storage layer), and the record is retrievable from both
+-- its appointment and its property.
+-- checklist_json is an opaque JSON blob (structure not yet settled),
+-- mirroring properties.existing_systems_json's precedent for not
+-- inventing structure ahead of the real data.
+-- evidence_document_ids_json is a JSON array of Document.id values.
+-- KNOWN, ACCEPTED LIMITATION (not a bug): this is an unenforced id list --
+-- no FK, no cascade, no validation that a referenced Document still
+-- exists. A deleted Document row leaves a dangling id in this array.
+CREATE TABLE IF NOT EXISTS assessment_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    appointment_id INTEGER,
+    property_id INTEGER,
+    checklist_json TEXT NOT NULL DEFAULT '{}',
+    evidence_document_ids_json TEXT NOT NULL DEFAULT '[]',
+    customer_statements TEXT,
+    created_by INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assessment_records_appointment_id ON assessment_records(appointment_id);
+CREATE INDEX IF NOT EXISTS idx_assessment_records_property_id ON assessment_records(property_id);
+
+-- Financing Records (B8.8b-1, sales_rep_portal.md §4/§8, Ish-approved
+-- 2026-09-23: a recorded financed amount should offset AR). This round
+-- is DELIBERATELY INERT -- table + CRUD only, reads into nothing else.
+-- B8.8b-2 (separate, higher-scrutiny round) wires amount_financed into
+-- FinanceService.get_ar_aging/get_financial_summary/get_project_pnl as
+-- an AR offset for records whose application_status IS IN
+-- ('approved','funded') AND status='active' -- BOTH conditions, not
+-- application_status alone. A voided record can carry
+-- application_status='approved' (voiding doesn't clear it) and must
+-- never contribute to the offset; the round's own tests create exactly
+-- this shape. invoice_id is nullable: financing is often initiated before
+-- the invoice exists. customer_contribution is the customer's own
+-- out-of-pocket share (already reflected in invoices.balance_due if
+-- paid via the normal record_payment path) and must NEVER be summed
+-- into the AR offset -- amount_financed is the only field B8.8b-2 will
+-- ever read from this table.
+-- application_status/status carry no CHECK constraint, same
+-- "can't be widened later without a full table rebuild" reasoning as
+-- contract_signers.party_role/Invoice.invoice_type/homecare_
+-- subscriptions.status -- FinancingService enforces both legal-value
+-- sets at the service layer instead. status is an administrative flag
+-- ('active'/'voided') that gates whether a row counts at all -- NOT
+-- independent of application_status for AR-offset purposes: a voided
+-- record can still carry application_status='approved'/'funded' (voiding
+-- never clears it), so B8.8b-2's offset query MUST filter on both
+-- status='active' AND application_status IN ('approved','funded')
+-- together, never application_status alone.
+-- No FOREIGN KEY declared on project_id/invoice_id/created_by, matching
+-- financial_transactions.project_id/customer_id/invoice_id's own
+-- FK-less precedent for this same reason (a financing record must
+-- survive a linked row's deletion without cascading).
+CREATE TABLE IF NOT EXISTS financing_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    invoice_id INTEGER,
+    provider TEXT,
+    application_status TEXT NOT NULL DEFAULT 'submitted',
+    amount_financed REAL NOT NULL DEFAULT 0.0,
+    customer_contribution REAL NOT NULL DEFAULT 0.0,
+    document_ids_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_financing_records_project_id ON financing_records(project_id);
+CREATE INDEX IF NOT EXISTS idx_financing_records_invoice_id ON financing_records(invoice_id);
+-- Double-financing-provider guard, mirroring B8.7a's
+-- idx_commission_ledger_source_unique precedent exactly: prevents two
+-- simultaneously-approved/funded financing records on the same invoice
+-- (customer shopped multiple lenders) from ever being able to
+-- double-count once B8.8b-2 wires the offset. Built now, even though
+-- nothing reads application_status='approved'/'funded' as an
+-- "eligible" concept yet, because retrofitting a UNIQUE constraint onto
+-- an already-shipped table with real data is much harder later (this
+-- project has hit this exact SQLite limit repeatedly -- see
+-- contract_signers' own comment). Partial on invoice_id IS NOT NULL,
+-- required because SQLite would otherwise treat every NULL invoice_id
+-- as satisfying the WHERE clause with no way to compare them.
+-- KNOWN, ACCEPTED LIMITATION (matches idx_commission_ledger_source_
+-- unique's own documented NULL hole): this index is INERT for rows
+-- where invoice_id IS NULL -- SQLite treats NULLs as distinct within a
+-- UNIQUE index, so two 'approved'/'funded' records on the SAME project
+-- but both still invoice_id IS NULL are NOT blocked here. B8.8b-2 (which
+-- reads amount_financed for a project-scoped P&L offset, not an
+-- invoice-scoped one) must account for this gap explicitly -- it is not
+-- solved by this guard.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_financing_records_invoice_active
+ON financing_records(invoice_id)
+WHERE status='active' AND application_status IN ('approved','funded') AND invoice_id IS NOT NULL;
+
+-- Territories (B8.9a, sales_rep_portal.md §5 B8.9, corrected scope
+-- 2026-09-23 -- territory management only, NOT referral compensation,
+-- see NEW-545's resolution). Explicit, human-set assignment only -- no
+-- ZIP/geocoding inference: the project-architect's scoping confirmed
+-- Lead has no address field at all and Customer/Property addresses are
+-- free-text blobs, so there is no structured data to derive a territory
+-- from. `code` is a short rep-facing label (e.g. "NORTH", "METRO-1"),
+-- NOT a ZIP code. The `territory_id` columns that reference this table
+-- (on users/leads/customers) are added via the ALTER-TABLE tuples in
+-- _migrate_schema() below, FK-less by design -- matching
+-- commission_ledger_entries.rep_user_id's precedent: a territory_id
+-- must survive the referenced territory row's deletion (there is no
+-- delete path for territories this round, see below, but the
+-- FK-less convention is kept consistent with every other cross-entity
+-- reference in this codebase that isn't a hard ownership relationship).
+-- No delete method exists in TerritoryService this round (B8.9a
+-- scoping decision): a territory with users/leads/customers still
+-- referencing it would silently orphan those references (FK-less, no
+-- cascade, no SET NULL) if deleted -- deferred rather than building
+-- delete-with-guard logic for a lookup table with no real precedent
+-- yet for how "in use" should be defined here (unlike
+-- delete_appointment_type's active-appointments precheck, there is no
+-- obvious "active reference" concept for a territory the way there is
+-- for a bookable appointment type).
+CREATE TABLE IF NOT EXISTS territories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    code TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_territories_name ON territories(name);
+
+-- Production Handoff Checklists (B8.12b, sales_rep_portal.md §B8.12,
+-- request §23/§24). Keyed on project_id, NOT contract_id as the source
+-- doc's own text literally says -- see models.ProductionHandoffChecklist's
+-- docstring for the full reconciliation: Invoice (the other half of the
+-- completion guard) has no contract_id column, only project_id, so
+-- keying here on contract_id would make the deposit half of the guard
+-- unreachable. The signed-contract half of the guard is resolved at read
+-- time via a direct `contracts.status = 'signed'` existence check
+-- (CRMService), not stored here -- a project can have more than one
+-- contract and this table only needs "a signed one exists".
+-- items_json holds all 7 of models.PRODUCTION_HANDOFF_CHECKLIST_ITEMS,
+-- each 'pending'/'done'/'na' -- no CHECK constraint, same "can't be
+-- widened later without a full table rebuild" reasoning as
+-- contract_signers.party_role/Invoice.invoice_type; CRMService validates
+-- both the item-key set and the status value at the service layer.
+-- UNIQUE(project_id): one checklist per project, matching
+-- homecare_subscriptions.UNIQUE(contract_id)'s own "at most one of these
+-- per parent" precedent -- CRMService.create_handoff_checklist converts
+-- the resulting sqlite3.IntegrityError into a clear ValueError (mirrors
+-- financing_service.py's own double-financing IntegrityError handling).
+-- FK-less on project_id/completed_by/created_by, matching
+-- financing_records' own FK-less precedent for the identical reason: a
+-- checklist row must survive a linked row's deletion without cascading.
+CREATE TABLE IF NOT EXISTS production_handoff_checklists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    items_json TEXT NOT NULL DEFAULT '{}',
+    completed_at TEXT,
+    completed_by INTEGER,
+    created_by INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_id)
+);
+CREATE INDEX IF NOT EXISTS idx_production_handoff_checklists_project_id ON production_handoff_checklists(project_id);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are
@@ -1186,6 +1691,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id);
 CREATE INDEX IF NOT EXISTS idx_documents_customer_id ON documents(customer_id);
 CREATE INDEX IF NOT EXISTS idx_comms_customer_id ON communication_history(customer_id);
 CREATE INDEX IF NOT EXISTS idx_comms_project_id ON communication_history(project_id);
+CREATE INDEX IF NOT EXISTS idx_comms_lead_id ON communication_history(lead_id);
 CREATE INDEX IF NOT EXISTS idx_comms_timestamp ON communication_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
@@ -1242,12 +1748,61 @@ CREATE INDEX IF NOT EXISTS idx_po_project_id ON purchase_orders(project_id);
 CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status);
 CREATE INDEX IF NOT EXISTS idx_staff_schedules_user_id ON staff_schedules(user_id);
 CREATE INDEX IF NOT EXISTS idx_staff_schedules_archive_username ON staff_schedules_archive(original_username);
+CREATE INDEX IF NOT EXISTS idx_properties_customer_id ON properties(customer_id);
+CREATE INDEX IF NOT EXISTS idx_projects_property_id ON projects(property_id);
+CREATE INDEX IF NOT EXISTS idx_commission_ledger_rep_user_id ON commission_ledger_entries(rep_user_id);
+CREATE INDEX IF NOT EXISTS idx_commission_ledger_status ON commission_ledger_entries(status);
+CREATE INDEX IF NOT EXISTS idx_commission_ledger_source ON commission_ledger_entries(source_type, source_id);
+-- code-reviewer round 2 (B8.1): closes a real double-reversal race --
+-- two concurrent reverse_commission() calls on the same entry_id could
+-- both pass an application-level "already reversed?" pre-check and both
+-- INSERT a reversal row (NEW-135/136/534 is this exact TOCTOU class).
+-- This partial unique index makes a second reversal of the same
+-- original row a straight sqlite3.IntegrityError at the DB level,
+-- closing the race for free instead of depending on Python-side
+-- transaction ordering. Partial (WHERE reversed_entry_id IS NOT NULL)
+-- because ordinary (non-reversal) rows all have reversed_entry_id NULL
+-- and must not be constrained against each other.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_ledger_reversed_entry_id_unique ON commission_ledger_entries(reversed_entry_id) WHERE reversed_entry_id IS NOT NULL;
+-- B8.7a: makes a double-triggered commission (e.g. record_payment firing
+-- its paid-transition trigger twice against the same invoice) a
+-- straight sqlite3.IntegrityError at the DB level rather than a silent
+-- double payment -- the second layer of defense behind record_payment's
+-- own "only fire on the actual not-paid -> paid transition edge" guard.
+-- Partial (WHERE source_type IN ('assessment', 'subscription_upsell')):
+-- these are the two source types B8.7a/b's automatic triggers write
+-- exactly one row per source_id for; portfolio_override/bonus/
+-- adjustment/chargeback rows are not one-per-source_id by design (a
+-- portfolio override recurs monthly against the same originating
+-- account, an adjustment/chargeback is explicitly a correction against
+-- an existing row) and must not be constrained against each other here.
+-- Confirmed safe to add against the real on-device DB (0 rows in
+-- commission_ledger_entries, re-verified directly, not assumed from a
+-- prior report) and against the test suite's own fixtures (only one
+-- existing test row sets a non-null source_id, source_id=42, alone).
+-- Does NOT protect a NULL source_id -- SQLite treats NULLs as distinct
+-- in a UNIQUE index, so callers writing these two source_types MUST
+-- always set a real, non-null source_id (e.g. the originating invoice's
+-- id) or this index is inert for that row.
+-- MUST exclude reversal rows (reversed_entry_id IS NOT NULL): found live
+-- by the full test suite -- reverse_commission() deliberately INSERTs a
+-- new row carrying the SAME source_type/source_id as the row it's
+-- reversing (see its own docstring), so a naive index over all rows
+-- would make every legitimate reversal of an assessment/
+-- subscription_upsell entry collide with its own original. The
+-- `reversed_entry_id IS NULL` clause scopes this index to original
+-- (non-reversal) rows only, which is exactly the set B8.7a's trigger
+-- writes into and the set a double-fire would collide within.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_ledger_source_unique ON commission_ledger_entries(source_type, source_id) WHERE source_type IN ('assessment', 'subscription_upsell') AND reversed_entry_id IS NULL;
 """
 
 # D2 (sales_rep_portal.md §4, Ish-approved), 2026-09-16: the widened-role
 # `users` DDL used by _migrate_users_role_constraint() to rebuild a legacy
 # DB's `users` table (SQLite cannot ALTER a CHECK constraint). Textually
 # identical to _SCHEMA_SQL's `users` block above -- keep the two in sync.
+# Phase 0b, B8.16 (2026-09-27): widened again to also accept 'subcontractor'
+# and carry the new subcontractor_id column through the rebuild -- both
+# additions here mirror _SCHEMA_SQL's own users block above.
 # _migrate_users_role_constraint() never executes this verbatim: it does a
 # one-time `.replace()` of the `CREATE TABLE users (` opener with
 # `CREATE TABLE _users_new_role_migration (` and runs the rebuild under
@@ -1266,12 +1821,30 @@ CREATE TABLE users (
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL COLLATE NOCASE,
     phone TEXT,
-    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer')),
+    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer', 'subcontractor')),
     department TEXT,
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    -- Codey-Estimator Phase B9.1 addition: optional per-user "requires
+    -- approval before an estimate they created can be sent" flag (D5).
+    -- About the creator, not any one estimate, so it lives on users.
     requires_estimate_approval INTEGER NOT NULL DEFAULT 0 CHECK(requires_estimate_approval IN (0, 1)),
+    -- terminated_at (B8.7c, D6, sales_rep_portal.md §4 Phase 3): set to the
+    -- current timestamp by AuthService.set_user_active ONLY on a genuine
+    -- active 1->0 transition (never on every suspend call), cleared back to
+    -- NULL on a 0->1 reactivation -- a rehired rep isn't "still terminated"
+    -- for future projects. Read by CRMService's portfolio-override
+    -- eligibility check (record_payment): a GC contract whose resolved
+    -- signed timestamp (customer_signed_at for a single-signer contract,
+    -- or MAX(contract_signers.signed_at) for one signed via multi-party
+    -- signing -- see _resolve_portfolio_override_eligibility gate 1b) is
+    -- <= the originating rep's terminated_at still pays the override on
+    -- payments collected even after the rep left; NULL (never
+    -- terminated) is always eligible on this gate.
+    terminated_at TEXT,
+    territory_id INTEGER, -- B8.9a: FK-less, see the territories table's own DDL comment below
+    subcontractor_id INTEGER, -- Phase 0b, B8.16: FK-less by design (same convention as territory_id above); only populated if role == 'subcontractor'
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
@@ -1335,6 +1908,14 @@ CREATE TABLE estimates (
     expiration_date TEXT,
     version INTEGER NOT NULL DEFAULT 1,
     notes TEXT,
+    -- assigned_user_id: the rep who owns this estimate (defaults to the
+    -- creating actor server-side, see CRMService.create_estimate). Bare
+    -- INTEGER, no FK -- matches the appointments.assigned_user_id
+    -- precedent (NEW-487/488): SQLite's ALTER TABLE ADD COLUMN (used in
+    -- _migrate_schema for existing DB files) can't attach a FK, so the
+    -- fresh-DB CREATE TABLE path deliberately stays FK-less too, to keep
+    -- both paths identical.
+    assigned_user_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,  -- widened from CASCADE
@@ -1347,6 +1928,48 @@ CREATE TABLE estimates (
     FOREIGN KEY (accepted_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
     FOREIGN KEY (converted_project_id) REFERENCES projects(id) ON DELETE SET NULL,
     FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL
+);
+"""
+
+# B8.16 Phase 3 (2026-09-29): the widened-status `work_orders` DDL used by
+# _migrate_work_orders_status_constraint() to rebuild a legacy DB's
+# `work_orders` table (SQLite cannot ALTER a CHECK constraint). Textually
+# identical to _SCHEMA_SQL's `work_orders` block above -- keep the two in
+# sync. _migrate_work_orders_status_constraint() never executes this
+# verbatim: it does a one-time `.replace()` of the `CREATE TABLE work_orders (`
+# opener with `CREATE TABLE _work_orders_new_status_migration (` and runs the
+# rebuild under that throwaway temporary name, mirroring
+# _migrate_users_role_constraint()'s own procedure exactly (never renames
+# `work_orders` itself, so no child table's `REFERENCES work_orders(...)`
+# DDL is ever rewritten -- see that method's docstring for the full
+# empirically-confirmed reasoning this mirrors).
+_WORK_ORDERS_TABLE_WIDENED_STATUS_SQL = """
+CREATE TABLE work_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_order_number TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    project_id INTEGER NOT NULL,
+    trade TEXT NOT NULL,
+    assigned_subcontractor_id INTEGER,
+    assigned_crew_lead TEXT,
+    parent_work_order_id INTEGER,
+    scheduled_start TEXT,
+    scheduled_end TEXT,
+    actual_start TEXT,
+    actual_end TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'dispatched', 'accepted', 'in_progress', 'completed', 'verified', 'cancelled', 'split')),
+    line_items_json TEXT NOT NULL DEFAULT '[]',
+    total_cost REAL NOT NULL DEFAULT 0.0,
+    instructions TEXT,
+    notes TEXT,
+    dispatched_at TEXT,
+    accepted_at TEXT,
+    completed_at TEXT,
+    verified_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (assigned_subcontractor_id) REFERENCES subcontractors(id) ON DELETE SET NULL
 );
 """
 
@@ -1425,6 +2048,43 @@ class DatabaseManager:
             conn.executescript(_SCHEMA_SQL)
         self._migrate_schema()
 
+    def _backfill_customer_numbers(self, conn: sqlite3.Connection) -> None:
+        """One-time backfill for customer rows that predate customer_number
+        (B8.6d-c). Idempotent: only touches rows where customer_number IS
+        NULL, so re-running this on every _migrate_schema() call (every
+        DatabaseManager() construction) is a no-op once every row has been
+        numbered -- same row-count-guarded shape as the appointment_types
+        seed below.
+
+        Ordered by (created_at, id), id as an explicit tiebreaker since
+        created_at can collide on bulk-inserted/fixture data.
+
+        Deliberately NOT lazy-on-read (i.e. not "assign a number the first
+        time a customer without one is read"): two concurrent reads of the
+        same unnumbered row could each compute the same next number with no
+        DB-level UNIQUE constraint to catch the collision (customer_number
+        has no UNIQUE index -- see create_customer's docstring for why). A
+        single ordered pass here, run once at startup before any request
+        handling begins, avoids that race entirely.
+        """
+        if not conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='customers';"
+        ).fetchone():
+            return
+        unnumbered = conn.execute(
+            "SELECT id FROM customers WHERE customer_number IS NULL ORDER BY created_at, id;"
+        ).fetchall()
+        if not unnumbered:
+            return
+        next_number = (
+            conn.execute("SELECT COALESCE(MAX(customer_number), 0) FROM customers;").fetchone()[0] + 1
+        )
+        for row in unnumbered:
+            conn.execute(
+                "UPDATE customers SET customer_number = ? WHERE id = ?;", (next_number, row["id"])
+            )
+            next_number += 1
+
     def _migrate_schema(self) -> None:
         """Additive, idempotent column migrations for existing DB files.
 
@@ -1469,6 +2129,8 @@ class DatabaseManager:
             ("projects", "adjuster_phone", "ALTER TABLE projects ADD COLUMN adjuster_phone TEXT;"),
             ("projects", "adjuster_email", "ALTER TABLE projects ADD COLUMN adjuster_email TEXT;"),
             ("projects", "deductible", "ALTER TABLE projects ADD COLUMN deductible REAL;"),
+            ("projects", "coverage_amount", "ALTER TABLE projects ADD COLUMN coverage_amount REAL;"),
+            ("projects", "supplement_amount", "ALTER TABLE projects ADD COLUMN supplement_amount REAL;"),
             ("equipment", "current_project_id", "ALTER TABLE equipment ADD COLUMN current_project_id INTEGER;"),
             ("users", "custom_permissions_json", "ALTER TABLE users ADD COLUMN custom_permissions_json TEXT NOT NULL DEFAULT '{}';"),
             ("business_profile", "business_phone", "ALTER TABLE business_profile ADD COLUMN business_phone TEXT;"),
@@ -1490,6 +2152,70 @@ class DatabaseManager:
                 "ALTER TABLE documents ADD COLUMN customer_visible INTEGER NOT NULL DEFAULT 0 "
                 "CHECK(customer_visible IN (0, 1));",
             ),
+            ("projects", "property_id", "ALTER TABLE projects ADD COLUMN property_id INTEGER;"),
+            ("estimates", "assigned_user_id", "ALTER TABLE estimates ADD COLUMN assigned_user_id INTEGER;"),
+            ("contracts", "assigned_user_id", "ALTER TABLE contracts ADD COLUMN assigned_user_id INTEGER;"),
+            ("customers", "customer_number", "ALTER TABLE customers ADD COLUMN customer_number INTEGER;"),
+            ("invoices", "assigned_user_id", "ALTER TABLE invoices ADD COLUMN assigned_user_id INTEGER;"),
+            ("invoices", "invoice_type", "ALTER TABLE invoices ADD COLUMN invoice_type TEXT NOT NULL DEFAULT 'other';"),
+            ("invoices", "line_items_json", "ALTER TABLE invoices ADD COLUMN line_items_json TEXT NOT NULL DEFAULT '[]';"),
+            # B8.9a: territory_id, additive/nullable on all three tables,
+            # FK-less by design (see the territories table's own DDL
+            # comment above for why). A rep has AT MOST ONE territory
+            # (users.territory_id is a single nullable column, not a
+            # join table) -- a documented default per the architect's
+            # scoping, not yet confirmed with Ish, chosen for being
+            # cheaper and matching the plan's sizing; extensible to a
+            # many-to-many join table later if needed.
+            ("users", "territory_id", "ALTER TABLE users ADD COLUMN territory_id INTEGER;"),
+            ("leads", "territory_id", "ALTER TABLE leads ADD COLUMN territory_id INTEGER;"),
+            ("customers", "territory_id", "ALTER TABLE customers ADD COLUMN territory_id INTEGER;"),
+            # B8.7c: terminated_at, additive/nullable, see the users table's
+            # own DDL comment above for the full set_user_active transition
+            # semantics.
+            ("users", "terminated_at", "ALTER TABLE users ADD COLUMN terminated_at TEXT;"),
+            # B8.7c: portfolio_override_rate/window_months, additive on
+            # commission_plan_config. NOT NULL DEFAULT on the ALTER itself
+            # backfills any already-migrated DB's existing singleton row
+            # with the real numbers -- no separate corrective UPDATE
+            # needed (see the table's own DDL comment above for why this
+            # differs from the homecare_basic_monthly_fee reprice).
+            (
+                "commission_plan_config",
+                "portfolio_override_rate",
+                "ALTER TABLE commission_plan_config ADD COLUMN portfolio_override_rate REAL NOT NULL DEFAULT 0.05;",
+            ),
+            (
+                "commission_plan_config",
+                "portfolio_override_window_months",
+                "ALTER TABLE commission_plan_config ADD COLUMN portfolio_override_window_months INTEGER NOT NULL DEFAULT 12;",
+            ),
+            # B8.10b: lead_id, additive/nullable, FK-less by design -- see
+            # the communication_history table's own DDL comment above for
+            # why (matches the appointments.assigned_user_id / B8.9a
+            # territory_id precedent).
+            (
+                "communication_history",
+                "lead_id",
+                "ALTER TABLE communication_history ADD COLUMN lead_id INTEGER;",
+            ),
+            # Phase 0b, B8.16 (2026-09-27): subcontractor_id, additive/
+            # nullable, FK-less by design -- same convention as territory_id
+            # (B8.9a) above. Only populated for a ROLE_SUBCONTRACTOR user's
+            # own account. NOTE: users.role's CHECK constraint also needed
+            # widening to accept 'subcontractor' -- see
+            # _migrate_users_role_constraint() below, which handles that
+            # separately (SQLite cannot ALTER a CHECK constraint, so it is
+            # not part of this additive ALTER COLUMN list).
+            ("users", "subcontractor_id", "ALTER TABLE users ADD COLUMN subcontractor_id INTEGER;"),
+            # B8.16 Phase 3 (2026-09-29): parent_work_order_id, additive/
+            # nullable, FK-less by design -- same convention as
+            # territory_id (B8.9a) above. Only populated on a child work
+            # order created by OperationsService.split_work_order. Must
+            # run before _migrate_work_orders_status_constraint() below so
+            # the column is already present in `old_cols` when that
+            # rebuild copies rows across -- see that method's docstring.
+            ("work_orders", "parent_work_order_id", "ALTER TABLE work_orders ADD COLUMN parent_work_order_id INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -1498,6 +2224,11 @@ class DatabaseManager:
                 }
                 if existing_columns and column not in existing_columns:
                     conn.execute(ddl)
+            # B8.6d-c: one-time backfill for customer rows that predate the
+            # customer_number ALTER above. Must run in this same `with
+            # conn:` block, after the ALTER (the column has to exist first)
+            # but still inside one transaction with it.
+            self._backfill_customer_numbers(conn)
             # Seed the three default appointment_types rows exactly once.
             # Row-count guarded (COUNT(*) == 0) so re-running DatabaseManager()
             # -- and _migrate_schema runs on every construction -- is a no-op
@@ -1523,6 +2254,51 @@ class DatabaseManager:
                             "VALUES (?, 1, ?, 1, '{}', ?, ?);",
                             (_nm, _i, _now, _now),
                         )
+            # B8.7a: seed the singleton commission_plan_config row exactly
+            # once, with D4's real numbers -- unlike schedule_config (left
+            # unseeded until an actor explicitly configures it),
+            # commission_plan_config must be non-empty from the moment
+            # this column set ships, since B8.7a's record_payment trigger
+            # needs a real flat-commission amount to read. `INSERT OR
+            # IGNORE` on the CHECK(id=1) singleton is idempotent by
+            # construction (a second attempt just violates the PK and is
+            # ignored), so re-running DatabaseManager() is always a no-op
+            # once the row exists -- no separate COUNT(*) guard needed.
+            # Table-existence guarded (see the appointment_types seed
+            # above for why): _migrate_schema() runs twice per
+            # construction, and the pre-executescript pass hits a table
+            # that doesn't exist yet on a legacy DB file's first open.
+            if conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='commission_plan_config';"
+            ).fetchone():
+                conn.execute(
+                    "INSERT OR IGNORE INTO commission_plan_config "
+                    "(id, assessment_price, assessment_flat_commission, "
+                    "homecare_basic_monthly_fee, homecare_plus_monthly_fee, "
+                    "homecare_complete_monthly_fee, homecare_estate_monthly_fee, "
+                    "updated_at) VALUES (1, 299.0, 100.0, 119.0, 399.0, 599.0, 999.0, ?);",
+                    (datetime.now(timezone.utc).isoformat(),),
+                )
+                # B8.7b corrective fix (Ish, 2026-09-22, mid-round): HomeCare
+                # Basic was repriced 179.0 -> 119.0. INSERT OR IGNORE above
+                # is a no-op on a DB that already has this singleton row
+                # seeded with B8.7a's original 179.0 default (any DB
+                # constructed before this round, including the real
+                # on-device DB) -- that row needs an actual one-time
+                # corrective UPDATE, not just a changed seed default, or it
+                # keeps paying/quoting the old price forever. Scoped
+                # narrowly to rows still holding the exact old default
+                # (WHERE homecare_basic_monthly_fee = 179.0): if a future
+                # dashboard round already let an operator customize this
+                # value to something else, this must NOT clobber that
+                # deliberate edit. Idempotent by construction -- a second
+                # run finds no row matching 179.0 (either never had it, or
+                # already corrected) and is a no-op.
+                conn.execute(
+                    "UPDATE commission_plan_config SET homecare_basic_monthly_fee = 119.0, "
+                    "updated_at = ? WHERE id = 1 AND homecare_basic_monthly_fee = 179.0;",
+                    (datetime.now(timezone.utc).isoformat(),),
+                )
             # Unique indexes must run after the ALTERs above (see the note
             # in _SCHEMA_SQL's index block for why they can't live there).
             if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='customers';").fetchone():
@@ -1541,6 +2317,22 @@ class DatabaseManager:
                 conn.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_external_id ON tasks(external_id);"
                 )
+            # B8.9a: non-unique territory_id indexes, same after-the-ALTER
+            # placement rationale as the external_id unique indexes above
+            # (territory_id doesn't exist on a legacy DB file until the
+            # ALTER above runs first in this same pass).
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';").fetchone():
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_users_territory_id ON users(territory_id);"
+                )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='leads';").fetchone():
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_leads_territory_id ON leads(territory_id);"
+                )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='customers';").fetchone():
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_customers_territory_id ON customers(territory_id);"
+                )
             # Partial index (WHERE provider_message_id IS NOT NULL): rows
             # with no natural external message id (internal_note,
             # ai_conversation, phone, voicemail) never collide with each
@@ -1557,13 +2349,23 @@ class DatabaseManager:
                 )
 
         # D2 (sales_rep_portal.md §4, Ish-approved), 2026-09-16: widens
-        # users.role's CHECK constraint to add 'sales_manager'. Its own
-        # transaction scope, deliberately not nested in the `with conn:`
-        # block above -- it depends on that block's ADD COLUMN loop (for
+        # users.role's CHECK constraint to add 'sales_manager' (and, as of
+        # Phase 0b/B8.16 2026-09-27, 'subcontractor' too -- see this
+        # method's own idempotency-gate comment below for why the gate
+        # checks the quoted 'subcontractor' literal rather than
+        # 'sales_manager'). Its own transaction scope, deliberately not
+        # nested in the `with conn:` block above -- it depends on that
+        # block's ADD COLUMN loop (for
         # custom_permissions_json) having already run against the row set
         # it copies.
         self._migrate_users_role_constraint()
         self._migrate_estimates_table_v2()
+        # B8.16 Phase 3 (2026-09-29): widens work_orders.status's CHECK
+        # constraint to add 'split'. Own transaction scope, same reasoning
+        # as _migrate_users_role_constraint() above -- depends on the
+        # additive ADD COLUMN loop (for parent_work_order_id) having
+        # already run against the row set it copies.
+        self._migrate_work_orders_status_constraint()
 
     def _migrate_estimates_table_v2(self) -> None:
         """Rebuild `estimates` to its Codey-Estimator Phase B9.1 v2 shape
@@ -1579,12 +2381,32 @@ class DatabaseManager:
         the live production DB (run by Ish, 2026-09-27, recorded in
         Codey-Estimator/docs/DECISIONS.md) found the `estimates` table
         completely empty -- zero rows -- so this rebuild carries none of
-        the data-loss risk a populated-table rebuild would. A
-        column-rename IS handled below (`assigned_user_id` ->
-        `assigned_to_user_id`, found live 2026-09-29 blocking
-        `restoricon-api` startup entirely) -- that gap was a schema-shape
-        mismatch, not a row-data one, so it applies regardless of the
-        table's row count.
+        the data-loss risk a populated-table rebuild would.
+
+        **Correction (2026-09-29 merge of `main` into this branch):** an
+        earlier version of this docstring claimed `assigned_user_id` was
+        a legacy pre-B9.1 name for this branch's own `assigned_to_user_id`
+        and renamed it accordingly on rebuild ("nothing in the codebase
+        reads `estimates.assigned_user_id` under that name (confirmed by
+        grep)"). That grep was run against this branch in isolation and
+        was true then -- it is FALSE once `main`'s independent B8.12a
+        rep-ownership work is merged in: `CRMService.create_estimate` /
+        `get_estimate` / `list_estimates` (crm_service.py) read and write
+        `estimates.assigned_user_id` directly as a real, distinct column
+        (the estimate's *owning rep*, defaulted from the actor who
+        created it), unrelated to this branch's own `assigned_to_user_id`
+        (Codey-Estimator's created-by/reassignment concept, gated by
+        `PERM_REASSIGN_ESTIMATES`). Renaming `assigned_user_id` away here
+        would have both destroyed that distinction and broken
+        `CRMService.create_estimate`'s `INSERT INTO estimates (...,
+        assigned_user_id, ...)` with "no such column" the first time it
+        ran post-migration. Both columns are therefore now kept as
+        separate, permanent columns -- see `_ESTIMATES_TABLE_V2_SQL` and
+        `_SCHEMA_SQL`'s `estimates` block, both of which carry both. This
+        is a real, unresolved design overlap (two different "who owns
+        this estimate" columns written by two different service layers)
+        logged to `NEW_ISSUES.md` for Ish's call, not something this
+        merge unifies on its own judgment.
 
         Idempotency: keyed on `PRAGMA table_info(estimates)` containing
         `workflow_status` (there is no CHECK-constraint-text gate available
@@ -1611,6 +2433,10 @@ class DatabaseManager:
         new_cols = {
             "id", "estimate_number", "customer_id", "project_id",
             "created_by_user_id", "created_by_name", "assigned_to_user_id",
+            "assigned_user_id",  # main's B8.12a rep-ownership column, kept
+            # as a separate column from assigned_to_user_id above -- see
+            # this method's docstring correction for why this is NOT a
+            # rename.
             "opportunity_id", "lead_id", "property_id", "title",
             "current_version_id", "accepted_version_id", "accepted_at",
             "converted_project_id", "contract_id", "source", "workflow_status",
@@ -1620,33 +2446,20 @@ class DatabaseManager:
             "discount_amount", "total_amount", "status", "expiration_date",
             "version", "notes", "created_at", "updated_at",
         }
-        # Legacy pre-B9.1 `estimates` tables use `assigned_user_id`, the
-        # same naming convention `customers`/`leads`/`opportunities`/
-        # `tasks`/`appointments` all use elsewhere in this schema (see
-        # crm_service.py/scheduling_service.py). B9.1's v2 rebuild renamed
-        # the concept to `assigned_to_user_id` (this file's DDL comment:
-        # "defaults to creator; reassignment needs PERM_REASSIGN_ESTIMATES")
-        # without accounting for the rename here -- found live against the
-        # real production DB (2026-09-29, blocked `restoricon-api` startup
-        # entirely). This is a rename, not a new/unrelated column: nothing
-        # in the codebase reads `estimates.assigned_user_id` under that
-        # name (confirmed by grep), so its data is carried forward into
-        # `assigned_to_user_id` below rather than silently dropped.
-        _LEGACY_COLUMN_RENAMES = {"assigned_user_id": "assigned_to_user_id"}
-        missing = set(old_cols) - new_cols - set(_LEGACY_COLUMN_RENAMES)
+        missing = set(old_cols) - new_cols
         if missing:
             raise RuntimeError(
                 f"estimates table rebuild aborted: legacy DB has column(s) {missing} not "
                 "present in the v2 schema -- update the rebuild DDL/copy list before "
                 "retrying; do not drop data silently."
             )
-        # target_cols/source_cols stay parallel (built together) so a
-        # renamed column reads from its old name and writes to its new one;
-        # every other column keeps the same name on both sides.
-        target_cols = [_LEGACY_COLUMN_RENAMES.get(c, c) for c in old_cols]
-        source_cols = list(old_cols)
-        insert_col_list = ", ".join(target_cols)
-        select_col_list = ", ".join(source_cols)
+        # No renames: every old column keeps its exact name on both sides
+        # (see this method's docstring correction -- assigned_user_id and
+        # assigned_to_user_id are two distinct, separately-used columns,
+        # not a rename pair).
+        col_list = ", ".join(old_cols)
+        insert_col_list = col_list
+        select_col_list = col_list
 
         seq_row = conn.execute(
             "SELECT seq FROM sqlite_sequence WHERE name='estimates';"
@@ -1808,25 +2621,48 @@ class DatabaseManager:
         Idempotency: mirrors the `PRAGMA table_info()` gate the additive
         ADD COLUMN migrations use, but keyed on the CHECK constraint text
         itself (there is no column to test for) -- if `users` doesn't
-        exist yet, or its stored DDL already contains 'sales_manager', this
-        is a no-op. Safe on a fresh DB (already created widened via
-        _SCHEMA_SQL -- permanent no-op), safe to re-run against an
-        already-migrated legacy file, and safe against both
-        _migrate_schema() calls per init_schema() run.
+        exist yet, or its stored DDL already contains the quoted
+        `'subcontractor'` role literal, this is a no-op. Safe on a fresh DB
+        (already created widened via _SCHEMA_SQL -- permanent no-op), safe
+        to re-run against an already-migrated legacy file, and safe against
+        both _migrate_schema() calls per init_schema() run.
+
+        Phase 0b, B8.16 (2026-09-27): gate deliberately checks for the
+        quoted role literal `'subcontractor'`, NOT a bare `'sales_manager'`
+        substring check as this method originally used. A bare
+        `'subcontractor'` (or `'sales_manager'`) substring check would be
+        unsafe here specifically because the additive ADD COLUMN loop above
+        (which always runs first, per this method's docstring) adds a
+        `subcontractor_id` column to `users` in the very same
+        `_migrate_schema()` call -- SQLite rewrites `sqlite_master.sql` to
+        include ALTER-added columns, so by the time this gate runs,
+        `row["sql"]` already contains the substring `subcontractor` (from
+        the *column* name) even on a DB that has never had its role CHECK
+        widened. A bare substring check would therefore silently no-op
+        forever on exactly the DBs this migration exists to fix. The
+        original `'sales_manager'` substring check only ever worked because
+        no column happened to contain that substring -- not a safe pattern
+        to repeat, so this round switches to matching the quoted
+        `'subcontractor'` SQL string literal (`role IN (..., 'subcontractor')`),
+        which the column name `subcontractor_id` does not match.
         """
         conn = self.get_connection()
 
         row = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='users';"
         ).fetchone()
-        if row is None or row["sql"] is None or "sales_manager" in row["sql"]:
+        if row is None or row["sql"] is None or "'subcontractor'" in row["sql"]:
             return
 
         old_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users);")]
         new_cols = {
             "id", "username", "password_hash", "full_name", "email", "phone", "role",
             "department", "customer_id", "custom_permissions_json", "active",
-            "requires_estimate_approval", "created_at", "updated_at",
+            "requires_estimate_approval",  # Codey-Estimator Phase B9.1
+            "territory_id",  # B8.9a
+            "terminated_at",  # B8.7c
+            "subcontractor_id",  # Phase 0b, B8.16
+            "created_at", "updated_at",
         }
         missing = set(old_cols) - new_cols
         if missing:
@@ -1899,6 +2735,127 @@ class DatabaseManager:
         fk_violations = conn.execute("PRAGMA foreign_key_check;").fetchall()
         if fk_violations:
             raise RuntimeError(f"users table rebuild left FK violations: {fk_violations}")
+
+    def _migrate_work_orders_status_constraint(self) -> None:
+        """Rebuild `work_orders` to widen its `status` CHECK constraint to
+        include 'split' (B8.16 Phase 3, 2026-09-29). SQLite cannot ALTER a
+        CHECK constraint, so this rebuilds the table -- identical procedure
+        to _migrate_users_role_constraint() above, which established (and
+        empirically verified against this project's real SQLite version)
+        that the real table must never itself be renamed: `work_orders` is
+        referenced by `equipment_deployments.work_order_id` and
+        `timesheets.work_order_id` (both `ON DELETE SET NULL`, confirmed by
+        reading database.py's own DDL directly -- neither is `ON DELETE
+        CASCADE`, so the data-wipe failure mode
+        _migrate_users_role_constraint() found and fixed does not apply
+        here). Still, a `RENAME` unconditionally rewrites every other
+        table's stored `REFERENCES work_orders(...)` DDL text regardless of
+        cascade type -- if `work_orders` were renamed away and then
+        dropped, both child tables would be left with `REFERENCES` clauses
+        pointing at a dead table name, silently breaking their `SET NULL`
+        behavior on a future `DELETE FROM work_orders` (the same DDL-drift
+        consequence #2 found and fixed for `users`). This rebuild avoids
+        that failure mode identically: it builds the widened table under a
+        throwaway temp name, copies rows, `DROP`s the real `work_orders`,
+        then `RENAME`s the temp table into the real name -- `work_orders`
+        itself is never the source of a RENAME, so no child table's DDL is
+        ever rewritten.
+
+        Idempotency: same `PRAGMA table_info()`-adjacent gate shape as
+        _migrate_users_role_constraint(), keyed on the CHECK constraint
+        text itself since there is no column to test for. Gate checks the
+        quoted `'split'` role literal, not a bare substring -- verified
+        directly that no other column or existing CHECK value in
+        `work_orders`' DDL contains the substring `split` (the additive
+        ADD COLUMN loop above only adds `parent_work_order_id`, which does
+        not match), so a quoted-literal check is not strictly required to
+        avoid the exact `subcontractor_id`-shaped collision
+        _migrate_users_role_constraint() hit -- used anyway, for the same
+        defense-in-depth reason and to keep both migrations' gating logic
+        recognizably identical.
+
+        `work_orders.id` is `INTEGER PRIMARY KEY AUTOINCREMENT`; the same
+        `sqlite_sequence` DELETE-then-INSERT preservation
+        _migrate_users_role_constraint() uses is required here too (that
+        method's docstring covers why `INSERT OR REPLACE` does not dedupe
+        `sqlite_sequence` rows by name).
+        """
+        conn = self.get_connection()
+
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='work_orders';"
+        ).fetchone()
+        if row is None or row["sql"] is None or "'split'" in row["sql"]:
+            return
+
+        old_cols = [r["name"] for r in conn.execute("PRAGMA table_info(work_orders);")]
+        new_cols = {
+            "id", "work_order_number", "title", "project_id", "trade",
+            "assigned_subcontractor_id", "assigned_crew_lead",
+            "parent_work_order_id",  # B8.16 Phase 3
+            "scheduled_start", "scheduled_end", "actual_start", "actual_end",
+            "status", "line_items_json", "total_cost", "instructions",
+            "notes", "dispatched_at", "accepted_at", "completed_at",
+            "verified_at", "created_at", "updated_at",
+        }
+        missing = set(old_cols) - new_cols
+        if missing:
+            raise RuntimeError(
+                f"work_orders table rebuild aborted: legacy DB has column(s) {missing} "
+                "not present in the widened-status schema -- update the rebuild DDL/copy "
+                "list before retrying; do not drop data silently."
+            )
+        col_list = ", ".join(old_cols)
+
+        seq_row = conn.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name='work_orders';"
+        ).fetchone()
+        preserved_seq = seq_row["seq"] if seq_row else None
+
+        temp_widened_sql = _WORK_ORDERS_TABLE_WIDENED_STATUS_SQL.replace(
+            "CREATE TABLE work_orders (", "CREATE TABLE _work_orders_new_status_migration (", 1
+        )
+        if "_work_orders_new_status_migration" not in temp_widened_sql:
+            # Load-bearing, same reasoning as _migrate_users_role_constraint()'s
+            # identical guard -- fail loudly on a text drift rather than
+            # proceed to CREATE a second literal `work_orders` table.
+            raise RuntimeError(
+                "work_orders table rebuild aborted: could not rewrite "
+                "_WORK_ORDERS_TABLE_WIDENED_STATUS_SQL's 'CREATE TABLE work_orders (' "
+                "opener to the temp table name -- the constant's exact text has "
+                "likely drifted from what this method expects."
+            )
+
+        # foreign_keys is a no-op to change mid-transaction, so both the
+        # OFF and the later ON must run outside the `with conn:` block.
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            with conn:
+                conn.execute("BEGIN IMMEDIATE;")
+                conn.execute("DROP TABLE IF EXISTS _work_orders_new_status_migration;")
+                conn.execute(temp_widened_sql)
+                conn.execute(
+                    f"INSERT INTO _work_orders_new_status_migration ({col_list}) "
+                    f"SELECT {col_list} FROM work_orders;"
+                )
+                conn.execute("DROP TABLE work_orders;")
+                conn.execute("ALTER TABLE _work_orders_new_status_migration RENAME TO work_orders;")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_work_orders_project_id ON work_orders(project_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_work_orders_subcontractor_id ON work_orders(assigned_subcontractor_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_work_orders_trade ON work_orders(trade);")
+                if preserved_seq is not None:
+                    conn.execute("DELETE FROM sqlite_sequence WHERE name = 'work_orders';")
+                    conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) VALUES ('work_orders', ?);",
+                        (preserved_seq,),
+                    )
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON;")
+
+        fk_violations = conn.execute("PRAGMA foreign_key_check;").fetchall()
+        if fk_violations:
+            raise RuntimeError(f"work_orders table rebuild left FK violations: {fk_violations}")
 
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Cursor, None, None]:

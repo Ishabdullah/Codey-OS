@@ -1,6 +1,7 @@
 """
-Session/test-wide fixtures. Currently just one: telemetry metrics-dir
-isolation (see the fixture's own docstring for why it exists).
+Session/test-wide fixtures: telemetry metrics-dir isolation and Restoricon
+document-store isolation (see each fixture's own docstring for why it
+exists).
 """
 
 from __future__ import annotations
@@ -56,3 +57,28 @@ def _isolate_telemetry_metrics_dir(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(store, "TELEMETRY_ENABLED", False)
     yield
     store.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_restoricon_doc_store_path(tmp_path, monkeypatch):
+    """
+    B8.6d-a wired restoricon_core's CRMService.sign_contract into a real
+    filesystem write: on every successful sign it now renders and persists
+    a contract PDF under get_restoricon_doc_store_path()
+    (utils/config.py), which falls back to the real
+    ~/.codeyOS/restoricon_documents when RESTORICON_DOC_STORE_PATH isn't
+    already set. sign_contract is exercised well outside
+    tests/test_restoricon_core/ too -- e.g. tests/test_customer_portal.py
+    and tests/test_b4_dashboard_portal_surfaces.py both POST to
+    /api/v1/portal/contracts/<id>/sign -- so this needs the same
+    whole-suite scope as _isolate_telemetry_metrics_dir above, not a
+    narrower per-package conftest (a first attempt at a
+    tests/test_restoricon_core/conftest.py-only fixture missed those two
+    files and left real PDFs in ~/.codeyOS/restoricon_documents/contracts/
+    after a full-suite run). Same "tests must not touch real persistent
+    device state" principle as the telemetry fixture above.
+
+    Autouse and function-scoped so every test gets a throwaway directory
+    instead of the real one, by default, with no per-test opt-in required.
+    """
+    monkeypatch.setenv("RESTORICON_DOC_STORE_PATH", str(tmp_path / "restoricon_documents"))

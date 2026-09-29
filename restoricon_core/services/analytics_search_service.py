@@ -6,22 +6,68 @@ Provides:
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..auth import (
     AuthContext,
     PERM_GLOBAL_SEARCH,
+    PERM_READ_TEAM_COMMISSIONS,
+    PERM_READ_TEAM_SALES_DATA,
     PERM_VIEW_REPORTS,
     ROLE_CUSTOMER,
 )
 from ..database import DatabaseManager
+from .audit_service import AuditService
+from .commission_service import CommissionService
+from .crm_service import CRMService
+from .finance_service import FinanceService
+
+# B8.14: documents the known cross-tier reconciliation quirk in
+# get_sales_analytics_rollup's rep/manager-tier response so a future
+# reader doesn't mistake the divergence for a bug (see that method's
+# docstring for the full explanation).
+_ROLLUP_RECONCILIATION_NOTE = (
+    "Pipeline figures include unclaimed-pool leniency (an actor without "
+    "PERM_READ_TEAM_SALES_DATA sees rows with assigned_user_id = them OR "
+    "NULL -- CRMService._scoped_assignee_filter, NEW-608, open, fail-open "
+    "by design) while commission figures use a strict fail-closed filter "
+    "(CommissionService._scoped_rep_filter). The pipeline and commission "
+    "sections of this response will NOT arithmetically reconcile row-for-"
+    "row against each other for that reason -- this is a known, accepted "
+    "divergence between the two underlying scoping rules, not a bug in "
+    "this rollup."
+)
 
 
 class AnalyticsSearchService:
     """Provides unified cross-domain search and executive KPI aggregation."""
 
-    def __init__(self, db: DatabaseManager):
+    def __init__(
+        self,
+        db: DatabaseManager,
+        crm_service: Optional[CRMService] = None,
+        commission_service: Optional[CommissionService] = None,
+        finance_service: Optional[FinanceService] = None,
+    ):
         self.db = db
+        # B8.14: lazily default-constructed only when not supplied, mirroring
+        # CRMService's own `commission_service or CommissionService(self.db,
+        # audit_service)` pattern (crm_service.py:206) -- callers that wire
+        # real app services (api/server.py) should pass the actual shared
+        # instances rather than letting this service default-construct its
+        # own separate ones. These are used by get_sales_analytics_rollup
+        # below (read-only calls) and, as of NEW-613, also by
+        # get_executive_dashboard's total_ar figure
+        # (self._finance_service.get_ar_net_totals(), also read-only, never
+        # writes/audits), so a fresh, never-written-to AuditService is safe
+        # for every lazy-default path here.
+        self._crm_service = crm_service or CRMService(db, AuditService(db))
+        self._commission_service = commission_service or CommissionService(db, AuditService(db))
+        # NEW-613: FinanceService.get_ar_net_totals() is an internal,
+        # no-actor helper (see its own docstring for the RBAC contract) --
+        # only called from get_executive_dashboard below, itself already
+        # gated on PERM_VIEW_REPORTS + PERM_READ_TEAM_SALES_DATA.
+        self._finance_service = finance_service or FinanceService(db, AuditService(db))
 
     def global_search(
         self,
@@ -124,28 +170,41 @@ class AnalyticsSearchService:
         total_count += len(results["customers"])
 
         # 2. Leads
-        l_rows = conn.execute(
-            """
-            SELECT id, customer_id, source, status, property_type, urgency_level, score
+        # NEW-549: leads/opportunities need the same rep-ownership narrowing
+        # CRMService.list_leads/list_opportunities already apply (see
+        # CRMService._scoped_assignee_filter) -- an actor without
+        # PERM_READ_TEAM_SALES_DATA must only see their own assigned rows
+        # (plus unclaimed/NULL rows, same unclaimed-pool visibility rule),
+        # not every rep's records. Holders of PERM_READ_TEAM_SALES_DATA keep
+        # today's unscoped, company-wide search behavior.
+        l_query = """
+            SELECT id, customer_id, assigned_user_id, source, status, property_type, urgency_level, score
             FROM leads
-            WHERE property_type LIKE ? OR notes LIKE ? OR source LIKE ?
-            LIMIT ?;
-            """,
-            (like_pattern, like_pattern, like_pattern, limit_per_category),
-        ).fetchall()
+            WHERE (property_type LIKE ? OR notes LIKE ? OR source LIKE ?)
+        """
+        l_params: List[Any] = [like_pattern, like_pattern, like_pattern]
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            l_query += " AND (assigned_user_id = ? OR assigned_user_id IS NULL)"
+            l_params.append(actor.user_id)
+        l_query += " LIMIT ?;"
+        l_params.append(limit_per_category)
+        l_rows = conn.execute(l_query, l_params).fetchall()
         results["leads"] = [dict(r) for r in l_rows]
         total_count += len(results["leads"])
 
         # 3. Opportunities
-        opp_rows = conn.execute(
-            """
-            SELECT id, customer_id, title, pipeline_stage, estimated_value, insurance_carrier
+        opp_query = """
+            SELECT id, customer_id, assigned_user_id, title, pipeline_stage, estimated_value, insurance_carrier
             FROM opportunities
-            WHERE title LIKE ? OR insurance_carrier LIKE ? OR notes LIKE ?
-            LIMIT ?;
-            """,
-            (like_pattern, like_pattern, like_pattern, limit_per_category),
-        ).fetchall()
+            WHERE (title LIKE ? OR insurance_carrier LIKE ? OR notes LIKE ?)
+        """
+        opp_params: List[Any] = [like_pattern, like_pattern, like_pattern]
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            opp_query += " AND (assigned_user_id = ? OR assigned_user_id IS NULL)"
+            opp_params.append(actor.user_id)
+        opp_query += " LIMIT ?;"
+        opp_params.append(limit_per_category)
+        opp_rows = conn.execute(opp_query, opp_params).fetchall()
         results["opportunities"] = [dict(r) for r in opp_rows]
         total_count += len(results["opportunities"])
 
@@ -274,7 +333,18 @@ class AnalyticsSearchService:
 
     def get_executive_dashboard(self, actor: AuthContext) -> Dict[str, Any]:
         """Compute aggregated executive analytics dashboard across all domains."""
-        if not actor.has_permission(PERM_VIEW_REPORTS):
+        # NEW-550: this method has no per-rep scoping mode -- every query
+        # below is inherently company-wide, unlike the assignee-filtered
+        # queries elsewhere in this file (see PERM_READ_TEAM_SALES_DATA
+        # narrowing above). Gating on PERM_VIEW_REPORTS alone let any
+        # ROLE_SALES actor (which holds PERM_VIEW_REPORTS by default) pull
+        # every rep's company-wide pipeline/lead/win-rate aggregates via
+        # /api/v1/reports/summary and /api/v1/reports/executive, which call
+        # this method directly with no route-level gate of their own.
+        # AND-composing with PERM_READ_TEAM_SALES_DATA closes that: a caller
+        # now needs both permissions, same as /api/v1/sales/dashboard's
+        # "team" block already required independently (routes.py ~3362).
+        if not actor.has_permission(PERM_VIEW_REPORTS) or not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
             raise PermissionError("Actor lacks permission to view executive reports")
 
         conn = self.db.get_connection()
@@ -347,10 +417,24 @@ class AnalyticsSearchService:
         net_profit = tot_rev - tot_exp
         gross_margin = (net_profit / tot_rev * 100.0) if tot_rev > 0 else 0.0
 
-        ar_stat = conn.execute(
-            "SELECT COALESCE(SUM(balance_due), 0.0) as total_ar FROM invoices WHERE balance_due > 0;"
-        ).fetchone()
-        total_ar = float(ar_stat["total_ar"]) if ar_stat else 0.0
+        # NEW-613: was a raw, unoffset SUM(balance_due) that disagreed with
+        # FinanceService.get_ar_aging's own total_ar on the same underlying
+        # data. Now sourced from the same shared, no-actor
+        # get_ar_net_totals() helper get_ar_aging itself calls, so this
+        # figure reconciles to get_ar_aging()["total_ar"] by construction.
+        # Behavior change: get_ar_net_totals' invoice SELECT is
+        # status IN ('sent','partially_paid','overdue') AND balance_due>0,
+        # narrower than the old query's bare "balance_due > 0" (every
+        # status). Verified inert except for the 'draft' exclusion --
+        # nothing in this codebase ever sets status='void' on an invoice
+        # (repo-wide grep), and 'paid' invoices already have
+        # balance_due≈0 by construction (CRMService's
+        # _recalculate_invoice_balance), so those two status differences
+        # are no-ops; only draft invoices with a nonzero balance_due stop
+        # counting toward this KPI, which is the intended effect of this
+        # fix (see finance_service.py's module docstring for the fuller
+        # NEW-613 writeup).
+        total_ar = self._finance_service.get_ar_net_totals()["total_ar"]
 
         # 4. Marketing KPIs
         mkt_stat = conn.execute(
@@ -416,4 +500,83 @@ class AnalyticsSearchService:
                 "expiring_soon_items": comp_stat["expiring_soon"] or 0,
                 "expired_items": comp_stat["expired"] or 0,
             },
+        }
+
+    def get_sales_analytics_rollup(self, actor: AuthContext) -> Dict[str, Any]:
+        """B8.14: one tiered sales analytics rollup with three permission-
+        gated views (rep/manager/executive) of the SAME underlying
+        aggregation calls -- not three separately maintained queries.
+        sales_rep_portal.md's B8.14 exit criterion.
+
+        Tiering is keyed on the actor's permission set (never actor.role),
+        same convention as CRMService._scoped_assignee_filter/
+        CommissionService._scoped_rep_filter -- so a custom_permissions
+        grant (NEW-637's precedent) lands in the correct tier exactly like
+        a built-in role would:
+
+        - "executive": actor holds BOTH PERM_VIEW_REPORTS and
+          PERM_READ_TEAM_SALES_DATA (post-B8.14a/NEW-550 gate) -> calls
+          get_executive_dashboard(actor) unmodified.
+        - "manager": actor holds PERM_READ_TEAM_SALES_DATA and/or
+          PERM_READ_TEAM_COMMISSIONS (but not both executive-tier perms
+          together) -> calls CRMService.get_pipeline_summary(actor) and
+          CommissionService.get_team_commission_summary(actor), which are
+          already unfiltered/team-wide for a holder of either permission.
+        - "rep": everyone else -> the SAME two calls, which self-scope to
+          the caller's own rows via each service's existing narrowing
+          helper (_scoped_assignee_filter / _scoped_rep_filter). This is
+          exactly what get_pipeline_summary/get_team_commission_summary
+          already return that actor elsewhere in the system -- this
+          method widens no actor's visibility beyond that.
+
+        Deliberately excludes AR/revenue figures from EVERY tier, including
+        executive -- the task spec is explicit ("Do not surface any
+        AR/revenue figure in this rollup") because get_executive_dashboard's
+        own "financial" block (total_revenue/total_expenses/net_profit/
+        gross_margin_percent/total_ar_outstanding) is all AR/revenue-derived.
+        This exclusion is an unrelated, explicit scope decision for THIS
+        rollup response, not a workaround for NEW-613's reconciliation bug
+        (now fixed -- as of NEW-613, get_executive_dashboard's own
+        total_ar_outstanding DOES carry the same financing offset as
+        FinanceService.get_ar_aging, sourced from the same shared
+        get_ar_net_totals() helper, so the two no longer diverge). A future
+        reader should not conflate the two: even with NEW-613 fixed, this
+        rollup would still omit "financial" from every tier, by the task
+        spec's own explicit requirement. The executive tier below calls
+        get_executive_dashboard(actor) UNMODIFIED (per this method's own
+        "reuse get_executive_dashboard" requirement) and then projects the
+        "financial" key back out of the copy returned here -- the
+        underlying method/route (get_executive_dashboard itself,
+        /api/v1/reports/summary, /api/v1/reports/executive,
+        /api/v1/sales/dashboard's "team" block) are untouched and still
+        expose it as before; only this new rollup's response omits it.
+        Also excludes territory-dimension and handoff-completion-rate
+        breakdowns (out of B8.14's scope) and any auto-refresh wiring --
+        this is a load-on-demand / explicit-refresh surface only, per
+        NEW-554's existing ~7-aggregate-query-per-tick cost concern on the
+        dashboard's polling timer.
+
+        See _ROLLUP_RECONCILIATION_NOTE (also returned as this response's
+        own "note" field for rep/manager tiers) for the pipeline-vs-
+        commission reconciliation quirk this response does NOT hide.
+        """
+        is_executive = actor.has_permission(PERM_VIEW_REPORTS) and actor.has_permission(
+            PERM_READ_TEAM_SALES_DATA
+        )
+        if is_executive:
+            executive_data = dict(self.get_executive_dashboard(actor))
+            executive_data.pop("financial", None)  # NEW-613: no AR/revenue in this rollup
+            return {
+                "tier": "executive",
+                "executive": executive_data,
+            }
+
+        is_manager = actor.has_permission(PERM_READ_TEAM_SALES_DATA) or actor.has_permission(
+            PERM_READ_TEAM_COMMISSIONS
+        )
+        return {
+            "tier": "manager" if is_manager else "rep",
+            "pipeline": self._crm_service.get_pipeline_summary(actor),
+            "commissions": self._commission_service.get_team_commission_summary(actor),
+            "note": _ROLLUP_RECONCILIATION_NOTE,
         }
