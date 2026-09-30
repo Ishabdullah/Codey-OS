@@ -2,6 +2,15 @@
 
 Reverse-chronological. Companion to `AGI_AUDIT_PLAN.md`. Statuses follow CLAUDE.md rule 7: **code-complete** vs **live-verified**.
 
+## 2026-09-30 — Phase 2.3/2.4 promotion gate, switch, honest optimizer: code-complete
+
+- `bench/gate.py`: champion/challenger decision (same suite hash, >=30 pairs, McNemar exact p<0.05, bootstrap CI lower bound >0, zero regressions). `no_evaluator()` always refuses. `bench/promote.py` CLI appends every decision to `bench/experiments.jsonl`. Measured A/A false-accept rate over 300 simulated pairs of an identical 70% agent: <=5% asserted (test).
+- `ccos/core/self_improve.py`: `CODEY_SELF_IMPROVE=off|shadow|on`, default off. Checked in `CapabilityOptimizer.optimize`, `AutoImprovementLoop.after_task`, `GoalEngine.analyze_and_generate/inject_into_planner`, `SkillRecombiner.analyze_and_generate` (shadow = generate+sandbox-test, no registration).
+- 2.4: `compare_and_upgrade` deploys only with an approving `GateDecision` AND mode `on`; fake `+5` removed (new_score = old_score). `optimize()` passes `no_evaluator()` because no capability-level benchmark exists yet, so the optimizer cannot deploy anything today. That is deliberate and honest: activation of capability self-modification is blocked on building evaluators, not on a flag.
+- Tests: `test_improvement_loop` updated (no-gate = not improved, no version registered; approved = deployed); `ccos/tests/conftest.py` sets mode `on` for legacy tests (marker `si_default` opts out); new `tests/test_promotion_gate.py` (10) incl. runtime-core-does-not-import-self-improvement. Suites: 1964 + 114 = 2078 passed, 0 failed.
+- CONCERN: `ccos/demo_*.py` and script-mode `python ccos/tests/test_x.py` runs now need `CODEY_SELF_IMPROVE=on` to exercise these modules. Not changed; note for Ish.
+- Not live-verified; no reviewer subagent available (no approval claimed). Nothing here runs in the live agent path.
+
 ## 2026-09-30 — Phase 2.2 trajectory store: code-complete
 
 `core/trajectory.py` (SQLite, `~/.codeyOS/trajectories.db`, override `CODEY_TRAJECTORY_DB`) + wrappers appended at the bottom of `core/agent.py` (`functools.wraps`, default OFF via `CODEY_TRAJECTORY=1`, fail-open, nested run_agent calls = one episode, crashes recorded and re-raised). Labels come only from external verifiers (`label_tag`/`label_episode`); `verified_episodes()` returns only labeled rows. `bench/runner.py` labels episodes via `traj_db`. Full suite: 1954 (tests/) + 114 (ccos/tests) = 2068 passed, 0 failed (was 2052; +16 new).

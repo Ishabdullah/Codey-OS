@@ -333,13 +333,18 @@ class CapabilityOptimizer:
 
     def compare_and_upgrade(
         self, capability: str, new_version: str, new_path: str,
-        test_passed: bool, test_results: Dict[str, Any]
+        test_passed: bool, test_results: Dict[str, Any],
+        gate_decision=None,
     ) -> OptimizationResult:
         """
-        Compare old vs new version and upgrade if improvement is validated.
+        Deploy a candidate ONLY if the promotion gate approved it.
 
-        CRITICAL: Never overwrites the original — registers new version
-        and deprecates old only if new is better.
+        AGI audit 2.4: passing a sandbox import/smoke test is not evidence of
+        improvement (the generated header helpers are never applied), so it no
+        longer counts. `gate_decision` must be an approving
+        bench.gate.GateDecision, and CODEY_SELF_IMPROVE must be "on". Anything
+        else returns improved=False and deploys nothing. Scores are never
+        invented: new_score equals old_score until real usage measures it.
         """
         cap = self._registry.get(capability)
         if not cap:
@@ -370,7 +375,21 @@ class CapabilityOptimizer:
                 details=f"Sandbox test failed: {test_results.get('stderr', '')[:200]}",
             )
 
-        # Tests passed — register new version
+        # Gate check (2.4): no approving evaluator decision -> no deployment.
+        from ccos.core import self_improve as _si
+        if gate_decision is None or not getattr(gate_decision, "promote", False):
+            reasons = getattr(gate_decision, "reasons", ["no gate decision supplied"])
+            return OptimizationResult(
+                capability=capability, old_version=old_version, new_version=new_version,
+                improved=False, old_score=old_score, new_score=old_score, test_passed=True,
+                details="Not deployed (promotion gate): " + "; ".join(map(str, reasons)))
+        if not _si.may_deploy():
+            return OptimizationResult(
+                capability=capability, old_version=old_version, new_version=new_version,
+                improved=False, old_score=old_score, new_score=old_score, test_passed=True,
+                details=f"Gate approved but CODEY_SELF_IMPROVE={_si.mode()} (needs 'on'); not deployed")
+
+        # Gate approved — register new version
         # Copy improved file to a versioned backup location
         backup_dir = self._data_base / "versions" / capability.replace(".", "_")
         backup_dir.mkdir(parents=True, exist_ok=True)
@@ -407,8 +426,8 @@ class CapabilityOptimizer:
         self._tracker.register_version(capability, new_version, cap.implementation)
         self._tracker.deprecate_version(capability, old_version)
 
-        # New version starts with same score (tests passed) — will improve with real usage
-        new_score = old_score + 5  # Optimistic bump for passing improved tests
+        # 2.4: no fabricated bump; the score is re-measured from real usage.
+        new_score = old_score
 
         result = OptimizationResult(
             capability=capability,
@@ -429,6 +448,9 @@ class CapabilityOptimizer:
 
         Returns OptimizationResult or None if optimization not needed/possible.
         """
+        from ccos.core import self_improve as _si
+        if not _si.enabled():
+            return None  # CODEY_SELF_IMPROVE=off (default)
         cap = self._registry.get(capability)
         if not cap:
             return None
@@ -450,9 +472,13 @@ class CapabilityOptimizer:
         # Test in sandbox
         test_passed, test_results = self.test_improvement(capability, new_version, new_path)
 
-        # Compare and upgrade
+        # No capability-level benchmark exists yet, so there is no evaluator
+        # to approve deployment: the gate answers "no". (Candidates are still
+        # generated and sandbox-tested so shadow mode can log them.)
+        from bench.gate import no_evaluator
         return self.compare_and_upgrade(
-            capability, new_version, new_path, test_passed, test_results
+            capability, new_version, new_path, test_passed, test_results,
+            gate_decision=no_evaluator(),
         )
 
     def get_optimization_log(self) -> List[Dict[str, Any]]:

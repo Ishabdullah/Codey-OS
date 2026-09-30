@@ -523,6 +523,9 @@ class SkillRecombiner:
 
         Returns list of recombination results.
         """
+        from ccos.core import self_improve as _si
+        if not _si.enabled():
+            return []  # CODEY_SELF_IMPROVE=off (default)
         # Step 1: Gather workflow history
         workflows = self._memory.structured.get_successful_workflows(limit=100)
         if len(workflows) < 2:
@@ -598,6 +601,12 @@ class SkillRecombiner:
         if not sandbox_result.success:
             result.error = sandbox_result.stderr[:500]
             result.details = f"Sandbox test failed: {sandbox_result.stderr[:200]}"
+            self._results.append(result)
+            return result
+
+        from ccos.core import self_improve as _si
+        if not _si.may_deploy():  # shadow mode: generated + sandbox-tested, not registered
+            result.details = "Shadow mode: generated and sandbox-tested, not registered"
             self._results.append(result)
             return result
 

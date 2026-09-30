@@ -71,6 +71,6 @@ Evolutionary search, neural world model, activating goal engine / skill recombin
 | Rollback point + branch | Done 2026-09-30 |
 | Plan + log | Done 2026-09-30 |
 | Phase 1 | Code-complete 2026-09-30 (test-verified in sandbox; not live-verified on device) |
-| Phase 2 | Not started |
+| Phase 2 | Code-complete 2026-09-30: 2.1 bench, 2.2 trajectory, 2.3 switch+gate, 2.4 honest optimizer (sandbox-verified; bench not yet run with the real model) |
 | Phase 3 | Not started |
 | Phase 4 | Not started |

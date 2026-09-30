@@ -113,7 +113,8 @@ class AutoImprovementLoop:
                 self._tracker.take_snapshot(capability_used)
 
         # ── Step 3: Check for optimization opportunity ───────────────
-        if self._auto_optimize and capability_used:
+        from ccos.core import self_improve as _si
+        if self._auto_optimize and capability_used and _si.enabled():
             should_optimize = self._should_optimize(capability_used)
 
             if should_optimize:

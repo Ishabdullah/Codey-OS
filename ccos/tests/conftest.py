@@ -32,3 +32,17 @@ def pytest_pyfunc_call(pyfuncitem):
     if result is False:
         pytest.fail(f"{pyfuncitem.name} returned False", pytrace=False)
     return True
+
+
+@pytest.fixture(autouse=True)
+def _self_improve_on_for_legacy_tests(monkeypatch, request):
+    """Legacy CCOS tests exercise the self-improvement modules directly, so they run with
+    CODEY_SELF_IMPROVE=on. Tests that check the OFF default opt out with @pytest.mark.si_default."""
+    if "si_default" not in request.keywords:
+        monkeypatch.setenv("CODEY_SELF_IMPROVE", "on")
+    else:
+        monkeypatch.delenv("CODEY_SELF_IMPROVE", raising=False)
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "si_default: run with CODEY_SELF_IMPROVE unset (the OFF default)")
