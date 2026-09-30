@@ -8601,10 +8601,60 @@ this file's own don't-duplicate rule.
       change, for all portals at once if so — not this round's
       decision to make alone.
       Full spec: `codey_estimator_service.md` §5.
-- [ ] **B9.6** — admin `Estimates` tab: list/filter/detail/version-diff/
-      audit-timeline, cost columns gated by `PERM_READ_ESTIMATE_COSTS`. Full
-      spec: `codey_estimator_service.md` §6. **Blocked on B9.3, done —
-      unblocked (2026-09-29).**
+- [x] **B9.6, DONE** (2026-09-30, code-reviewer APPROVED first round, no
+      changes requested) — admin `Estimates` tab, 13th tab in
+      `render_admin_surface()`: list/filter, detail panel (current-version
+      line items via `?include_lines=true`), version history with a
+      client-side side-by-side diff (`estimateAdminRunDiff()` — zero
+      client-computed money arithmetic, every figure comes straight from
+      each version's own API response), and an audit timeline
+      (`estimateAdminLoadAudit()`, `entity_type=estimate` plus one request
+      per version for `entity_type=estimate_version`).
+      Two new `EstimateService` methods, both IDOR-safe: `list_versions()`
+      and `get_version_lines()`, the latter resolving
+      `version_id -> estimate_id -> estimates row -> _can_view_estimate()`
+      before returning any line, closing an enumeration path where an
+      actor could otherwise guess version ids to read line items for
+      estimates they can't otherwise view (code-reviewer's own new test
+      exercises this cross-actor case directly). New
+      `_gate_version_cost_fields()` nulls the 7 cost-revealing
+      `EstimateVersion` fields for an actor lacking
+      `PERM_READ_ESTIMATE_COSTS`, cross-checked field-by-field against the
+      real dataclass.
+      **The one change reviewed most closely**: `_attach_cost_fields()` —
+      the shared helper used by `get()`/`list()` since B9.2/B9.3 — now
+      always populates a new `EstimateHeader.total_cents` field before its
+      `PERM_READ_ESTIMATE_COSTS` early-return, instead of gating it too.
+      Code-reviewer verified this is safe by reading every role's actual
+      `ROLE_PERMISSIONS` grant in `auth.py` rather than trusting the
+      field-precedent argument alone: every role holding read access to
+      estimates without `PERM_READ_ESTIMATE_COSTS` is `ROLE_CUSTOMER`
+      (own sell price, fine to see) or has no view access at all
+      (`ROLE_TECHNICIAN`/`ROLE_SUBCONTRACTOR`); no role can see someone
+      else's sell price without also seeing costs. No regression in prior
+      B9.2/B9.3 cost-gating tests (grepped: none asserted
+      `total_cents is None`, so no "still passes, now for the wrong
+      reason" case).
+      Audit-timeline XSS discipline verified directly, not assumed:
+      `record_decision()`'s `comment`/`signer_name` are public-route-
+      reachable free text (B9.4), and every value the JS renders passes
+      through `escapeHtml()`; `signature_data` is excluded from the
+      payload by exact key match before it ever reaches the DOM, escaped
+      or not. Round-tripped a real `<img src=x onerror=...>` comment
+      through `record_decision()` in a new test and confirmed it lands
+      unescaped in the DB (correct — escaping belongs at render time) and
+      is escaped by the renderer.
+      Two limits disclosed, not silently shipped as the real thing:
+      `NEW-723` (no dedicated decisions endpoint — decisions surface via
+      the generic audit feed, conflated with other header mutations;
+      line-item-level audit rows not fetched, an N+1 the round chose not
+      to pay) and `NEW-724` (version diff is two independent client
+      fetches rendered side-by-side, not a server-computed delta as
+      `codey_estimator_service.md` §6 literally describes).
+      18 new tests; full suite 1471 passed (both implementer and
+      code-reviewer runs, verbatim-matching counts, proxy env vars
+      unset). Commit: see PROJECT_LOG.md.
+      Full spec: `codey_estimator_service.md` §6.
 - [ ] **B9.7** — quote portal migration (D8, already answered in
       `Codey-Estimator/docs/DECISIONS.md`, not actually open): remove the
       public $/sq-ft calculator from `render_quote_surface()`, replace with

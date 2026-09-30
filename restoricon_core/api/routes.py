@@ -1668,6 +1668,43 @@ class APIRouter:
                     result = self.estimates.preview(est_id, actor)
                     return 200, {"Content-Type": "application/json"}, {"preview": _json_safe(result)}
 
+                # B9.6: version-history/diff read-only routes
+                # (`codey_estimator_service.md` §3 row `GET .../versions`,
+                # never wired up in B9.3 -- `list_versions()`/
+                # `get_version_lines()` are new EstimateService methods
+                # added this round, see their docstrings for the IDOR
+                # reasoning behind resolving version -> estimate -> the
+                # `_can_view_estimate()` gate before returning anything).
+                # No server-side diff route: the admin surface fetches both
+                # versions' lines and renders them side by side, per this
+                # round's task brief -- a computed delta would have to be
+                # server-side (money arithmetic never happens in the JS).
+                if sub_path.endswith("/versions") and method == "GET" and "/" not in sub_path[:-len("/versions")]:
+                    est_id = _parse_int_path_segment(sub_path[:-len("/versions")], "estimate_id")
+                    versions = self.estimates.list_versions(est_id, actor)
+                    if versions is None:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                    return 200, {"Content-Type": "application/json"}, {"versions": [v.to_dict() for v in versions]}
+
+                _vers_prefix, _vers_sep, _vers_tail = sub_path.rpartition("/versions/")
+                if (
+                    _vers_sep and _vers_prefix and "/" not in _vers_prefix
+                    and _vers_tail.endswith("/lines") and method == "GET"
+                ):
+                    est_id = _parse_int_path_segment(_vers_prefix, "estimate_id")
+                    version_number = _parse_int_path_segment(_vers_tail[:-len("/lines")], "version_number")
+                    versions = self.estimates.list_versions(est_id, actor)
+                    if versions is None:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                    match = next((v for v in versions if v.version_number == version_number), None)
+                    if match is None:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Version not found"}
+                    version_lines = self.estimates.get_version_lines(match.id, actor)
+                    return 200, {"Content-Type": "application/json"}, {
+                        "version": match.to_dict(),
+                        "lines": [l.to_dict() for l in (version_lines or [])],
+                    }
+
                 if sub_path.endswith("/claim") and method == "POST" and "/" not in sub_path[:-len("/claim")]:
                     est_id = _parse_int_path_segment(sub_path[:-len("/claim")], "estimate_id")
                     try:

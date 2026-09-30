@@ -485,16 +485,26 @@ class EstimateService:
         return False
 
     def _attach_cost_fields(self, conn: sqlite3.Connection, header: EstimateHeader, current_version_id: Optional[int], actor: AuthContext) -> None:
-        if not actor.has_permission(PERM_READ_ESTIMATE_COSTS) or current_version_id is None:
+        if current_version_id is None:
             return
         v = conn.execute(
-            "SELECT cost_total_cents, gross_profit_cents, gross_margin_bp FROM estimate_versions WHERE id = ?;",
+            "SELECT cost_total_cents, gross_profit_cents, gross_margin_bp, total_cents FROM estimate_versions WHERE id = ?;",
             (current_version_id,),
         ).fetchone()
-        if v is not None:
-            header.cost_total_cents = v["cost_total_cents"]
-            header.gross_profit_cents = v["gross_profit_cents"]
-            header.gross_margin_bp = v["gross_margin_bp"]
+        if v is None:
+            return
+        # B9.6: total_cents (the sell price) is attached regardless of
+        # PERM_READ_ESTIMATE_COSTS -- it's what the customer is actually
+        # charged, not a cost/margin-revealing figure, matching
+        # EstimateVersion.total_cents/EstimateLineItem.line_total_cents's
+        # own "stays visible" treatment. Only the true cost/margin fields
+        # below stay behind the permission gate.
+        header.total_cents = v["total_cents"]
+        if not actor.has_permission(PERM_READ_ESTIMATE_COSTS):
+            return
+        header.cost_total_cents = v["cost_total_cents"]
+        header.gross_profit_cents = v["gross_profit_cents"]
+        header.gross_margin_bp = v["gross_margin_bp"]
 
     def _gate_line_cost_fields(self, line: EstimateLineItem, actor: AuthContext) -> None:
         """Line-level mirror of `_attach_cost_fields()`'s header gate (D9,
@@ -713,6 +723,84 @@ class EstimateService:
         for header, row in zip(headers, rows):
             self._attach_cost_fields(conn, header, row["current_version_id"], actor)
         return headers
+
+    def _gate_version_cost_fields(self, version: EstimateVersion, actor: AuthContext) -> None:
+        """B9.6 addition: version-level mirror of `_attach_cost_fields()`'s
+        header gate and `_gate_line_cost_fields()`'s line gate (D9,
+        `PERM_READ_ESTIMATE_COSTS`) -- needed because `list_versions()`/
+        `get_version_lines()` below are the first methods to ever hand a
+        raw `EstimateVersion` (via `_row_to_version()`, which reads every
+        column unconditionally) to a route layer. Nulls the four raw
+        component costs plus the two cost/margin aggregates -- exactly the
+        fields `_attach_cost_fields()` treats as cost-revealing at the
+        header level (`cost_total_cents`, `gross_profit_cents`,
+        `gross_margin_bp`), plus the per-component costs `get()` never
+        exposes on the header at all. Sell-side fields (`subtotal_sell_cents`,
+        `discount_cents`, `taxable_base_cents`, `tax_cents`, `total_cents`,
+        `tax_rate_bp`) stay visible, same as `total_cents` staying visible
+        on the header."""
+        if actor.has_permission(PERM_READ_ESTIMATE_COSTS):
+            return
+        version.material_cost_cents = None
+        version.labor_cost_cents = None
+        version.equipment_cost_cents = None
+        version.sub_cost_cents = None
+        version.cost_total_cents = None
+        version.gross_profit_cents = None
+        version.gross_margin_bp = None
+
+    def list_versions(self, estimate_id: int, actor: AuthContext) -> Optional[List[EstimateVersion]]:
+        """B9.6 addition (`codey_estimator_service.md` §3 row `GET
+        .../versions`, never wired up in B9.3): read-only getter for the
+        admin version-history/diff view. Same ownership-narrowing gate as
+        `get()` (`_can_view_estimate()`), not a bare permission check --
+        this authorizes on the estimate, not the version, since a version
+        has no owner of its own. Returns `None` if the estimate itself
+        doesn't exist (mirrors `get()`'s `None`-for-404), raises
+        `PermissionError` if the actor can't view it."""
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        if row is None:
+            return None
+        if not self._can_view_estimate(row, actor):
+            raise PermissionError("Actor lacks permission to view this estimate")
+        version_rows = conn.execute(
+            "SELECT * FROM estimate_versions WHERE estimate_id = ? ORDER BY version_number;",
+            (estimate_id,),
+        ).fetchall()
+        versions = [self._row_to_version(r) for r in version_rows]
+        for v in versions:
+            self._gate_version_cost_fields(v, actor)
+        return versions
+
+    def get_version_lines(self, version_id: int, actor: AuthContext) -> Optional[List[EstimateLineItem]]:
+        """B9.6 addition, the version-diff view's other half: fetches one
+        specific historical version's line items (not just the current
+        version `get(include_lines=True)` already exposes). Takes a
+        version id, not an estimate id -- resolves version -> estimate_id
+        -> the owning `estimates` row -> `_can_view_estimate()` before
+        returning anything, exactly like `get()` does for the current
+        version. Skipping that resolve step would be a straight IDOR: any
+        authenticated actor could enumerate version ids and read line
+        items for estimates they otherwise can't view. Returns `None` if
+        the version itself doesn't exist."""
+        conn = self.db.get_connection()
+        version_row = conn.execute("SELECT * FROM estimate_versions WHERE id = ?;", (version_id,)).fetchone()
+        if version_row is None:
+            return None
+        estimate_row = conn.execute(
+            "SELECT * FROM estimates WHERE id = ?;", (version_row["estimate_id"],)
+        ).fetchone()
+        if estimate_row is None or not self._can_view_estimate(estimate_row, actor):
+            raise PermissionError("Actor lacks permission to view this estimate")
+        line_rows = conn.execute(
+            "SELECT * FROM estimate_line_items WHERE estimate_version_id = ? ORDER BY sort_order, id;",
+            (version_id,),
+        ).fetchall()
+        lines = [self._row_to_line(r) for r in line_rows]
+        for line in lines:
+            self._gate_line_cost_fields(line, actor)
+        return lines
 
     def update_header(self, estimate_id: int, updates: Dict[str, Any], actor: AuthContext) -> EstimateHeader:
         """Allow-list update of mutable header fields, only while the

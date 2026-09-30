@@ -1867,9 +1867,10 @@ def render_admin_surface() -> str:
             </div>
         </div>
 
-        <!-- 12 Main ERP Domain Tabs (Business Profile, Booking Config, and
+        <!-- 13 Main ERP Domain Tabs (Business Profile, Booking Config, and
              Calendar consolidated into Executive Overview below -- Admin
-             Dashboard round, Part B, Ish 2026-09-11) -->
+             Dashboard round, Part B, Ish 2026-09-11; Estimates added B9.6,
+             2026-09-30) -->
         <div class="erp-tabs-bar">
             <button class="erp-tab-btn active" onclick="switchErpTab('kpis')">📊 Executive Overview</button>
             <button class="erp-tab-btn" onclick="switchErpTab('users')">👥 Users & Permissions</button>
@@ -1879,6 +1880,7 @@ def render_admin_surface() -> str:
             <button class="erp-tab-btn" onclick="switchErpTab('comms')">💬 Communications</button>
             <button class="erp-tab-btn" onclick="switchErpTab('finance')">💰 Finance Ledger</button>
             <button class="erp-tab-btn" onclick="switchErpTab('bizops')">📋 Business Ops</button>
+            <button class="erp-tab-btn" onclick="switchErpTab('estimates')">🧾 Estimates</button>
             <button class="erp-tab-btn" onclick="switchErpTab('audit')">🔍 Audit Search</button>
             <button class="erp-tab-btn" onclick="switchErpTab('telemetry')">🤖 AI Agent & Audit</button>
             <button class="erp-tab-btn" onclick="switchErpTab('documents')">📄 Documents</button>
@@ -2469,6 +2471,92 @@ def render_admin_surface() -> str:
                         <tr><td colspan="6" style="text-align: center;">Loading schedules...</td></tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- Tab 13: Estimates (B9.6) -- admin/manager review surface, DISTINCT
+             from B9.5's /estimates staff builder route. List/filter, detail
+             (current-version line items), version history + a read-only
+             diff (side-by-side, no client-computed delta -- codey_estimator_
+             service.md §5 point 4's money-arithmetic discipline), and an
+             audit timeline. RBAC note: like every other tab here, there is
+             no client-side role gate on the button/pane itself (this admin
+             shell is served before `actor` is authenticated, same
+             deviation render_estimates_surface()'s own docstring documents
+             for B9.5) -- every fetch below is scoped server-side by
+             EstimateService's own ownership-narrowing (list()/get()/
+             list_versions()/get_version_lines()) and cost fields are
+             nulled server-side for an actor lacking PERM_READ_ESTIMATE_COSTS,
+             so the table/detail JS below is null-safe on every cost/GP/
+             margin cell rather than hiding columns client-side. -->
+        <div id="tab-estimates" class="tab-pane">
+            <div class="card-header-line">
+                <h2>Estimates</h2>
+            </div>
+            <div class="erp-card">
+                <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+                    <input type="number" id="estAdminFilterCustomerId" class="erp-input" placeholder="Customer ID">
+                    <input type="number" id="estAdminFilterAssignedTo" class="erp-input" placeholder="Assigned To (user ID)">
+                    <input type="number" id="estAdminFilterCreatedBy" class="erp-input" placeholder="Created By (user ID)">
+                    <select id="estAdminFilterStatus" class="erp-input">
+                        <option value="">All Statuses</option>
+                        <option value="DRAFT">DRAFT</option>
+                        <option value="INTERNAL_REVIEW">INTERNAL_REVIEW</option>
+                        <option value="APPROVED_INTERNAL">APPROVED_INTERNAL</option>
+                        <option value="SENT">SENT</option>
+                        <option value="VIEWED">VIEWED</option>
+                        <option value="ACCEPTED">ACCEPTED</option>
+                        <option value="DECLINED">DECLINED</option>
+                        <option value="CHANGES_REQUESTED">CHANGES_REQUESTED</option>
+                        <option value="EXPIRED">EXPIRED</option>
+                        <option value="CANCELLED">CANCELLED</option>
+                        <option value="CONVERTED">CONVERTED</option>
+                    </select>
+                    <input type="text" id="estAdminFilterQ" class="erp-input" placeholder="Search # or title">
+                    <input type="text" id="estAdminFilterDateFrom" class="erp-input" placeholder="From (YYYY-MM-DD)">
+                    <input type="text" id="estAdminFilterDateTo" class="erp-input" placeholder="To (YYYY-MM-DD)">
+                    <button onclick="loadEstimatesTab()" class="btn-gold" style="padding:0.4rem 1rem">Search</button>
+                </div>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Title</th><th>Customer ID</th><th>Created By</th><th>Assigned</th>
+                            <th>Status</th><th>Total</th><th>Cost</th><th>GP</th><th>Margin</th><th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="estimatesAdminTableBody">
+                        <tr><td colspan="11" style="text-align: center;">Loading estimates...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="erp-card" id="estimateAdminDetailPanel" style="display:none;">
+                <div class="card-title-row">
+                    <h2 id="estimateAdminDetailTitle">Estimate Detail</h2>
+                    <button class="btn-gold" onclick="closeEstimateAdminDetail()" style="background:transparent;border:1px solid var(--card-border);color:#CBD5E1;">Close</button>
+                </div>
+                <div id="estimateAdminDetailBody">Loading...</div>
+
+                <div class="card-title-row" style="margin-top:1.5rem;">
+                    <h3>Version History</h3>
+                </div>
+                <div id="estimateAdminVersionsBody">Loading versions...</div>
+
+                <div class="card-title-row" style="margin-top:1.5rem;">
+                    <h3>Version Diff</h3>
+                </div>
+                <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;flex-wrap:wrap;align-items:center;">
+                    <select id="estimateAdminDiffA" class="erp-input" style="max-width:160px;"></select>
+                    <span style="color:var(--text-muted);">vs</span>
+                    <select id="estimateAdminDiffB" class="erp-input" style="max-width:160px;"></select>
+                    <button class="btn-gold" onclick="estimateAdminRunDiff()" style="padding:0.4rem 1rem">Compare</button>
+                </div>
+                <div id="estimateAdminDiffBody"></div>
+
+                <div class="card-title-row" style="margin-top:1.5rem;">
+                    <h3>Audit Timeline</h3>
+                </div>
+                <div id="estimateAdminAuditBody">Loading audit history...</div>
             </div>
         </div>
 
@@ -3503,6 +3591,7 @@ def render_admin_surface() -> str:
             
             if (tabId === 'users') { loadUsersList(); loadDeletedUserHistory(); }
             if (tabId === 'crm') loadCrmList();
+            if (tabId === 'estimates') loadEstimatesTab();
             if (tabId === 'telemetry') loadAuditLogs();
             if (tabId === 'audit') searchAuditLog();
             if (tabId === 'documents') loadDocuments();
@@ -4388,6 +4477,311 @@ def render_admin_surface() -> str:
                 }).join('');
             } catch (ex) {
                 out.innerHTML = '<p style="color:#EF4444">Connection error.</p>';
+            }
+        }
+
+        // ==========================================
+        // B9.6: Estimates admin tab (list/filter, detail, version
+        // history/diff, audit timeline) -- reuses the /api/v1/audit-log
+        // route above's rendering convention for the timeline, and never
+        // computes a sell/cost/margin figure client-side (every dollar
+        // value rendered below comes straight from the API response,
+        // null-safe on the cost/GP/margin cells for an actor lacking
+        // PERM_READ_ESTIMATE_COSTS server-side).
+        // ==========================================
+
+        let estimatesAdminList = [];
+        let estimateAdminCurrentId = null;
+        let estimateAdminVersions = [];
+
+        function estAdminMoney(cents) {
+            return (cents === null || cents === undefined) ? '—' : '$' + (cents / 100).toFixed(2);
+        }
+
+        async function loadEstimatesTab() {
+            const token = getAuthToken();
+            const params = new URLSearchParams();
+            const custId = document.getElementById('estAdminFilterCustomerId').value;
+            const assignedTo = document.getElementById('estAdminFilterAssignedTo').value;
+            const createdBy = document.getElementById('estAdminFilterCreatedBy').value;
+            const status = document.getElementById('estAdminFilterStatus').value;
+            const q = document.getElementById('estAdminFilterQ').value;
+            const dateFrom = document.getElementById('estAdminFilterDateFrom').value;
+            const dateTo = document.getElementById('estAdminFilterDateTo').value;
+            if (custId) params.append('customer_id', custId);
+            if (assignedTo) params.append('assigned_to_user_id', assignedTo);
+            if (createdBy) params.append('created_by_user_id', createdBy);
+            if (status) params.append('workflow_status', status);
+            if (q) params.append('q', q);
+            if (dateFrom) params.append('date_from', dateFrom);
+            if (dateTo) params.append('date_to', dateTo);
+
+            const tbody = document.getElementById('estimatesAdminTableBody');
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;">Loading...</td></tr>';
+            try {
+                const res = await fetch('/api/v1/estimator/estimates?' + params.toString(), {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    tbody.innerHTML = `<tr><td colspan="11" style="color:#EF4444">Error: ${escapeHtml(data.error || res.status)}</td></tr>`;
+                    return;
+                }
+                estimatesAdminList = data.estimates || [];
+                if (!estimatesAdminList.length) {
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;">No estimates found.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = estimatesAdminList.map(e => `<tr>
+                    <td>${escapeHtml(e.estimate_number)}</td>
+                    <td>${escapeHtml(e.title || '')}</td>
+                    <td>${escapeHtml(e.customer_id)}</td>
+                    <td>${escapeHtml(e.created_by_user_id)}</td>
+                    <td>${e.assigned_to_user_id !== null && e.assigned_to_user_id !== undefined ? escapeHtml(e.assigned_to_user_id) : 'Unassigned'}</td>
+                    <td>${escapeHtml(e.workflow_status)}</td>
+                    <td>${estAdminMoney(e.total_cents)}</td>
+                    <td>${estAdminMoney(e.cost_total_cents)}</td>
+                    <td>${estAdminMoney(e.gross_profit_cents)}</td>
+                    <td>${(e.gross_margin_bp === null || e.gross_margin_bp === undefined) ? '—' : (e.gross_margin_bp / 100).toFixed(1) + '%'}</td>
+                    <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openEstimateAdminDetail(${e.id})">View</button></td>
+                </tr>`).join('');
+            } catch (ex) {
+                tbody.innerHTML = '<tr><td colspan="11" style="color:#EF4444">Connection error.</td></tr>';
+            }
+        }
+
+        async function openEstimateAdminDetail(estimateId) {
+            estimateAdminCurrentId = estimateId;
+            document.getElementById('estimateAdminDetailPanel').style.display = 'block';
+            const detailBody = document.getElementById('estimateAdminDetailBody');
+            detailBody.innerHTML = 'Loading...';
+            document.getElementById('estimateAdminVersionsBody').innerHTML = 'Loading...';
+            document.getElementById('estimateAdminDiffBody').innerHTML = '';
+            document.getElementById('estimateAdminAuditBody').innerHTML = 'Loading...';
+            const token = getAuthToken();
+            try {
+                const res = await fetch(`/api/v1/estimator/estimates/${estimateId}?include_lines=true`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    detailBody.innerHTML = `<p style="color:#EF4444">Error: ${escapeHtml(data.error || res.status)}</p>`;
+                    return;
+                }
+                const est = data.estimate;
+                document.getElementById('estimateAdminDetailTitle').textContent = 'Estimate ' + (est.estimate_number || '');
+                const lineRows = (est.lines || []).map(l => `<tr>
+                    <td>${escapeHtml(l.line_type)}</td>
+                    <td>${escapeHtml(l.description || '')}</td>
+                    <td>${escapeHtml(l.quantity)} ${escapeHtml(l.unit || '')}</td>
+                    <td>${estAdminMoney(l.cost_total_cents)}</td>
+                    <td>${estAdminMoney(l.line_total_cents)}</td>
+                </tr>`).join('');
+                detailBody.innerHTML = `
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-bottom:1rem;">
+                        <div><strong>Title:</strong> ${escapeHtml(est.title || '')}</div>
+                        <div><strong>Customer ID:</strong> ${escapeHtml(est.customer_id)}</div>
+                        <div><strong>Status:</strong> ${escapeHtml(est.workflow_status)}</div>
+                        <div><strong>Created By:</strong> ${escapeHtml(est.created_by_user_id)}</div>
+                        <div><strong>Assigned To:</strong> ${est.assigned_to_user_id !== null && est.assigned_to_user_id !== undefined ? escapeHtml(est.assigned_to_user_id) : 'Unassigned'}</div>
+                        <div><strong>Total:</strong> ${estAdminMoney(est.total_cents)}</div>
+                    </div>
+                    <table class="erp-table">
+                        <thead><tr><th>Type</th><th>Description</th><th>Qty</th><th>Cost</th><th>Line Total</th></tr></thead>
+                        <tbody>${lineRows || '<tr><td colspan="5" style="text-align:center;">No line items.</td></tr>'}</tbody>
+                    </table>
+                `;
+            } catch (ex) {
+                detailBody.innerHTML = '<p style="color:#EF4444">Connection error.</p>';
+                return;
+            }
+
+            await estimateAdminLoadVersions(estimateId);
+            await estimateAdminLoadAudit(estimateId);
+        }
+
+        function closeEstimateAdminDetail() {
+            document.getElementById('estimateAdminDetailPanel').style.display = 'none';
+            estimateAdminCurrentId = null;
+            estimateAdminVersions = [];
+        }
+
+        async function estimateAdminLoadVersions(estimateId) {
+            const token = getAuthToken();
+            const body = document.getElementById('estimateAdminVersionsBody');
+            const diffA = document.getElementById('estimateAdminDiffA');
+            const diffB = document.getElementById('estimateAdminDiffB');
+            try {
+                const res = await fetch(`/api/v1/estimator/estimates/${estimateId}/versions`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    body.innerHTML = `<p style="color:#EF4444">Error: ${escapeHtml(data.error || res.status)}</p>`;
+                    return;
+                }
+                estimateAdminVersions = data.versions || [];
+                if (!estimateAdminVersions.length) {
+                    body.innerHTML = '<p style="color:var(--text-muted)">No versions.</p>';
+                } else {
+                    body.innerHTML = '<table class="erp-table"><thead><tr><th>Version</th><th>Locked</th><th>Locked Reason</th><th>Total</th><th>Created</th></tr></thead><tbody>' +
+                        estimateAdminVersions.map(v => `<tr>
+                            <td>${escapeHtml(v.version_number)}</td>
+                            <td>${v.is_locked ? 'Yes' : 'No'}</td>
+                            <td>${escapeHtml(v.locked_reason || '')}</td>
+                            <td>${estAdminMoney(v.total_cents)}</td>
+                            <td>${escapeHtml(v.created_at || '')}</td>
+                        </tr>`).join('') + '</tbody></table>';
+                }
+                const opts = estimateAdminVersions.map(v => `<option value="${escapeHtml(v.version_number)}">v${escapeHtml(v.version_number)}</option>`).join('');
+                diffA.innerHTML = opts;
+                diffB.innerHTML = opts;
+                if (estimateAdminVersions.length > 1) {
+                    diffA.value = estimateAdminVersions[0].version_number;
+                    diffB.value = estimateAdminVersions[estimateAdminVersions.length - 1].version_number;
+                }
+            } catch (ex) {
+                body.innerHTML = '<p style="color:#EF4444">Connection error.</p>';
+            }
+        }
+
+        async function estimateAdminRunDiff() {
+            const estimateId = estimateAdminCurrentId;
+            const body = document.getElementById('estimateAdminDiffBody');
+            if (!estimateId) return;
+            const vA = document.getElementById('estimateAdminDiffA').value;
+            const vB = document.getElementById('estimateAdminDiffB').value;
+            if (!vA || !vB) {
+                body.innerHTML = '<p style="color:var(--text-muted)">Select two versions to compare.</p>';
+                return;
+            }
+            body.innerHTML = 'Loading...';
+            const token = getAuthToken();
+            try {
+                const [resA, resB] = await Promise.all([
+                    fetch(`/api/v1/estimator/estimates/${estimateId}/versions/${vA}/lines`, { headers: { 'Authorization': 'Bearer ' + token } }),
+                    fetch(`/api/v1/estimator/estimates/${estimateId}/versions/${vB}/lines`, { headers: { 'Authorization': 'Bearer ' + token } }),
+                ]);
+                if (resA.status === 401 || resB.status === 401) { logoutUser(); return; }
+                const dataA = await resA.json();
+                const dataB = await resB.json();
+                if (!resA.ok || !resB.ok) {
+                    body.innerHTML = `<p style="color:#EF4444">Error: ${escapeHtml((dataA && dataA.error) || (dataB && dataB.error) || 'request failed')}</p>`;
+                    return;
+                }
+                // Side-by-side rendering only -- no delta/diff figure is
+                // computed here; every dollar value comes straight from
+                // each version's own /lines response.
+                const renderCol = (lines) => (lines && lines.length)
+                    ? lines.map(l => `<tr>
+                        <td>${escapeHtml(l.line_type)}</td>
+                        <td>${escapeHtml(l.description || '')}</td>
+                        <td>${escapeHtml(l.quantity)}</td>
+                        <td>${estAdminMoney(l.line_total_cents)}</td>
+                    </tr>`).join('')
+                    : '<tr><td colspan="4" style="text-align:center;">No line items.</td></tr>';
+                body.innerHTML = `
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                        <div>
+                            <h4>Version ${escapeHtml(vA)}</h4>
+                            <table class="erp-table"><thead><tr><th>Type</th><th>Description</th><th>Qty</th><th>Line Total</th></tr></thead><tbody>${renderCol(dataA.lines)}</tbody></table>
+                        </div>
+                        <div>
+                            <h4>Version ${escapeHtml(vB)}</h4>
+                            <table class="erp-table"><thead><tr><th>Type</th><th>Description</th><th>Qty</th><th>Line Total</th></tr></thead><tbody>${renderCol(dataB.lines)}</tbody></table>
+                        </div>
+                    </div>
+                    <p style="color:var(--text-muted);font-size:0.8rem;margin-top:0.5rem;">Side-by-side comparison only — no delta is computed client-side.</p>
+                `;
+            } catch (ex) {
+                body.innerHTML = '<p style="color:#EF4444">Connection error.</p>';
+            }
+        }
+
+        async function estimateAdminLoadAudit(estimateId) {
+            const token = getAuthToken();
+            const body = document.getElementById('estimateAdminAuditBody');
+            try {
+                const fetches = [
+                    fetch(`/api/v1/audit-log?entity_type=estimate&entity_id=${estimateId}&limit=100`, { headers: { 'Authorization': 'Bearer ' + token } }),
+                ];
+                // One request per version for entity_type=estimate_version
+                // (query_logs has no multi-entity-type/OR support) --
+                // line-item-level audit rows (entity_type='estimate_line',
+                // keyed by line_id, not estimate_id) are deliberately NOT
+                // fetched here, which would require one request per line
+                // item; disclosed omission per this round's task brief,
+                // not a bug.
+                for (const v of estimateAdminVersions) {
+                    fetches.push(fetch(`/api/v1/audit-log?entity_type=estimate_version&entity_id=${v.id}&limit=100`, { headers: { 'Authorization': 'Bearer ' + token } }));
+                }
+                const responses = await Promise.all(fetches);
+                if (responses.some(r => r.status === 401)) { logoutUser(); return; }
+                if (responses.some(r => r.status === 403)) {
+                    body.innerHTML = '<p style="color:var(--text-muted)">You do not have permission to view the audit log.</p>';
+                    return;
+                }
+                if (responses.some(r => !r.ok)) {
+                    body.innerHTML = '<p style="color:#EF4444">Error loading audit history.</p>';
+                    return;
+                }
+                const datasets = await Promise.all(responses.map(r => r.json()));
+                let logs = [];
+                for (const d of datasets) logs = logs.concat(d.audit_logs || []);
+                logs.sort((a, b) => (a.timestamp < b.timestamp ? 1 : (a.timestamp > b.timestamp ? -1 : 0)));
+                if (!logs.length) {
+                    body.innerHTML = '<p style="color:var(--text-muted)">No audit history.</p>';
+                    return;
+                }
+                body.innerHTML = logs.map(r => {
+                    // Mirrors searchAuditLog()'s own changed_fields/snapshot
+                    // rendering above -- this is where a decision's
+                    // signer_name/comment (record_decision()'s free-text
+                    // fields, attacker-reachable via the public share-link
+                    // decision route, B9.4) actually surface in this
+                    // timeline, so every value here is routed through
+                    // escapeHtml() before reaching innerHTML, never raw.
+                    const details = r.details || {};
+                    let detailsHtml = '';
+                    // signature_data (a raw base64 image blob on decision
+                    // rows) is deliberately excluded here -- never worth
+                    // dumping into this table even escaped; "signer_name" is
+                    // enough to show who signed.
+                    const changedFieldsFiltered = details.changed_fields
+                        ? Object.entries(details.changed_fields).filter(([k]) => k !== 'signature_data')
+                        : [];
+                    if (changedFieldsFiltered.length) {
+                        const rows = changedFieldsFiltered.map(([field, diff]) =>
+                            `<tr><td style="padding:2px 8px;color:var(--text-muted)">${escapeHtml(field)}</td>`+
+                            `<td style="padding:2px 8px;color:#EF4444">${escapeHtml(JSON.stringify(diff.old))}</td>`+
+                            `<td style="padding:2px 8px;color:#22C55E">${escapeHtml(JSON.stringify(diff.new))}</td></tr>`
+                        ).join('');
+                        detailsHtml += `<table style="font-size:0.8rem;margin-top:4px;border-collapse:collapse;width:100%"><tr><th style="text-align:left;padding:2px 8px">Field</th><th style="text-align:left;padding:2px 8px">Old</th><th style="text-align:left;padding:2px 8px">New</th></tr>${rows}</table>`;
+                    }
+                    const snapshotFiltered = details.snapshot
+                        ? Object.entries(details.snapshot).filter(([k]) => k !== 'signature_data')
+                        : [];
+                    if (snapshotFiltered.length) {
+                        const rows = snapshotFiltered.map(([k,v]) =>
+                            `<tr><td style="padding:2px 8px;color:var(--text-muted)">${escapeHtml(k)}</td><td style="padding:2px 8px">${escapeHtml(JSON.stringify(v))}</td></tr>`
+                        ).join('');
+                        detailsHtml += `<table style="font-size:0.8rem;margin-top:4px;border-collapse:collapse;width:100%"><tr><th style="text-align:left;padding:2px 8px">Field</th><th style="text-align:left;padding:2px 8px">Value</th></tr>${rows}</table>`;
+                    }
+                    return `<div class="erp-card" style="margin-bottom:0.5rem;padding:0.75rem;background:#0f2038">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">
+                            <span style="color:var(--bronze);font-size:0.82rem">${escapeHtml(r.timestamp)}</span>
+                            <span style="font-size:0.82rem">[<span style="color:var(--info)">${escapeHtml(r.action)}</span>] ${escapeHtml(r.entity_type)}${ r.entity_id ? ' #'+escapeHtml(r.entity_id) : ''}</span>
+                            <span style="color:var(--text-muted);font-size:0.8rem">Actor: ${escapeHtml(r.actor_id) || 'system'} (${escapeHtml(r.actor_role)})</span>
+                        </div>
+                        <div style="font-size:0.84rem;margin-bottom:0.5rem">${escapeHtml(r.change_summary)}</div>
+                        ${detailsHtml}
+                    </div>`;
+                }).join('');
+            } catch (ex) {
+                body.innerHTML = '<p style="color:#EF4444">Connection error.</p>';
             }
         }
 

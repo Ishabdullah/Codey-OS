@@ -625,6 +625,13 @@ class EstimateHeader:
     cost_total_cents: Optional[int] = None
     gross_profit_cents: Optional[int] = None
     gross_margin_bp: Optional[int] = None
+    # B9.6 addition: the current version's customer-facing sell total, in
+    # cents -- NOT gated by PERM_READ_ESTIMATE_COSTS (it's the price the
+    # customer is actually charged, same "stays visible" treatment
+    # EstimateLineItem.price_override_cents/line_total_cents already get
+    # at the line level, and EstimateVersion.total_cents gets at the
+    # version level) -- see EstimateService._attach_cost_fields().
+    total_cents: Optional[int] = None
     lines: List["EstimateLineItem"] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
