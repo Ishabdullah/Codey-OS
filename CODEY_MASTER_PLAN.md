@@ -8554,10 +8554,8 @@ this file's own don't-duplicate rule.
       has no workflow/cost fields to leak) and `NEW-721` (spec wants a
       `current_link_url` on a superseded response — verified
       structurally impossible, raw tokens are never persisted by
-      design) logged, deferred. **F1 fix (`/api/v1/portal/estimates` →
-      `CustomerEstimateView`) still NOT done — remains open**, was not
-      touched by this round despite earlier being slated to fold in
-      here; needs its own pass. **Rule-4 category** (new
+      design) logged, deferred. **F1 fix, DONE** (2026-09-30, code-reviewer
+      APPROVED, own separate round — see below). **Rule-4 category** (new
       customer-facing auth boundary). Full spec:
       `codey_estimator_service.md` §4. Previously **Blocked
       on B9.2/B9.3, both done — unblocked (2026-09-29).**
@@ -8678,6 +8676,41 @@ this file's own don't-duplicate rule.
       prefill path found), not fixed this round since it's outside
       B9.7's scope.
       Full spec: `codey_estimator_service.md` §7.
+- [x] **F1 fix, DONE** (2026-09-30, code-reviewer APPROVED first round) —
+      `GET /api/v1/portal/estimates` now serializes every returned
+      estimate through `EstimateService.to_customer_view()` (the same
+      `CustomerEstimateView` allow-list the B9.4 public share-link route
+      already used), instead of the raw legacy `Estimate.to_dict()`.
+      Ownership/filter mechanism (`CRMService.list_estimates()`,
+      `customer_id` forced server-side, `project_id` filter) left
+      unchanged; only per-item serialization changed. A recursive
+      key-tree walk test (two live mutations, one shallow, one nested)
+      proves no cost/margin field can leak at any nesting depth — the
+      same class of check that caught B9.3's original preview-route
+      leak. Legacy CRM-created estimates (`current_version_id IS NULL`)
+      are skipped via an explicit up-front check, deliberately not a
+      blanket `except ValueError`, since `to_customer_view()` raises
+      that same exception type when the calc engine itself fails on a
+      real, versioned estimate — swallowing that case would silently
+      vanish a live customer quote with a 200 and no trace. A
+      spec-mandated test (`codey_estimator_service.md:983`) proves the
+      portal-list and public share-link routes return byte-identical
+      output for the same estimate, confirming one shared serializer,
+      not two that could drift.
+      A real gap was found and disclosed, not silently absorbed:
+      `CustomerEstimateView`'s allow-list has no `id`/`estimate_number`/
+      `status` field at all, so a customer with 2+ estimates gets back
+      indistinguishable, status-less list entries — a real regression
+      vs. the pre-fix response, non-blocking only because no frontend
+      currently consumes this endpoint (repo-wide grep confirmed).
+      Logged as `NEW-726` (Confirmed) — an earlier draft mis-cited this
+      as already covered by `NEW-720` (a different bug entirely,
+      corrected during review) — plus `NEW-727` (Suspected,
+      non-blocking: two redundant `current_version_id` reads per
+      estimate in the list, no pagination). 6 new tests (not 7, an
+      implementer miscount corrected during review); full suite 2679
+      passed, 1 skipped, both implementer and reviewer runs matching.
+      Full spec: `codey_estimator_service.md` §4/§3.
 - [ ] **B9.8** — estimate -> job workflow: `convert()`'s Project-creation
       half (the Contract half is created at acceptance, per D7), **gated on
       the linked Contract's `status = 'signed'`** (Ish's answer above — the

@@ -2235,8 +2235,40 @@ class APIRouter:
                 if path == "/api/v1/portal/estimates" and method == "GET":
                     pid = query_params.get("project_id", [None])[0]
                     proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
+                    # F1 fix (codey_estimator_service.md §3, `ARCHITECTURE_PLAN.md:763`):
+                    # this route is *modified, not replaced* -- self.crm.list_estimates()
+                    # still owns the actual query/ownership/filtering logic (customer_id
+                    # forced to actor.customer_id, project_id filter), unchanged from
+                    # before. What changes is the per-item serialization: each estimate
+                    # now goes through EstimateService.to_customer_view(), the same
+                    # allow-list `CustomerEstimateView` projection the public share-link
+                    # route (B9.4) uses, instead of the raw legacy `Estimate.to_dict()`
+                    # (which could include full header fields not meant for a customer).
                     estimates = self.crm.list_estimates(actor, customer_id=actor.customer_id, project_id=proj_id)
-                    return 200, {"Content-Type": "application/json"}, {"estimates": [e.to_dict() for e in estimates]}
+                    conn = self.estimates.db.get_connection()
+                    views = []
+                    for e in estimates:
+                        # Only a missing current_version_id (a legacy-CRM-created
+                        # estimate, NEW-718, still open, that predates the
+                        # estimator engine and has no computed version at all) is
+                        # a safe reason to omit a row here -- there is nothing
+                        # computed yet to leak or to show. This is checked
+                        # up front, deliberately NOT via a broad `except
+                        # ValueError` around to_customer_view(), because
+                        # to_customer_view() also raises ValueError when the
+                        # vendored engine itself fails on a real, versioned
+                        # estimate (see its `except EstimatorError` re-raise) --
+                        # swallowing that case would silently drop a live
+                        # customer quote from their own portal list with no
+                        # trace. That failure is left to propagate to the
+                        # route's normal ValueError/Exception handling below.
+                        row = conn.execute(
+                            "SELECT current_version_id FROM estimates WHERE id = ?;", (e.id,)
+                        ).fetchone()
+                        if row is None or row["current_version_id"] is None:
+                            continue
+                        views.append(self.estimates.to_customer_view(e.id))
+                    return 200, {"Content-Type": "application/json"}, {"estimates": views}
 
                 if path == "/api/v1/portal/contracts" and method == "GET":
                     pid = query_params.get("project_id", [None])[0]
