@@ -1,0 +1,1 @@
+Implement parse_kv(s) in kv.py: parse 'a=1;b=two;c=' into {'a':'1','b':'two','c':''}. Ignore empty segments, strip whitespace, split on the first '=' only, skip segments with no '='.

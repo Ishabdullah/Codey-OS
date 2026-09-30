@@ -1,0 +1,1 @@
+Implement dedupe(items) in dd.py: return a list with duplicates removed, keeping first-occurrence order. Items may be unhashable (e.g. lists).

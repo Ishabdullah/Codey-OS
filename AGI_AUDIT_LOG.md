@@ -2,6 +2,11 @@
 
 Reverse-chronological. Companion to `AGI_AUDIT_PLAN.md`. Statuses follow CLAUDE.md rule 7: **code-complete** vs **live-verified**.
 
+## 2026-09-30 — Phase 2.1 bench harness: code-complete
+
+New `bench/` (not imported by runtime): 8 seed tasks with hidden tests + reference solutions, sha256 `suite.lock`, temp-workspace grader, null/oracle/codey-cli agents, append-only JSONL runner, McNemar-exact + bootstrap-CI compare. `tests/test_bench_harness.py`: 8 passed (null=0/8, oracle=8/8, tamper detection, agent-written test can't shadow hidden test, crash recorded as failure, A/A p=1.0, McNemar values hand-checked). One test expectation of mine was wrong (McNemar(2,9)=0.0654, not <0.05); the code was right, test corrected.
+Limits: 8 tasks is too few to detect small gains; real-agent runs need the device (`make_codey_cli_agent`), not yet live-verified; the `main.py` one-shot flags are from reading source, unrun.
+
 ## 2026-09-30 — Rule 1 superseded by direct instruction; real tag confirmed
 
 - Ish (in-session, direct): approved building and activating the self-improvement code, overriding the old "permanently gated off" rule with a new rule: build Codey-OS as close to AGI as achievable, goal score 100, in logical order. Recorded in `CLAUDE.md` rule 1 and `CODEY_MASTER_PLAN.md` §2 rule 1 / §6.11 P.1. Activation is conditional on the promotion gate (see plan ground rule 3).

@@ -1,0 +1,1 @@
+Implement class Stack in stack.py with push(x), pop() (raises IndexError when empty), peek() (raises IndexError when empty), and __len__.

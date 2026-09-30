@@ -1,0 +1,1 @@
+mathutil.py has a bug: average() crashes or is wrong for an empty list and mishandles ints. Fix it so average([]) returns 0.0 and average([1,2]) returns 1.5.
