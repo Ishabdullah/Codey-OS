@@ -33,12 +33,15 @@ see that round's task brief for the full breakdown):
     preview, to_customer_view
     lock-immutability enforcement (checked in-transaction before every
     line/header write; the DB triggers are the backstop)
+    convert (B9.8, the ACCEPTED -> CONVERTED Project-creation half of the
+        estimate->job workflow -- gated on a signed linked Contract per §9
+        item 4; does NOT call `CRMService.create_project()`/`get_opportunity()`,
+        see convert()'s own docstring for why)
 
 **Deliberately NOT built this round** (each is a real, identified gap --
 logged to NEW_ISSUES.md rather than silently built or silently dropped):
 
-  - `convert()` (the ACCEPTED -> CONVERTED Project-creation half, B9.8) --
-    gated on a signed Contract per §9 item 4, out of this round's scope.
+  - No route exposes `convert()` yet (B9.3, separately deferred).
   - The expiry sweep (B9.2b), API routes (B9.3), the public share-link
     lookup/decision routes (B9.4 -- this round creates real share-link
     rows but nothing yet resolves a raw token back to one), the
@@ -104,6 +107,7 @@ from ..auth import (
     PERM_SEND_ESTIMATES,
     PERM_WRITE_ESTIMATES,
     ROLE_ADMIN,
+    ROLE_AI_AGENT,
     ROLE_CUSTOMER,
     ROLE_MANAGER,
     ROLE_PROJECT_MANAGER,
@@ -2354,6 +2358,194 @@ class EstimateService:
                 change_summary=f"Contract auto-created from accepted estimate {estimate_row['id']}",
                 actor=None,
                 details=build_audit_details(snapshot={"estimate_id": estimate_row["id"], "contract_id": new_contract_id}),
+            )
+        return result
+
+    def convert(self, estimate_id: int, actor: AuthContext) -> dict:
+        """Convert an ACCEPTED estimate (with a signed linked Contract) into a
+        Project -- the Project-creation half of B9.8's estimate->job workflow
+        (the Contract half is already created at acceptance, per `record_decision()`'s
+        accept -> Contract invariant, D7).
+
+        Deviates from `codey_estimator_service.md` section 1.9's literal text in
+        two load-bearing ways, both because `ROLE_SALES` (the actual caller) lacks
+        the permissions those calls would require:
+
+        1. Does NOT call `CRMService.create_project()` -- that method requires
+           `PERM_WRITE_PROJECTS`, which `ROLE_SALES` does not hold. Mirrors
+           `record_decision()`'s own established precedent (see its docstring,
+           the "Accept -> Contract invariant" section above) -- the INSERT is
+           done directly here, inside `convert()`'s own transaction, using
+           `create_project()`'s column list/shape as a template only, not by
+           calling it.
+        2. Does NOT call `CRMService.get_opportunity()` -- that method requires
+           `PERM_READ_OPPORTUNITIES`/`PERM_READ_CRM` and its per-row narrowing
+           returns `None` for a `ROLE_SALES` actor when the opportunity is
+           assigned to a different rep, which would make `convert()` wrongly
+           conclude there's no linked project and create a duplicate. Uses a
+           raw, unguarded `SELECT project_id FROM opportunities WHERE id = ?`
+           instead.
+
+        Money boundary (cents -> float) happens exactly once, at the Project
+        INSERT.
+
+        **Project-linking priority order** (first match wins -- ignoring
+        `estimates.project_id` would let the Contract and the converted
+        estimate end up pointing at two different Projects):
+        1. `estimates.project_id` is already set -> that is the Project. No
+           creation, no Opportunity lookup.
+        2. Else `estimates.opportunity_id` is set -> raw
+           `SELECT project_id FROM opportunities WHERE id = ?`. If non-NULL,
+           that is the Project.
+        3. Else a new Project is created, priced off the estimate's
+           `accepted_version_id` snapshot (NOT `current_version_id` -- after a
+           post-acceptance `revise()` these can diverge; pricing the new
+           Project off unaccepted numbers would be wrong).
+
+        **Opportunity write-back** (Ish, 2026-09-30): when a new Project is
+        created under an `opportunity_id`, this also writes the new Project's
+        id onto `opportunities.project_id` (guarded `WHERE project_id IS
+        NULL`) so a LATER estimate created under the SAME opportunity links to
+        this Project via priority-order step 2 above, instead of creating a
+        duplicate Project. See `NEW-736`/`NEW-737` in `NEW_ISSUES.md` for two
+        related, disclosed, NOT-fixed-this-round gaps this write-back doesn't
+        close.
+        """
+        if actor.role == ROLE_AI_AGENT:
+            raise PermissionError("ai_agent may not convert estimates to jobs")
+
+        conn = self.db.get_connection()
+        now = utc_now_iso()
+        created_new = False
+        with conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+            if row is None:
+                raise ValueError(f"Estimate {estimate_id} not found")
+
+            # Permission/ownership gate, inside the transaction (matches
+            # transition()'s/record_decision()'s TOCTOU convention).
+            # Deliberately NOT _can_view_estimate() -- that helper treats an
+            # unclaimed estimate as visible to any PERM_WRITE_ESTIMATES
+            # holder, which is fine for reads but would let a stranger
+            # convert someone else's estimate.
+            if not actor.has_permission(PERM_WRITE_ESTIMATES):
+                raise PermissionError("convert requires PERM_WRITE_ESTIMATES")
+            if not (
+                actor.has_permission(PERM_READ_ALL_ESTIMATES)
+                or row["created_by_user_id"] == actor.user_id
+                or row["assigned_to_user_id"] == actor.user_id
+            ):
+                raise PermissionError("not authorized to convert this estimate")
+
+            # Idempotency short-circuit, keyed on converted_project_id.
+            if row["converted_project_id"] is not None:
+                return {"contract_id": row["contract_id"], "project_id": row["converted_project_id"]}
+
+            if row["workflow_status"] != "ACCEPTED":
+                raise ValueError(
+                    f"Cannot convert estimate in status {row['workflow_status']!r}; requires ACCEPTED"
+                )
+
+            # Section 9 item 4 (Ish, 2026-09-27): signed contract required.
+            if row["contract_id"] is None:
+                raise ValueError("Estimate has no linked contract yet")
+            contract_row = conn.execute(
+                "SELECT status FROM contracts WHERE id = ?;", (row["contract_id"],)
+            ).fetchone()
+            if contract_row is None or contract_row["status"] != "signed":
+                status_desc = contract_row["status"] if contract_row else "missing"
+                raise ValueError(f"Cannot convert: linked contract status is {status_desc!r}, not signed")
+
+            # Resolve project_id per the 3-step priority order.
+            project_id = row["project_id"]
+            if project_id is None and row["opportunity_id"] is not None:
+                opp_row = conn.execute(
+                    "SELECT project_id FROM opportunities WHERE id = ?;", (row["opportunity_id"],)
+                ).fetchone()
+                if opp_row is not None:
+                    project_id = opp_row["project_id"]
+
+            if project_id is None:
+                # accepted_version_id, NOT current_version_id -- after a
+                # post-acceptance revise() these can diverge; pricing the new
+                # Project off unaccepted numbers would be wrong.
+                version_row = conn.execute(
+                    "SELECT * FROM estimate_versions WHERE id = ?;", (row["accepted_version_id"],)
+                ).fetchone()
+                if version_row is None:
+                    raise ValueError("Estimate has no accepted version snapshot")
+                total_cents = version_row["total_cents"] or 0
+                cost_total_cents = version_row["cost_total_cents"] or 0
+                property_address = None
+                if row["property_id"] is not None:
+                    prop_row = conn.execute(
+                        "SELECT address FROM properties WHERE id = ?;", (row["property_id"],)
+                    ).fetchone()
+                    property_address = prop_row["address"] if prop_row else None
+                if not property_address:
+                    cust_row = conn.execute(
+                        "SELECT service_address, mailing_address FROM customers WHERE id = ?;",
+                        (row["customer_id"],),
+                    ).fetchone()
+                    property_address = (
+                        (cust_row["service_address"] or cust_row["mailing_address"] or "") if cust_row else ""
+                    )
+                project_title = row["title"] or f"Project for {row['estimate_number']}"
+                cursor = conn.execute(
+                    """
+                    INSERT INTO projects (
+                        customer_id, title, property_address, project_type, status, stage,
+                        estimated_cost, contract_amount, property_id, stage_entered_at,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, 'remodel', 'planning', 'intake', ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        row["customer_id"], project_title, property_address,
+                        cost_total_cents / 100.0, total_cents / 100.0, row["property_id"], now, now, now,
+                    ),
+                )
+                project_id = cursor.lastrowid
+                created_new = True
+
+                # Ish's decision, 2026-09-30: write the new Project back onto
+                # opportunities.project_id so a LATER estimate created under
+                # the SAME opportunity links to this Project instead of
+                # creating a duplicate. Isolated here, easily removable, kept
+                # inside the same transaction as the rest of this method.
+                if row["opportunity_id"] is not None:
+                    conn.execute(
+                        "UPDATE opportunities SET project_id = ?, updated_at = ? WHERE id = ? AND project_id IS NULL;",
+                        (project_id, now, row["opportunity_id"]),
+                    )
+
+            # CAS-guarded write -- NEW-717 precedent (transition()'s/claim()'s
+            # own conditional-UPDATE-plus-rowcount pattern), do not omit.
+            cur = conn.execute(
+                "UPDATE estimates SET converted_project_id = ?, workflow_status = 'CONVERTED', updated_at = ? "
+                "WHERE id = ? AND workflow_status = 'ACCEPTED' AND converted_project_id IS NULL;",
+                (project_id, now, estimate_id),
+            )
+            if cur.rowcount == 0:
+                raise ClaimConflictError(f"Estimate {estimate_id} was converted concurrently")
+
+        result = {"contract_id": row["contract_id"], "project_id": project_id}
+        self.audit.log(
+            action="convert",
+            entity_type="estimate",
+            entity_id=estimate_id,
+            change_summary=f"Estimate {estimate_id} converted to project {project_id}",
+            actor=actor,
+            details=build_audit_details(snapshot=result),
+        )
+        if created_new:
+            self.audit.log(
+                action="create",
+                entity_type="project",
+                entity_id=project_id,
+                change_summary=f"Project auto-created from converted estimate {estimate_id}",
+                actor=actor,
+                details=build_audit_details(after={"estimate_id": estimate_id, "project_id": project_id}),
             )
         return result
 
