@@ -1,0 +1,30 @@
+{
+  "name":"termux_api_extended",
+  "version":"1.0.0",
+  "description":"Extended Termux:API surfaces including audio, keystore, media, NFC and SAF",
+  "category":"device",
+  "entry_point":"extended.py",
+  "capabilities":[
+    {"name":"device.audio_info","description":"Get audio capabilities","implementation":"extended:audio_info","category":"audio","dependencies":["termux-api"]},
+    {"name":"device.call_log","description":"List call log history","implementation":"extended:call_log","category":"telephony","dependencies":["termux-api"]},
+    {"name":"device.fingerprint","description":"Authenticate with device fingerprint sensor","implementation":"extended:fingerprint","category":"security","dependencies":["termux-api"]},
+    {"name":"hardware.ir_frequencies","description":"Get supported infrared carrier frequencies","implementation":"extended:infrared_frequencies","category":"hardware","dependencies":["termux-api"]},
+    {"name":"security.keystore","description":"List, generate, sign, verify or delete Android keystore keys","implementation":"extended:keystore","category":"security","dependencies":["termux-api"]},
+    {"name":"media.player","description":"Play, pause, stop or inspect a media file","implementation":"extended:media_player","category":"media","dependencies":["termux-api"]},
+    {"name":"media.scan","description":"Scan files into Android MediaStore","implementation":"extended:media_scan","category":"media","dependencies":["termux-api"]},
+    {"name":"hardware.nfc","description":"Read or write NFC NDEF data","implementation":"extended:nfc","category":"hardware","dependencies":["termux-api"]},
+    {"name":"ui.toast","description":"Show an Android toast","implementation":"extended:toast","category":"ui","dependencies":["termux-api"]},
+    {"name":"storage.saf_dirs","description":"List directories granted to Termux:API through Storage Access Framework","implementation":"extended:saf_dirs","category":"storage","dependencies":["termux-api"]},
+    {"name":"storage.saf_managedir","description":"Grant Termux:API access to a directory through Android's file picker","implementation":"extended:saf_managedir","category":"storage","dependencies":["termux-api"]},
+    {"name":"storage.saf_ls","description":"List files in a SAF directory URI","implementation":"extended:saf_ls","category":"storage","dependencies":["termux-api"]},
+    {"name":"storage.saf_mkdir","description":"Create a directory through SAF","implementation":"extended:saf_mkdir","category":"storage","dependencies":["termux-api"]},
+    {"name":"storage.saf_create","description":"Create a file through SAF","implementation":"extended:saf_create","category":"storage","dependencies":["termux-api"]},
+    {"name":"storage.saf_read","description":"Read a file through SAF","implementation":"extended:saf_read","category":"storage","dependencies":["termux-api"]},
+    {"name":"storage.saf_write","description":"Write a file through SAF","implementation":"extended:saf_write","category":"storage","dependencies":["termux-api"]},
+    {"name":"storage.saf_rm","description":"Delete a SAF file or directory","implementation":"extended:saf_rm","category":"storage","dependencies":["termux-api"]},
+    {"name":"storage.saf_stat","description":"Get metadata for a SAF file or directory","implementation":"extended:saf_stat","category":"storage","dependencies":["termux-api"]},
+    {"name":"ui.notification_channel","description":"Create or delete an Android notification channel","implementation":"extended:notification_channel","category":"notification","dependencies":["termux-api"]}
+  ],
+  "author":"CCOS",
+  "license":"MIT"
+}
