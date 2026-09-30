@@ -8722,6 +8722,39 @@ this file's own don't-duplicate rule.
       §1.9/§8/§9 item 4.
 - [ ] **B9.x** — pricing/retailer tables (deferred from B9.1). Depends on
       `codey_estimator.ports.py`'s repository shapes (already built).
+- [ ] **B9.y (queued, Ish, 2026-09-30)** — admin-portal user-management UX:
+      unify customer-portal account creation into the same
+      `POST /api/v1/users` create-user flow already used for
+      admin/sales/PM/tech/subcontractor accounts (the backend already
+      supports this today — `role="customer"` + `customer_id` on that
+      same endpoint — this is a UI-only gap, not a missing API), with a
+      "customer" user-type option that, once picked, swaps the plain-text
+      name field for a customer picker/search (existing customer records
+      only, by name) so the created login is unambiguously linked to the
+      right `customers.id`; creating it should surface that customer's
+      existing projects/estimates/contracts/invoices immediately (already
+      automatic once `customer_id` is set correctly — every `/api/v1/
+      portal/*` route scopes off it, per `AuthContext.can_access_customer()`
+      — so this part needs no new backend work either, just confirming the
+      admin UI reflects it). **Second, separate ask, same round:** a
+      user-management view (in the admin portal) that lists every user
+      (all roles) with the ability to view/edit that user's password —
+      **this is a real security-design question, not just a UI gap: the
+      backend today only ever stores/verifies a bcrypt-style hash
+      (`hash_password()`/`verify_password()` in `auth.py`) and has no
+      mechanism to recover or display a plaintext password once set** (by
+      design — this is standard and should not change), so "see the
+      password" as literally stated cannot be built as asked; the
+      buildable version is admin-triggered **password reset** (already
+      has a real backend primitive — `POST /api/v1/users/{id}/password`,
+      wired to `AuthService.change_password()`, already used for
+      self-service change) surfaced in the admin UI as a
+      "reset/set password" action per user row, not a "view current
+      password" field. Needs Ish's confirmation that reset-not-reveal is
+      the right shape before building. Both asks are explicitly deferred
+      by Ish's own instruction ("log it for future work after we are done
+      working on the current project") — not started this round, queued
+      behind the rest of B9.
 
 **The five B9.2+ business/policy questions are answered** — see §8 item 13
 above and `codey_estimator_service.md` §9 for full binding detail. Nothing
