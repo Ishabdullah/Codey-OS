@@ -11,7 +11,7 @@ from .verify import grade
 
 
 def run_suite(agent, label: str, ledger: Path, meta: dict | None = None,
-              tasks=None, repeats: int = 1, require_lock: bool = True) -> list:
+              tasks=None, repeats: int = 1, require_lock: bool = True, traj_db=None) -> list:
     if require_lock and not verify_lock():
         raise RuntimeError("bench/suite.lock mismatch: suite was modified; refusing to run")
     tasks = tasks if tasks is not None else load_tasks()
@@ -29,6 +29,12 @@ def run_suite(agent, label: str, ledger: Path, meta: dict | None = None,
                 except Exception as e:  # agent crash = failure, recorded
                     err = repr(e)
                 passed = grade(t, ws)
+                if traj_db:  # label the agent's episodes with the EXTERNAL grader verdict
+                    try:
+                        from core.trajectory import label_tag
+                        label_tag(f"bench:{t.id}", f"bench:{sh[:12]}", passed, since_ts=t0, path=traj_db)
+                    except Exception:
+                        pass
                 rows.append({"label": label, "task": t.id, "rep": rep, "passed": passed,
                              "secs": round(time.time() - t0, 2), "error": err,
                              "suite_hash": sh, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),

@@ -2,6 +2,11 @@
 
 Reverse-chronological. Companion to `AGI_AUDIT_PLAN.md`. Statuses follow CLAUDE.md rule 7: **code-complete** vs **live-verified**.
 
+## 2026-09-30 — Phase 2.2 trajectory store: code-complete
+
+`core/trajectory.py` (SQLite, `~/.codeyOS/trajectories.db`, override `CODEY_TRAJECTORY_DB`) + wrappers appended at the bottom of `core/agent.py` (`functools.wraps`, default OFF via `CODEY_TRAJECTORY=1`, fail-open, nested run_agent calls = one episode, crashes recorded and re-raised). Labels come only from external verifiers (`label_tag`/`label_episode`); `verified_episodes()` returns only labeled rows. `bench/runner.py` labels episodes via `traj_db`. Full suite: 1954 (tests/) + 114 (ccos/tests) = 2068 passed, 0 failed (was 2052; +16 new).
+Limits: rule 4 reviewer not available (no reviewer claim); this touches the live `run_agent` path but is a pass-through with the flag off. Not live-verified on device; args/results truncated but NOT secret-scrubbed (noted in module docstring; do not export the DB off-device unreviewed).
+
 ## 2026-09-30 — Phase 2.1 bench harness: code-complete
 
 New `bench/` (not imported by runtime): 8 seed tasks with hidden tests + reference solutions, sha256 `suite.lock`, temp-workspace grader, null/oracle/codey-cli agents, append-only JSONL runner, McNemar-exact + bootstrap-CI compare. `tests/test_bench_harness.py`: 8 passed (null=0/8, oracle=8/8, tamper detection, agent-written test can't shadow hidden test, crash recorded as failure, A/A p=1.0, McNemar values hand-checked). One test expectation of mine was wrong (McNemar(2,9)=0.0654, not <0.05); the code was right, test corrected.

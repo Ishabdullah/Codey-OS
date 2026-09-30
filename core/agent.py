@@ -2324,3 +2324,19 @@ def run_agent(
     if last_tool_result and not last_tool_result.startswith("["):
         _incomplete_msg += " Last result: " + last_tool_result[:200]
     return _incomplete_msg, history
+
+
+# --- AGI audit 2.2: trajectory recording hooks -------------------------------
+# DEFAULT OFF (CODEY_TRAJECTORY=1 enables). Wrappers pass through untouched when
+# the flag is unset and swallow their own errors (fail-open). functools.wraps is
+# required: ccos/core/plugin_manager.py inspects run_agent's signature.
+# CONCERN: must stay at the very bottom so `from core.agent import run_agent`
+# elsewhere receives the wrapped callables.
+try:
+    from core.trajectory import instrument_execute_tool as _traj_tool
+    from core.trajectory import instrument_run_agent as _traj_run
+
+    execute_tool = _traj_tool(execute_tool)
+    run_agent = _traj_run(run_agent)
+except Exception:  # never let the store break agent import
+    pass
