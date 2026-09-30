@@ -18375,3 +18375,30 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Not fixed this round** — found during review of the already-scoped D3 fix, deliberately not a blocker per the reviewer's own assessment (self-healing, no security impact). A future fix could carry call-site intent through the guard (e.g. queue the dropped call's parameters and replay after the in-flight one finishes, or simply never let the guard drop the `true`-mode call specifically) rather than uniformly discarding whichever call loses the race.
 - **Related, also not fixed:** no test currently pins the `dashboardRefreshInFlight` guard's existence or its `finally`-based reset — a future edit could remove the guard entirely (reintroducing the overlapping-write risk it was added to prevent) with the test suite staying green throughout.
 - **Cross-reference:** `sales_rep_portal.md` §4a item 3, `restoricon_core/api/web_surfaces.py` (`_render_sales_portal`, `loadDashboard`).
+
+## Found 2026-09-30 — AGI alignment audit (see `AGI_AUDIT_PLAN.md`, `AGI_AUDIT_LOG.md`). IDs 546+ chosen to avoid colliding with 544/545 on `feat/estimator-phase3-schema`
+
+### [NEW-546] Confirmed, not yet fixed: `core/finetune_prep.py::DatasetCurator.get_episodic_actions` reads a state key (`state.get("episodic_log")`) that nothing ever writes, so the fine-tune export returns 0 examples from real usage
+
+- **Status:** Confirmed by experiment (2026-09-30): in an isolated `HOME`, logged 20 `write_file` + 20 `shell` actions via `StateStore.log_action` (the same call `core/agent.py` uses); `curate_examples(30, 0.0)` returned 0. The episodic log is the `episodic_log` SQL table; the reader queries the key-value `state` table. Real rows are `(action, result[:100])`, not the user/assistant pairs `_action_to_sharegpt` expects. `tests/test_finetune.py` only asserts the result is a list.
+- **Fix direction:** Phase 2.2/3.2 of `AGI_AUDIT_PLAN.md` (structured trajectory store; reader switched to it).
+- **Cross-reference:** `core/finetune_prep.py:62`, `core/state.py`.
+
+### [NEW-547] Confirmed, not yet fixed: fine-tune notebook targets Qwen2.5-Coder-7B / Qwen2.5-1.5B, not the deployed Qwen3.5-4B
+
+- **Status:** Confirmed by reading (2026-09-30): `generate_notebook()` maps `1.5b`/`7b` to `unsloth/Qwen2.5-*` model ids; `utils/config.py::MODEL_PATH` defaults to `Qwen3.5-4B-Q4_K_M.gguf`; `main.py` `--ft-model` accepts only `7b`. An adapter trained on Qwen2.5 cannot be applied to Qwen3.5-4B. Unsloth support for the Qwen3.5-4B architecture NOT verified (rule 12).
+- **Fix direction:** Phase 3.1. Also: `core/finetune_prep.py::print_instructions` (~line 655) prints `--model {model_variant}`, which is not a CLI flag (the flag is `--lora-model`, choices `["primary"]`) and passes `1.5b`/`7b` values that would be rejected.
+
+### [NEW-548] Confirmed, dormant, not yet fixed: `ccos/core/capability_optimizer.py` reports fake improvements
+
+- **Status:** Confirmed by reading (2026-09-30): `_apply_improvements()` prepends `_retry`/`_with_timeout` helper definitions that nothing calls, then appends the original code unchanged, so behavior is identical; `compare_and_upgrade()` accepts when the plugin's own test passes and sets `new_score = old_score + 5` ("optimistic bump"), which is not measured. `ccos/tests/test_improvement_loop.py` asserts `opt_result.improved`, encoding the false criterion. No runtime caller (self-improvement stays gated, rule 1).
+- **Fix direction:** Phase 2.4, only with Ish's explicit confirmation since it touches a rule-1 module.
+
+### [NEW-549] Confirmed, fixed 2026-09-30 (test-only): 9 tests were environment-dependent and failed without a real `llama-server` binary, ~2.7GB model file, or the Termux shebang path
+
+- **Status:** Fixed on branch `codey-os-agi` (Phase 1.2/1.3): autouse fixtures substitute placeholders only when the real file is missing; the `codey` script test falls back to system bash when the Termux shebang path does not exist. No runtime code changed. Baseline 2043 passed / 9 failed became 2052 passed / 0 failed.
+
+### [NEW-550] Suspected, not fixed: the CCOS self-improvement "gate" (rule 1) is only the absence of a caller, not an enforced switch
+
+- **Status:** Suspected. `LifecycleManager` constructs `AutoImprovementLoop()` with `auto_optimize=True` by default; any future wiring of `LifecycleManager` or `after_task` would enable plugin-file rewriting with no flag. No test asserts the modules are unreachable from runtime.
+- **Fix direction:** Phase 2.3 (default-off env flag + unreachability test), only with Ish's explicit confirmation (rule 1 module).

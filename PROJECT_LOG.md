@@ -1,3 +1,16 @@
+## 2026-09-30 — AGI audit: rollback point, branch `codey-os-agi`, Phase 1 (tests/docs only) code-complete
+
+**What changed:** Ish-directed audit work, standard tier for Phase 1 (test fixtures + docstrings only, no runtime logic). Full record in `AGI_AUDIT_PLAN.md` / `AGI_AUDIT_LOG.md`.
+
+- **Rollback point:** branch `rollback/2026-09-30-pre-agi-audit-fixes` @ `91ee3c1` (pre-audit `main`). A tag push was blocked by the session proxy (HTTP 403).
+- **Baseline (untouched main, sandbox without llama.cpp/model):** 2043 passed, 9 failed. All 9 environment-dependent (no `llama-server` binary, no model file, non-Termux shebang path).
+- **After Phase 1:** 2052 passed, 0 failed, 0 warnings (was 70), full `tests` + `ccos/tests` (two backup tests needing `google-cloud-storage` excluded in this sandbox).
+- **Changes:** `tests/conftest.py` (placeholder `llama-server` path when the real one is missing), `tests/test_loader_resource_gate.py` (sparse placeholder model file when missing), `tests/test_service_manager_config.py` (bash fallback for the Termux shebang), new `ccos/tests/conftest.py` (a test returning False now FAILS; previously pytest ignored it; keeps the `return True` convention the standalone runners rely on), docstring/text corrections in `core/error_database.py`, `core/agent.py` (symbolic-pipeline comment), `core/lora_import.py` (nonexistent `core/finetune_merge.py` reference; wrong `--model` flag).
+- **Correction (rule 6):** the audit's first draft said 69 CCOS tests "cannot fail" because they return a bool. Withdrawn: they contain real assertions.
+- **Findings logged:** `NEW-546`..`NEW-550` in `NEW_ISSUES.md`.
+- **Tier (rule 7):** code-complete, test-verified in a Linux sandbox. **Not live-verified on the device.** Not code-reviewer-reviewed (Phase 1 touches no process-lifecycle logic; no reviewer subagent was available to this session, so no reviewer approval is claimed).
+- **Untouched by decision:** `feat/estimator-phase3-schema`, `feat/termux-api-agent-tools`.
+
 ## 2026-09-17 — D3 CLOSED: sales portal 12s auto-refresh (not the full SSE push layer)
 
 **What changed:** project-architect → implementer → code-reviewer pipeline, standard tier (no RBAC/schema/process-lifecycle), APPROVED. 1945 passed, 1 skipped, independently reproduced by code-reviewer.

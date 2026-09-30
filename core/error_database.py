@@ -8,7 +8,10 @@ Learns from errors and their successful fixes:
 - Suggests fixes for similar errors
 - Builds a knowledge base over time
 
-This makes Codey-OS genuinely smarter with each error fixed.
+NOTE (AGI_AUDIT_PLAN.md 1.4): as of 2026-09-30 only the WRITE side is wired
+into the live agent loop (core/agent.py records tool exceptions via
+LearningManager.record_error). suggest_fix()/get_best_strategy() have no
+runtime caller yet, so recorded errors do not currently change behavior.
 """
 
 import hashlib

@@ -5,6 +5,7 @@ Restoricon API config, GUI config, Aigentik config, and env var overrides.
 
 import json
 import os
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -236,9 +237,24 @@ def test_codey_script_cli_help_and_config():
     assert codey_bin.is_file()
     assert os.access(codey_bin, os.X_OK)
 
+    # The script's shebang is the Termux bash path. Where that path does
+    # not exist (CI, a plain Linux box) executing it directly fails with
+    # "required file not found" before the script runs at all. Fall back
+    # to invoking the same script through the system bash there; on the
+    # device the shebang path exists and the script is executed directly,
+    # exactly as before.
+    shebang = codey_bin.read_text().splitlines()[0]
+    interpreter = shebang[2:].strip() if shebang.startswith("#!") else ""
+    if interpreter and Path(interpreter).exists():
+        cmd_prefix = [str(codey_bin)]
+    else:
+        bash = shutil.which("bash")
+        assert bash, "bash is required to run the codey script"
+        cmd_prefix = [bash, str(codey_bin)]
+
     # Test codey help
     res_help = subprocess.run(
-        [str(codey_bin), "help"],
+        cmd_prefix + ["help"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,
@@ -249,7 +265,7 @@ def test_codey_script_cli_help_and_config():
 
     # Test codey config
     res_cfg = subprocess.run(
-        [str(codey_bin), "config"],
+        cmd_prefix + ["config"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,
@@ -259,7 +275,7 @@ def test_codey_script_cli_help_and_config():
 
     # Test codey status
     res_status = subprocess.run(
-        [str(codey_bin), "status"],
+        cmd_prefix + ["status"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,

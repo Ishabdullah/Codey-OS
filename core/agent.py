@@ -1081,8 +1081,10 @@ def _run_symbolic_pipeline(
     Phase 4 (enrichment): Render graph state as structured context for the coder.
 
     Returns an enriched user_message string that replaces the original prompt.
-    The coder still goes through the normal agent loop (tool execution, retries, etc.)
-    but sees ONLY the symbolic graph state, not the original prompt.
+    The coder still goes through the normal agent loop (tool execution, retries, etc.).
+    It sees the symbolic graph state as the primary content, but the original
+    request text is also appended "for reference" (see the `enriched` string
+    below), so the graph is not a strict bottleneck.
     """
     from core.inference_v2 import infer
 
@@ -1179,7 +1181,7 @@ def run_agent(
 
     # ── Symbolic pipeline (v3.0.0) ────────────────────────────────────────────
     # When symbolic graph is enabled, route through: language -> planner -> graph -> coder -> language
-    # The coder sees ONLY the graph state, not the original prompt.
+    # The coder sees the graph state plus the original request appended for reference.
     # The enriched message replaces user_message and feeds into the normal agent loop
     # (tool execution, retries, hallucination checks all still work).
     # Controlled by CODEY_SYMBOLIC=1 env var (default: off for backward compat).

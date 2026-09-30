@@ -1,9 +1,12 @@
 """
-Session/test-wide fixtures. Currently just one: telemetry metrics-dir
-isolation (see the fixture's own docstring for why it exists).
+Session/test-wide fixtures: telemetry metrics-dir isolation and a
+hermetic llama-server binary path (see each fixture's docstring).
 """
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -56,3 +59,32 @@ def _isolate_telemetry_metrics_dir(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(store, "TELEMETRY_ENABLED", False)
     yield
     store.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_llama_server_bin(tmp_path_factory, monkeypatch):
+    """
+    AGI_AUDIT_PLAN.md item 1.2. core.loader_v2.ModelLoader.load_primary()
+    checks that the llama-server binary exists on disk BEFORE it ever
+    reaches LlamaServer. Several tests patch LlamaServer with a fake (no
+    real process, per CLAUDE.md rule 2) but were still failing on any
+    machine without llama.cpp built (a CI runner, a fresh clone) with
+    "llama-server not found", because that binary check ran first.
+
+    When the real binary is missing, point core.loader_v2.LLAMA_SERVER_BIN
+    at an empty placeholder file so the existence check passes. The
+    placeholder is never executed: every test that reaches a spawn
+    patches LlamaServer. When the real binary exists (e.g. on the
+    device) this fixture does nothing, so device behavior is unchanged.
+
+    Looks the module up in sys.modules rather than importing it, so tests
+    that never touch the loader don't pay the import cost.
+    """
+    lv = sys.modules.get("core.loader_v2")
+    if lv is None or Path(str(lv.LLAMA_SERVER_BIN)).exists():
+        yield
+        return
+    placeholder = tmp_path_factory.mktemp("fake_llama_bin") / "llama-server"
+    placeholder.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(lv, "LLAMA_SERVER_BIN", str(placeholder))
+    yield
