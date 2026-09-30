@@ -734,7 +734,11 @@ def render_login_surface(portal_type: str = "admin") -> str:
 
 
 def render_quote_surface() -> str:
-    """Render public 24/7 Quote Intake, Live Booking & Calculator matching restoricon.com."""
+    """Render public 24/7 Quote Intake & Live Booking page matching
+    restoricon.com. Per D8 (`codey_estimator_service.md` S:7), this surface
+    no longer includes a self-service $/sq-ft price calculator -- it shows
+    a "Request a Free Estimate" CTA instead, so no price expectations are
+    set before a real estimator scopes the job."""
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -805,18 +809,15 @@ def render_quote_surface() -> str:
         input:focus, select:focus, textarea:focus { border-color: var(--bronze); }
         textarea { resize: vertical; min-height: 85px; }
 
-        .calc-result-box {
+        .cta-estimate-box {
             background: #0A192F;
             border: 1px solid var(--bronze);
             border-radius: 8px;
             padding: 1.25rem;
-            margin-top: 1.25rem;
-            text-align: center;
+            margin-top: 1rem;
         }
-        .calc-result-num { font-size: 1.8rem; font-weight: 800; color: var(--bronze); }
-        .calc-meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 1rem; text-align: left; font-size: 0.85rem; }
-        .calc-meta-item { background: rgba(255,255,255,0.03); padding: 0.5rem 0.75rem; border-radius: 4px; }
-        
+        .cta-estimate-box p { color: var(--text-muted); font-size: 0.92rem; line-height: 1.55; }
+
         .alert-box { padding: 0.85rem 1rem; border-radius: 6px; margin-bottom: 1rem; display: none; font-size: 0.9rem; }
         .alert-success { background: rgba(16, 185, 129, 0.15); border: 1px solid var(--success); color: #6EE7B7; }
         .alert-error { background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); color: #FCA5A5; }
@@ -905,43 +906,22 @@ def render_quote_surface() -> str:
                 </form>
             </div>
 
-            <!-- Right Column: Interactive Structural Drying Calculator & Booking -->
+            <!-- Right Column: Request-an-Estimate CTA & Booking -->
             <div style="display: flex; flex-direction: column; gap: 2rem;">
                 <div class="surface-card">
                     <div class="card-header-line">
-                        <span class="icon">📐</span>
-                        <h2>Structural Drying & Scope Estimator</h2>
+                        <span class="icon">💬</span>
+                        <h2>Request a Free Estimate</h2>
                     </div>
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="calcArea">Affected Area (Sq Ft)</label>
-                            <input type="number" id="calcArea" value="650" min="50" max="10000" oninput="runDryingCalculation()">
-                        </div>
-                        <div class="form-group">
-                            <label for="calcHeight">Ceiling Height (Ft)</label>
-                            <input type="number" id="calcHeight" value="8" min="6" max="25" oninput="runDryingCalculation()">
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="calcCategory">Water Category</label>
-                        <select id="calcCategory" onchange="runDryingCalculation()">
-                            <option value="cat1">Category 1 (Clean Water - Broken Supply Pipe)</option>
-                            <option value="cat2" selected>Category 2 (Grey Water - Appliance Overflow)</option>
-                            <option value="cat3">Category 3 (Black Water - Sewer / Storm Ingress)</option>
-                        </select>
-                    </div>
-
-                    <div class="calc-result-box">
-                        <div style="font-size: 0.8rem; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em;">Estimated Restoration Scope</div>
-                        <div class="calc-result-num" id="calcCostRange">$2,400 - $4,800</div>
-                        <div class="calc-meta-grid">
-                            <div class="calc-meta-item"><strong>Air Movers:</strong> <span id="calcMovers">5 units</span></div>
-                            <div class="calc-meta-item"><strong>LGR Dehumidifiers:</strong> <span id="calcDehums">2 units</span></div>
-                            <div class="calc-meta-item"><strong>Estimated Duration:</strong> <span>3 - 4 Days Drying</span></div>
-                            <div class="calc-meta-item"><strong>Containment:</strong> <span id="calcContainment">Standard Barrier</span></div>
-                        </div>
+                    <div class="cta-estimate-box">
+                        <p>Every property and loss is different, so we don't post generic
+                        $/sq&nbsp;ft price ranges here. Submit the intake form and a licensed
+                        Restoricon estimator will inspect the property in person and build you
+                        a real, itemized estimate &mdash; no guesswork, no surprises.</p>
+                        <button type="button" id="ctaRequestEstimateBtn" class="btn-gold" style="width: 100%; margin-top: 1rem;" onclick="focusLeadIntakeForm()">
+                            Request My Free Estimate &rarr;
+                        </button>
                     </div>
                 </div>
 
@@ -1045,26 +1025,13 @@ def render_quote_surface() -> str:
     <script>
         """ + _get_common_script() + """
 
-        function runDryingCalculation() {
-            const sqft = parseFloat(document.getElementById('calcArea').value) || 0;
-            const height = parseFloat(document.getElementById('calcHeight').value) || 8;
-            const cat = document.getElementById('calcCategory').value;
-            
-            const volume = sqft * height;
-            const movers = Math.max(2, Math.ceil(sqft / 120));
-            const dehums = Math.max(1, Math.ceil(volume / 3000));
-            
-            let multiplier = 4.2;
-            if (cat === 'cat2') multiplier = 5.8;
-            if (cat === 'cat3') multiplier = 8.5;
-            
-            const low = Math.round(sqft * (multiplier * 0.85));
-            const high = Math.round(sqft * (multiplier * 1.35));
-
-            document.getElementById('calcCostRange').innerText = `$${low.toLocaleString()} - $${high.toLocaleString()}`;
-            document.getElementById('calcMovers').innerText = `${movers} Commercial Units`;
-            document.getElementById('calcDehums').innerText = `${dehums} XL LGR Units`;
-            document.getElementById('calcContainment').innerText = (cat === 'cat3') ? 'Critical HEPA Isolation' : 'Standard Dust/Vapor Barrier';
+        function focusLeadIntakeForm() {
+            const form = document.getElementById('publicQuoteForm');
+            if (form && form.scrollIntoView) {
+                form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            const nameField = document.getElementById('leadName');
+            if (nameField) nameField.focus();
         }
 
         async function submitQuoteForm(e) {
@@ -1178,7 +1145,6 @@ def render_quote_surface() -> str:
         const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
         const dd = String(tomorrow.getDate()).padStart(2, '0');
         document.getElementById('bookDate').value = `${yyyy}-${mm}-${dd}`;
-        runDryingCalculation();
     </script>
 </body>
 </html>"""

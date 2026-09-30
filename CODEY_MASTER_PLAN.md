@@ -8655,12 +8655,29 @@ this file's own don't-duplicate rule.
       code-reviewer runs, verbatim-matching counts, proxy env vars
       unset). Commit: see PROJECT_LOG.md.
       Full spec: `codey_estimator_service.md` §6.
-- [ ] **B9.7** — quote portal migration (D8, already answered in
-      `Codey-Estimator/docs/DECISIONS.md`, not actually open): remove the
-      public $/sq-ft calculator from `render_quote_surface()`, replace with
-      a request-an-estimate CTA. Front-end only, no schema/API change.
-      Independent of B9.2-B9.6 — can ship any time. Full spec:
-      `codey_estimator_service.md` §7.
+- [x] **B9.7, DONE** (2026-09-30, code-reviewer APPROVED first round) —
+      quote portal migration (D8, already answered in
+      `Codey-Estimator-reference/docs/DECISIONS.md`, not actually open):
+      removed the public self-service $/sq-ft calculator
+      (`runDryingCalculation()`, its markup/CSS) from `render_quote_surface()`,
+      replaced with a static "Request a Free Estimate" CTA
+      (`focusLeadIntakeForm()`) that scrolls to and focuses the
+      pre-existing lead-intake form — no new form, no new endpoint. The
+      existing lead-capture (`POST /api/v1/public/leads`) and booking
+      (`POST /api/v1/public/booking`) forms are confirmed untouched
+      (diffed hunk-by-hunk by code-reviewer). Genuinely front-end-only:
+      `git status --short` showed only `web_surfaces.py` and the new test
+      file dirty, no API/schema change. 3 new tests; full suite 2787
+      passed, 1 skipped (pre-existing, unrelated), both implementer and
+      reviewer runs matching.
+      A real, pre-existing bug was found (not introduced by this round)
+      while reading through the surrounding script: `submitBookingForm()`'s
+      success alert interpolates raw visitor-typed `email`/`phone` into
+      `innerHTML` with no `escapeHtml()` call. Logged as `NEW-725`
+      (Confirmed, low severity — self-XSS only, no attacker-controlled
+      prefill path found), not fixed this round since it's outside
+      B9.7's scope.
+      Full spec: `codey_estimator_service.md` §7.
 - [ ] **B9.8** — estimate -> job workflow: `convert()`'s Project-creation
       half (the Contract half is created at acceptance, per D7), **gated on
       the linked Contract's `status = 'signed'`** (Ish's answer above — the

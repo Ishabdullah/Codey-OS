@@ -1,3 +1,18 @@
+## 2026-09-30 — B9.7: quote portal migration (D8), calculator removed for a request-an-estimate CTA, a real pre-existing bug found nearby and disclosed
+
+**What changed:** removed the public $/sq-ft self-service calculator from `render_quote_surface()` (D8, already-decided, not an open question) and replaced it with a static "Request a Free Estimate" CTA that scrolls to and focuses the existing lead-intake form. Front-end-only — no new form, no new endpoint, no schema/API change. One implementer round, one code-reviewer round, both clean.
+
+- **The calculator is genuinely gone, not just hidden.** `runDryingCalculation()`, its CSS classes, and its markup were deleted outright, including the bootstrap call site at page-init. Code-reviewer confirmed zero remaining references anywhere in the repo outside the new test file's own negative assertions.
+- **The lead-capture and booking forms were confirmed untouched, hunk-by-hunk.** Code-reviewer read every diff hunk and confirmed none overlaps `submitQuoteForm`, `submitBookingForm`, or any of the form field ids — this was checked directly against the diff, not assumed from a visual read.
+- **A real, pre-existing bug was found and disclosed while reading the surrounding code, not fixed.** `submitBookingForm()`'s success alert (untouched by this diff, confirmed present at `HEAD` before the change) interpolates raw visitor-typed `email`/`phone` into `innerHTML` with no `escapeHtml()` call — the same bug class this file was bitten by twice before (`NEW-661`/`NEW-664`). Code-reviewer traced every possible way those fields could be pre-filled from outside the visitor's own typing (URL params, referrer, programmatic assignment) and found none, confirming this is self-XSS only, not a reflected-XSS-via-crafted-link vector. Logged as `NEW-725` (Confirmed, low severity) rather than silently fixed inside an unrelated round, since the clean fix needs `escapeHtml()` hoisted into the shared `_get_common_script()` helper first (it's currently duplicated inside two other surfaces' script blocks and absent from this one entirely) — a small refactor, not a one-line drop-in.
+- One Warning-level, non-blocking correction: the implementer's self-reported "targeted: 18 passed" test count didn't reproduce under any selection the reviewer tried (actual: 3 new / 79 related / 86 broader) — every test that exists passes, so this doesn't block the commit, but the number itself was wrong and is corrected here rather than left standing.
+
+**Verification performed:** full suite run independently by both implementer and code-reviewer — 2787 passed, 1 skipped (pre-existing, unrelated to this diff), proxy env vars unset per this project's known sandbox trap (one transient run showed a proxy-artifact failure that cleared on a clean re-run with vars unset in the same command).
+
+**Outcome:** code-reviewer APPROVED, first round. Files staged: `restoricon_core/api/web_surfaces.py`, `tests/test_restoricon_core/test_b9_7_quote_portal_migration.py`, `NEW_ISSUES.md`.
+
+---
+
 ## 2026-09-30 — B9.6: admin Estimates tab, shared-helper change verified against real per-role permission grants, approved clean first round
 
 **What changed:** 13th tab in `render_admin_surface()` — list/filter, a detail panel with current-version line items, version history with a client-side side-by-side diff, and an audit timeline. Two new `EstimateService` methods (`list_versions()`, `get_version_lines()`), a new `EstimateHeader.total_cents` field, two new routes. One implementer round, one code-reviewer round, both clean.
