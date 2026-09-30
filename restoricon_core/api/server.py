@@ -28,6 +28,7 @@ from ..services.notification_service import NotificationService
 from ..services.analytics_search_service import AnalyticsSearchService
 from ..services.commission_service import CommissionService
 from ..services.territory_service import TerritoryService
+from .expiry_sweep import EstimateExpirySweepThread
 from .routes import APIRouter
 
 logger = logging.getLogger("restoricon_core.api")
@@ -206,6 +207,12 @@ class RestoriconAPIServer:
         # transition()'s 'send' step can actually email the share-link URL
         # to the customer -- see EstimateService._deliver_share_link().
         self.estimate_service = EstimateService(self.db, self.audit_service, self.notification_service)
+        # B9.2b: the expiry-sweep daemon thread, same shared estimate_service
+        # instance constructed above -- started in start()/joined in stop()
+        # below, matching this class's own httpd-thread lifecycle exactly
+        # (see expiry_sweep.py's module docstring for the full precedent
+        # discussion).
+        self.expiry_sweep_thread = EstimateExpirySweepThread(self.estimate_service)
 
         # RBAC for these services is enforced in the service layer, not here -- see
         # APIRouter's own class docstring.
@@ -277,6 +284,7 @@ class RestoriconAPIServer:
             _record_telemetry_run_start()
             self._run_start_emitted = True
         logger.info("Restoricon Core API server starting on http://%s:%d", self.host, self.port)
+        self.expiry_sweep_thread.start()
         if background:
             self._thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
             self._thread.start()
@@ -287,6 +295,7 @@ class RestoriconAPIServer:
         """Stop the API server and clean up resources."""
         if self._is_running:
             self._is_running = False
+            self.expiry_sweep_thread.stop()
             self.httpd.shutdown()
             self.httpd.server_close()
             if self._thread and self._thread.is_alive():

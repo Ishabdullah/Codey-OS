@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import logging
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -1546,6 +1547,100 @@ class EstimateService:
                     snapshot={"share_link_id": share_link.id},
                 ),
             )
+
+    def sweep_expired(self) -> List[int]:
+        """B9.2b (`codey_estimator_service.md` §9 item 3): the system-driven
+        `SENT`/`VIEWED` -> `EXPIRED` sweep, called once per tick by
+        `restoricon_core.api.expiry_sweep.EstimateExpirySweepThread`. Never
+        a directly callable `transition()` target -- `EXPIRED` is in
+        `_SYSTEM_DRIVEN_TARGET_STATUSES`, and `transition()`'s own
+        docstring names this method as its counterpart for that target,
+        exactly the way `record_share_link_view()` is the counterpart for
+        `VIEWED`. Mirrors that method's pattern: no `actor` parameter (this
+        runs with no authenticated caller), a conditional `UPDATE ... WHERE
+        workflow_status = ?` per row rather than one bulk silent `UPDATE`,
+        and an individual `self.audit.log(..., actor=None, ...)` call per
+        successful transition -- matching this project's per-row audit
+        granularity (§9 item 3 explicitly rules out a bulk silent update).
+
+        Selects candidate ids first (a single indexed read against
+        `idx_estimates_workflow_status`), then updates/audits each one
+        inside its own `try`/`except`: one row raising an unexpected
+        exception must not abort the rest of that pass, and must not
+        propagate to the calling thread (which would kill the daemon
+        thread on the very first bad row) -- this is the row-level half of
+        that guarantee; the thread's own loop (see
+        `expiry_sweep.py`) is the tick-level half.
+
+        **The status `UPDATE` and its `audit.log()` call share the SAME
+        `with conn:` block, deliberately** -- an audit-log write failing
+        must roll back that row's status change with it, not leave a
+        committed-but-unaudited `EXPIRED` row behind. §9 item 3 explicitly
+        requires per-row auditing ("not a bulk silent update"); silently
+        expiring a row whose own audit write failed would violate that
+        same requirement just as much as a bulk update would, only
+        quietly. A row whose audit call fails is therefore left exactly as
+        it was (still `SENT`/`VIEWED`) and picked back up on the next
+        tick, not counted in this pass's return value.
+
+        Returns the list of estimate ids actually transitioned this pass
+        (only those whose conditional `UPDATE` actually matched a row --
+        i.e. not already moved by a concurrent caller between the SELECT
+        and this row's UPDATE -- AND whose audit write also committed).
+        """
+        conn = self.db.get_connection()
+        now = utc_now_iso()
+        candidates = conn.execute(
+            "SELECT id, workflow_status FROM estimates WHERE workflow_status IN "
+            "('SENT', 'VIEWED') AND expires_at IS NOT NULL AND expires_at < ?;",
+            (now,),
+        ).fetchall()
+
+        expired_ids: List[int] = []
+        for candidate in candidates:
+            estimate_id = candidate["id"]
+            old_status = candidate["workflow_status"]
+            try:
+                became_expired = False
+                with conn:
+                    cursor = conn.execute(
+                        "UPDATE estimates SET workflow_status = 'EXPIRED', updated_at = ? "
+                        "WHERE id = ? AND workflow_status = ?;",
+                        (now, estimate_id, old_status),
+                    )
+                    became_expired = cursor.rowcount > 0
+                    if became_expired:
+                        self.audit.log(
+                            action="transition",
+                            entity_type="estimate",
+                            entity_id=estimate_id,
+                            change_summary=f"{old_status} -> EXPIRED",
+                            actor=None,
+                            details=build_audit_details(
+                                before={"workflow_status": old_status},
+                                after={"workflow_status": "EXPIRED"},
+                                snapshot={"reason": "expiry_sweep"},
+                            ),
+                        )
+                # Reached only if the `with conn:` block above exited
+                # without raising -- i.e. the UPDATE and (if applicable)
+                # the audit write both committed together.
+                if became_expired:
+                    expired_ids.append(estimate_id)
+            except Exception:
+                # One bad row must never abort the rest of this pass (see
+                # docstring) -- logged and skipped, not re-raised. Whatever
+                # this row's `with conn:` block had pending was already
+                # rolled back by sqlite3's own context-manager contract
+                # before this except runs, so a mid-row failure leaves the
+                # row exactly as it was, not half-transitioned.
+                logging.getLogger(__name__).exception(
+                    "expiry sweep: failed to transition estimate %s (%s -> EXPIRED); "
+                    "skipping and continuing with remaining candidates",
+                    estimate_id, old_status,
+                )
+                continue
+        return expired_ids
 
     # ------------------------------------------------------------------
     # Versioning

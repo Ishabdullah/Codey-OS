@@ -8474,16 +8474,71 @@ this file's own don't-duplicate rule.
       tenant-configurable markup default (NEW-702). Full spec for the
       remaining work: `codey_estimator_service.md` section 1-2, section 9,
       section 11.
-- [ ] **B9.2b** — expiry sweep: a single daemon thread in the API server
-      process (same start/stop lifecycle as the B7 backup thread), hourly,
-      transitioning `SENT`/`VIEWED` estimates past `expires_at` to
-      `EXPIRED`, each transition individually audit-logged. **New
-      infrastructure — no scheduler of any kind exists in Codey-OS today.**
+- [x] **B9.2b, code-complete + code-reviewer APPROVED** (2026-09-30,
+      Rule-4 review; **NOT yet full-suite live-verified — see below**) —
+      expiry sweep: `EstimateExpirySweepThread` (new
+      `restoricon_core/api/expiry_sweep.py`), an hourly daemon thread owned
+      by `RestoriconAPIServer` (started in `start()`, joined with a bounded
+      `timeout=5.0` in `stop()`), transitioning `SENT`/`VIEWED` estimates
+      past `expires_at` to `EXPIRED` via a new `EstimateService.
+      sweep_expired()` method, each transition individually audit-logged
+      (`actor=None` -> `actor_role='system'`, matching the existing
+      `record_share_link_view()` actor-less precedent). **New
+      infrastructure — no scheduler of any kind existed in Codey-OS
+      before this.**
+      **The spec's own cited precedent was wrong, corrected mid-round**:
+      `codey_estimator_service.md` §9 item 3 named "the B7 backup thread"
+      as the pattern to mirror — verified (implementer, then
+      independently re-verified by code-reviewer, both by reading
+      `core/backup_documents.py`/`lib/service_manager.sh` directly) that
+      no such thread exists; B7 backup is a separate, PID-file-managed OS
+      process, never an in-process thread. Built instead against the two
+      real in-process precedents (`telemetry/store.py`'s `TelemetryStore`,
+      and this server's own existing HTTP-thread join pattern), using an
+      interruptible `threading.Event.wait(interval)` rather than the
+      spec's suggested bare `time.sleep()` (which can't be woken early and
+      would block shutdown for up to an hour). Logged as `NEW-728`.
+      **A real atomicity bug was self-caught and fixed mid-round**: the
+      first draft committed the status `UPDATE` and its audit-log write
+      in separate transactions, so a failing audit write could leave a
+      row silently `EXPIRED` with no audit trail — violating this
+      feature's own "individually audit-logged, not a bulk silent
+      update" requirement, just quietly instead of loudly. Fixed by
+      folding both into one shared transaction so a failing audit write
+      rolls the status change back with it, leaving the row unchanged for
+      retry on the next tick. Code-reviewer traced the actual sqlite3
+      commit/rollback mechanism (via `AuditService.log()`'s own nested
+      `with conn:` on the same thread-local connection) and confirmed the
+      end behavior is correct, while noting the fix's docstring slightly
+      overstates the mechanism (no true nested transactions in sqlite3 —
+      still correct in effect).
+      Per-row (`try/except: continue`) and per-tick fault isolation both
+      verified: one bad row, or an entire failed sweep pass, never kills
+      the daemon thread. CAS-guarded (`WHERE id = ? AND workflow_status
+      = ?`) to prevent racing a concurrent `transition()` call. Sweep
+      scope verified against all 9 non-`SENT`/`VIEWED` statuses
+      individually (none touched even with a past `expires_at`) plus a
+      future-`expires_at` exclusion test.
+      18 new tests; scoped suite (`tests/test_restoricon_core/`) 1498
+      passed, reproduced independently by both implementer and
+      code-reviewer. **Full whole-repo `tests/` run could not be
+      completed cleanly by either the implementer or code-reviewer in
+      this session** — crashed twice with different symptoms (an
+      `OSError`/out-of-memory at pytest teardown, a `Fatal Python error:
+      Aborted` inside an unrelated file's DB init at the tail of the
+      run), while a `git-stash`'d baseline (no diff applied) also failed
+      to complete cleanly once under the same load. Evidence points to
+      RAM-constrained-device exhaustion under `llama-server` background
+      load (`CLAUDE.md` rule 2's documented crash pattern) rather than a
+      diff regression — crash site untouched by this diff, failure mode
+      non-deterministic across runs, scoped suite clean every time — but
+      per rule 5 this is disclosed as unresolved, not asserted as clean.
+      A live-verifier pass with `llama-server` confirmed unloaded (rule
+      2) would close this out with real verbatim evidence rather than
+      circumstantial reasoning.
       **Rule-4 category** (process lifecycle — `CLAUDE.md` rule 4 names
-      this category explicitly). Full spec: `codey_estimator_service.md`
-      §9 item 3. Blocked on B9.2 -- B9.2's `transition()`/`claim()`/
-      `unclaim()`/`reassign()`/accept-Contract slice is now done
-      (2026-09-29); B9.2b is unblocked.
+      this category explicitly; review held to that bar). Full spec:
+      `codey_estimator_service.md` §9 item 3.
 - [x] **B9.3, DONE** (2026-09-29, code-reviewer APPROVED after two
       rounds): 15 staff-facing routes for every `EstimateService`
       method — create/read/list/update-header, line CRUD + reorder,
