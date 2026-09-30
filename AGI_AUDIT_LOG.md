@@ -2,6 +2,15 @@
 
 Reverse-chronological. Companion to `AGI_AUDIT_PLAN.md`. Statuses follow CLAUDE.md rule 7: **code-complete** vs **live-verified**.
 
+## 2026-09-30 — Phase 3 fine-tune tooling: code-complete
+
+- Source checked (rule 12): Unsloth Qwen3.5 fine-tuning guide (unsloth.ai/docs/models/qwen3.5/fine-tune) says 16-bit LoRA on `Qwen/Qwen3.5-4B`, QLoRA 4-bit not recommended, transformers v5 required, ~10GB VRAM. Read via a summarizing fetch, not the raw page.
+- 3.1: new `4b` notebook variant (valid multi-cell nbformat 4, every code cell parses, chat-template formatting on real tool-call transcripts, 10% held-out split, bf16/fp16 auto). Legacy 1.5b/7b (Qwen2.5) kept, marked legacy. Fixed a real bug: legacy notebook source lines lacked line endings (whole notebook was one line).
+- 3.2: `DatasetCurator.curate_verified()` reads only externally-labeled passing trajectories; `curate_examples(verified_only=True)`; reading never creates the DB.
+- 3.3: `--ft-model` choices `4b|7b|1.5b|both`, default `4b`; instructions use `--lora-merge`, no bogus `--model`, and require a gate decision before adopting an adapter.
+- Tests: `tests/test_finetune_phase3.py` (7). Full suite 2085 passed, 0 failed.
+- UNVERIFIED (needs Ish/Colab): notebook actually runs; LoRA `target_modules` names fit Qwen3.5's hybrid layers; llama.cpp can convert/apply a Qwen3.5 LoRA. Until verified, treat fine-tuning as an experiment, never an adoption path. No data exists yet: enable `CODEY_TRAJECTORY=1`, run the bench, label episodes.
+
 ## 2026-09-30 — Phase 2.3/2.4 promotion gate, switch, honest optimizer: code-complete
 
 - `bench/gate.py`: champion/challenger decision (same suite hash, >=30 pairs, McNemar exact p<0.05, bootstrap CI lower bound >0, zero regressions). `no_evaluator()` always refuses. `bench/promote.py` CLI appends every decision to `bench/experiments.jsonl`. Measured A/A false-accept rate over 300 simulated pairs of an identical 70% agent: <=5% asserted (test).

@@ -18402,3 +18402,12 @@ housekeeping, same as `NEW-403`'s own cleanup.
 
 - **Status:** Suspected. `LifecycleManager` constructs `AutoImprovementLoop()` with `auto_optimize=True` by default; any future wiring of `LifecycleManager` or `after_task` would enable plugin-file rewriting with no flag. No test asserts the modules are unreachable from runtime.
 - **Fix direction:** Phase 2.3 (default-off env flag + unreachability test), only with Ish's explicit confirmation (rule 1 module).
+
+
+### [NEW-551] Status update 2026-09-30 for NEW-546 / NEW-547 / NEW-548 / NEW-550 (branch `codey-os-agi`; code-complete, NOT live-verified)
+
+- **NEW-546:** `DatasetCurator.curate_verified()` now reads verified trajectories (`core/trajectory.py`); `curate_examples(verified_only=True)` skips the dead `episodic_log` path. Needs `CODEY_TRAJECTORY=1` in real use plus verifier labels (bench runner, or a future hook in `--tdd`/`--fix`) before any data exists. Until then the export still returns 0 examples; that is now stated, not hidden.
+- **NEW-547:** new `4b` variant (`Qwen/Qwen3.5-4B`, 16-bit LoRA, transformers>=5 per Unsloth's Qwen3.5 guide); default for `--ft-model`; legacy 1.5b/7b kept. Legacy notebook also had a line-ending bug that collapsed the notebook to one line (fixed). Instructions no longer print the nonexistent `--model` flag. UNVERIFIED: Colab run, LoRA target module names for Qwen3.5's hybrid layers, llama.cpp LoRA conversion for Qwen3.5.
+- **NEW-548:** `compare_and_upgrade` deploys only with an approving `bench.gate` decision; fake +5 removed.
+- **NEW-550:** `CODEY_SELF_IMPROVE=off|shadow|on` (default off) enforced in optimizer, loop, goal engine, recombiner; test asserts runtime `core/`, `tools/`, `utils/` import none of them.
+- **Cross-reference:** `AGI_AUDIT_LOG.md`.

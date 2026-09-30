@@ -104,6 +104,8 @@ def label_tag(tag: str, verifier: str, passed: bool, since_ts: float = 0.0, path
 
 def verified_episodes(path=None, only_passed=True):
     """Episodes with an external verdict -- the only eligible fine-tune/eval data."""
+    if not Path(path or db_path()).exists():
+        return []  # reading must not create the DB
     con = _connect(path)
     try:
         q = "SELECT id,prompt,final,verifier,passed FROM episodes WHERE verifier IS NOT NULL"

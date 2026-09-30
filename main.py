@@ -74,7 +74,8 @@ def parse_args():
         "--ft-quality", type=float, default=0.7, help="Min quality threshold 0.0-1.0 (default: 0.7)"
     )
     parser.add_argument(
-        "--ft-model", choices=["7b"], default="7b", help="Model variant for fine-tuning"
+        "--ft-model", choices=["4b", "7b", "1.5b", "both"], default="4b",
+        help="Fine-tune target: 4b = the deployed Qwen3.5-4B (default); 1.5b/7b/both are legacy Qwen2.5 variants"
     )
     parser.add_argument(
         "--ft-output", type=str, help="Output directory (default: ~/Downloads/codey-finetune)"
