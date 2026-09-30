@@ -536,6 +536,19 @@ class APIRouter:
                 from .web_surfaces import render_subcontractor_surface
                 return 200, {"Content-Type": "text/html; charset=utf-8"}, render_subcontractor_surface()
 
+            # B9.5: staff estimator builder UI (codey_estimator_service.md
+            # §5). Same unauthenticated-shell convention as /sales, /pm,
+            # /tech, /subcontractor above -- this GET dispatch runs before
+            # `actor` is authenticated (see `self.auth.authenticate_token`
+            # below), so there is no server-side role gate possible on the
+            # shell itself; RBAC is enforced by every /api/v1/estimator/...
+            # call this page's JS makes (PERM_WRITE_ESTIMATES/
+            # PERM_SEND_ESTIMATES/PERM_READ_ESTIMATE_COSTS in
+            # EstimateService), same as every other staff portal here.
+            if path in ("/estimates", "/estimates/"):
+                from .web_surfaces import render_estimates_surface
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_estimates_surface()
+
             if path in ("/portal", "/portal/"):
                 return 200, {"Content-Type": "text/html; charset=utf-8"}, render_portal_surface()
 

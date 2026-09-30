@@ -8561,13 +8561,46 @@ this file's own don't-duplicate rule.
       customer-facing auth boundary). Full spec:
       `codey_estimator_service.md` §4. Previously **Blocked
       on B9.2/B9.3, both done — unblocked (2026-09-29).**
-- [ ] **B9.5** — staff `/estimates` mobile-first surface (new
-      `render_estimates_surface()`, not another `render_admin_surface()`
-      tab): customer picker -> new estimate -> add-line sheet -> server-
-      computed preview -> send. Manual pricing entry only this round (no
-      `/pricing/search` until the pricing-tables phase). Full spec:
-      `codey_estimator_service.md` §5. **Blocked on B9.3, done —
-      unblocked (2026-09-29).**
+- [x] **B9.5, DONE** (2026-09-30, code-reviewer APPROVED first round,
+      no findings) — staff `/estimates` mobile-first surface, its own
+      `render_estimates_surface()` (not a `render_admin_surface()`
+      tab): customer picker (search-existing or create-new inline) →
+      `POST` new estimate → repeatable add-line sheet, grouped by
+      `line_type` matching `codey_estimator.calc.engine`'s real
+      per-type validation requirements → server-computed preview
+      (never client-authoritative; margin row hidden entirely for an
+      actor lacking `PERM_READ_ESTIMATE_COSTS` rather than showing a
+      partial/zeroed number) → send, surfacing the raw share-link
+      token/expiry/delivery status in the UI (via `textContent`, never
+      `innerHTML`) since email delivery is best-effort and this may be
+      the only place staff can retrieve it if it fails. Manual pricing
+      entry only, no `/pricing/search` (pricing-tables phase, not
+      built).
+      **A real bug was self-caught mid-build, not by review**: an
+      initial version had generic "Qty"/"Unit Cost" inputs hardcoded to
+      `quantity`/`unit_cost_cents`, which would have silently written
+      to the wrong column for non-material lines (labor/equipment/
+      subcontractor each use different fields). Fixed by making only
+      `description` inline-editable; other per-type fields go through
+      the add-line sheet. Verified by code-reviewer directly against
+      the vendored calc engine's own field requirements, not assumed.
+      **A real architectural finding surfaced, not silently worked
+      around**: the task's own reference pattern (B8.16's role-gated
+      section, "a server-side Python conditional at render time")
+      turns out not to generalize — verified directly that NO staff
+      portal in this file (`/sales`/`/pm`/`/tech`/`/subcontractor`,
+      now `/estimates`) is actually RBAC-gated at HTML-render time;
+      the web-surface GET dispatch runs before the token is ever
+      authenticated, for all of them, today. Logged as `NEW-722`
+      (Confirmed, pre-existing pattern, low severity since no surface
+      bakes in server-rendered data and every real API call is
+      independently gated) rather than silently building a one-off
+      exception or breaking the established shell-loads-then-JS-
+      redirects UX every portal in this file relies on. Needs Ish's
+      call on whether page-level gating is worth the architecture
+      change, for all portals at once if so — not this round's
+      decision to make alone.
+      Full spec: `codey_estimator_service.md` §5.
 - [ ] **B9.6** — admin `Estimates` tab: list/filter/detail/version-diff/
       audit-timeline, cost columns gated by `PERM_READ_ESTIMATE_COSTS`. Full
       spec: `codey_estimator_service.md` §6. **Blocked on B9.3, done —

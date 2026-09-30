@@ -8714,3 +8714,716 @@ def render_tech_surface() -> str:
 
 def render_subcontractor_surface() -> str:
     return _render_staff_portal_base("Subcontractor", "Assigned Subcontract Work", "subcontractor")
+
+
+def render_estimates_surface() -> str:
+    """B9.5: the staff-facing `/estimates` builder surface --
+    `codey_estimator_service.md` §5's flow (customer picker -> new estimate
+    -> add-line sheet -> server-computed preview -> send), wired to the
+    real, live B9.3/B9.4 routes under `/api/v1/estimator/estimates/...`
+    (NOT the plan doc's `/api/v1/estimates/...` path -- see routes.py's own
+    NEW-718 comment for why the two estimate systems coexist).
+
+    Its own dedicated function, following `_render_sales_portal()`'s
+    precedent (not another `_render_staff_portal_base()` tab) -- an
+    estimate builder is exactly the kind of workflow that precedent already
+    established doesn't fit the generic schedule-plus-one-list template.
+
+    **RBAC-gating deviation from the task brief, stated explicitly**: the
+    brief asked for "a server-side Python conditional at the render call
+    site" gating which roles see this surface, mirroring how
+    `_render_work_order_intake_section()` is included only for role_key in
+    ("technician", "subcontractor"). That pattern is inapplicable here --
+    it works because `_render_staff_portal_base()`'s caller (render_pm/
+    sales/tech/subcontractor_surface) already knows role_key *by which URL
+    was hit*, not from an authenticated identity. Confirmed by reading
+    `routes.py:handle_request`: the actor is only authenticated at line 689
+    (`self.auth.authenticate_token(token)`), which runs AFTER the
+    unauthenticated web-surface GET dispatch block this route lives in
+    (lines ~500-540) -- there is no `actor` available at HTML-render time
+    for ANY of `/sales`, `/pm`, `/tech`, `/subcontractor`, or this new
+    `/estimates` route, and a normal browser GET navigation carries no
+    `Authorization` header for the JS-side Bearer-token convention this
+    codebase uses. Moving this route after line 689 would 401 every real
+    browser navigation to it, breaking the established
+    shell-loads-then-JS-redirects-on-401 flow every other staff portal
+    relies on. So: this surface's shell HTML is unauthenticated (same as
+    every other staff portal today), and RBAC is enforced exactly where it
+    already is enforced for every fetch() call this page makes --
+    `PERM_WRITE_ESTIMATES`/`PERM_SEND_ESTIMATES`/`PERM_READ_ESTIMATE_COSTS`
+    checks inside `EstimateService`. Logged to `NEW_ISSUES.md` as a
+    pre-existing, out-of-scope pattern (not introduced here) per CLAUDE.md
+    rule 8.
+
+    **Cost-field null-safety**: `preview()`'s response nulls
+    `cost_total_cents`/`gross_profit_cents`/`gross_margin_bp` (and every
+    per-line cost/sell component) for an actor lacking
+    `PERM_READ_ESTIMATE_COSTS` (D9's gate, `_gate_preview_result_cost_fields`)
+    -- `estRefreshPreview()` below checks for `null`/`undefined` before
+    rendering the cost/margin row and simply omits it, never computing a
+    margin client-side from fields that may not exist.
+
+    **Manual pricing entry only** (no `/pricing/search` -- that endpoint
+    doesn't exist until the pricing-tables phase per the schema doc's own
+    deferral): the add-line sheet exposes every real, addable
+    `estimate_line_items` input column (`_ALLOWED_LINE_INPUT_FIELDS` in
+    `estimate_service.py`) EXCEPT the price-book/retailer/price-observation
+    catalog-linked columns (`price_book_item_id`, `retailer_product_id`,
+    `price_observation_id`, `retailer_code_snapshot`,
+    `product_title_snapshot`, `package_qty`, `package_unit`, `labor_rate_id`,
+    `equipment_id`, `subcontractor_id`) -- all catalog integration, out of
+    scope this round. `package_qty`/`package_unit` are safely omittable:
+    confirmed by reading `_row_to_line_input()` (estimate_service.py:1180),
+    which defaults `package_qty` to `Decimal(1)` and `package_unit` to the
+    line's own `unit` when either is `None`.
+
+    The line-type-specific field groups (material/labor/equipment/
+    subcontractor/allowance-fee) are shown/hidden client-side based on
+    the selected `line_type`, mirroring exactly which grouped sub-object
+    (`MaterialInput`/`LaborInput`/`EquipmentInput`/`SubcontractorInput`)
+    `codey_estimator.calc.engine._validate_line` requires present for that
+    `line_type` (confirmed by reading `engine.py:85-116` directly, not
+    assumed from the plan doc) -- this is a UX convenience only; the real
+    validation is still server-side in `add_line()`/the vendored engine,
+    never duplicated here.
+
+    **Escaping / focus-preservation discipline**: follows
+    `_render_work_order_intake_section()`'s own established pattern
+    (NEW-661/664, B8.16 Phase 4) exactly -- every dynamic value rendered
+    into the line-items table or the customer-search results list is
+    routed through `escapeHtml()` before reaching `innerHTML`, and no
+    onclick/oninput attribute ever inlines a stringified object (index-
+    based lookup into a held array only). `estUpdateLineItem()` (fires on
+    every keystroke via `oninput`) mutates the in-memory array and updates
+    ONLY that row's derived total + the running total via
+    `estUpdateDerivedRow()` -- it never calls the full-list
+    `estRenderLineItems()` re-render, which would destroy whichever
+    `<input>` currently has focus. `estRenderLineItems()` is reserved for
+    genuine structural changes (initial load, add, remove) where every
+    row's index legitimately goes stale. Persisting an edit to the server
+    (`PATCH .../lines/{id}`) happens on `onchange` (blur/commit), not on
+    every keystroke, via `estCommitLineEdit()`.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estimate Builder — Restoricon</title>
+    <link rel="icon" href="/assets/logos/favicon-32.png" type="image/png" sizes="32x32">
+    <style>
+        {_get_common_styles()}
+        .portal-layout {{ max-width: 900px; margin: 2rem auto; padding: 0 1.25rem; display: flex; flex-direction: column; gap: 1.5rem; }}
+        .header-card {{ background: linear-gradient(135deg, #112240 0%, #1c2e4a 100%); border-radius: 12px; padding: 2rem; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
+        .erp-card {{ background: white; color: var(--charcoal); border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ padding: 0.6rem; text-align: left; border-bottom: 1px solid var(--border-light); vertical-align: top; }}
+        th {{ color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+        input, select, textarea {{ min-height: 44px; font-size: 0.9rem; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: 6px; box-sizing: border-box; width: 100%; }}
+        .field-row {{ margin-bottom: 0.75rem; }}
+        .field-row label {{ display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.25rem; }}
+        .field-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.6rem; }}
+        .totals-bar {{ display: flex; flex-direction: column; gap: 0.35rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-light); }}
+        .totals-row {{ display: flex; justify-content: space-between; font-size: 0.9rem; }}
+        .totals-row.grand {{ font-size: 1.1rem; font-weight: 700; }}
+        .line-group {{ display: none; border-left: 3px solid var(--bronze); padding-left: 0.75rem; margin: 0.75rem 0; }}
+        .line-group.active {{ display: block; }}
+        .erp-modal-overlay {{ position: fixed; inset: 0; background: rgba(10, 25, 47, 0.85); display: none; align-items: center; justify-content: center; z-index: 3000; padding: 1.5rem; }}
+        .erp-modal-overlay.active {{ display: flex; }}
+        .erp-modal {{ background: white; color: var(--charcoal); border-radius: 12px; width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }}
+        .modal-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }}
+        .modal-header h3 {{ margin: 0; font-size: 1.15rem; }}
+        .share-link-box {{ background: #FEF3C7; border: 1px solid var(--bronze); border-radius: 6px; padding: 0.75rem; margin-top: 0.75rem; word-break: break-all; font-size: 0.82rem; display: none; }}
+        .share-link-box.active {{ display: block; }}
+    </style>
+</head>
+<body>
+    {_get_universal_drawer_html("admin")}
+    <div class="portal-layout">
+        <div class="header-card">
+            <div>
+                <h1 style="margin:0 0 0.5rem 0;font-size:1.6rem;color:var(--bronze);">Estimate Builder</h1>
+                <p style="margin:0;opacity:0.9;">Pick a customer, build an estimate, and send it.</p>
+            </div>
+            <button class="btn-gold" onclick="window.location.href='/admin/login'" style="padding: 0.5rem 1rem;">Sign Out</button>
+        </div>
+
+        <div id="estErrorBanner" class="erp-card" style="display:none; border-left: 4px solid var(--danger);">
+            <p id="estErrorMsg" style="margin:0; color: var(--danger); font-weight:600;"></p>
+        </div>
+
+        <!-- Step 1: Customer picker -->
+        <div class="erp-card" id="estCustomerCard">
+            <h2 style="margin-top:0;">1. Customer</h2>
+            <div class="field-row">
+                <label>Search Existing Customers</label>
+                <input type="text" id="estCustomerSearch" placeholder="Name, phone, or email..." oninput="estSearchCustomers()">
+            </div>
+            <div id="estCustomerResults"></div>
+            <p id="estSelectedCustomerLabel" style="font-weight:600;color:var(--bronze);"></p>
+            <button type="button" class="btn-gold" style="background:transparent;border:1px solid var(--bronze);color:var(--bronze);margin-top:0.5rem;" onclick="estShowNewCustomerForm()">+ Create New Customer</button>
+            <div id="estNewCustomerForm" style="display:none;margin-top:1rem;">
+                <div class="field-grid">
+                    <div class="field-row"><label>First Name</label><input type="text" id="estNewFirstName"></div>
+                    <div class="field-row"><label>Last Name</label><input type="text" id="estNewLastName"></div>
+                    <div class="field-row"><label>Phone</label><input type="text" id="estNewPhone"></div>
+                    <div class="field-row"><label>Email</label><input type="email" id="estNewEmail"></div>
+                    <div class="field-row" style="grid-column:1/-1;"><label>Service Address</label><input type="text" id="estNewAddress"></div>
+                </div>
+                <button type="button" class="btn-gold" onclick="estSubmitNewCustomer()">Save Customer</button>
+            </div>
+
+            <div class="field-row" style="margin-top:1rem;">
+                <label>Estimate Title (optional)</label>
+                <input type="text" id="estNewEstimateTitle" placeholder="e.g. Kitchen Remodel">
+            </div>
+            <button type="button" class="btn-gold" id="estCreateEstimateBtn" disabled onclick="estCreateEstimate()">+ New Estimate</button>
+        </div>
+
+        <!-- Step 2: Builder (hidden until an estimate exists) -->
+        <div class="erp-card" id="estBuilderCard" style="display:none;">
+            <h2 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                <span>2. Estimate <span id="estNumberBadge" class="card-badge badge-blue"></span> <span id="estStatusBadge" class="card-badge badge-gold"></span></span>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="estOpenAddLineSheet()">+ Add Line</button>
+            </h2>
+            <div class="table-scroll-wrapper"><table>
+                <thead><tr><th>Description</th><th>Type</th><th>Qty</th><th>Unit Cost</th><th></th></tr></thead>
+                <tbody id="estLineItemsBody"><tr><td colspan="5">No lines yet.</td></tr></tbody>
+            </table></div>
+
+            <div class="totals-bar" id="estTotalsBar">
+                <div class="totals-row"><span>Subtotal</span><span id="estSubtotal">$0.00</span></div>
+                <div class="totals-row"><span>Discount</span><span id="estDiscount">$0.00</span></div>
+                <div class="totals-row"><span>Tax</span><span id="estTax">$0.00</span></div>
+                <div class="totals-row grand"><span>Total</span><span id="estGrandTotal">$0.00</span></div>
+                <div class="totals-row" id="estMarginRow" style="display:none;color:var(--text-muted);"><span>Gross Profit / Margin</span><span id="estMargin"></span></div>
+            </div>
+
+            <button type="button" class="btn-gold" style="margin-top:1rem;" onclick="estSendEstimate()">Send Estimate</button>
+            <div id="estShareLinkBox" class="share-link-box">
+                <strong>Share link (copy/send manually if delivery fails):</strong>
+                <div id="estShareLinkText" style="margin-top:0.35rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add-line sheet -->
+    <div id="estAddLineModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Add Line</h3>
+                <button type="button" onclick="estCloseAddLineSheet()" style="background:none;border:none;color:#94A3B8;font-size:1.5rem;cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="estSubmitAddLine(event)">
+                <div class="field-row">
+                    <label>Line Type</label>
+                    <select id="estLineType" required onchange="estLineTypeChanged()">
+                        <option value="material">Material</option>
+                        <option value="labor">Labor</option>
+                        <option value="equipment">Equipment</option>
+                        <option value="subcontractor">Subcontractor</option>
+                        <option value="combined">Combined</option>
+                        <option value="allowance">Allowance</option>
+                        <option value="fee">Fee</option>
+                    </select>
+                </div>
+                <div class="field-row"><label>Description</label><input type="text" id="estLineDescription" required></div>
+                <div class="field-row"><label>Customer-Facing Description (optional)</label><input type="text" id="estLineCustomerDescription"></div>
+                <div class="field-grid">
+                    <div class="field-row"><label><input type="checkbox" id="estLineVisible" checked style="width:auto;min-height:auto;display:inline;"> Visible to Customer</label></div>
+                    <div class="field-row"><label><input type="checkbox" id="estLineTaxable" checked style="width:auto;min-height:auto;display:inline;"> Taxable</label></div>
+                </div>
+
+                <div class="line-group" id="estMaterialGroup">
+                    <h4>Material</h4>
+                    <div class="field-grid">
+                        <div class="field-row"><label>Quantity</label><input type="number" inputmode="decimal" step="0.01" id="estMatQuantity"></div>
+                        <div class="field-row"><label>Unit</label><input type="text" id="estMatUnit" placeholder="EA, SF, LF..."></div>
+                        <div class="field-row"><label>Unit Cost ($)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estMatUnitCost"></div>
+                        <div class="field-row"><label>Waste %</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estMatWastePct"></div>
+                        <div class="field-row"><label>Material Markup % (blank = 30% default)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estMatMarkupPct"></div>
+                    </div>
+                </div>
+
+                <div class="line-group" id="estLaborGroup">
+                    <h4>Labor</h4>
+                    <div class="field-grid">
+                        <div class="field-row"><label>Labor Type</label><input type="text" id="estLaborType" placeholder="e.g. plumber"></div>
+                        <div class="field-row"><label>Labor Qty</label><input type="number" inputmode="decimal" step="0.01" id="estLaborQty"></div>
+                        <div class="field-row"><label>Labor Unit ("HR" = hourly)</label><input type="text" id="estLaborUnit" placeholder="HR"></div>
+                        <div class="field-row"><label>Labor Cost Rate ($/unit)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estLaborCostRate"></div>
+                        <div class="field-row"><label>Labor Bill Rate ($/unit)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estLaborBillRate"></div>
+                    </div>
+                </div>
+
+                <div class="line-group" id="estEquipmentGroup">
+                    <h4>Equipment</h4>
+                    <div class="field-grid">
+                        <div class="field-row"><label>Equipment Cost ($)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estEquipCost"></div>
+                        <div class="field-row"><label>Equipment Markup %</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estEquipMarkupPct"></div>
+                    </div>
+                </div>
+
+                <div class="line-group" id="estSubGroup">
+                    <h4>Subcontractor</h4>
+                    <div class="field-grid">
+                        <div class="field-row"><label>Sub Cost ($)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estSubCost"></div>
+                        <div class="field-row"><label>Sub Markup %</label><input type="number" inputmode="decimal" step="0.01" min="0" id="estSubMarkupPct"></div>
+                    </div>
+                </div>
+
+                <div class="field-row" style="margin-top:0.75rem;">
+                    <label>Price Override ($) -- required for Allowance/Fee with no cost components above</label>
+                    <input type="number" inputmode="decimal" step="0.01" min="0" id="estPriceOverride">
+                </div>
+                <div class="field-row"><label>Override Reason (required if Price Override is set)</label><input type="text" id="estOverrideReason"></div>
+
+                <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
+                    <button type="button" onclick="estCloseAddLineSheet()" class="btn-gold" style="background:transparent;border:1px solid var(--card-border);color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Add Line</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function escapeHtml(unsafe) {{
+            if (!unsafe) return '';
+            return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }}
+
+        function getAuthToken() {{
+            return sessionStorage.getItem('restoricon_token') || '';
+        }}
+
+        function estShowError(msg) {{
+            const banner = document.getElementById('estErrorBanner');
+            const msgEl = document.getElementById('estErrorMsg');
+            if (!msg) {{ banner.style.display = 'none'; return; }}
+            msgEl.textContent = msg;
+            banner.style.display = 'block';
+        }}
+
+        // -----------------------------------------------------------------
+        // Step 1: Customer picker. Same 250ms-debounce-then-fetch-then-
+        // render-Select-buttons shape as guidedSearchCustomers()/
+        // searchNewLeadCustomers() elsewhere in this file -- kept as its
+        // own parallel implementation rather than shared state, matching
+        // this file's own established convention of not coupling separate
+        // modals'/surfaces' search state together.
+        // -----------------------------------------------------------------
+        let estCustomerSearchDebounce = null;
+        let estCustomerSearchResults = [];
+        let estSelectedCustomer = null;
+
+        async function estSearchCustomers() {{
+            clearTimeout(estCustomerSearchDebounce);
+            const term = document.getElementById('estCustomerSearch').value.trim();
+            const resultsEl = document.getElementById('estCustomerResults');
+            if (!term) {{ resultsEl.innerHTML = ''; return; }}
+            estCustomerSearchDebounce = setTimeout(async () => {{
+                try {{
+                    const token = getAuthToken();
+                    const res = await fetch('/api/v1/customers?search=' + encodeURIComponent(term), {{
+                        headers: {{ 'Authorization': 'Bearer ' + token }}
+                    }});
+                    if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                    const data = await res.json();
+                    if (!res.ok) {{ estShowError(data.error || 'Customer search failed.'); return; }}
+                    const matches = data.customers || [];
+                    estCustomerSearchResults = matches;
+                    if (matches.length === 0) {{
+                        resultsEl.innerHTML = '<p style="color:var(--text-muted);">No matches. Create a new customer below.</p>';
+                        return;
+                    }}
+                    // Index-based lookup on Select (estSelectCustomer(id)) --
+                    // never inlines the customer object into the onclick
+                    // attribute (NEW-661/664 bug class).
+                    resultsEl.innerHTML = matches.map(c => `
+                        <div style="padding:0.5rem;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+                            <span>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}} ${{c.customer_number ? '(#' + escapeHtml(c.customer_number) + ')' : ''}} — ${{escapeHtml(c.phone || c.email || '')}}</span>
+                            <button type="button" class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="estSelectCustomer(${{c.id}})">Select</button>
+                        </div>`
+                    ).join('');
+                }} catch (e) {{ estShowError('Customer search failed: network error.'); }}
+            }}, 250);
+        }}
+
+        function estSelectCustomer(customerId) {{
+            const customer = estCustomerSearchResults.find(c => c.id === customerId);
+            if (!customer) {{ console.warn('estSelectCustomer: id not found in last search results', customerId); return; }}
+            estSelectCustomerObj(customer);
+        }}
+
+        function estSelectCustomerObj(customer) {{
+            estSelectedCustomer = customer;
+            document.getElementById('estSelectedCustomerLabel').textContent =
+                'Selected: ' + (customer.first_name || '') + ' ' + (customer.last_name || '') +
+                (customer.customer_number ? ' (#' + customer.customer_number + ')' : '');
+            document.getElementById('estCreateEstimateBtn').disabled = false;
+            document.getElementById('estCustomerResults').innerHTML = '';
+            document.getElementById('estCustomerSearch').value = '';
+        }}
+
+        function estShowNewCustomerForm() {{
+            document.getElementById('estNewCustomerForm').style.display = 'block';
+        }}
+
+        async function estSubmitNewCustomer() {{
+            const body = {{
+                first_name: document.getElementById('estNewFirstName').value,
+                last_name: document.getElementById('estNewLastName').value,
+                phone: document.getElementById('estNewPhone').value || null,
+                email: document.getElementById('estNewEmail').value || null,
+                service_address: document.getElementById('estNewAddress').value || null,
+            }};
+            if (!body.first_name || !body.last_name) {{ estShowError('First and last name are required.'); return; }}
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/customers', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ estShowError(data.error || 'Failed to create customer.'); return; }}
+                estSelectCustomerObj(data.customer);
+                document.getElementById('estNewCustomerForm').style.display = 'none';
+            }} catch (e) {{ estShowError('Failed to create customer: network error.'); }}
+        }}
+
+        // -----------------------------------------------------------------
+        // Step 2: create the estimate, then load/build/preview/send it.
+        // -----------------------------------------------------------------
+        let estCurrentEstimateId = null;
+        let estLineItems = [];
+
+        async function estCreateEstimate() {{
+            if (!estSelectedCustomer) {{ estShowError('Select or create a customer first.'); return; }}
+            estShowError('');
+            const body = {{
+                customer_id: estSelectedCustomer.id,
+                title: document.getElementById('estNewEstimateTitle').value || null,
+            }};
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/estimator/estimates', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{ estShowError(data.error || 'Failed to create estimate.'); return; }}
+                estCurrentEstimateId = data.estimate.id;
+                document.getElementById('estBuilderCard').style.display = 'block';
+                document.getElementById('estNumberBadge').textContent = data.estimate.estimate_number || '';
+                document.getElementById('estStatusBadge').textContent = data.estimate.workflow_status || '';
+                estLineItems = [];
+                estRenderLineItems();
+                await estRefreshPreview();
+            }} catch (e) {{ estShowError('Failed to create estimate: network error.'); }}
+        }}
+
+        async function estLoadEstimate() {{
+            if (!estCurrentEstimateId) return;
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/estimator/estimates/' + estCurrentEstimateId + '?include_lines=true', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{ estShowError(data.error || 'Failed to load estimate.'); return; }}
+                document.getElementById('estStatusBadge').textContent = data.estimate.workflow_status || '';
+                estLineItems = data.estimate.lines || [];
+                estRenderLineItems();
+            }} catch (e) {{ estShowError('Failed to load estimate: network error.'); }}
+        }}
+
+        function estLineTypeChanged() {{
+            const t = document.getElementById('estLineType').value;
+            const groups = {{
+                material: 'estMaterialGroup', labor: 'estLaborGroup',
+                equipment: 'estEquipmentGroup', subcontractor: 'estSubGroup',
+            }};
+            for (const gid of Object.values(groups)) {{
+                document.getElementById(gid).classList.remove('active');
+            }}
+            if (t === 'combined') {{
+                for (const gid of Object.values(groups)) {{ document.getElementById(gid).classList.add('active'); }}
+            }} else if (groups[t]) {{
+                document.getElementById(groups[t]).classList.add('active');
+            }}
+        }}
+
+        function estOpenAddLineSheet() {{
+            if (!estCurrentEstimateId) return;
+            document.getElementById('estAddLineModal').querySelector('form').reset();
+            document.getElementById('estLineType').value = 'material';
+            estLineTypeChanged();
+            document.getElementById('estAddLineModal').classList.add('active');
+        }}
+
+        function estCloseAddLineSheet() {{
+            document.getElementById('estAddLineModal').classList.remove('active');
+        }}
+
+        // Dollar-input helper: converts a plain-language dollar amount
+        // (this UI's inputs, matching every other money input in this
+        // codebase's staff surfaces, e.g. woiServiceCallFee) into integer
+        // cents for the API, which stores/returns money exclusively as
+        // *_cents. Returns null (not 0) for a blank input so add_line()'s
+        // explicit key-presence check (material_markup_bp's 30% default)
+        // is preserved -- the caller omits the key entirely when this
+        // returns null, see estSubmitAddLine().
+        function estDollarsToCentsOrNull(elId) {{
+            const raw = document.getElementById(elId).value;
+            if (raw === '' || raw === null) return null;
+            const n = parseFloat(raw);
+            if (isNaN(n)) return null;
+            return Math.round(n * 100);
+        }}
+
+        function estPercentToBpOrNull(elId) {{
+            const raw = document.getElementById(elId).value;
+            if (raw === '' || raw === null) return null;
+            const n = parseFloat(raw);
+            if (isNaN(n)) return null;
+            return Math.round(n * 100);
+        }}
+
+        async function estSubmitAddLine(e) {{
+            e.preventDefault();
+            if (!estCurrentEstimateId) {{ estShowError('Create an estimate first.'); return; }}
+            const lineType = document.getElementById('estLineType').value;
+            const body = {{
+                line_type: lineType,
+                description: document.getElementById('estLineDescription').value,
+                customer_description: document.getElementById('estLineCustomerDescription').value || null,
+                visible_to_customer: document.getElementById('estLineVisible').checked ? 1 : 0,
+                taxable: document.getElementById('estLineTaxable').checked ? 1 : 0,
+            }};
+
+            // Every field below is added to `body` ONLY when it has a real
+            // value (never a blank-string/0-by-omission) -- add_line()'s
+            // "material_markup_bp not in data" default-30%-for-material
+            // check (and every other allow-listed field) depends on the
+            // key genuinely being absent, not present-with-a-falsy-value.
+            const maybeSet = (key, val) => {{ if (val !== null && val !== undefined && val !== '') body[key] = val; }};
+
+            if (lineType === 'material' || lineType === 'combined') {{
+                maybeSet('quantity', parseFloat(document.getElementById('estMatQuantity').value) || null);
+                maybeSet('unit', document.getElementById('estMatUnit').value || null);
+                maybeSet('unit_cost_cents', estDollarsToCentsOrNull('estMatUnitCost'));
+                maybeSet('waste_pct_bp', estPercentToBpOrNull('estMatWastePct'));
+                maybeSet('material_markup_bp', estPercentToBpOrNull('estMatMarkupPct'));
+            }}
+            if (lineType === 'labor' || lineType === 'combined') {{
+                maybeSet('labor_type', document.getElementById('estLaborType').value || null);
+                maybeSet('labor_qty', parseFloat(document.getElementById('estLaborQty').value) || null);
+                maybeSet('labor_unit', document.getElementById('estLaborUnit').value || null);
+                maybeSet('labor_cost_rate_cents', estDollarsToCentsOrNull('estLaborCostRate'));
+                maybeSet('labor_bill_rate_cents', estDollarsToCentsOrNull('estLaborBillRate'));
+            }}
+            if (lineType === 'equipment' || lineType === 'combined') {{
+                maybeSet('equipment_cost_cents', estDollarsToCentsOrNull('estEquipCost'));
+                maybeSet('equipment_markup_bp', estPercentToBpOrNull('estEquipMarkupPct'));
+            }}
+            if (lineType === 'subcontractor' || lineType === 'combined') {{
+                maybeSet('sub_cost_cents', estDollarsToCentsOrNull('estSubCost'));
+                maybeSet('sub_markup_bp', estPercentToBpOrNull('estSubMarkupPct'));
+            }}
+            const overrideCents = estDollarsToCentsOrNull('estPriceOverride');
+            maybeSet('price_override_cents', overrideCents);
+            if (overrideCents !== null) {{
+                maybeSet('override_reason', document.getElementById('estOverrideReason').value || null);
+            }}
+
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/estimator/estimates/' + estCurrentEstimateId + '/lines', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ estShowError(data.error || 'Failed to add line.'); return; }}
+                estLineItems.push(data.line);
+                estRenderLineItems();
+                estCloseAddLineSheet();
+                await estRefreshPreview();
+            }} catch (e) {{ estShowError('Failed to add line: network error.'); }}
+        }}
+
+        // Re-renders the whole line-items table body from estLineItems --
+        // called ONLY on load/add/remove (genuine structural changes,
+        // where every row's index legitimately goes stale), never on a
+        // single field edit (see estUpdateLineItem() below). Every
+        // description/customer_description/line_type value is routed
+        // through escapeHtml() before being placed in the row's HTML, and
+        // row lookups use the numeric index only -- same discipline
+        // woiRenderLineItems() established (NEW-661/664).
+        //
+        // Only `description` is inline-editable in this table. Qty/Unit
+        // Cost are rendered as plain (escaped) read-only text: which
+        // column actually drives a line's cost/sell depends on its
+        // line_type (material uses quantity/unit_cost_cents, labor uses
+        // labor_qty/labor_cost_rate_cents, equipment uses only
+        // equipment_cost_cents, subcontractor only sub_cost_cents -- see
+        // codey_estimator.calc.engine._validate_line) -- a single generic
+        // "Qty"/"Unit Cost" input bound to a hardcoded field name would
+        // silently write to the wrong column for a non-material line.
+        // Editing those detailed fields goes through the Add Line sheet's
+        // per-type fields (delete + re-add) this round; only the
+        // universal `description` field is safe to edit generically here.
+        function estRenderLineItems() {{
+            const tbody = document.getElementById('estLineItemsBody');
+            if (estLineItems.length === 0) {{
+                tbody.innerHTML = '<tr><td colspan="5">No lines yet.</td></tr>';
+                return;
+            }}
+            tbody.innerHTML = estLineItems.map((item, i) => {{
+                const qty = item.quantity != null ? item.quantity : (item.labor_qty != null ? item.labor_qty : '');
+                const unitCostCents = item.unit_cost_cents != null ? item.unit_cost_cents
+                    : item.labor_cost_rate_cents != null ? item.labor_cost_rate_cents
+                    : item.equipment_cost_cents != null ? item.equipment_cost_cents
+                    : item.sub_cost_cents != null ? item.sub_cost_cents
+                    : null;
+                const unitCostDisplay = unitCostCents != null ? '$' + (unitCostCents / 100).toFixed(2) : '';
+                return `<tr>
+                    <td><input type="text" value="${{escapeHtml(item.description)}}" oninput="estUpdateLineItem(${{i}}, this.value)" onchange="estCommitLineEdit(${{i}})"></td>
+                    <td>${{escapeHtml(item.line_type)}}</td>
+                    <td>${{escapeHtml(qty === '' ? '' : String(qty))}}</td>
+                    <td>${{escapeHtml(unitCostDisplay)}}</td>
+                    <td><button type="button" onclick="estRemoveLineItem(${{i}})" style="background:none;border:none;color:#EF4444;cursor:pointer;">&times;</button></td>
+                </tr>`;
+            }}).join('');
+        }}
+
+        // Fires on every keystroke (oninput) -- mutates
+        // estLineItems[index].description in place only, never calls
+        // estRenderLineItems(). A full re-render on every keystroke
+        // replaces every row's DOM node via tbody.innerHTML, destroying
+        // whichever <input> currently has focus/caret position -- the
+        // exact reviewer-caught bug class woiUpdateLineItem()/
+        // woiRenderLineItems() already fixed for the B8.16 intake form
+        // (NEW-661/664-adjacent regression). Actual persistence to the
+        // server happens separately, on blur/commit, via
+        // estCommitLineEdit() (bound to the input's onchange).
+        function estUpdateLineItem(index, value) {{
+            if (!estLineItems[index]) return;
+            estLineItems[index].description = value;
+        }}
+
+        // Persists an edited line's description via PATCH once the field
+        // loses focus (onchange), then refreshes the server-computed
+        // preview totals -- never touches/replaces any <input> element
+        // (no call to estRenderLineItems() here either).
+        async function estCommitLineEdit(index) {{
+            const item = estLineItems[index];
+            if (!item || !item.id) return;
+            const body = {{ description: item.description }};
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/estimator/estimates/' + estCurrentEstimateId + '/lines/' + item.id, {{
+                    method: 'PATCH',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ estShowError(data.error || 'Failed to save line edit.'); return; }}
+                estLineItems[index] = data.line;
+                await estRefreshPreview();
+            }} catch (e) {{ estShowError('Failed to save line edit: network error.'); }}
+        }}
+
+        async function estRemoveLineItem(index) {{
+            const item = estLineItems[index];
+            if (!item || !item.id) return;
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/estimator/estimates/' + estCurrentEstimateId + '/lines/' + item.id, {{
+                    method: 'DELETE',
+                    headers: {{ 'Authorization': 'Bearer ' + token }},
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ estShowError(data.error || 'Failed to remove line.'); return; }}
+                estLineItems.splice(index, 1);
+                estRenderLineItems();
+                await estRefreshPreview();
+            }} catch (e) {{ estShowError('Failed to remove line: network error.'); }}
+        }}
+
+        // Server-computed preview -- the ONLY source of the totals shown
+        // here. Never computes a total/margin client-side from raw line
+        // inputs; per-line/header cost/margin fields may come back `null`
+        // for an actor lacking PERM_READ_ESTIMATE_COSTS (D9's gate), so
+        // every cost/margin read below is null-checked before rendering,
+        // and the margin row is hidden entirely rather than showing a
+        // computed-from-nothing value.
+        async function estRefreshPreview() {{
+            if (!estCurrentEstimateId) return;
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/estimator/estimates/' + estCurrentEstimateId + '/preview', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{ estShowError(data.error || 'Failed to compute preview.'); return; }}
+                const p = data.preview;
+                const dollars = (cents) => '$' + ((cents || 0) / 100).toFixed(2);
+                document.getElementById('estSubtotal').textContent = dollars(p.subtotal_sell_cents);
+                document.getElementById('estDiscount').textContent = dollars(p.discount_cents);
+                document.getElementById('estTax').textContent = dollars(p.tax_cents);
+                document.getElementById('estGrandTotal').textContent = dollars(p.total_cents);
+                const marginRow = document.getElementById('estMarginRow');
+                if (p.gross_profit_cents !== null && p.gross_profit_cents !== undefined) {{
+                    marginRow.style.display = 'flex';
+                    const marginPct = (p.gross_margin_bp || 0) / 100;
+                    document.getElementById('estMargin').textContent = dollars(p.gross_profit_cents) + ' (' + marginPct.toFixed(1) + '%)';
+                }} else {{
+                    marginRow.style.display = 'none';
+                }}
+            }} catch (e) {{ estShowError('Failed to compute preview: network error.'); }}
+        }}
+
+        // Sends the estimate. Reads the resulting workflow_status from the
+        // response rather than assuming SENT was reached directly -- a
+        // DRAFT estimate whose creator has requires_estimate_approval set
+        // (or was created by an agent) is rejected by transition() with a
+        // clear "submit for review first" error instead, surfaced via
+        // estShowError() the same as any other API error. share_link is
+        // only present when the send actually locks the version and
+        // creates a real share link (transition()'s 'send' action) --
+        // surfaced here in plain text (never innerHTML) since
+        // NotificationService's email delivery is best-effort/non-fatal
+        // and this may be the only place staff can retrieve the raw link.
+        async function estSendEstimate() {{
+            if (!estCurrentEstimateId) return;
+            estShowError('');
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/estimator/estimates/' + estCurrentEstimateId + '/transition', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ new_status: 'SENT' }}),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ estShowError(data.error || 'Failed to send estimate.'); return; }}
+                document.getElementById('estStatusBadge').textContent = data.estimate.workflow_status || '';
+                if (data.share_link) {{
+                    const box = document.getElementById('estShareLinkBox');
+                    const textEl = document.getElementById('estShareLinkText');
+                    box.classList.add('active');
+                    textEl.textContent =
+                        'Token: ' + (data.share_link.raw_token || '') +
+                        ' (expires ' + (data.share_link.expires_at || 'n/a') + ', ' +
+                        'delivery: ' + (data.share_link.delivery_channel || 'none') + ')';
+                }}
+            }} catch (e) {{ estShowError('Failed to send estimate: network error.'); }}
+        }}
+    </script>
+</body>
+</html>"""
