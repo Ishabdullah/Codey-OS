@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS episodes(
   verifier TEXT, passed INTEGER);
 CREATE TABLE IF NOT EXISTS tool_calls(
   episode_id INTEGER, seq INTEGER, name TEXT, args TEXT, result TEXT, is_error INTEGER, secs REAL);
+CREATE TABLE IF NOT EXISTS teacher_traces(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, peer TEXT, task TEXT, output TEXT,
+  verifier TEXT, passed INTEGER);
 CREATE INDEX IF NOT EXISTS ix_ep_tag ON episodes(tag);
 CREATE INDEX IF NOT EXISTS ix_tc_ep ON tool_calls(episode_id);
 """
@@ -118,6 +121,49 @@ def verified_episodes(path=None, only_passed=True):
             out.append({"id": eid, "prompt": prompt, "final": final, "verifier": ver,
                         "passed": bool(ok), "calls": calls})
         return out
+    finally:
+        con.close()
+
+
+def record_teacher_trace(peer: str, task: str, output: str, path=None):
+    """AGI audit 4.3: keep a stronger peer CLI's answer as a candidate distillation example.
+    No-op unless CODEY_TRAJECTORY=1; fail-open. UNLABELED: a peer's output is not
+    ground truth until an external verifier passes it (label_teacher)."""
+    if not enabled():
+        return None
+    try:
+        with _lock:
+            con = _connect(path)
+            try:
+                cur = con.execute(
+                    "INSERT INTO teacher_traces(ts,peer,task,output) VALUES(?,?,?,?)",
+                    (time.time(), str(peer), _trunc(task, 4000), _trunc(output, 20000)))
+                con.commit()
+                return cur.lastrowid
+            finally:
+                con.close()
+    except Exception:
+        return None
+
+
+def label_teacher(trace_id: int, verifier: str, passed: bool, path=None):
+    with _lock:
+        con = _connect(path)
+        try:
+            con.execute("UPDATE teacher_traces SET verifier=?, passed=? WHERE id=?",
+                        (verifier, int(bool(passed)), trace_id))
+            con.commit()
+        finally:
+            con.close()
+
+
+def verified_teacher_traces(path=None):
+    if not Path(path or db_path()).exists():
+        return []
+    con = _connect(path)
+    try:
+        return con.execute("SELECT id,peer,task,output,verifier FROM teacher_traces "
+                           "WHERE verifier IS NOT NULL AND passed=1").fetchall()
     finally:
         con.close()
 

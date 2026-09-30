@@ -50,7 +50,7 @@ A tag push was blocked by the session proxy (HTTP 403); **Ish pushed the real ta
 | ID | Item | Notes |
 |---|---|---|
 | 4.1 | Wire error DB / strategy tracker read-side into the retry path | Flag `CODEY_USE_FIX_MEMORY`, default off. Enabled only after `bench/` shows benefit |
-| 4.2 | Fix `rollback_to_backup` deleting its own backup | Lifecycle-tier: reviewer required; not live-verified until Ish runs `LIVE_TEST_QUEUE.md` steps |
+| 4.2 | ~~Fix `rollback_to_backup` deleting its own backup~~ | **Withdrawn 2026-09-30 (rule 6):** the unlink happens after a successful restore and is intended; no change |
 | 4.3 | Capture peer-escalation transcripts as teacher traces | Into the trajectory store, flag-gated |
 
 ## Out of scope (deliberately not built)
@@ -73,4 +73,4 @@ Evolutionary search, neural world model, activating goal engine / skill recombin
 | Phase 1 | Code-complete 2026-09-30 (test-verified in sandbox; not live-verified on device) |
 | Phase 2 | Code-complete 2026-09-30: 2.1 bench, 2.2 trajectory, 2.3 switch+gate, 2.4 honest optimizer (sandbox-verified; bench not yet run with the real model) |
 | Phase 3 | Code-complete 2026-09-30 (Colab/llama.cpp steps unverified) |
-| Phase 4 | Not started |
+| Phase 4 | Code-complete 2026-09-30: 4.1, 4.3 (flag-gated, default off). 4.2 withdrawn as not-a-defect (see log). |

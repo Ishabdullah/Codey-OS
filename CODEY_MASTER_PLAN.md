@@ -4996,7 +4996,7 @@ Every open item from the superseded `TODO.md`, re-homed. IDs are kept
 unchanged so the archived evidence stays findable. `[ ]` = open,
 `[x]` = done (kept only where the note carries live information).
 
-**AGI audit workstream (2026-09-30):** tracked in `AGI_AUDIT_PLAN.md` (phases 1-4) and `AGI_AUDIT_LOG.md`, on branch `codey-os-agi`, not merged to `main`. Phase 1 (tests/docs only) code-complete, not live-verified. Findings `NEW-546`..`NEW-550`. Rule 1 stands: nothing here activates a self-improvement mechanism.
+**AGI audit workstream (2026-09-30):** tracked in `AGI_AUDIT_PLAN.md` (phases 1-4) and `AGI_AUDIT_LOG.md`, on branch `codey-os-agi`, not merged to `main`. Phases 1-4 code-complete (sandbox test-verified, 2091 passed; NOT live-verified; live steps in `LIVE_TEST_QUEUE.md` [AGI-1]). Findings `NEW-546`..`NEW-551`. Per rule 1 (as amended 2026-09-30) self-improvement is gated by `CODEY_SELF_IMPROVE` (default off) and the promotion gate; no capability-level evaluator exists yet, so the optimizer deploys nothing. 4.2 was withdrawn as not-a-defect (rule 6).
 
 ### Obsolescence audit — pass 1, 2026-09-02 (`U.38` steps 1/1b/2)
 

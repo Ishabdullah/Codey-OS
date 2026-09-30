@@ -107,3 +107,21 @@ def test_agent_module_wrapped_and_signature_preserved(monkeypatch):
     params = list(inspect.signature(ag.run_agent).parameters)
     assert params[:3] == ["user_message", "history", "yolo"]
     assert "_in_subtask" in params
+
+
+def test_teacher_traces_flag_gated_and_verified_only(db, monkeypatch):
+    monkeypatch.delenv("CODEY_TRAJECTORY", raising=False)
+    assert tj.record_teacher_trace("claude", "t", "out") is None and not db.exists()
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+    tid = tj.record_teacher_trace("claude", "t", "x" * 30000)
+    assert tid and tj.verified_teacher_traces() == []  # unlabeled -> ineligible
+    tj.label_teacher(tid, "pytest", True)
+    rows = tj.verified_teacher_traces()
+    assert len(rows) == 1 and len(rows[0][3]) < 20100
+
+
+def test_teacher_capture_fail_open(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+    monkeypatch.setenv("CODEY_TRAJECTORY_DB", str(tmp_path))  # unopenable
+    import core.agent as ag
+    ag._record_teacher("claude", "t", "o")  # must not raise

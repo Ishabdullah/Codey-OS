@@ -198,3 +198,12 @@ separate open items now, not blockers to re-running *this* test.
   "confirm only one model loads at a time").
 - What to log back and where if it fails.
 ```
+
+
+### [AGI-1] AGI audit branch `codey-os-agi` — on-device checks (run with Claude NOT active; rule 2)
+
+Nothing below was run live. Batch into ONE model-load session.
+1. `free -h`, then on the branch: `CODEY_TRAJECTORY=1 python -m pytest tests/test_trajectory.py -q` (no model needed), then one real agent turn with `CODEY_TRAJECTORY=1` and confirm `~/.codeyOS/trajectories.db` gains an episode and behavior is otherwise identical to `main`.
+2. Bench baseline (loads the model once): run `bench.runner.run_suite(bench.agents.make_codey_cli_agent(), "champion", Path("bench/results.jsonl"), repeats=4, traj_db=<db>)` (32 pairs), then `ps aux | grep llama-server` to confirm unload. Confirm `python main.py "<prompt>" --yolo --no-resume` one-shot works from a temp dir as `make_codey_cli_agent` assumes (unrun).
+3. `CODEY_USE_FIX_MEMORY=1`: rerun the same bench under a new label and run `python -m bench.promote bench/results.jsonl champion challenger`. Only a `promote: true` decision justifies enabling it.
+4. Colab: run `codeyOS --finetune` (writes `codey-finetune-qwen3.5-4b.ipynb`), needs verified trajectories first. Report any cell errors. Also verify llama.cpp can convert/apply a Qwen3.5 LoRA before adopting any adapter.

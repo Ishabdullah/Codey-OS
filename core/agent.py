@@ -175,6 +175,16 @@ def _note_forget(args):
     return f"No note found for: {args['key']}"
 
 
+def _record_teacher(peer, task, output):
+    """AGI audit 4.3: flag-gated (CODEY_TRAJECTORY=1), fail-open capture of peer output."""
+    try:
+        from core.trajectory import record_teacher_trace
+
+        record_teacher_trace(peer, task, output if isinstance(output, str) else str(output))
+    except Exception:
+        pass
+
+
 def tool_peer_delegate(peer: str, task: str) -> str:
     """Delegate a task to a peer CLI (e.g. antigravity, qwen, claude).
 
@@ -201,6 +211,7 @@ def tool_peer_delegate(peer: str, task: str) -> str:
         if fallback_cli:
             warning(f"Peer '{canonical}' disabled ({reason}). Redirecting to {fallback_cli.name}...")
             output = mgr.call(fallback_cli, task)
+            _record_teacher(fallback_cli.name, task, output)
             summary = mgr.summarize_result(fallback_cli.name, output, task)
             return f"[{canonical} was disabled: {reason}. Redirected to {fallback_cli.name}]\n\n{summary}"
         else:
@@ -213,6 +224,7 @@ def tool_peer_delegate(peer: str, task: str) -> str:
         return f"[Peer error: peer '{canonical}' is not installed on this system]"
 
     output = mgr.call(cli, task)
+    _record_teacher(cli.name, task, output)
     return mgr.summarize_result(cli.name, output, task)
 
 
@@ -668,6 +680,26 @@ def execute_tool(tool_dict):
         )
 
         return "[ERROR] " + error_msg
+
+
+def _fix_memory_hint(result):
+    """AGI audit 4.1: read side of the error DB, DEFAULT OFF (CODEY_USE_FIX_MEMORY=1).
+
+    Previously errors/fixes were recorded but never consulted. Enable only after
+    `bench/` shows a gate-approved benefit. Fail-open: any problem returns "".
+    CONCERN: suggest_fix() may also return generic template fixes, not only fixes
+    learned from this user's history.
+    """
+    import os as _os
+
+    if _os.environ.get("CODEY_USE_FIX_MEMORY", "0") != "1":
+        return ""
+    try:
+        m = re.search(r"\b([A-Za-z]+(?:Error|Exception))\b", str(result))
+        fix = _get_learning().suggest_fix(m.group(1) if m else "Error", str(result)[:400])
+        return ("\n\nHint from past fixes: " + str(fix)[:300]) if fix else ""
+    except Exception:
+        return ""
 
 
 def is_error(result, tool_name):
@@ -2067,6 +2099,7 @@ def run_agent(
                         "role": "user",
                         "content": "Error:\n"
                         + last_tool_result[:400]
+                        + _fix_memory_hint(last_tool_result)
                         + "\n\nFix the error and try again.",
                     }
                 )

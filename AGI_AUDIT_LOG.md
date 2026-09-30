@@ -2,6 +2,14 @@
 
 Reverse-chronological. Companion to `AGI_AUDIT_PLAN.md`. Statuses follow CLAUDE.md rule 7: **code-complete** vs **live-verified**.
 
+## 2026-09-30 — Phase 4: code-complete (4.1, 4.3); 4.2 withdrawn (rule 6)
+
+- 4.1: `_fix_memory_hint()` in `core/agent.py`, appended to the generic auto-retry "Error:" message only when `CODEY_USE_FIX_MEMORY=1` (default OFF, fail-open). Enable only after a gate-approved bench A/B. CONCERN: `suggest_fix` can return generic template fixes, not only history-learned ones.
+- 4.3: `core/trajectory.py::record_teacher_trace` (table `teacher_traces`, output capped 20000 chars), called from `tool_peer_delegate` (both paths). Flag `CODEY_TRAJECTORY=1`, fail-open, unlabeled until an external verifier passes it (`label_teacher`, `verified_teacher_traces`).
+- **4.2 withdrawn (correction of the audit plan, rule 6):** the plan said `rollback_to_backup` "deletes its own backup". Re-read (`core/lora_import.py:451-520`): it restores the backup over the ORIGINAL path (derived from the backup's name) and only then `unlink`s the backup, i.e. it consumes the backup after a successful restore. That is intended behavior, not data loss; a failed copy raises before the unlink. Residual risk: if the reload after restore fails, no backup remains, but the original file is already restored. Not a defect I can justify changing in lifecycle code, so **no change made**.
+- Tests: `tests/test_fix_memory_hint.py` (4), two more in `tests/test_trajectory.py`. Full suite 2091 passed, 0 failed.
+- Not live-verified; no reviewer subagent available (no approval claimed). Nothing changes runtime behavior while the flags are unset.
+
 ## 2026-09-30 — Phase 3 fine-tune tooling: code-complete
 
 - Source checked (rule 12): Unsloth Qwen3.5 fine-tuning guide (unsloth.ai/docs/models/qwen3.5/fine-tune) says 16-bit LoRA on `Qwen/Qwen3.5-4B`, QLoRA 4-bit not recommended, transformers v5 required, ~10GB VRAM. Read via a summarizing fetch, not the raw page.

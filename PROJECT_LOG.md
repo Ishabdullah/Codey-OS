@@ -1,3 +1,16 @@
+## 2026-09-30 — AGI audit Phases 2-4 (branch `codey-os-agi`): code-complete, NOT live-verified
+
+**What changed:** Ish's in-session direct instruction superseded the old rule 1 (now `CLAUDE.md` rule 1: build toward AGI, self-improvement only behind the promotion gate). Full detail: `AGI_AUDIT_PLAN.md` / `AGI_AUDIT_LOG.md`.
+
+- **2.1** `bench/`: frozen 8-task suite with hidden tests, sha256 lock, null/oracle self-checks, McNemar exact + bootstrap CI.
+- **2.2** `core/trajectory.py` + wrappers at the bottom of `core/agent.py` (default off `CODEY_TRAJECTORY=1`, fail-open); labels only from external verifiers.
+- **2.3/2.4** `bench/gate.py`, `ccos/core/self_improve.py` (`CODEY_SELF_IMPROVE=off|shadow|on`, default off); optimizer no longer fabricates `+5` and cannot deploy without an approving gate decision (no capability-level evaluator exists yet, so it deploys nothing today).
+- **3** `Qwen/Qwen3.5-4B` 16-bit-LoRA notebook, verified-trajectory data path, CLI/instruction fixes (Colab and llama.cpp LoRA steps unverified).
+- **4.1/4.3** fix-memory hint (`CODEY_USE_FIX_MEMORY`, off), peer teacher traces (flag-gated). **4.2 withdrawn** (rule 6): `rollback_to_backup` behavior is intended.
+- **Tests:** 2091 passed, 0 failed (`tests` + `ccos/tests`, sandbox; two backup tests needing `google-cloud-storage` excluded). Baseline was 2043 passed / 9 failed.
+- **Tier (rule 7):** code-complete, sandbox test-verified. No code-reviewer subagent was available, so no reviewer approval is claimed (rule 4 items touched: `core/agent.py` hooks are pass-through with flags unset). Live steps are in `LIVE_TEST_QUEUE.md`.
+- **Findings:** `NEW-546`..`NEW-551`.
+
 ## 2026-09-30 — AGI audit: rollback point, branch `codey-os-agi`, Phase 1 (tests/docs only) code-complete
 
 **What changed:** Ish-directed audit work, standard tier for Phase 1 (test fixtures + docstrings only, no runtime logic). Full record in `AGI_AUDIT_PLAN.md` / `AGI_AUDIT_LOG.md`.
