@@ -2,6 +2,12 @@
 
 Reverse-chronological. Companion to `AGI_AUDIT_PLAN.md`. Statuses follow CLAUDE.md rule 7: **code-complete** vs **live-verified**.
 
+## 2026-09-30 — Rule 1 superseded by direct instruction; real tag confirmed
+
+- Ish (in-session, direct): approved building and activating the self-improvement code, overriding the old "permanently gated off" rule with a new rule: build Codey-OS as close to AGI as achievable, goal score 100, in logical order. Recorded in `CLAUDE.md` rule 1 and `CODEY_MASTER_PLAN.md` §2 rule 1 / §6.11 P.1. Activation is conditional on the promotion gate (see plan ground rule 3).
+- Ish pushed tag `rollback/2026-09-30-pre-agi-audit-fixes` -> `91ee3c1` to GitHub himself. Rollback is now a real tag plus the branch.
+- Build order: 2.1 bench harness -> 2.2 trajectory store -> 2.3/2.4 gate + switch + honest optimizer -> Phase 3 -> Phase 4 -> gated activation -> honest re-score.
+
 ## 2026-09-30 — Phase 1 (tests and docs only): code-complete
 
 **Result:** full suite 2043 passed / 9 failed / 70 warnings -> **2052 passed / 0 failed / 0 warnings**. No runtime logic changed.

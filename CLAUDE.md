@@ -60,7 +60,7 @@ Codey-OS/
 │   │                    agent_orchestrator, device_manager, sandbox,
 │   │                    tool_router, telemetry_engine, performance_tracker,
 │   │                    lifecycle_manager, planner, reflection_engine,
-│   │                    memory/ (ccos_memory), plus the gated
+│   │                    memory/ (ccos_memory), plus the
 │   │                    self-improvement modules (goal_engine,
 │   │                    auto_improvement_loop, capability_optimizer,
 │   │                    skill_recombiner — see rule 1)
@@ -113,11 +113,25 @@ Codey-OS/
 
 ## Non-negotiable rules
 
-1. **Self-improvement mechanisms** (`goal_engine`, `auto_improvement_loop`,
-   `capability_optimizer`, `skill_recombiner`) are permanently gated off
-   from live execution. Never activate, wire up, or remove this gate
-   without an explicit, direct instruction from Ish given in that exact
-   session — not inferred, not implied by a task description.
+1. **AGI-direction build mandate (Ish, 2026-09-30 — supersedes the old
+   "permanently gated off" rule 1).** Ish directly instructed, in session,
+   that the self-improvement code (`goal_engine`, `auto_improvement_loop`,
+   `capability_optimizer`, `skill_recombiner`) may be built out, corrected,
+   and activated, overriding any earlier rule to the contrary, with the goal
+   of moving Codey-OS as close to the AGI-research alignment scorecard's
+   ceiling as engineering allows (`AGI_AUDIT_PLAN.md`; baseline 18/100 on
+   2026-09-30). Work proceeds in the logical order the plan sets: measurement
+   first (`bench/`, trajectory store), then grounded verification, then
+   experience-driven behavior, then gated self-improvement, then weight-level
+   learning. "Activation" of a self-improvement mechanism means: it runs
+   only behind the promotion gate (candidate vs baseline on the frozen
+   benchmark, regression slice, append-only ledger, rollback), because
+   without an evaluator these mechanisms only generate noise. The
+   `CODEY_SELF_IMPROVE` env switch (default off) is the operator's kill
+   switch. Rules 2-4 (RAM discipline, no name-pattern kills, reviewer on
+   process-lifecycle changes) are unchanged. A score is not a goal in
+   itself: report the real, measured state (rule 5/6), never a number that
+   was pushed up by relabeling.
 
 2. **RAM discipline.** This device has ~10.8GB RAM and has crashed before
    from concurrent model loads. Before any live test that loads the local
@@ -281,7 +295,7 @@ it is standing policy, not a dated handoff note.
 - live-verifier shows the original symptom isn't actually resolved, or
   shows a new regression
 - The work would touch `CODEY_MASTER_PLAN.md`'s own architecture, or
-  any of the gated self-improvement mechanisms (see rule 1)
+  the self-improvement mechanisms in a way that skips the promotion gate (see rule 1)
 - Repeated Termux/device-specific failures suggesting an environment
   problem, not a code problem
 - Anything genuinely ambiguous about product direction, not

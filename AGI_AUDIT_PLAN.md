@@ -4,7 +4,7 @@
 **Base:** `main` @ `91ee3c1`
 **Rollback point:** branch `rollback/2026-09-30-pre-agi-audit-fixes` @ `91ee3c1` (frozen; do not commit to it).
 Restore: `git checkout main && git reset --hard origin/rollback/2026-09-30-pre-agi-audit-fixes`.
-A tag push was blocked by the session proxy (HTTP 403). To add a real tag from Termux:
+A tag push was blocked by the session proxy (HTTP 403); **Ish pushed the real tag himself from Termux on 2026-09-30 (confirmed `[new tag]` on GitHub)**. Command used:
 `git tag rollback/2026-09-30-pre-agi-audit-fixes 91ee3c1 && git push origin rollback/2026-09-30-pre-agi-audit-fixes`.
 **Source of work:** the 2026-09-30 source-level AGI alignment audit (score 18/100). Findings are cited by section in that report; each item below names its evidence file.
 **Companion file:** `AGI_AUDIT_LOG.md` (dated record of every change, test result, and decision).
@@ -13,7 +13,7 @@ A tag push was blocked by the session proxy (HTTP 403). To add a real tag from T
 
 1. Business safety first. `restoricon_core/`, daemon lifecycle, `core/resource_gate.py` are not modified, except where a phase explicitly says so.
 2. Every behavior change is **default off** behind a flag, and new code on live paths **fails open** (an exception in new code never changes agent behavior).
-3. Self-improvement mechanisms (`goal_engine`, `auto_improvement_loop`, `capability_optimizer`, `skill_recombiner`) stay **off**. Nothing here activates them. Rule 1 stands.
+3. **Superseded 2026-09-30 by Ish's direct in-session instruction:** the self-improvement mechanisms (`goal_engine`, `auto_improvement_loop`, `capability_optimizer`, `skill_recombiner`) may be built out and activated, but ONLY behind the promotion gate (frozen bench, champion/challenger, paired stats, evaluator outside agent write scope) and a `CODEY_SELF_IMPROVE` switch that defaults off until the gate exists and passes its A/A test. Recorded as CLAUDE.md rule 1.
 4. Anything touching process/model lifecycle (Phase 4 rollback fix) needs the mandatory code-reviewer pass (rule 4) and is **code-complete, not live-verified** until Ish runs it on the device (rule 7). RAM discipline (rule 2): no live model loads from this work.
 5. No new dependencies unless added to `install.sh` in the same change (rule 11).
 6. New findings outside a task's scope go to `NEW_ISSUES.md` (rule 8), not silently fixed.
