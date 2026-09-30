@@ -1,0 +1,1 @@
+window.py has an off-by-one bug: moving_sum(xs, k) should return the sums of every consecutive window of size k (len(xs)-k+1 values). Fix it.

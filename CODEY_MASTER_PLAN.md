@@ -203,11 +203,7 @@ These override any default agent behavior. Rules 1–11 are carried
 verbatim in intent from `CLAUDE.md`, with rules 7/8/9 re-pointed at this
 plan's own successor documents.
 
-1. **Self-improvement mechanisms** (`goal_engine`, `auto_improvement_loop`,
-   `capability_optimizer`, `skill_recombiner`) are permanently gated off
-   from live execution. Never activate, wire up, or remove this gate
-   without an explicit, direct instruction from Ish given in that exact
-   session — not inferred, not implied by a task description. See §6.11.
+1. **AGI-direction build mandate (Ish, 2026-09-30; supersedes the old "permanently gated off" rule).** The self-improvement mechanisms (`goal_engine`, `auto_improvement_loop`, `capability_optimizer`, `skill_recombiner`) may be built out and activated on Ish's direct in-session instruction, in the order set by `AGI_AUDIT_PLAN.md` (measurement first, activation only behind the promotion gate). Full text: `CLAUDE.md` rule 1. See §6.11.
 
 2. **RAM discipline.** ~10.8GB RAM; this device has crashed from
    concurrent model loads. Before any live test that loads any local
@@ -4329,8 +4325,7 @@ business data today.
 ### 6.11 Parked — do not start without Ish's explicit sign-off
 
 **P.1 — self-improvement activation** (`auto_improvement_loop`,
-`capability_optimizer`, `skill_recombiner`, `goal_engine`). Gated by rule
-1. Do not start until: everything above is stable, a meaningful period of
+`capability_optimizer`, `skill_recombiner`, `goal_engine`). **UPDATE 2026-09-30: Ish gave direct in-session sign-off (see rule 1, `AGI_AUDIT_PLAN.md`); this item is now an active workstream, executed behind the promotion gate. The paragraph below is the original parked text, kept for history.** Originally: do not start until: everything above is stable, a meaningful period of
 observed real-task operation through the sandbox/safety-veto path has
 elapsed, **and** Ish gives explicit, direct, in-session sign-off — not
 inferred from this plan reaching its end.
@@ -5151,6 +5146,8 @@ about product direction rather than implementation detail.
 Every open item from the superseded `TODO.md`, re-homed. IDs are kept
 unchanged so the archived evidence stays findable. `[ ]` = open,
 `[x]` = done (kept only where the note carries live information).
+
+**AGI audit workstream (2026-09-30):** tracked in `AGI_AUDIT_PLAN.md` (phases 1-4) and `AGI_AUDIT_LOG.md`, on branch `codey-os-agi`, not merged to `main`. Phases 1-4 code-complete (sandbox test-verified, 2091 passed; NOT live-verified; live steps in `LIVE_TEST_QUEUE.md` [AGI-1]). Findings `NEW-546`..`NEW-551`. Per rule 1 (as amended 2026-09-30) self-improvement is gated by `CODEY_SELF_IMPROVE` (default off) and the promotion gate; no capability-level evaluator exists yet, so the optimizer deploys nothing. 4.2 was withdrawn as not-a-defect (rule 6).
 
 ### Obsolescence audit — pass 1, 2026-09-02 (`U.38` steps 1/1b/2)
 

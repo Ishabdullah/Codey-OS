@@ -119,8 +119,38 @@ class DatasetCurator:
 
         return max(0.0, min(1.0, score))
 
+    def curate_verified(self, max_examples: int = 500, path=None) -> List[Dict]:
+        """Examples from the trajectory store whose outcome an EXTERNAL verifier passed
+        (pytest / bench grader / script exit code). This is the only trustworthy label
+        source; the older `episodic_log` heuristic path never had data (NEW-546).
+        Needs CODEY_TRAJECTORY=1 during use, then labeling via core.trajectory.label_*."""
+        from core.trajectory import verified_episodes
+
+        out = []
+        for ep in verified_episodes(path=path, only_passed=True)[:max_examples]:
+            convo = [
+                {"role": "system", "content": "You are Codey, a local coding agent. Use tools via <tool>{json}</tool>."},
+                {"role": "user", "content": ep["prompt"]},
+            ]
+            for name, args, result, _is_err in ep["calls"]:
+                try:
+                    a = json.loads(args)
+                except Exception:
+                    a = args  # truncated args were stored as text
+                convo.append({"role": "assistant",
+                              "content": "<tool>\n" + json.dumps({"name": name, "args": a}) + "\n</tool>"})
+                convo.append({"role": "user", "content": "[Tool result]\n" + str(result)})
+            if not ep["final"]:
+                continue
+            convo.append({"role": "assistant", "content": ep["final"]})
+            out.append({"conversations": convo,
+                        "metadata": {"source": "trajectory", "verifier": ep["verifier"],
+                                     "verified": True, "episode_id": ep["id"]}})
+        return out
+
     def curate_examples(
-        self, days: int = 30, min_quality: float = 0.7, max_examples: int = 500
+        self, days: int = 30, min_quality: float = 0.7, max_examples: int = 500,
+        verified_only: bool = False,
     ) -> List[Dict]:
         """
         Curate fine-tuning examples from history.
@@ -133,12 +163,15 @@ class DatasetCurator:
         Returns:
             List of curated examples in ShareGPT format
         """
+        examples = self.curate_verified(max_examples)
+        if verified_only:
+            return examples
         actions = self.get_episodic_actions(days, min_quality)
-        examples = []
 
-        for action in actions[:max_examples]:
+        for action in actions[: max(0, max_examples - len(examples))]:
             example = self._action_to_sharegpt(action)
             if example:
+                example.setdefault("metadata", {})["verified"] = False  # heuristic label only
                 examples.append(example)
 
         return examples
@@ -277,7 +310,7 @@ def export_dataset(
     Args:
         examples: List of ShareGPT examples
         output_path: Output directory
-        model_variant: "1.5b", "7b", or "both"
+        model_variant: "4b" (deployed model), legacy "1.5b"/"7b", or "both"
 
     Returns:
         Tuple of (output_file, example_count)
@@ -296,6 +329,12 @@ def export_dataset(
         simple = [e for e in examples if len(e["conversations"]) <= 3]
         output_file = output_dir / "codey-finetune-1.5b.jsonl"
         count = _write_jsonl(simple, output_file)
+        return str(output_file), count
+
+    elif model_variant == "4b":
+        # Deployed model (Qwen3.5-4B): keep full multi-step tool trajectories
+        output_file = output_dir / "codey-finetune-4b.jsonl"
+        count = _write_jsonl(examples, output_file)
         return str(output_file), count
 
     elif model_variant == "7b":
@@ -521,6 +560,55 @@ To merge with base model (optional):
 '''
 
 
+NB4B_CELLS = [
+("markdown", "# Codey-OS fine-tune: Qwen3.5-4B (16-bit LoRA)\n\n"
+ "Matches the model Codey-OS actually runs (Qwen3.5-4B). Source: Unsloth Qwen3.5 fine-tuning guide "
+ "(https://unsloth.ai/docs/models/qwen3.5/fine-tune): use 16-bit LoRA, **not** 4-bit QLoRA "
+ "(not recommended for Qwen3.5), `transformers` v5 required, about 10GB VRAM (fits a free T4).\n\n"
+ "**UNVERIFIED on Colab as of generation ({generated_date}).** If a cell errors, fix it there and tell Codey-OS "
+ "maintainers; do not assume success. Kernel compile on T4 can be slow.\n"),
+("code", "!pip install --upgrade unsloth unsloth_zoo\n"
+ "!pip install --upgrade \"transformers>=5\" trl peft accelerate datasets torchvision pillow\n"),
+("code", "import json\nfrom google.colab import files\n"
+ "print('Upload your codey-finetune-4b.jsonl (verified trajectories only):')\n"
+ "up = files.upload()\nrows = [json.loads(l) for l in open(list(up)[0]) if l.strip()]\n"
+ "assert rows, 'empty dataset'\nprint(len(rows), 'examples')\n"
+ "print('verified fraction:', sum(bool(r.get('metadata', {{}}).get('verified')) for r in rows) / len(rows))\n"),
+("code", "from unsloth import FastLanguageModel\n"
+ "model, tokenizer = FastLanguageModel.from_pretrained(\n"
+ "    model_name='{model_id}', max_seq_length=4096, load_in_16bit=True, full_finetuning=False)\n"
+ "model = FastLanguageModel.get_peft_model(\n"
+ "    model, r={lora_r}, lora_alpha={lora_alpha}, lora_dropout=0, bias='none',\n"
+ "    # CONCERN: Qwen3.5 mixes linear-attention and full-attention layers; these standard names come from\n"
+ "    # Unsloth's generic recipe and were NOT checked against this model's module list. Print\n"
+ "    # [n for n,_ in model.named_modules()] if training reports no trainable params.\n"
+ "    target_modules=['q_proj','k_proj','v_proj','o_proj','gate_proj','up_proj','down_proj'])\n"),
+("code", "from datasets import Dataset\n"
+ "def to_text(r):\n"
+ "    return {{'text': tokenizer.apply_chat_template(r['conversations'], tokenize=False)}}\n"
+ "ds = Dataset.from_list(rows).map(to_text)\n"
+ "split = ds.train_test_split(test_size=0.1, seed=42) if len(ds) >= 20 else {{'train': ds, 'test': None}}\n"
+ "print(split['train'][0]['text'][:800])\n"),
+("code", "from trl import SFTTrainer, SFTConfig\nfrom unsloth import is_bfloat16_supported\n"
+ "trainer = SFTTrainer(model=model, tokenizer=tokenizer, train_dataset=split['train'], eval_dataset=split['test'],\n"
+ "    args=SFTConfig(dataset_text_field='text', max_seq_length=4096, per_device_train_batch_size=1,\n"
+ "        gradient_accumulation_steps=8, warmup_steps=5, max_steps={max_steps}, learning_rate=1e-4,\n"
+ "        bf16=is_bfloat16_supported(), fp16=not is_bfloat16_supported(), logging_steps=5,\n"
+ "        optim='adamw_8bit', output_dir='outputs', seed=42, report_to='none'))\ntrainer.train()\n"),
+("code", "import shutil\nmodel.save_pretrained('codey-lora-adapter'); tokenizer.save_pretrained('codey-lora-adapter')\n"
+ "shutil.make_archive('codey-lora-adapter', 'zip', 'codey-lora-adapter')\nfiles.download('codey-lora-adapter.zip')\n"
+ "print('Do NOT adopt this adapter because training loss fell. Adopt it only if bench shows a gate-approved gain '\n"
+ "      '(python -m bench.promote). See AGI_AUDIT_PLAN.md.')\n"),
+]
+
+
+def _cell(kind: str, text: str) -> dict:
+    src = text.splitlines(keepends=True)  # Jupyter requires line endings inside each source string
+    if kind == "markdown":
+        return {"cell_type": "markdown", "metadata": {}, "source": src}
+    return {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": src}
+
+
 def generate_notebook(
     model_variant: str,
     output_path: str,
@@ -545,7 +633,13 @@ def generate_notebook(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Model configuration
-    if model_variant == "1.5b":
+    v2_cells = None
+    if model_variant == "4b":
+        model_name = "Qwen3.5-4B"
+        model_id = "Qwen/Qwen3.5-4B"
+        notebook_name = "codey-finetune-qwen3.5-4b.ipynb"
+        v2_cells = NB4B_CELLS
+    elif model_variant == "1.5b":
         model_name = "Qwen2.5-1.5B-Instruct"
         model_id = "unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit"
         notebook_name = "codey-finetune-qwen-coder-1.5b.ipynb"
@@ -556,7 +650,23 @@ def generate_notebook(
     else:
         raise ValueError(f"Unknown model variant: {model_variant}")
 
-    # Generate notebook content
+    if v2_cells is not None:
+        fmt = dict(model_id=model_id, lora_r=lora_r, lora_alpha=lora_alpha, max_steps=max_steps,
+                   generated_date=datetime.now().strftime("%Y-%m-%d"))
+        notebook = {
+            "cells": [_cell(k, t.format(**fmt)) for k, t in v2_cells],
+            "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+                         "language_info": {"name": "python"}},
+            "nbformat": 4,
+            "nbformat_minor": 4,
+        }
+        output_file = output_dir / notebook_name
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(notebook, f, indent=2)
+        info(f"Generated notebook: {output_file}")
+        return str(output_file)
+
+    # Legacy (Qwen2.5) variants: NOT the deployed model. Kept for compatibility.
     notebook_content = UNSLOTH_NOTEBOOK_TEMPLATE.format(
         model_name=model_name,
         model_id=model_id,
@@ -580,7 +690,7 @@ def generate_notebook(
                 "execution_count": None,
                 "metadata": {},
                 "outputs": [],
-                "source": notebook_content.split("\n"),
+                "source": notebook_content.splitlines(keepends=True),
             },
         ],
         "metadata": {
@@ -652,7 +762,7 @@ STEP 5: Import to Codey-OS
      unzip codey-lora-adapter.zip
   
   2. Import the adapter:
-     codeyOS --import-lora /path/to/codey-lora-adapter --model {model_variant}
+     codeyOS --import-lora /path/to/codey-lora-adapter --lora-merge
   
   3. Test the fine-tuned model:
      codeyOS "test the new model"
@@ -661,7 +771,7 @@ STEP 5: Import to Codey-OS
 TROUBLESHOOTING
 ────────────────────────────────────────────────────────────────────────────────
 • Out of memory: Reduce batch_size to 1 in notebook
-• Training too slow: Use 1.5B model instead of 7B
+• Training too slow: reduce max_steps or max_seq_length in the notebook
 • Poor results: Increase max_steps or lower min_quality threshold
 • Import fails: Ensure adapter folder contains adapter_config.json
 
@@ -669,8 +779,10 @@ TROUBLESHOOTING
 NOTES
 ────────────────────────────────────────────────────────────────────────────────
 • Free Colab T4 GPU: 16GB VRAM, ~12 hour session limit
-• 7B model: ~4 hours training, better quality
-• 1.5B model: ~1 hour training, faster iteration
+• 4b = the deployed Qwen3.5-4B (16-bit LoRA, ~10GB VRAM). 1.5b/7b are legacy Qwen2.5 variants Codey-OS does not run.
+• BEFORE adopting an adapter: run bench for base vs tuned and require an approving
+  `python -m bench.promote` decision. Lower training loss is not evidence of improvement.
+• UNVERIFIED: llama.cpp LoRA conversion for Qwen3.5 has not been tested here (see LIVE_TEST_QUEUE.md)
 • LoRA adapter size: ~100-500MB (much smaller than full model)
 
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -684,7 +796,7 @@ NOTES
 
 
 def prepare_finetune_data(
-    days: int = 30, min_quality: float = 0.7, model_variant: str = "both", output_dir: str = None
+    days: int = 30, min_quality: float = 0.7, model_variant: str = "4b", output_dir: str = None
 ) -> Dict[str, str]:
     """
     Main entry point for fine-tuning data preparation.
@@ -692,7 +804,7 @@ def prepare_finetune_data(
     Args:
         days: Days of history to include
         min_quality: Minimum quality threshold
-        model_variant: "1.5b", "7b", or "both"
+        model_variant: "4b" (default, deployed model), legacy "1.5b"/"7b", or "both"
         output_dir: Output directory (default: ~/Downloads)
 
     Returns:

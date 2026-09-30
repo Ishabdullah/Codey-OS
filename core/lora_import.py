@@ -651,11 +651,11 @@ To merge the adapter:
    python convert-lora.py --base-model model.gguf --lora-adapter adapter/ --output merged.gguf
    ./quantize merged.gguf merged-q4.gguf q4_0
 
-2. Or use the provided merge script:
-   python core/finetune_merge.py --adapter {adapter_path} --model {model_variant}
+2. Or merge on-device with llama.cpp (needs lots of RAM):
+   codeyOS --import-lora {adapter_path} --lora-merge
 
 3. Then run:
-   codeyOS --import-lora /path/to/merged-q4.gguf --model {model_variant}
+   codeyOS --import-lora /path/to/merged-q4.gguf --lora-model {model_variant}
 """.format(adapter_path=adapter_path, model_variant=model_variant)
             return results
 

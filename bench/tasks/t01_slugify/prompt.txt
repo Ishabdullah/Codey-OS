@@ -1,0 +1,1 @@
+Implement slugify(text) in slug.py: lowercase, strip, replace runs of non-alphanumeric chars with a single '-', no leading/trailing '-'.

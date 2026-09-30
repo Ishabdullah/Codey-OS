@@ -130,6 +130,9 @@ class GoalEngine:
 
         Returns newly generated goals (not previously seen).
         """
+        from ccos.core import self_improve as _si
+        if not _si.enabled():
+            return []  # CODEY_SELF_IMPROVE=off (default)
         existing_ids = {g.id for g in self._goals}
         new_goals = []
 
@@ -604,6 +607,9 @@ class GoalEngine:
         Return the top goal as a task string for the planner.
         Returns None if no actionable goals exist.
         """
+        from ccos.core import self_improve as _si
+        if not _si.may_deploy():
+            return None  # goals are injected into the planner only when 'on'
         top = self.get_top_goals(1)
         if not top:
             return None

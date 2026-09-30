@@ -32,6 +32,7 @@ import core.embed_server as es
 import core.loader_v2 as lv
 import core.resource_gate as rg
 import core.thermal as thermal_mod
+import utils.config as cfg
 
 
 def _meminfo_with_drop_after(n_before: int, high: int = 10**10, low: int = 0):
@@ -200,6 +201,32 @@ class FakeServerSpawnFails:
 
     def is_running(self):
         return False
+
+
+# Apparent size of the real default model (~2.74GB). The resource gate reads
+# spec.path.stat().st_size to estimate admission cost, so a hermetic run needs
+# a file of realistic size -- created sparse, so it costs no disk or RAM.
+_PLACEHOLDER_MODEL_BYTES = 2_740_000_000
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_model_file(tmp_path_factory, monkeypatch):
+    """
+    AGI_AUDIT_PLAN.md item 1.2. Tests here fake the server process but the
+    real resource gate still stat()s the model file for its cost estimate,
+    so they failed with "No such file" on any machine without the ~2.7GB
+    model (CI, a fresh clone). If the configured model file is missing,
+    point cfg.MODEL_PATH at a sparse placeholder of the same apparent size.
+    No effect when the real model exists (e.g. on the device).
+    """
+    if Path(str(cfg.MODEL_PATH)).exists():
+        yield
+        return
+    placeholder = tmp_path_factory.mktemp("fake_model") / "Qwen3.5-4B-Q4_K_M.gguf"
+    with open(placeholder, "wb") as f:
+        f.truncate(_PLACEHOLDER_MODEL_BYTES)
+    monkeypatch.setattr(cfg, "MODEL_PATH", placeholder)
+    yield
 
 
 @pytest.fixture(autouse=True)

@@ -226,10 +226,21 @@ print("PASS")
         assert test_passed, f"Sandbox test should pass: {test_results}"
 
         # Compare and upgrade
-        opt_result = optimizer.compare_and_upgrade(
+        # 2.4: a passing sandbox smoke test alone is NOT an improvement.
+        no_gate = optimizer.compare_and_upgrade(
             "test.optimize_me", new_version, new_path, test_passed, test_results
         )
-        assert opt_result.improved, "Should have improved"
+        assert not no_gate.improved, "Must not deploy without a promotion-gate approval"
+        assert no_gate.new_score == no_gate.old_score, "No fabricated score bump"
+        assert len(tracker.get_version_history("test.optimize_me")) == 1
+        from bench.gate import GateDecision
+        approved = GateDecision(True, ["test-approved"])
+        opt_result = optimizer.compare_and_upgrade(
+            "test.optimize_me", new_version, new_path, test_passed, test_results,
+            gate_decision=approved,
+        )
+        assert opt_result.improved, "Should deploy when the gate approves"
+        assert opt_result.new_score == opt_result.old_score
         assert opt_result.new_version == "1.0.1"
         assert opt_result.old_version == "1.0.0"
 
