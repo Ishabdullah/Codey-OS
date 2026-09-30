@@ -8525,18 +8525,41 @@ this file's own don't-duplicate rule.
       with no cross-check it's actually that estimate's customer.
       Rule-4 (auth-boundary-adjacent). Full spec:
       `codey_estimator_service.md` §3.
-- [ ] **B9.4** — public share-link customer delivery:
-      `estimate_share_links` creation/lookup, path-based
-      `/api/v1/public/estimate/{token}/...` (explicitly NOT the existing
-      `?token=` query-param session-bearer pattern at `routes.py:497-498`),
-      decision recording, `NotificationService` wiring. `transition()`'s
-      `send` step already creates real `estimate_share_links` rows
-      (2026-09-29) but discards the raw token after use (`NEW-712`) -- B9.4
-      needs a real delivery path for it, not just the lookup/decision
-      routes. Also folds in the still-open F1 fix
-      (`/api/v1/portal/estimates` → `CustomerEstimateView`, deferred
-      from B9.3). **Rule-4 category** (new customer-facing auth
-      boundary). Full spec: `codey_estimator_service.md` §4. **Blocked
+- [x] **B9.4, DONE** (2026-09-29/30, code-reviewer APPROVED first
+      round, no findings) — public share-link customer delivery:
+      `GET`/`POST /api/v1/public/estimate/{raw_token}[/decision]`,
+      placed before the authenticated Bearer/`?token=` resolution path
+      so these single-purpose capability tokens never flow through it.
+      Closes `NEW-712` (the raw token `transition()`'s `send` step
+      already generated had nowhere to go) — `transition()` now
+      returns it via an out-param (no return-type change, 20+ existing
+      call sites untouched) and, when a `NotificationService` is
+      wired, emails the share link to the customer AFTER the `send`
+      transaction has already committed (best-effort, non-fatal — a
+      failed/skipped send never blocks the transition that already
+      succeeded). Anti-oracle discipline verified directly: nonexistent/
+      expired/revoked tokens all return an identical 404, a second
+      rate limiter keyed on the resolved row id (not caller input, so
+      guessing can't grow it) sits alongside the existing per-IP one.
+      `customer_user_id` is never read from the public decision
+      route's body at all — deliberately bigger discipline than
+      B9.3's staff-facing route, since there's no session here to
+      validate against; enforced by `record_decision()`'s own XOR
+      invariant. `record_decision()` also gained a terminal-state
+      blocklist (not an allowlist — an allowlist would have broken an
+      existing B9.2 test that legitimately re-decides a still-`DRAFT`
+      estimate) checked inside the same transaction as the write.
+      `NEW-720` (the GET route doesn't check `CANCELLED` the way the
+      decision route does — verified low-moderate, `to_customer_view()`
+      has no workflow/cost fields to leak) and `NEW-721` (spec wants a
+      `current_link_url` on a superseded response — verified
+      structurally impossible, raw tokens are never persisted by
+      design) logged, deferred. **F1 fix (`/api/v1/portal/estimates` →
+      `CustomerEstimateView`) still NOT done — remains open**, was not
+      touched by this round despite earlier being slated to fold in
+      here; needs its own pass. **Rule-4 category** (new
+      customer-facing auth boundary). Full spec:
+      `codey_estimator_service.md` §4. Previously **Blocked
       on B9.2/B9.3, both done — unblocked (2026-09-29).**
 - [ ] **B9.5** — staff `/estimates` mobile-first surface (new
       `render_estimates_surface()`, not another `render_admin_surface()`

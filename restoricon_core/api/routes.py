@@ -61,6 +61,7 @@ from ..models import (
     Timesheet,
     Vendor,
     WorkOrder,
+    utc_now_iso,
 )
 from .rate_limiter import RateLimiter
 from ..services.analytics_search_service import AnalyticsSearchService
@@ -416,8 +417,25 @@ class APIRouter:
         # concern the way finance_service/commission_service have, so a
         # lazy default here is equivalent to server.py's explicit
         # construction, not a divergent second instance.
-        self.estimates = estimate_service or EstimateService(crm_service.db, audit_service)
+        # B9.4: reuses crm_service's own notification_service instance
+        # (already legitimately None in some test contexts, per its own
+        # __init__ comment) rather than constructing a second one.
+        self.estimates = estimate_service or EstimateService(
+            crm_service.db, audit_service, crm_service.notification_service
+        )
         self.rate_limiter = rate_limiter or RateLimiter(max_requests=60, window_seconds=60)
+        # B9.4 (§4.1): a SECOND, per-share-link-id bucket on top of the
+        # per-IP one above -- keyed on the resolved row id AFTER a
+        # successful token lookup, never on the raw token or its hash
+        # directly (keying on caller-supplied input would let an attacker
+        # fill this in-memory dict with one entry per guess; keying on the
+        # id means only tokens that already resolved to a real row can grow
+        # it, and there are at most as many keys as there are real
+        # share-link rows). 30 requests/hour per link, per §4.1's own stated
+        # number -- generous for a customer reviewing/deciding on their own
+        # estimate, tight enough to blunt repeated abuse of one already-
+        # found link.
+        self._share_link_rate_limiter = RateLimiter(max_requests=30, window_seconds=3600)
 
     def handle_request(
         self,
@@ -555,6 +573,108 @@ class APIRouter:
                     return 201, rate_headers, result
                 except ValueError as e:
                     return 400, rate_headers, {"error": str(e)}
+
+            # B9.4 (§4.1): estimate_share_links capability-token routes --
+            # path-based (`/estimate/{raw_token}[/decision]`), deliberately
+            # inside THIS block (checked before the Authorization/?token=
+            # resolution at line ~562 below) and deliberately never falling
+            # through to that block -- see codey_estimator_service.md §4's
+            # explicit statement that these tokens must never flow through
+            # the authenticated-session bearer-token path at all, since
+            # they are a different kind of credential (scoped to one
+            # estimate_version_id, never resolvable to an AuthContext).
+            if path.startswith("/api/v1/public/estimate/"):
+                share_headers = dict(rate_headers)
+                share_headers["Cache-Control"] = "no-store"
+                share_headers["Referrer-Policy"] = "no-referrer"
+                share_headers["X-Robots-Tag"] = "noindex"
+                # Uniform, bare body for every "wrong door" outcome --
+                # never the raw token echoed back (the generic public-block
+                # 404 below does `f"...{path}"`, which WOULD reflect it).
+                not_found = (404, share_headers, {"error": "Not found"})
+
+                sub = path[len("/api/v1/public/estimate/"):]
+                if not sub:
+                    return not_found
+                raw_token, _, tail = sub.partition("/")
+                if tail not in ("", "decision") or not raw_token:
+                    return not_found
+
+                try:
+                    link = self.estimates.resolve_share_link(raw_token)
+                except Exception:
+                    return not_found
+                if link is None:
+                    return not_found
+                now_iso = utc_now_iso()
+                if link.revoked_at is not None or link.expires_at < now_iso:
+                    return not_found
+
+                allowed, _, _ = self._share_link_rate_limiter.is_allowed(str(link.id))
+                if not allowed:
+                    return 429, share_headers, {"error": "Rate limit exceeded. Please try again later."}
+
+                if tail == "" and method == "GET":
+                    # §4.2's superseded check: a link is scoped to exactly
+                    # one estimate_version_id, so once revise() has moved
+                    # the estimate on to a newer current_version_id, this
+                    # link's version no longer matches and must not serve
+                    # the (different-priced) current version under the old
+                    # link. The companion plan's fuller behavior --
+                    # returning {"superseded": true, "current_link_url":...}
+                    # -- is not implementable as specified: the "current"
+                    # link's raw token is never persisted anywhere (by
+                    # design, §4.2), so there is no url to hand back once
+                    # the original request has completed. Disclosed gap,
+                    # logged to NEW_ISSUES.md rather than silently built
+                    # differently from the spec's own wording.
+                    est_row = self.estimates.db.get_connection().execute(
+                        "SELECT current_version_id FROM estimates WHERE id = ?;", (link.estimate_id,)
+                    ).fetchone()
+                    if est_row is not None and est_row["current_version_id"] != link.estimate_version_id:
+                        return 200, share_headers, {"superseded": True}
+                    try:
+                        self.estimates.record_share_link_view(link)
+                        view = self.estimates.to_customer_view(link.estimate_id)
+                    except ValueError:
+                        return not_found
+                    return 200, share_headers, view
+
+                if tail == "decision" and method == "POST":
+                    decision = json_body.get("decision", "")
+                    if decision not in ("accepted", "declined", "changes_requested"):
+                        return 400, share_headers, {"error": "Invalid or missing 'decision' field"}
+                    # customer_user_id is NEVER taken from this request's
+                    # body: record_decision()'s own XOR guard
+                    # (share_link_id is None) == (customer_user_id is None)
+                    # means passing both/either would either raise or --
+                    # worse -- mislabel a share-link (anonymous) decision as
+                    # an authenticated-portal one. There is no session at
+                    # this public endpoint to derive a real
+                    # customer_user_id from, and the estimate's own
+                    # customer_id is a CRM party id, not a users.id, so it
+                    # is not a substitute either. A client-supplied value
+                    # here is simply discarded, not "trusted-but-checked" --
+                    # a meaningfully bigger risk on a genuinely
+                    # unauthenticated route than on B9.3's staff-facing one.
+                    try:
+                        result = self.estimates.record_decision(
+                            estimate_version_id=link.estimate_version_id,
+                            decision=decision,
+                            ip=client_ip,
+                            user_agent=headers_lower.get("user-agent", ""),
+                            signer_name=json_body.get("signer_name"),
+                            signature_data=json_body.get("signature_data"),
+                            comment=json_body.get("comment"),
+                            share_link_id=link.id,
+                        )
+                    except ClaimConflictError as e:
+                        return 409, share_headers, {"error": str(e)}
+                    except ValueError as e:
+                        return 400, share_headers, {"error": str(e)}
+                    return 201, share_headers, {"decision": result.to_dict()}
+
+                return not_found
 
             return 404, rate_headers, {"error": f"Not found: {method} {path}"}
 
@@ -1568,10 +1688,25 @@ class APIRouter:
                     new_status = json_body.get("new_status") or json_body.get("to")
                     if not new_status:
                         raise ValueError("Missing required 'new_status' body field")
+                    # B9.4/NEW-712: share_link_out is populated by
+                    # transition() only when this call is a 'send' action --
+                    # an out-param, not a return-type change, so every other
+                    # existing caller of transition() (20+ B9.2 unit tests,
+                    # each expecting an EstimateHeader back) is unaffected.
+                    # This is the one place the raw token is ever visible
+                    # over the wire: whoever holds a real Bearer token for
+                    # THIS estimate gets it back once, in this response,
+                    # since there is still no email-based delivery
+                    # confirmation to rely on alone (delivery_channel may be
+                    # null -- see EstimateService._deliver_share_link()).
+                    share_link_out: Dict[str, Any] = {}
                     transitioned = self.estimates.transition(
-                        est_id, new_status, actor, comment=json_body.get("comment")
+                        est_id, new_status, actor, comment=json_body.get("comment"), share_link_out=share_link_out,
                     )
-                    return 200, {"Content-Type": "application/json"}, {"estimate": transitioned.to_dict()}
+                    response_body: Dict[str, Any] = {"estimate": transitioned.to_dict()}
+                    if share_link_out:
+                        response_body["share_link"] = share_link_out
+                    return 200, {"Content-Type": "application/json"}, response_body
 
                 if sub_path.endswith("/decisions") and method == "POST" and "/" not in sub_path[:-len("/decisions")]:
                     # record_decision() is deliberately actor-less (§1.7 --

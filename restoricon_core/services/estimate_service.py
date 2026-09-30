@@ -156,6 +156,19 @@ _REASSIGNABLE_ROLES = frozenset({ROLE_SALES, ROLE_SALES_MANAGER, ROLE_PROJECT_MA
 # expires_at is sooner.
 _SHARE_LINK_DEFAULT_DAYS = 30
 
+# record_decision()'s terminal-state guard (B9.4, §4.1's "a decision attempt
+# on an already-terminal-state estimate is rejected" requirement). Built as
+# a blocklist, not an allowlist, and deliberately excludes
+# 'CHANGES_REQUESTED' -- test_record_decision_declined_and_changes_requested_do_not_lock
+# (B9.2) already exercises TWO decisions against the SAME
+# estimate_version_id (changes_requested, then declined), which only works
+# if a 'changes_requested' outcome does not itself block a further
+# decision. DRAFT is also never blocked (existing B9.2 unit tests call
+# record_decision() directly without ever transitioning through SENT), so
+# this can only be a blocklist of the genuinely terminal statuses, not
+# "anything other than SENT/VIEWED".
+_DECISION_BLOCKED_STATUSES = frozenset({"ACCEPTED", "DECLINED", "EXPIRED", "CANCELLED", "CONVERTED"})
+
 # §1.5's allowed-transitions table, actor-driven rows only. Keys are
 # (from_status, to_status); the value names the action for audit/error
 # messages. Every transition NOT in this table is either genuinely illegal
@@ -314,9 +327,18 @@ def _has_subcontractor_component(data: Any) -> bool:
 class EstimateService:
     """Manages estimate headers, versions, line items, and decisions."""
 
-    def __init__(self, db: DatabaseManager, audit: AuditService):
+    def __init__(self, db: DatabaseManager, audit: AuditService, notification_service: Optional[Any] = None):
         self.db = db
         self.audit = audit
+        # B9.4: optional -- every existing caller (server.py:204, routes.py's
+        # lazy default, and every B9.2/B9.3 test fixture) constructs this
+        # service with only (db, audit), so this stays a defaulted third
+        # param rather than a required one. When None, `transition()`'s
+        # `send` step still creates the real share-link row/raw token (§4.2)
+        # but skips the email send -- a disclosed no-op, not an error --
+        # exactly the B9.2-round gap this round is closing where the
+        # service IS wired with a real NotificationService (see server.py).
+        self.notifications = notification_service
 
     # ------------------------------------------------------------------
     # Numbering
@@ -1348,6 +1370,96 @@ class EstimateService:
         return view.to_dict()
 
     # ------------------------------------------------------------------
+    # B9.4: public share-link resolution (§4.1) -- no `actor` on any method
+    # in this block, same reason `to_customer_view()`/`record_decision()`
+    # take none: a share-link viewer never has an `AuthContext`. The route
+    # layer (`/api/v1/public/estimate/{token}/...`) owns the "identical
+    # 404 for not-found/expired/revoked" anti-oracle rule (§4.1) -- these
+    # methods return plain, inspectable data/None so the route can apply
+    # that rule uniformly; they never raise a "not found"-shaped exception
+    # themselves, so there is no risk of one branch's error message leaking
+    # a distinguishing detail the route forgets to flatten.
+    # ------------------------------------------------------------------
+
+    def resolve_share_link(self, raw_token: str) -> Optional[EstimateShareLink]:
+        """Hash `raw_token` (SHA-256, matching `_create_share_link()`) and
+        look up `estimate_share_links.token_hash` (its own UNIQUE index --
+        an indexed equality lookup, not a linear scan, so there's no
+        meaningful timing side-channel to defend against here beyond what
+        the index already gives for free). Returns `None` on no match --
+        does NOT check expiry/revocation itself, so a caller can log/handle
+        "found but expired/revoked" as a case distinct from "no such row"
+        internally, while still presenting the identical 404 externally.
+        """
+        conn = self.db.get_connection()
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        row = conn.execute("SELECT * FROM estimate_share_links WHERE token_hash = ?;", (token_hash,)).fetchone()
+        if row is None:
+            return None
+        return EstimateShareLink(
+            id=row["id"], estimate_id=row["estimate_id"], estimate_version_id=row["estimate_version_id"],
+            customer_id=row["customer_id"], token_hash=row["token_hash"],
+            created_by_user_id=row["created_by_user_id"], created_at=row["created_at"], expires_at=row["expires_at"],
+            revoked_at=row["revoked_at"], revoked_by_user_id=row["revoked_by_user_id"],
+            first_viewed_at=row["first_viewed_at"], last_viewed_at=row["last_viewed_at"],
+            view_count=row["view_count"], delivery_channel=row["delivery_channel"], delivered_to=row["delivered_to"],
+        )
+
+    def record_share_link_view(self, share_link: EstimateShareLink) -> None:
+        """§4.1's GET route side effects: bump
+        `first_viewed_at`(if null)/`last_viewed_at`/`view_count` on the
+        link row, and trigger the system-driven `SENT -> VIEWED` transition
+        on the estimate (§1.5) if this is that estimate's first view.
+        `VIEWED` is in `_SYSTEM_DRIVEN_TARGET_STATUSES`, so this does NOT
+        go through `transition()` (which hard-rejects any target in that
+        set) -- it is `transition()`'s own system-driven counterpart,
+        exactly as that method's docstring describes.
+
+        The status flip uses the same conditional-`UPDATE ... WHERE
+        workflow_status = ?` + `rowcount` pattern `transition()` and
+        `claim()`/`unclaim()` already use, but here `rowcount == 0` is the
+        ordinary, expected outcome on a second-or-later view (already past
+        SENT -- VIEWED, ACCEPTED, DECLINED, etc.), not a race to raise on.
+        """
+        conn = self.db.get_connection()
+        now = utc_now_iso()
+        with conn:
+            link_row = conn.execute(
+                "SELECT first_viewed_at FROM estimate_share_links WHERE id = ?;", (share_link.id,)
+            ).fetchone()
+            if link_row is None:
+                return
+            if link_row["first_viewed_at"] is None:
+                conn.execute(
+                    "UPDATE estimate_share_links SET first_viewed_at = ?, last_viewed_at = ?, "
+                    "view_count = view_count + 1 WHERE id = ?;",
+                    (now, now, share_link.id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE estimate_share_links SET last_viewed_at = ?, view_count = view_count + 1 WHERE id = ?;",
+                    (now, share_link.id),
+                )
+            cursor = conn.execute(
+                "UPDATE estimates SET workflow_status = 'VIEWED', last_viewed_at = ?, updated_at = ? "
+                "WHERE id = ? AND workflow_status = 'SENT';",
+                (now, now, share_link.estimate_id),
+            )
+            became_viewed = cursor.rowcount > 0
+        if became_viewed:
+            self.audit.log(
+                action="transition",
+                entity_type="estimate",
+                entity_id=share_link.estimate_id,
+                change_summary="SENT -> VIEWED",
+                actor=None,
+                details=build_audit_details(
+                    before={"workflow_status": "SENT"}, after={"workflow_status": "VIEWED"},
+                    snapshot={"share_link_id": share_link.id},
+                ),
+            )
+
+    # ------------------------------------------------------------------
     # Versioning
     # ------------------------------------------------------------------
 
@@ -1409,14 +1521,14 @@ class EstimateService:
 
         Returns `(EstimateShareLink, raw_token)` -- the raw token is
         returned ONLY to the immediate caller, never persisted, never
-        attached to any dataclass field, and never logged. **This round
-        (B9.2) creates the row but nothing yet resolves a raw token back to
-        one** (B9.4, the public `/api/v1/public/estimate/{token}` route, is
-        out of this round's scope) -- the link this creates is therefore not
-        yet reachable by any customer. Logged as a real, disclosed gap
-        rather than silently left unremarked: `transition()`'s caller gets a
-        real row and a real token, with no delivery mechanism for either
-        yet.
+        attached to any dataclass field, and never logged. **B9.4 closes
+        the NEW-712 gap this docstring used to describe**: `transition()`
+        now both resolves this raw token to the public
+        `/api/v1/public/estimate/{token}` route (§4.1) via
+        `resolve_share_link()`/`record_share_link_view()` AND, when this
+        service was constructed with a real `notification_service`, emails
+        it to the customer (`_deliver_share_link()`) -- see `transition()`'s
+        own docstring for the post-commit delivery step.
 
         `expires_at` (D10): `now + _SHARE_LINK_DEFAULT_DAYS` unless the
         estimate's own `expires_at` is sooner -- an estimate expiring in 10
@@ -1446,8 +1558,71 @@ class EstimateService:
         )
         return link, raw_token
 
+    def _deliver_share_link(self, link: EstimateShareLink, raw_token: str) -> tuple:
+        """B9.4: best-effort email delivery of a just-created share link.
+        Called by `transition()` AFTER its `with conn:` block has already
+        committed -- never inside the transaction that creates the link
+        row, since `NotificationService.send_email()` is a real, blocking
+        HTTP round trip (up to `timeout` seconds) and holding SQLite's
+        `BEGIN IMMEDIATE` write lock for that long would stall every other
+        writer on this connection for no reason connected to the DB write
+        itself.
+
+        Returns `(delivery_channel, delivered_to)` -- both `None` if no
+        `notification_service` was wired (see `__init__`'s comment) or the
+        customer has no email on file; this is a disclosed no-op, not an
+        error, and deliberately does not raise: the share-link row and its
+        real raw token already exist and were already returned to
+        `transition()`'s own caller (the B9.3 route, via `share_link_out`)
+        by the time this runs, so a failed/skipped send never blocks the
+        `send` transition that already committed -- it only means nobody
+        emailed the customer this round (NEW-712's own "return the token,
+        disclose the gap" fallback, still true when this best-effort send
+        also fails).
+
+        The raw token is embedded in the URL exactly once, per §4.2, and is
+        never passed to `self.audit.log()` -- only `link.id`/the resulting
+        `delivery_channel`/`delivered_to` are audited, by `transition()`
+        after this returns.
+        """
+        if self.notifications is None:
+            return None, None
+        conn = self.db.get_connection()
+        customer_row = conn.execute(
+            "SELECT email, first_name FROM customers WHERE id = ?;", (link.customer_id,)
+        ).fetchone()
+        if customer_row is None or not (customer_row["email"] or "").strip():
+            return None, None
+        to_email = customer_row["email"]
+        share_url = f"https://portal.restoricon.com/e/{raw_token}"
+        subject = "Your estimate from Restoricon is ready to review"
+        greeting = f"Hi {customer_row['first_name']}," if customer_row["first_name"] else "Hi,"
+        body = (
+            f"{greeting}\n\n"
+            "Your estimate is ready to review, and to accept or decline online:\n"
+            f"{share_url}\n\n"
+            "This link is unique to you and will expire "
+            f"({link.expires_at}) -- please don't share it.\n\n"
+            "-- \nRestoricon"
+        )
+        # NEW-623 precedent (notification_service.py:17-25, the B8.10c
+        # compose route): 2.0s default is not defensible for a caller where
+        # a false-negative send-failure report matters -- 15.0s, matching
+        # that route's own reasoning, applies equally here.
+        sent = self.notifications.send_email(to_email=to_email, subject=subject, body=body, timeout=15.0)
+        if not sent:
+            return None, None
+        now = utc_now_iso()
+        with conn:
+            conn.execute(
+                "UPDATE estimate_share_links SET delivery_channel = 'email', delivered_to = ? WHERE id = ?;",
+                (to_email, link.id),
+            )
+        return "email", to_email
+
     def transition(
-        self, estimate_id: int, new_status: str, actor: AuthContext, *, comment: Optional[str] = None,
+        self, estimate_id: int, new_status: str, actor: AuthContext, *,
+        comment: Optional[str] = None, share_link_out: Optional[Dict[str, Any]] = None,
     ) -> EstimateHeader:
         """§1.5: the public actor-driven workflow state machine.
         `_ACTOR_DRIVEN_TRANSITIONS` is the single source of truth for what's
@@ -1578,6 +1753,20 @@ class EstimateService:
                 actor=actor,
                 details=build_audit_details(after={"is_locked": 1, "locked_reason": "sent"}),
             )
+            # B9.4: delivery happens here, AFTER the transition's own
+            # transaction has already committed -- see _deliver_share_link()'s
+            # docstring for why this must never run inside the same
+            # `with conn:` block that created the link row. Best-effort/
+            # non-fatal by design (NEW-712): the link row and raw_token
+            # already exist and are already handed to this method's caller
+            # via `share_link_out` below regardless of whether the email
+            # send below succeeds, so a down/misconfigured Aigentik email
+            # endpoint never turns an otherwise-successful `send` transition
+            # into a failure -- it only means delivery_channel/delivered_to
+            # stay NULL on the share_link row, a real, visible gap on the
+            # row itself (admin UI, §6, can show "not delivered"), not a
+            # silently swallowed one.
+            delivery_channel, delivered_to = self._deliver_share_link(share_link, raw_token)
             self.audit.log(
                 action="create",
                 entity_type="estimate_share_link",
@@ -1588,8 +1777,26 @@ class EstimateService:
                 # only the row id and delivery metadata, matching §4.2's
                 # "enough to know a link was sent, never enough to
                 # reconstruct it" rule.
-                details=build_audit_details(after={"share_link_id": share_link.id, "estimate_version_id": version_id}),
+                details=build_audit_details(after={
+                    "share_link_id": share_link.id, "estimate_version_id": version_id,
+                    "delivery_channel": delivery_channel, "delivered_to": delivered_to,
+                }),
             )
+            if share_link_out is not None:
+                # Out-param, not a return-type change -- transition() keeps
+                # its existing `-> EstimateHeader` contract (20+ existing
+                # B9.2/B9.3 call sites do `result = svc.transition(...)` and
+                # use it as a header) and the raw token is deliberately never
+                # attached to EstimateHeader/to_dict() (it would otherwise
+                # flow into the `details=build_audit_details(after=result...)`-
+                # style calls this module uses elsewhere -- see models.py's
+                # header comment on EstimateShareLink for the same rule).
+                # Only the B9.3 route (which passes a real dict) sees this.
+                share_link_out["share_link_id"] = share_link.id
+                share_link_out["raw_token"] = raw_token
+                share_link_out["expires_at"] = share_link.expires_at
+                share_link_out["delivery_channel"] = delivery_channel
+                share_link_out["delivered_to"] = delivered_to
         return header
 
     def revise(self, estimate_id: int, actor: AuthContext) -> EstimateVersion:
@@ -1820,6 +2027,22 @@ class EstimateService:
                 raise ValueError(
                     f"Estimate version {estimate_version_id} is not the current version of any estimate; "
                     "cannot record a decision against a superseded version"
+                )
+            # B9.4 (§4.1's "a decision attempt on an already-terminal-state
+            # estimate is rejected, not silently processed" requirement).
+            # Read INSIDE this transaction, same TOCTOU discipline as
+            # transition()'s own in-transaction re-read -- see
+            # _DECISION_BLOCKED_STATUSES' own comment for why this is a
+            # blocklist, not an allowlist (CHANGES_REQUESTED/DRAFT must
+            # both still be decidable, per existing B9.2 tests). Mapped to
+            # ClaimConflictError (-> 409 at the route layer, matching
+            # claim()/unclaim()'s existing precedent) rather than
+            # ValueError (-> 400), since this is a legitimate-token,
+            # wrong-timing conflict, not a malformed request.
+            if estimate_row["workflow_status"] in _DECISION_BLOCKED_STATUSES:
+                raise ClaimConflictError(
+                    f"This estimate has already been responded to (status: "
+                    f"{estimate_row['workflow_status']!r})"
                 )
 
             cursor = conn.execute(

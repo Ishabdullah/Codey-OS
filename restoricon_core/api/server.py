@@ -201,7 +201,11 @@ class RestoriconAPIServer:
         # B9.3: EstimateService only depends on db + audit -- constructed
         # explicitly and passed through, matching every other service
         # here, rather than relying on APIRouter's lazy default.
-        self.estimate_service = EstimateService(self.db, self.audit_service)
+        # B9.4: notification_service (the same shared instance every other
+        # service here uses, constructed above) is now passed too, so
+        # transition()'s 'send' step can actually email the share-link URL
+        # to the customer -- see EstimateService._deliver_share_link().
+        self.estimate_service = EstimateService(self.db, self.audit_service, self.notification_service)
 
         # RBAC for these services is enforced in the service layer, not here -- see
         # APIRouter's own class docstring.
