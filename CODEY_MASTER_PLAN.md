@@ -694,6 +694,7 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **B9.8, estimate-to-job workflow (`EstimateService.convert()`), 2026-09-30** (`bc6b6fa`) — Project-creation half of the estimate->job pipeline (Contract half already existed, from `record_decision()`'s D7 invariant). Gated on a signed linked Contract, idempotent, links to an existing Project via `estimates.project_id`/`opportunities.project_id` before creating a new one, priced off the accepted version snapshot. Rule-4 category (writes across estimates/contracts/projects/opportunities). code-reviewer APPROVED, independently verifying transaction integrity and the opportunity-write-back TOCTOU question (none). Two real pre-existing gaps disclosed (`NEW-736`, `NEW-737`). 76 tests passed. **NOT live-verified** — no session this round had device access. See `PROJECT_LOG.md`'s 2026-09-30 B9.8 entry and Appendix A's B9.8 line for full detail.
 - **AGI audit Phases 1-4, merged 2026-09-30** (`ef5c86d`) — `bench/` frozen-benchmark harness, `core/trajectory.py` + pass-through wrappers on `core/agent.py` (`CODEY_TRAJECTORY`, default off), `ccos/core/self_improve.py` master switch (`CODEY_SELF_IMPROVE=off|shadow|on`, default off) gating the four self-improvement modules, honest optimizer scoring (fabricated `+5` bump removed), Qwen3.5-4B fine-tune notebook + verified-trajectory data path, fix-memory hint (`CODEY_USE_FIX_MEMORY`, default off), peer teacher-trace capture. Code-reviewer APPROVED (`core/agent.py` hooks, `ccos/core/self_improve.py` guards). All new behavior confirmed default-off and fail-open; no runtime import of the self-improvement modules. **NOT live-verified with the model** — on-device steps (`LIVE_TEST_QUEUE.md` [AGI-1]: trajectory smoke, bench baseline, fix-memory A/B via `bench.promote`, Colab notebook run, LoRA conversion check) are for Ish to run himself. See Appendix A's AGI-audit-workstream entry for the full merge disclosure (scope check, the on-device full-suite crash that blocked a literal complete run, and why it was ruled pre-existing/unrelated).
 - **Restoricon Core session persistence, 2026-09-02** — the web surfaces'
   `getAuthToken`/`setAuthToken` (`api/web_surfaces.py:_get_common_script`)
@@ -8775,14 +8776,23 @@ this file's own don't-duplicate rule.
       implementer miscount corrected during review); full suite 2679
       passed, 1 skipped, both implementer and reviewer runs matching.
       Full spec: `codey_estimator_service.md` §4/§3.
-- [ ] **B9.8** — estimate -> job workflow: `convert()`'s Project-creation
-      half (the Contract half is created at acceptance, per D7), **gated on
-      the linked Contract's `status = 'signed'`** (Ish's answer above — the
-      more conservative reading of plan §22; B8.12's fuller handoff
-      checklist is a separate, later addition on top of this simpler gate,
-      not a blocker for it), idempotent, linking to an existing
-      Opportunity's project if present. **Rule-4 category** (writes across
-      three domains at once). Full spec: `codey_estimator_service.md`
+- [x] **B9.8 — DONE, code-complete + code-reviewer APPROVED, NOT live-verified** (commit `bc6b6fa`, 2026-09-30). `EstimateService.convert()`: estimate -> job workflow's Project-creation
+      half (the Contract half is created at acceptance, per D7), gated on
+      the linked Contract's `status = 'signed'`, idempotent, linking to an existing
+      Opportunity's project if present (priority: `estimates.project_id` ->
+      `opportunities.project_id` -> create new, priced off `accepted_version_id`).
+      **Rule-4 category** (writes across estimates/contracts/projects, plus
+      opportunities via an Ish-approved write-back). Two literal-spec
+      deviations (does not call `CRMService.create_project()`/`get_opportunity()`
+      — both would break for the actual `ROLE_SALES` caller) and two Ish
+      decisions (opportunity write-back included; `ROLE_AI_AGENT` explicitly
+      denied) — full detail in `PROJECT_LOG.md`'s 2026-09-30 B9.8 entry. Two
+      real pre-existing gaps found and disclosed, not fixed: `NEW-736`,
+      `NEW-737`. 76 tests passed (33 new + 43 regression), code-reviewer
+      independently verified transaction integrity, the TOCTOU question on
+      the write-back (none — `BEGIN IMMEDIATE` holds the lock throughout),
+      and both new findings against actual code. No route added (B9.3 stays
+      deferred). Full spec: `codey_estimator_service.md`
       §1.9/§8/§9 item 4.
 - [ ] **B9.x** — pricing/retailer tables (deferred from B9.1). Depends on
       `codey_estimator.ports.py`'s repository shapes (already built).
