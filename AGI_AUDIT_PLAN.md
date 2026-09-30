@@ -74,3 +74,4 @@ Evolutionary search, neural world model, activating goal engine / skill recombin
 | Phase 2 | Code-complete 2026-09-30: 2.1 bench, 2.2 trajectory, 2.3 switch+gate, 2.4 honest optimizer (sandbox-verified; bench not yet run with the real model) |
 | Phase 3 | Code-complete 2026-09-30 (Colab/llama.cpp steps unverified) |
 | Phase 4 | Code-complete 2026-09-30: 4.1, 4.3 (flag-gated, default off). 4.2 withdrawn as not-a-defect (see log). |
+| Merge to `main` | **Done 2026-09-30** (`ef5c86d`, code-reviewer APPROVED). Code-complete + sandbox/phone test-verified, **NOT live-verified with the model**. On-device steps remain in `LIVE_TEST_QUEUE.md` [AGI-1]. Full disclosure (scope check, business-safety check, the on-device full-suite run that hit a pre-existing crash unrelated to this diff, NEW-546..551 renumbered to NEW-729..734): see `PROJECT_LOG.md`'s 2026-09-30 merge entry. |
