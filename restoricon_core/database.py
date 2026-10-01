@@ -281,13 +281,16 @@ CREATE TABLE IF NOT EXISTS estimates (
     assigned_to_user_id INTEGER,  -- defaults to creator; reassignment needs PERM_REASSIGN_ESTIMATES
     opportunity_id INTEGER,
     lead_id INTEGER,
-    -- property_id: bare INTEGER, NO FOREIGN KEY. Not the ALTER-TABLE-can't-
-    -- attach-an-FK reason used elsewhere in this file -- this IS a fresh
-    -- CREATE TABLE, so a real FK would normally be used. The real reason:
-    -- B8.1's `properties` table (sales_rep_portal.md) is DESIGNED but NOT
-    -- YET BUILT (only its permission half shipped) -- there is no target
-    -- table to reference yet. Attach a real FK in the migration that
-    -- creates `properties`.
+    -- property_id: link to the properties table (B8.1). **Correction
+    -- (2026-09-30, Codey-Estimator Phase B9.x pricing round)**: this
+    -- comment previously claimed properties was "designed but not yet
+    -- built" and left this column FK-less for that reason -- that was
+    -- stale; properties is a real, built table (has its own FK to
+    -- customers). Fresh DBs get a real inline FK here now; an
+    -- already-migrated legacy DB gets it attached by
+    -- _migrate_estimates_property_id_fk()'s full-table-rebuild (SQLite's
+    -- ALTER TABLE ADD COLUMN cannot attach a FOREIGN KEY to an existing
+    -- column).
     property_id INTEGER,
     title TEXT,
     current_version_id INTEGER,   -- FK below; NULL until the first version is created
@@ -348,7 +351,8 @@ CREATE TABLE IF NOT EXISTS estimates (
     FOREIGN KEY (current_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
     FOREIGN KEY (accepted_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
     FOREIGN KEY (converted_project_id) REFERENCES projects(id) ON DELETE SET NULL,
-    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_estimates_created_by_user_id ON estimates(created_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_estimates_assigned_to_user_id ON estimates(assigned_to_user_id);
@@ -407,17 +411,24 @@ BEGIN
     SELECT RAISE(ABORT, 'estimate_versions: cannot modify a locked version');
 END;
 
--- Estimate Line Items (Codey-Estimator Phase B9.1, NEW). line_type drives
--- which component group applies (mirrors codey_estimator.calc.LineType).
--- Snapshot columns (retailer_code_snapshot, product_title_snapshot,
--- unit_cost_cents, and every pricing-table id below being nullable) mean a
--- line renders identically forever even if the underlying price book item,
--- retailer product, or labor rate later changes or is deactivated.
--- price_book_item_id / retailer_product_id / price_observation_id /
--- labor_rate_id are bare INTEGER, NO FOREIGN KEY -- their target tables are
--- deliberately deferred to a later phase; a future migration attaches real
--- FKs once those tables exist. equipment_id / subcontractor_id DO get real
--- FKs -- those tables already exist in this schema.
+-- Estimate Line Items (Codey-Estimator Phase B9.1, NEW; FKs on the 4
+-- pricing-id columns attached in the B9.x pricing round, 2026-09-30).
+-- line_type drives which component group applies (mirrors
+-- codey_estimator.calc.LineType). Snapshot columns (retailer_code_snapshot,
+-- product_title_snapshot, unit_cost_cents, and every pricing-table id
+-- below being nullable) mean a line renders identically forever even if
+-- the underlying price book item, retailer product, or labor rate later
+-- changes or is deactivated -- that is also why all 4 of these FKs are
+-- ON DELETE SET NULL rather than RESTRICT/CASCADE: they are optional
+-- cost-sourcing references, not ownership, and a line must never be
+-- blocked from existing (or silently deleted) by a later change to its
+-- pricing source. price_book_item_id / retailer_product_id /
+-- price_observation_id / labor_rate_id previously had NO FOREIGN KEY
+-- because their target tables did not exist yet; that round's own
+-- comment said a future migration (this one, via
+-- _migrate_estimate_line_items_pricing_fks()) would attach real FKs once
+-- those tables existed. equipment_id / subcontractor_id already had real
+-- FKs -- those tables already existed in this schema.
 CREATE TABLE IF NOT EXISTS estimate_line_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     estimate_version_id INTEGER NOT NULL,
@@ -470,7 +481,11 @@ CREATE TABLE IF NOT EXISTS estimate_line_items (
     updated_at TEXT NOT NULL,
     FOREIGN KEY (estimate_version_id) REFERENCES estimate_versions(id) ON DELETE CASCADE,
     FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE SET NULL,
-    FOREIGN KEY (subcontractor_id) REFERENCES subcontractors(id) ON DELETE SET NULL
+    FOREIGN KEY (subcontractor_id) REFERENCES subcontractors(id) ON DELETE SET NULL,
+    FOREIGN KEY (price_book_item_id) REFERENCES price_book_items(id) ON DELETE SET NULL,
+    FOREIGN KEY (retailer_product_id) REFERENCES retailer_products(id) ON DELETE SET NULL,
+    FOREIGN KEY (price_observation_id) REFERENCES price_observations(id) ON DELETE SET NULL,
+    FOREIGN KEY (labor_rate_id) REFERENCES labor_rates(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_estimate_line_items_version_id ON estimate_line_items(estimate_version_id, sort_order);
 
@@ -559,6 +574,315 @@ CREATE TABLE IF NOT EXISTS estimate_number_sequences (
     year INTEGER PRIMARY KEY,
     next_seq INTEGER NOT NULL DEFAULT 1
 );
+
+-- Retailers registry (Codey-Estimator Phase B9.x pricing tables, NEW,
+-- 2026-09-30). code is the PRIMARY KEY (not a surrogate int) --
+-- retailer_code is the actual join key used throughout codey_estimator's
+-- ports.py/retailers/base.py (RetailerAdapter.retailer_code); there is no
+-- separate int id anywhere in that vendored library to translate against.
+-- This deliberately deviates from this codebase's usual surrogate-int-PK +
+-- UNIQUE-business-key convention for that reason. daily_budget_*/
+-- circuit_* columns are the persisted form of codey_estimator/refresh.py's
+-- TokenBucket/DailyBudget/CircuitBreaker state for this retailer's
+-- adapter -- those classes are in-memory-only by design (constructor
+-- takes a now_fn), so this is what survives a daemon restart.
+CREATE TABLE IF NOT EXISTS retailers (
+    code TEXT PRIMARY KEY,                 -- e.g. 'home_depot', 'lowes'
+    display_name TEXT NOT NULL,
+    website TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    daily_budget_cap INTEGER,
+    daily_budget_used INTEGER NOT NULL DEFAULT 0,
+    daily_budget_day_index INTEGER,
+    circuit_state TEXT NOT NULL DEFAULT 'closed' CHECK(circuit_state IN ('closed','open','half_open')),
+    circuit_consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    circuit_opened_at INTEGER,              -- EpochSeconds, matches refresh.py's internal epoch-int convention
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS retailer_stores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    retailer_code TEXT NOT NULL,
+    store_code TEXT NOT NULL,               -- matches PriceObservationData.store_code values; NOT FK'd from price_observations (see below), pure lookup table
+    name TEXT,
+    address TEXT,
+    city TEXT,
+    state TEXT,
+    zip TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (retailer_code) REFERENCES retailers(code) ON DELETE CASCADE,
+    UNIQUE(retailer_code, store_code)
+);
+CREATE INDEX IF NOT EXISTS idx_retailer_stores_retailer_code ON retailer_stores(retailer_code);
+
+-- The 3 Protocol-bound tables (codey_estimator/ports.py's
+-- RetailerProductRepo/PriceObservationRepo/SearchCacheRepo). Timestamps
+-- prefixed refresh_* are EpochSeconds (plain int), NOT TEXT-ISO, because
+-- codey_estimator/refresh.py's RefreshPolicy.is_due()/.next_refresh_at() do
+-- raw integer arithmetic directly against these columns. created_at/
+-- updated_at (unprefixed) ARE TEXT-ISO, matching this codebase's normal
+-- audit-timestamp convention -- the two co-exist deliberately, don't
+-- collapse them into one convention. current_observation_id is a real
+-- inline forward-reference FK to price_observations(id) (empirically
+-- confirmed SQLite allows a FOREIGN KEY clause naming a table that is
+-- CREATEd later in the same script -- this codebase already relies on the
+-- same forward-reference behavior for users->customers and
+-- opportunities->projects, both defined earlier in this file).
+CREATE TABLE IF NOT EXISTS retailer_products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    retailer_code TEXT NOT NULL,
+    retailer_sku TEXT NOT NULL,
+    title TEXT NOT NULL,
+    upc TEXT,
+    model_number TEXT,
+    brand TEXT,
+    description TEXT,
+    category_path TEXT,
+    attributes_json TEXT NOT NULL DEFAULT '{}',    -- RetailerProductData.attributes (tuple[tuple[str,str],...]) as a JSON object
+    package_qty TEXT NOT NULL DEFAULT '1',          -- Decimal, stored as TEXT to avoid float drift
+    package_unit TEXT,
+    url TEXT,
+    availability TEXT,
+    current_price_cents INTEGER,
+    current_observation_id INTEGER,
+    refresh_last_checked_at INTEGER,                -- EpochSeconds
+    refresh_next_refresh_at INTEGER,                -- EpochSeconds
+    refresh_interval_days INTEGER,
+    refresh_status TEXT NOT NULL DEFAULT 'ok' CHECK(refresh_status IN ('ok','pending','failed','disabled')),
+    refresh_error TEXT,
+    refresh_priority INTEGER NOT NULL DEFAULT 0,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    first_seen_at INTEGER NOT NULL,                 -- EpochSeconds
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (retailer_code) REFERENCES retailers(code) ON DELETE RESTRICT,
+    FOREIGN KEY (current_observation_id) REFERENCES price_observations(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_retailer_products_sku ON retailer_products(retailer_code, retailer_sku);
+CREATE INDEX IF NOT EXISTS idx_retailer_products_upc ON retailer_products(upc);
+CREATE INDEX IF NOT EXISTS idx_retailer_products_refresh_due ON retailer_products(refresh_next_refresh_at) WHERE active = 1;
+
+CREATE TABLE IF NOT EXISTS price_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    retailer_product_id INTEGER NOT NULL,
+    price_cents INTEGER NOT NULL,
+    observed_at INTEGER NOT NULL,                   -- EpochSeconds
+    source TEXT NOT NULL CHECK(source IN ('adapter','manual','csv')),
+    store_code TEXT,
+    was_price_cents INTEGER,
+    unit_price_cents INTEGER,
+    availability TEXT,
+    observed_by_user_id INTEGER,
+    raw_hash TEXT,
+    FOREIGN KEY (retailer_product_id) REFERENCES retailer_products(id) ON DELETE CASCADE,
+    FOREIGN KEY (observed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_price_observations_product_id ON price_observations(retailer_product_id, observed_at);
+-- Append-only (mirrors estimate_decisions/estimate_versions' locked-
+-- immutability pattern). NOTE (2026-09-30, confirmed by direct :memory:
+-- repro against this project's real SQLite 3.53.4): a CASCADE delete from
+-- retailer_products DOES fire this table's own BEFORE DELETE trigger, so
+-- deleting a retailer_products row that still has price_observations
+-- children is impossible (the trigger ABORTs the whole statement,
+-- cascade included) until/unless a future round adds an explicit
+-- "archive the observations first" path. Both the CASCADE and the
+-- append-only trigger are individually spec'd this round; this
+-- interaction is a real, intentional-per-spec consequence, logged to
+-- NEW_ISSUES.md rather than silently worked around.
+CREATE TRIGGER IF NOT EXISTS trg_price_observations_no_update
+BEFORE UPDATE ON price_observations
+BEGIN
+    SELECT RAISE(ABORT, 'price_observations: append-only, cannot modify a row');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_price_observations_no_delete
+BEFORE DELETE ON price_observations
+BEGIN
+    SELECT RAISE(ABORT, 'price_observations: append-only, cannot delete a row');
+END;
+
+CREATE TABLE IF NOT EXISTS search_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    retailer_code TEXT NOT NULL,
+    normalized_query TEXT NOT NULL,
+    result_skus_json TEXT NOT NULL,                 -- tuple[str,...] as JSON array
+    fetched_at INTEGER NOT NULL,                    -- EpochSeconds
+    FOREIGN KEY (retailer_code) REFERENCES retailers(code) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_search_cache_lookup ON search_cache(retailer_code, normalized_query);
+
+-- Canonical Materials. One row per Core-owned canonical material identity --
+-- the "target" side of codey_estimator.catalog.matcher.match(). Anchored in
+-- matcher.py's MatchTarget/NormalizedAttributes dataclasses (no formal
+-- persistence Protocol, but the shape is real, not invented).
+-- attributes_json serializes NormalizedAttributes.values (ordered (Attr,
+-- value) tuples); a Measure-typed value serializes as
+-- {"value": "<numerator>/<denominator>", "unit": "..."} to avoid float
+-- drift (Fraction has no exact float form).
+CREATE TABLE IF NOT EXISTS canonical_materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,                         -- codey_estimator.catalog.schema.Category value
+    display_name TEXT NOT NULL,
+    attributes_json TEXT NOT NULL,
+    known_upcs_json TEXT NOT NULL DEFAULT '[]',
+    known_models_json TEXT NOT NULL DEFAULT '[]',   -- [[brand, model], ...]
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_canonical_materials_category ON canonical_materials(category);
+
+-- Material Matches. One row per matcher.match() call result linking a
+-- retailer_product (candidate) to a canonical_material (target).
+CREATE TABLE IF NOT EXISTS material_matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_material_id INTEGER NOT NULL,
+    retailer_product_id INTEGER NOT NULL,
+    confidence_bp INTEGER NOT NULL CHECK(confidence_bp BETWEEN 0 AND 10000),
+    status TEXT NOT NULL CHECK(status IN ('auto_confirmed','proposed','no_match')),
+    method TEXT NOT NULL CHECK(method IN ('upc','model_number','attributes')),
+    matching_json TEXT NOT NULL DEFAULT '[]',
+    conflicting_json TEXT NOT NULL DEFAULT '[]',
+    differing_json TEXT NOT NULL DEFAULT '[]',
+    missing_json TEXT NOT NULL DEFAULT '[]',
+    subtype_capped INTEGER NOT NULL DEFAULT 0 CHECK(subtype_capped IN (0,1)),
+    confirmed_by_user_id INTEGER,
+    confirmed_at TEXT,
+    rejected_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (canonical_material_id) REFERENCES canonical_materials(id) ON DELETE CASCADE,
+    FOREIGN KEY (retailer_product_id) REFERENCES retailer_products(id) ON DELETE CASCADE,
+    FOREIGN KEY (confirmed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(canonical_material_id, retailer_product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_material_matches_canonical_id ON material_matches(canonical_material_id);
+CREATE INDEX IF NOT EXISTS idx_material_matches_retailer_product_id ON material_matches(retailer_product_id);
+
+-- Price Book Items. Ish-confirmed concept: Restoricon's own
+-- company-maintained internal materials cost catalog, one row per
+-- canonical_material, so pricing still works when a retailer adapter is
+-- down or a product hasn't been matched to a live retailer price yet.
+CREATE TABLE IF NOT EXISTS price_book_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_material_id INTEGER NOT NULL,
+    internal_code TEXT UNIQUE,
+    description TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    unit_cost_cents INTEGER NOT NULL,
+    default_markup_bp INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','retailer_derived')),
+    preferred_retailer_product_id INTEGER,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    last_synced_at TEXT,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (canonical_material_id) REFERENCES canonical_materials(id) ON DELETE RESTRICT,
+    FOREIGN KEY (preferred_retailer_product_id) REFERENCES retailer_products(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_price_book_items_canonical_material_id ON price_book_items(canonical_material_id);
+
+-- Labor Rates. Anchored in codey_estimator/dto.py's LaborRateType enum
+-- (HOURLY, FIXED_PER_UNIT, FIXED_FLAT) and LaborInput shape.
+CREATE TABLE IF NOT EXISTS labor_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    labor_type TEXT NOT NULL,
+    rate_type TEXT NOT NULL CHECK(rate_type IN ('hourly','fixed_per_unit','fixed_flat')),
+    unit TEXT,
+    cost_rate_cents INTEGER NOT NULL,
+    bill_rate_cents INTEGER NOT NULL,
+    effective_date TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_labor_rates_labor_type ON labor_rates(labor_type);
+
+-- Append-only (same pattern as price_observations above -- price_observations
+-- IS the precedent for this shape, resolving what a prior scoping pass
+-- flagged as "no precedent found"). Same CASCADE-vs-append-only-trigger
+-- interaction noted above for price_observations applies here too:
+-- deleting a labor_rates row with history children will ABORT via the
+-- fired child trigger.
+CREATE TABLE IF NOT EXISTS labor_rate_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    labor_rate_id INTEGER NOT NULL,
+    cost_rate_cents INTEGER NOT NULL,
+    bill_rate_cents INTEGER NOT NULL,
+    changed_by_user_id INTEGER,
+    changed_at TEXT NOT NULL,
+    reason TEXT,
+    FOREIGN KEY (labor_rate_id) REFERENCES labor_rates(id) ON DELETE CASCADE,
+    FOREIGN KEY (changed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_labor_rate_history_labor_rate_id ON labor_rate_history(labor_rate_id);
+CREATE TRIGGER IF NOT EXISTS trg_labor_rate_history_no_update
+BEFORE UPDATE ON labor_rate_history
+BEGIN
+    SELECT RAISE(ABORT, 'labor_rate_history: append-only, cannot modify a row');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_labor_rate_history_no_delete
+BEFORE DELETE ON labor_rate_history
+BEGIN
+    SELECT RAISE(ABORT, 'labor_rate_history: append-only, cannot delete a row');
+END;
+
+CREATE TABLE IF NOT EXISTS pricing_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    retailer_code TEXT NOT NULL,
+    job_type TEXT NOT NULL CHECK(job_type IN ('refresh_batch','search_import','manual_import')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','succeeded','failed','partial')),
+    started_at TEXT,
+    finished_at TEXT,
+    products_checked INTEGER NOT NULL DEFAULT 0,
+    products_updated INTEGER NOT NULL DEFAULT 0,
+    products_failed INTEGER NOT NULL DEFAULT 0,
+    error_summary TEXT,
+    triggered_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (retailer_code) REFERENCES retailers(code) ON DELETE CASCADE,
+    FOREIGN KEY (triggered_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pricing_jobs_retailer_code ON pricing_jobs(retailer_code, created_at);
+CREATE INDEX IF NOT EXISTS idx_pricing_jobs_status ON pricing_jobs(status) WHERE status IN ('pending','running');
+
+-- product_search_fts: a staff-facing "search what's available from
+-- retailers" typeahead over retailer_products (Ish-confirmed target).
+-- FTS5 availability confirmed directly against this device's real SQLite
+-- build (2026-09-30, CLAUDE.md rule 12 -- not assumed from any doc):
+-- `SELECT sqlite_compileoption_used('ENABLE_FTS5')` -> (1,), and a
+-- throwaway `CREATE VIRTUAL TABLE ... USING fts5(...)` succeeded, against
+-- SQLite 3.53.4. External-content FTS5 table: the sync triggers below
+-- (AFTER INSERT/UPDATE/DELETE on retailer_products) keep the index
+-- current -- retailer_products is a fresh table this round, so there is
+-- nothing to backfill.
+CREATE VIRTUAL TABLE IF NOT EXISTS product_search_fts USING fts5(
+    title, brand, model_number, description, category_path,
+    content='retailer_products', content_rowid='id'
+);
+CREATE TRIGGER IF NOT EXISTS trg_retailer_products_fts_ai AFTER INSERT ON retailer_products
+BEGIN
+    INSERT INTO product_search_fts(rowid, title, brand, model_number, description, category_path)
+    VALUES (new.id, new.title, new.brand, new.model_number, new.description, new.category_path);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_retailer_products_fts_ad AFTER DELETE ON retailer_products
+BEGIN
+    INSERT INTO product_search_fts(product_search_fts, rowid, title, brand, model_number, description, category_path)
+    VALUES ('delete', old.id, old.title, old.brand, old.model_number, old.description, old.category_path);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_retailer_products_fts_au AFTER UPDATE ON retailer_products
+BEGIN
+    INSERT INTO product_search_fts(product_search_fts, rowid, title, brand, model_number, description, category_path)
+    VALUES ('delete', old.id, old.title, old.brand, old.model_number, old.description, old.category_path);
+    INSERT INTO product_search_fts(rowid, title, brand, model_number, description, category_path)
+    VALUES (new.id, new.title, new.brand, new.model_number, new.description, new.category_path);
+END;
 
 -- Proposals / Contracts
 CREATE TABLE IF NOT EXISTS contracts (
@@ -1880,13 +2204,17 @@ CREATE TABLE estimates (
     assigned_to_user_id INTEGER,  -- defaults to creator; reassignment needs PERM_REASSIGN_ESTIMATES
     opportunity_id INTEGER,
     lead_id INTEGER,
-    -- property_id: bare INTEGER, NO FOREIGN KEY. Not the ALTER-TABLE-can't-
-    -- attach-an-FK reason used elsewhere in this file -- this IS a fresh
-    -- CREATE TABLE, so a real FK would normally be used. The real reason:
-    -- B8.1's `properties` table (sales_rep_portal.md) is DESIGNED but NOT
-    -- YET BUILT (only its permission half shipped) -- there is no target
-    -- table to reference yet. Attach a real FK in the migration that
-    -- creates `properties`.
+    -- property_id: link to the properties table (B8.1). **Correction
+    -- (2026-09-30, Codey-Estimator Phase B9.x pricing round)**: this
+    -- comment previously claimed properties was "designed but not yet
+    -- built" and left this column FK-less for that reason -- that was
+    -- stale; properties is a real, built table (has its own FK to
+    -- customers). This constant now carries a real inline FK; a legacy
+    -- DB already in v2 shape (workflow_status present) but still missing
+    -- this FK gets it attached by _migrate_estimates_property_id_fk()'s
+    -- full-table-rebuild, reusing this same constant under a different
+    -- temp name (SQLite's ALTER TABLE ADD COLUMN cannot attach a
+    -- FOREIGN KEY to an existing column).
     property_id INTEGER,
     title TEXT,
     current_version_id INTEGER,   -- FK below; NULL until the first version is created
@@ -1947,7 +2275,77 @@ CREATE TABLE estimates (
     FOREIGN KEY (current_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
     FOREIGN KEY (accepted_version_id) REFERENCES estimate_versions(id) ON DELETE SET NULL,
     FOREIGN KEY (converted_project_id) REFERENCES projects(id) ON DELETE SET NULL,
-    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
+);
+"""
+
+# Codey-Estimator Phase B9.x pricing round (2026-09-30): byte-for-byte the
+# same DDL as _SCHEMA_SQL's `estimate_line_items` block above, but with
+# `CREATE TABLE estimate_line_items (` (no `IF NOT EXISTS`) -- used only by
+# _migrate_estimate_line_items_pricing_fks(), via
+# `.replace("CREATE TABLE estimate_line_items (", "CREATE TABLE _estimate_line_items_new_v2 (", 1)`,
+# mirroring _ESTIMATES_TABLE_V2_SQL's/_USERS_TABLE_WIDENED_ROLE_SQL's
+# existing pattern's fail-loud guard if that `.replace()` no-ops. Keep the
+# two in sync any time this table changes (see
+# test_estimate_line_items_schema_and_v2_sql_column_sets_match in
+# tests/test_restoricon_core/test_database.py).
+_ESTIMATE_LINE_ITEMS_V2_SQL = """
+CREATE TABLE estimate_line_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_version_id INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    line_type TEXT NOT NULL CHECK(line_type IN ('material', 'labor', 'equipment', 'subcontractor', 'combined', 'allowance', 'fee')),
+    section TEXT,
+    category TEXT,
+    description TEXT,
+    customer_description TEXT,
+    visible_to_customer INTEGER NOT NULL DEFAULT 1 CHECK(visible_to_customer IN (0, 1)),
+    price_book_item_id INTEGER,
+    retailer_product_id INTEGER,
+    price_observation_id INTEGER,
+    retailer_code_snapshot TEXT,
+    product_title_snapshot TEXT,
+    package_qty REAL,
+    package_unit TEXT,
+    unit_cost_cents INTEGER,
+    quantity REAL,
+    unit TEXT,
+    waste_pct_bp INTEGER NOT NULL DEFAULT 0,
+    material_markup_bp INTEGER NOT NULL DEFAULT 0,
+    labor_type TEXT,
+    labor_rate_id INTEGER,
+    labor_qty REAL,
+    labor_unit TEXT,
+    labor_cost_rate_cents INTEGER,
+    labor_bill_rate_cents INTEGER,
+    equipment_id INTEGER,
+    equipment_cost_cents INTEGER,
+    equipment_markup_bp INTEGER NOT NULL DEFAULT 0,
+    subcontractor_id INTEGER,
+    sub_cost_cents INTEGER,
+    sub_markup_bp INTEGER NOT NULL DEFAULT 0,
+    taxable INTEGER NOT NULL DEFAULT 1 CHECK(taxable IN (0, 1)),
+    discount_cents INTEGER NOT NULL DEFAULT 0,
+    price_override_cents INTEGER,
+    override_reason TEXT,
+    packages_needed INTEGER,
+    material_cost_cents INTEGER NOT NULL DEFAULT 0,
+    labor_cost_cents INTEGER NOT NULL DEFAULT 0,
+    cost_total_cents INTEGER NOT NULL DEFAULT 0,
+    sell_total_cents INTEGER NOT NULL DEFAULT 0,
+    tax_cents INTEGER NOT NULL DEFAULT 0,
+    line_total_cents INTEGER NOT NULL DEFAULT 0,
+    internal_note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (estimate_version_id) REFERENCES estimate_versions(id) ON DELETE CASCADE,
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE SET NULL,
+    FOREIGN KEY (subcontractor_id) REFERENCES subcontractors(id) ON DELETE SET NULL,
+    FOREIGN KEY (price_book_item_id) REFERENCES price_book_items(id) ON DELETE SET NULL,
+    FOREIGN KEY (retailer_product_id) REFERENCES retailer_products(id) ON DELETE SET NULL,
+    FOREIGN KEY (price_observation_id) REFERENCES price_observations(id) ON DELETE SET NULL,
+    FOREIGN KEY (labor_rate_id) REFERENCES labor_rates(id) ON DELETE SET NULL
 );
 """
 
@@ -2400,6 +2798,22 @@ class DatabaseManager:
         # it copies.
         self._migrate_users_role_constraint()
         self._migrate_estimates_table_v2()
+        # Codey-Estimator Phase B9.x pricing round (2026-09-30): attaches a
+        # real FK on estimates.property_id -> properties(id). Must run
+        # AFTER _migrate_estimates_table_v2() above: that method's own
+        # gate (workflow_status column presence) means it no-ops on a DB
+        # already in v2 shape, which is exactly the case this method
+        # exists to fix (the real production DB: v2-shaped, property_id
+        # still bare). Also depends on `properties` existing, which is
+        # guaranteed by the time this second _migrate_schema() pass runs
+        # (see init_schema()).
+        self._migrate_estimates_property_id_fk()
+        # Codey-Estimator Phase B9.x pricing round (2026-09-30): attaches
+        # real FKs on estimate_line_items' 4 pricing-id columns. Depends on
+        # the 4 target tables (price_book_items, retailer_products,
+        # price_observations, labor_rates) existing, which is guaranteed by
+        # the time this second _migrate_schema() pass runs.
+        self._migrate_estimate_line_items_pricing_fks()
         # B8.16 Phase 3 (2026-09-29): widens work_orders.status's CHECK
         # constraint to add 'split'. Own transaction scope, same reasoning
         # as _migrate_users_role_constraint() above -- depends on the
@@ -2526,6 +2940,47 @@ class DatabaseManager:
                 "likely drifted from what this method expects."
             )
 
+        # Ordering-hole fix (code-reviewer finding, 2026-09-30):
+        # `_ESTIMATES_TABLE_V2_SQL` carries an inline `FOREIGN KEY
+        # (property_id) REFERENCES properties(id)` clause. This method is
+        # this table's rebuild during `_migrate_schema()`'s FIRST pass
+        # (before `executescript(_SCHEMA_SQL)` has had a chance to create
+        # `properties` on a legacy DB file), so a genuinely pre-v2 DB that
+        # also predates `properties` (pre-B8.1) would otherwise get its
+        # `estimates` rebuilt with a FK pointing at a table that doesn't
+        # exist yet. Chosen fix is (a) from the two options code-reviewer
+        # offered: gate on `properties` already existing, and strip the
+        # property_id FK clause out of this rebuild when it doesn't --
+        # `_migrate_estimates_property_id_fk()` is the method responsible
+        # for attaching it later, in `_migrate_schema()`'s SECOND pass,
+        # once `properties` is guaranteed to exist (see that method's own
+        # docstring, which already documented this exact no-op condition).
+        # Rejected (b) -- stripping the FK out of the shared constant
+        # permanently and only ever attaching it in
+        # `_migrate_estimates_property_id_fk()` -- because the constant
+        # must also stay byte-for-byte identical to _SCHEMA_SQL's own
+        # fresh-DB `estimates` CREATE TABLE block (see that block's
+        # comment), which is safe as-is: `properties` is defined earlier
+        # in `_SCHEMA_SQL`'s script, so the fresh-DB path never hits this
+        # ordering problem. Stripping only in this one runtime call site
+        # keeps that invariant intact.
+        properties_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='properties';"
+        ).fetchone() is not None
+        if not properties_exists:
+            stripped = temp_v2_sql.replace(
+                ",\n    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL\n)",
+                "\n)",
+            )
+            if "REFERENCES properties(id)" in stripped:
+                raise RuntimeError(
+                    "estimates table rebuild aborted: could not strip the "
+                    "property_id FK clause from _ESTIMATES_TABLE_V2_SQL for a "
+                    "properties-table-absent legacy DB -- the constant's exact "
+                    "text has likely drifted from what this method expects."
+                )
+            temp_v2_sql = stripped
+
         # foreign_keys is a no-op to change mid-transaction, so both the OFF
         # and the later ON must run outside the `with conn:` block.
         conn.execute("PRAGMA foreign_keys = OFF;")
@@ -2563,6 +3018,391 @@ class DatabaseManager:
         fk_violations = conn.execute("PRAGMA foreign_key_check;").fetchall()
         if fk_violations:
             raise RuntimeError(f"estimates table rebuild left FK violations: {fk_violations}")
+
+    def _migrate_estimates_property_id_fk(self) -> None:
+        """Attach a real FOREIGN KEY on `estimates.property_id` ->
+        `properties(id)` (Codey-Estimator Phase B9.x pricing round,
+        2026-09-30, Ish's decision). `properties` is a real, built table
+        (has its own FK to `customers`) -- `property_id` was left FK-less
+        because an earlier round's comment claimed `properties` was
+        "designed but not yet built"; that was stale (see _SCHEMA_SQL's
+        `estimates` block comment's correction). SQLite cannot `ALTER
+        TABLE ... ADD FOREIGN KEY`, so this rebuilds the table, reusing
+        `_ESTIMATES_TABLE_V2_SQL` (already updated to carry this FK) under
+        a disposable temp name -- same 9-step procedure as
+        `_migrate_users_role_constraint()`/`_migrate_estimates_table_v2()`
+        above (never rename `estimates` itself; build the new shape under
+        a throwaway temp name, copy, drop the original, rename the temp
+        table in).
+
+        Must run AFTER `_migrate_estimates_table_v2()`: that method's own
+        gate (`workflow_status` column presence) makes it a no-op on any
+        DB already in v2 shape -- exactly the real production DB's state
+        (v2-shaped, `property_id` still bare) that this method exists to
+        fix. A genuinely legacy pre-v2 DB never reaches this method's real
+        work either: `_migrate_estimates_table_v2()` rebuilds it straight
+        to the current `_ESTIMATES_TABLE_V2_SQL` shape (FK included) in
+        one pass, so this method's own gate below already finds the FK
+        present and no-ops.
+
+        Idempotency: gated on the exact FK clause text `REFERENCES
+        properties(id)` being present in `estimates`' stored DDL -- NOT a
+        bare `properties` substring, which would collide with this
+        table's own comment prose (mentioning the `properties` table by
+        name) and never fire (same `subcontractor_id`-shaped trap
+        `_migrate_users_role_constraint()`'s docstring documents). If
+        `estimates` doesn't exist yet, or `properties` doesn't exist yet
+        (the first of `_migrate_schema()`'s two passes per
+        `init_schema()` call, before `executescript(_SCHEMA_SQL)` has run
+        on a legacy DB file), or the FK is already present, this is a
+        no-op.
+        """
+        conn = self.get_connection()
+
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='estimates';"
+        ).fetchone()
+        if row is None or row["sql"] is None or "REFERENCES properties(id)" in row["sql"]:
+            return
+        if not conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='properties';"
+        ).fetchone():
+            return
+
+        # Pre-flight dangling-id check (code-reviewer finding, 2026-09-30):
+        # MUST run before the rebuild touches anything. The original design
+        # relied solely on the terminal `PRAGMA foreign_key_check` below,
+        # which used to run AFTER the `with conn:` block had already
+        # committed the DROP/RENAME rebuild -- so a real orphaned
+        # property_id got the FK clause permanently written into
+        # `estimates`' stored DDL before the check ever fired, and every
+        # SUBSEQUENT open saw the FK already present, no-op'd, and started
+        # up clean with zero further complaint. LEFT JOIN/NOT EXISTS style
+        # (not a blunt "any non-null" check), since `properties` is a real
+        # table rows may legitimately reference.
+        dangling = conn.execute(
+            "SELECT COUNT(*) FROM estimates e WHERE e.property_id IS NOT NULL "
+            "AND NOT EXISTS (SELECT 1 FROM properties p WHERE p.id = e.property_id);"
+        ).fetchone()[0]
+        if dangling:
+            raise RuntimeError(
+                f"estimates table property_id FK rebuild aborted: found {dangling} "
+                "row(s) with a property_id that does not resolve to any real "
+                "properties row -- refusing to attach a FOREIGN KEY that existing "
+                "data already violates; fix/clear the orphaned id(s) before retrying."
+            )
+
+        old_cols = [r["name"] for r in conn.execute("PRAGMA table_info(estimates);")]
+        # Same v2 column set _migrate_estimates_table_v2() uses -- by the
+        # time this method runs, `estimates` is always already in that
+        # shape (either built fresh via _SCHEMA_SQL, or rebuilt to it by
+        # _migrate_estimates_table_v2() above in this same _migrate_schema()
+        # call).
+        new_cols = {
+            "id", "estimate_number", "customer_id", "project_id",
+            "created_by_user_id", "created_by_name", "assigned_to_user_id",
+            "assigned_user_id", "opportunity_id", "lead_id", "property_id",
+            "title", "current_version_id", "accepted_version_id", "accepted_at",
+            "converted_project_id", "contract_id", "source", "workflow_status",
+            "internal_review_required",
+            "expires_at", "customer_notes", "terms", "sent_at", "last_viewed_at",
+            "line_items_json", "subtotal", "materials_cost", "labor_cost",
+            "subcontractor_cost", "markup_percent", "tax_amount",
+            "discount_amount", "total_amount", "status", "expiration_date",
+            "version", "notes", "created_at", "updated_at",
+        }
+        missing = set(old_cols) - new_cols
+        if missing:
+            raise RuntimeError(
+                f"estimates table property_id FK rebuild aborted: DB has column(s) "
+                f"{missing} not present in the v2 schema -- update the rebuild DDL/"
+                "copy list before retrying; do not drop data silently."
+            )
+        col_list = ", ".join(old_cols)
+
+        seq_row = conn.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name='estimates';"
+        ).fetchone()
+        preserved_seq = seq_row["seq"] if seq_row else None
+
+        trigger_count_before = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='estimates';"
+        ).fetchone()[0]
+
+        temp_sql = _ESTIMATES_TABLE_V2_SQL.replace(
+            "CREATE TABLE estimates (", "CREATE TABLE _estimates_new_property_fk (", 1
+        )
+        if "_estimates_new_property_fk" not in temp_sql:
+            raise RuntimeError(
+                "estimates table property_id FK rebuild aborted: could not rewrite "
+                "_ESTIMATES_TABLE_V2_SQL's 'CREATE TABLE estimates (' opener to the "
+                "temp table name -- the constant's exact text has likely drifted "
+                "from what this method expects."
+            )
+
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            with conn:
+                conn.execute("BEGIN IMMEDIATE;")
+                conn.execute("DROP TABLE IF EXISTS _estimates_new_property_fk;")
+                conn.execute(temp_sql)
+                conn.execute(
+                    f"INSERT INTO _estimates_new_property_fk ({col_list}) "
+                    f"SELECT {col_list} FROM estimates;"
+                )
+                conn.execute("DROP TABLE estimates;")
+                conn.execute("ALTER TABLE _estimates_new_property_fk RENAME TO estimates;")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_customer_id ON estimates(customer_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_number ON estimates(estimate_number);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_created_by_user_id ON estimates(created_by_user_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_assigned_to_user_id ON estimates(assigned_to_user_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_workflow_status ON estimates(workflow_status, updated_at);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_project_id ON estimates(project_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_estimates_opportunity_id ON estimates(opportunity_id);")
+                if preserved_seq is not None:
+                    conn.execute("DELETE FROM sqlite_sequence WHERE name = 'estimates';")
+                    conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) VALUES ('estimates', ?);",
+                        (preserved_seq,),
+                    )
+                # Code-reviewer finding, 2026-09-30: this check must run
+                # INSIDE this transaction, before it commits -- raising here
+                # rolls the whole rebuild back via the `with conn:` context
+                # manager's exception handling, instead of (as originally
+                # written) running AFTER `with conn:` had already exited and
+                # committed, which left a genuinely-missed violation
+                # permanently written into `estimates`' stored DDL with the
+                # violating row still in it (see this method's pre-flight
+                # check above's docstring for the concrete way this bit).
+                # Scoped to `estimates` specifically (`PRAGMA
+                # foreign_key_check(estimates)`), not the whole DB: a bare
+                # whole-DB `foreign_key_check` here would make ANY
+                # unrelated pre-existing violation elsewhere in a legacy DB
+                # file (there are other `foreign_keys = OFF` migration
+                # windows) roll this rebuild back forever, permanently
+                # bricking the DB on an unrelated table this method has no
+                # business examining.
+                fk_violations = conn.execute("PRAGMA foreign_key_check(estimates);").fetchall()
+                if fk_violations:
+                    raise RuntimeError(
+                        f"estimates table property_id FK rebuild left FK violations: {fk_violations}"
+                    )
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON;")
+
+        # `estimates` has no triggers of its own (confirmed directly against
+        # a fresh :memory: DB, 2026-09-30) -- this assertion is defense in
+        # depth in case a future round adds one and forgets to update this
+        # rebuild, not evidence any currently exist.
+        trigger_count_after = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='estimates';"
+        ).fetchone()[0]
+        if trigger_count_after != trigger_count_before:
+            raise RuntimeError(
+                f"estimates table property_id FK rebuild lost trigger(s): had "
+                f"{trigger_count_before}, now has {trigger_count_after}."
+            )
+
+    def _migrate_estimate_line_items_pricing_fks(self) -> None:
+        """Attach real FOREIGN KEYs on `estimate_line_items`' 4 pricing-id
+        columns (`price_book_item_id`, `retailer_product_id`,
+        `price_observation_id`, `labor_rate_id`) -> their respective new
+        pricing tables (Codey-Estimator Phase B9.x pricing round,
+        2026-09-30, Ish's decision). These 4 columns were bare, unenforced
+        INTEGERs because their target tables did not exist yet -- see
+        _SCHEMA_SQL's `estimate_line_items` block comment. All 4 FKs are
+        `ON DELETE SET NULL`: they are optional cost-sourcing references
+        (the row's own snapshot columns are what actually render), not
+        ownership, matching this table's existing `equipment_id`/
+        `subcontractor_id` FK convention.
+
+        SQLite cannot `ALTER TABLE ... ADD FOREIGN KEY`, so this rebuilds
+        the table -- same 9/10-step procedure as
+        `_migrate_users_role_constraint()`/`_migrate_estimates_table_v2()`
+        above (never rename `estimate_line_items` itself; build the new
+        shape under a throwaway temp name, copy, drop the original,
+        rename the temp table in), PLUS a pre-flight dangling-id check and
+        a trigger-count assertion this table's own 3 locked-immutability
+        triggers (`trg_estimate_line_items_locked_update`/`_insert`/
+        `_delete`) require -- dropping the table drops its triggers, and
+        silently losing them would degrade the locked-version-immutability
+        guarantee from a DB-level backstop to service-layer-only
+        enforcement with no loud failure.
+
+        Pre-flight dangling-id check: LEFT JOIN/NOT EXISTS style, checked
+        against each of the 4 target tables individually -- NOT a blunt
+        "any non-null value in any of the 4 columns" check. **Resolution
+        (code-reviewer decision, 2026-09-30, superseding this docstring's
+        original NOTE)**: the original design used the blunt form, flagged
+        here as worth narrowing so this method wouldn't become permanently
+        un-runnable against any DB that legitimately starts writing rows
+        into these 4 columns before this exact migration next runs against
+        it. Code-reviewer has now made that call -- narrowed, as here.
+
+        Idempotency: gated on the exact FK clause text `REFERENCES
+        price_book_items(id)` being present in `estimate_line_items`'
+        stored DDL -- not a bare `price_book_items` substring, which would
+        collide with this table's own comment prose (mentioning the table
+        by name) and never fire (same `subcontractor_id`-shaped trap
+        `_migrate_users_role_constraint()`'s docstring documents). If
+        `estimate_line_items` doesn't exist yet, or any of the 4 target
+        tables don't exist yet (the first of `_migrate_schema()`'s two
+        passes per `init_schema()` call, before
+        `executescript(_SCHEMA_SQL)` has run on a legacy DB file), or the
+        FK is already present, this is a no-op.
+        """
+        conn = self.get_connection()
+
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='estimate_line_items';"
+        ).fetchone()
+        if row is None or row["sql"] is None or "REFERENCES price_book_items(id)" in row["sql"]:
+            return
+        for target_table in ("price_book_items", "retailer_products", "price_observations", "labor_rates"):
+            if not conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (target_table,)
+            ).fetchone():
+                return
+
+        dangling_by_column = {
+            "price_book_item_id": conn.execute(
+                "SELECT COUNT(*) FROM estimate_line_items eli WHERE eli.price_book_item_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM price_book_items t WHERE t.id = eli.price_book_item_id);"
+            ).fetchone()[0],
+            "retailer_product_id": conn.execute(
+                "SELECT COUNT(*) FROM estimate_line_items eli WHERE eli.retailer_product_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM retailer_products t WHERE t.id = eli.retailer_product_id);"
+            ).fetchone()[0],
+            "price_observation_id": conn.execute(
+                "SELECT COUNT(*) FROM estimate_line_items eli WHERE eli.price_observation_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM price_observations t WHERE t.id = eli.price_observation_id);"
+            ).fetchone()[0],
+            "labor_rate_id": conn.execute(
+                "SELECT COUNT(*) FROM estimate_line_items eli WHERE eli.labor_rate_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM labor_rates t WHERE t.id = eli.labor_rate_id);"
+            ).fetchone()[0],
+        }
+        violating = {col: count for col, count in dangling_by_column.items() if count}
+        if violating:
+            raise RuntimeError(
+                f"estimate_line_items pricing FK rebuild aborted: found dangling id(s) "
+                f"that do not resolve to a real row in their target table: {violating} "
+                "-- refusing to silently null out or proceed; fix/clear the orphaned "
+                "id(s) before retrying."
+            )
+
+        old_cols = [r["name"] for r in conn.execute("PRAGMA table_info(estimate_line_items);")]
+        new_cols = {
+            "id", "estimate_version_id", "sort_order", "line_type", "section", "category",
+            "description", "customer_description", "visible_to_customer",
+            "price_book_item_id", "retailer_product_id", "price_observation_id",
+            "retailer_code_snapshot", "product_title_snapshot", "package_qty", "package_unit",
+            "unit_cost_cents", "quantity", "unit", "waste_pct_bp", "material_markup_bp",
+            "labor_type", "labor_rate_id", "labor_qty", "labor_unit", "labor_cost_rate_cents",
+            "labor_bill_rate_cents", "equipment_id", "equipment_cost_cents", "equipment_markup_bp",
+            "subcontractor_id", "sub_cost_cents", "sub_markup_bp", "taxable", "discount_cents",
+            "price_override_cents", "override_reason", "packages_needed", "material_cost_cents",
+            "labor_cost_cents", "cost_total_cents", "sell_total_cents", "tax_cents",
+            "line_total_cents", "internal_note", "created_at", "updated_at",
+        }
+        missing = set(old_cols) - new_cols
+        if missing:
+            raise RuntimeError(
+                f"estimate_line_items pricing FK rebuild aborted: DB has column(s) "
+                f"{missing} not present in the pricing-FK schema -- update the rebuild "
+                "DDL/copy list before retrying; do not drop data silently."
+            )
+        col_list = ", ".join(old_cols)
+
+        seq_row = conn.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name='estimate_line_items';"
+        ).fetchone()
+        preserved_seq = seq_row["seq"] if seq_row else None
+
+        trigger_count_before = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='estimate_line_items';"
+        ).fetchone()[0]
+
+        temp_sql = _ESTIMATE_LINE_ITEMS_V2_SQL.replace(
+            "CREATE TABLE estimate_line_items (", "CREATE TABLE _estimate_line_items_new_v2 (", 1
+        )
+        if "_estimate_line_items_new_v2" not in temp_sql:
+            raise RuntimeError(
+                "estimate_line_items pricing FK rebuild aborted: could not rewrite "
+                "_ESTIMATE_LINE_ITEMS_V2_SQL's 'CREATE TABLE estimate_line_items (' "
+                "opener to the temp table name -- the constant's exact text has "
+                "likely drifted from what this method expects."
+            )
+
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            with conn:
+                conn.execute("BEGIN IMMEDIATE;")
+                conn.execute("DROP TABLE IF EXISTS _estimate_line_items_new_v2;")
+                conn.execute(temp_sql)
+                conn.execute(
+                    f"INSERT INTO _estimate_line_items_new_v2 ({col_list}) "
+                    f"SELECT {col_list} FROM estimate_line_items;"
+                )
+                conn.execute("DROP TABLE estimate_line_items;")
+                conn.execute("ALTER TABLE _estimate_line_items_new_v2 RENAME TO estimate_line_items;")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_estimate_line_items_version_id "
+                    "ON estimate_line_items(estimate_version_id, sort_order);"
+                )
+                # Recreate all 3 locked-immutability triggers verbatim --
+                # DROP TABLE drops them, and the DB-level immutability
+                # backstop must not silently degrade to service-layer-only
+                # enforcement.
+                conn.execute(
+                    "CREATE TRIGGER IF NOT EXISTS trg_estimate_line_items_locked_update "
+                    "BEFORE UPDATE ON estimate_line_items "
+                    "FOR EACH ROW WHEN (SELECT is_locked FROM estimate_versions WHERE id = OLD.estimate_version_id) = 1 "
+                    "BEGIN SELECT RAISE(ABORT, 'estimate_line_items: cannot modify a line on a locked version'); END;"
+                )
+                conn.execute(
+                    "CREATE TRIGGER IF NOT EXISTS trg_estimate_line_items_locked_insert "
+                    "BEFORE INSERT ON estimate_line_items "
+                    "FOR EACH ROW WHEN (SELECT is_locked FROM estimate_versions WHERE id = NEW.estimate_version_id) = 1 "
+                    "BEGIN SELECT RAISE(ABORT, 'estimate_line_items: cannot add a line to a locked version'); END;"
+                )
+                conn.execute(
+                    "CREATE TRIGGER IF NOT EXISTS trg_estimate_line_items_locked_delete "
+                    "BEFORE DELETE ON estimate_line_items "
+                    "FOR EACH ROW WHEN (SELECT is_locked FROM estimate_versions WHERE id = OLD.estimate_version_id) = 1 "
+                    "BEGIN SELECT RAISE(ABORT, 'estimate_line_items: cannot remove a line from a locked version'); END;"
+                )
+                if preserved_seq is not None:
+                    conn.execute("DELETE FROM sqlite_sequence WHERE name = 'estimate_line_items';")
+                    conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) VALUES ('estimate_line_items', ?);",
+                        (preserved_seq,),
+                    )
+                # Code-reviewer finding, 2026-09-30: run INSIDE this
+                # transaction, before it commits -- see the sibling
+                # _migrate_estimates_property_id_fk()'s identical comment
+                # for the full reasoning (raising here rolls the rebuild
+                # back instead of merely reporting damage already
+                # committed). Scoped to `estimate_line_items` specifically
+                # (not a bare whole-DB `PRAGMA foreign_key_check`), so an
+                # unrelated pre-existing violation elsewhere in a legacy DB
+                # file can't brick this rebuild permanently.
+                fk_violations = conn.execute("PRAGMA foreign_key_check(estimate_line_items);").fetchall()
+                if fk_violations:
+                    raise RuntimeError(
+                        f"estimate_line_items pricing FK rebuild left FK violations: {fk_violations}"
+                    )
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON;")
+
+        trigger_count_after = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='estimate_line_items';"
+        ).fetchone()[0]
+        if trigger_count_after != trigger_count_before:
+            raise RuntimeError(
+                f"estimate_line_items pricing FK rebuild lost trigger(s): had "
+                f"{trigger_count_before}, now has {trigger_count_after}."
+            )
 
     def _migrate_users_role_constraint(self) -> None:
         """Rebuild `users` to widen its `role` CHECK constraint to include
