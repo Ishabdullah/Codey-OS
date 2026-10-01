@@ -90,6 +90,38 @@ def get_customer_capability(customer_id: int, **kwargs) -> Dict[str, Any]:
     return _get_client().get_customer(customer_id=customer_id)
 
 
+def list_properties_capability(customer_id: Optional[int] = None, **kwargs) -> Dict[str, Any]:
+    """List properties (capped, see client.LIST_CAP), optionally scoped to one customer."""
+    return _get_client().list_properties(customer_id=customer_id)
+
+
+def list_estimates_capability(
+    customer_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    """List estimates (capped, see client.LIST_CAP), with the 4
+    masked-by-role-not-permission cost fields stripped client-side
+    (see client.py's CoreQueryClient.list_estimates comment, NEW-752)."""
+    return _get_client().list_estimates(customer_id=customer_id, project_id=project_id)
+
+
+def list_communications_capability(
+    customer_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    lead_id: Optional[int] = None,
+    channel: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    **kwargs,
+) -> Dict[str, Any]:
+    """List communications (capped, see client.LIST_CAP), optionally filtered."""
+    return _get_client().list_communications(
+        customer_id=customer_id, project_id=project_id, lead_id=lead_id,
+        channel=channel, limit=limit, offset=offset,
+    )
+
+
 def list_tasks_capability(
     status: Optional[str] = None,
     customer_id: Optional[int] = None,

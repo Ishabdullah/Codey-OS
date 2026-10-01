@@ -28,7 +28,7 @@ from ccos.core.plugin_manager import PluginManager
 from ccos.plugins.crm.core_query.client import CoreQueryClient, LIST_CAP
 from restoricon_core.api.server import RestoriconAPIServer
 from restoricon_core.auth import ROLE_ADMIN
-from restoricon_core.models import Customer, Lead, Opportunity, Task
+from restoricon_core.models import Appointment, Customer, Estimate, Lead, Opportunity, Property, Task
 from tools.provision_ai_agent_auth import CRM_READER_DENY_PERMISSIONS, CRM_READER_USERNAME, provision
 
 
@@ -96,6 +96,31 @@ def crm_server_and_token(tmp_path, monkeypatch):
         Task(title="Follow up", customer_id=cust1.id, assigned_user_id=rep_a.id), admin_ctx
     )
 
+    # B8.11 Part C fixtures: one property, one estimate (with real cost
+    # fields so the cost-strip test has something real to strip), and one
+    # communication record, all scoped to cust1 -- fans out from a single
+    # customer_id, the same shape appointment-prep uses.
+    prop1 = server.crm_service.create_property(
+        Property(customer_id=cust1.id, address="123 Main St"), admin_ctx
+    )
+    est1 = server.crm_service.create_estimate(
+        Estimate(
+            customer_id=cust1.id,
+            assigned_user_id=rep_a.id,
+            line_items=[{"description": "Roof replacement", "quantity": 1, "unit_cost": 5000.0, "category": "materials"}],
+            markup_percent=15.0,
+        ),
+        admin_ctx,
+    )
+    server.comm_service.record_communication(
+        channel="email", direction="inbound", content="Interested in a quote",
+        actor=admin_ctx, customer_id=cust1.id,
+    )
+
+    appt1 = server.scheduling_service.create_appointment(
+        Appointment(customer_id=cust1.id, assigned_user_id=rep_a.id, title="Initial inspection"), admin_ctx
+    )
+
     # The CLI (`python -m tools.provision_ai_agent_auth --username
     # codey-ccos-crm-reader`) applies CRM_READER_DENY_PERMISSIONS
     # automatically based on the username (see provision_ai_agent_auth's
@@ -123,6 +148,7 @@ def crm_server_and_token(tmp_path, monkeypatch):
         "server": server, "base_url": f"http://127.0.0.1:{port}", "db_path": db_path,
         "token": token, "rep_a": rep_a, "rep_b": rep_b, "lead_b": lead_b,
         "opportunity": opp, "customer": cust1, "admin_ctx": admin_ctx,
+        "property": prop1, "estimate": est1, "appointment": appt1,
     }
 
     client_mod._default_client = None
@@ -320,3 +346,76 @@ def test_list_tasks_truncation_marker(crm_server_and_token, pm):
     assert result["truncated"] is True
     assert result["returned"] == LIST_CAP
     assert "more not shown, narrow your query" in result["note"]
+
+
+# ── B8.11 Part C: the 3 new capabilities (crm.list_properties/
+# list_estimates/list_communications), round-tripped through
+# pm.call_capability() against a real Core instance -- NEW-750's own
+# precedent is why this is a real call_capability() exercise, not just a
+# manifest-parses assertion. ─────────────────────────────────────────────
+
+def test_list_properties_reachable_and_customer_scoped(crm_server_and_token, pm):
+    cust_id = crm_server_and_token["customer"].id
+    prop = crm_server_and_token["property"]
+    result = pm.call_capability("crm.list_properties", customer_id=cust_id)
+    assert result["truncated"] is False
+    ids = [p["id"] for p in result["properties"]]
+    assert prop.id in ids
+
+
+def test_list_estimates_reachable(crm_server_and_token, pm):
+    cust_id = crm_server_and_token["customer"].id
+    est = crm_server_and_token["estimate"]
+    result = pm.call_capability("crm.list_estimates", customer_id=cust_id)
+    assert result["truncated"] is False
+    ids = [e["id"] for e in result["estimates"]]
+    assert est.id in ids
+
+
+def test_list_estimates_strips_cost_fields_even_though_core_returns_them(crm_server_and_token, pm):
+    """Pins the B8.11 Part C MANDATORY FIX: CRMService._row_to_estimate()
+    masks materials_cost/labor_cost/subcontractor_cost/markup_percent by
+    ROLE (ROLE_CUSTOMER/ROLE_TECHNICIAN), not by PERM_READ_ESTIMATE_COSTS
+    (denied for this token) -- ROLE_AI_AGENT is neither masked role, so
+    Core's raw GET /api/v1/estimates response genuinely DOES include these
+    4 fields in full for this token (asserted directly below, so this test
+    fails loudly if that underlying Core behavior is ever fixed without
+    this plugin-side strip being revisited). The capability's own output
+    must have them stripped regardless."""
+    cust_id = crm_server_and_token["customer"].id
+    est = crm_server_and_token["estimate"]
+
+    # First: confirm Core's raw response really does leak the 4 fields to
+    # this token (proves the strip is doing real work, not stripping
+    # fields that were never present).
+    import requests as _requests
+
+    base_url = crm_server_and_token["base_url"]
+    token = crm_server_and_token["token"]
+    raw = _requests.get(
+        f"{base_url}/api/v1/estimates", params={"customer_id": cust_id},
+        headers={"Authorization": f"Bearer {token}"}, timeout=10.0,
+    ).json()
+    raw_estimate = next(e for e in raw["estimates"] if e["id"] == est.id)
+    for field in ("materials_cost", "labor_cost", "subcontractor_cost", "markup_percent"):
+        assert field in raw_estimate, f"test setup assumption violated: Core did not return {field!r}"
+    # materials_cost/markup_percent are genuinely nonzero for this fixture's
+    # single "materials"-category line item + 15% markup -- labor_cost/
+    # subcontractor_cost are correctly 0 (no line items in those buckets),
+    # not masked-to-zero, so only these two are asserted nonzero here.
+    assert raw_estimate["materials_cost"] != 0
+    assert raw_estimate["markup_percent"] != 0
+
+    # Now: the capability's own output must not have them.
+    result = pm.call_capability("crm.list_estimates", customer_id=cust_id)
+    capability_estimate = next(e for e in result["estimates"] if e["id"] == est.id)
+    for field in ("materials_cost", "labor_cost", "subcontractor_cost", "markup_percent"):
+        assert field not in capability_estimate, f"{field!r} must be stripped from crm.list_estimates output"
+
+
+def test_list_communications_reachable(crm_server_and_token, pm):
+    cust_id = crm_server_and_token["customer"].id
+    result = pm.call_capability("crm.list_communications", customer_id=cust_id)
+    assert result["truncated"] is False
+    assert len(result["communications"]) == 1
+    assert result["communications"][0]["customer_id"] == cust_id

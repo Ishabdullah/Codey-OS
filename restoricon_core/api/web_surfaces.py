@@ -6559,6 +6559,30 @@ def _render_sales_portal() -> str:
             <p id="dashboardErrorMsg" style="margin:0; color: var(--danger); font-weight:600;"></p>
         </div>
 
+        <!-- B8.11 "AI Sales Copilot" Part B: read-only summarization/
+             recommendation panel over existing pipeline/lead/opportunity
+             data via /api/v1/sales/copilot-summary. Never a write path,
+             never a second copy of CRM data -- every click is a live,
+             on-demand retrieve-then-generate call. -->
+        <div class="erp-card">
+            <h2 style="margin-top:0;">AI Sales Copilot</h2>
+            <p style="margin:0 0 0.75rem 0; color:var(--text-muted); font-size:0.85rem;">
+                Ask about your pipeline, leads, opportunities, or follow-up tasks. Read-only --
+                this never changes any record.
+            </p>
+            <div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:0.6rem;">
+                <select id="copilotPanel" class="modal-field" style="width:auto; padding:0.5rem; border:1px solid var(--border-light); border-radius:6px;">
+                    <option value="pipeline">Pipeline</option>
+                    <option value="leads">Leads</option>
+                    <option value="opportunities">Opportunities</option>
+                    <option value="tasks">Follow-up Tasks</option>
+                </select>
+                <input type="text" id="copilotPrompt" placeholder="e.g. which leads haven't been touched recently?" style="flex:1; min-width:220px; padding:0.5rem; border:1px solid var(--border-light); border-radius:6px;">
+                <button class="btn-gold" id="copilotGenerateBtn" onclick="generateSalesCopilotSummary()">Generate</button>
+            </div>
+            <div id="copilotResultArea" style="white-space:pre-wrap; font-size:0.9rem; color:var(--charcoal); min-height:1.5rem;"></div>
+        </div>
+
         <div class="erp-card">
             <h2 style="margin-top:0;">My Schedule</h2>
             <div class="table-scroll-wrapper"><table>
@@ -6571,14 +6595,18 @@ def _render_sales_portal() -> str:
             <h2 style="margin-top:0;">Appointments</h2>
             <h3 style="margin:0 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Today</h3>
             <div class="table-scroll-wrapper"><table>
-                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
-                <tbody id="dashApptTodayList"><tr><td colspan="3">Loading...</td></tr></tbody>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th><th></th></tr></thead>
+                <tbody id="dashApptTodayList"><tr><td colspan="4">Loading...</td></tr></tbody>
             </table></div>
             <h3 style="margin:1rem 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Upcoming</h3>
             <div class="table-scroll-wrapper"><table>
-                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
-                <tbody id="dashApptUpcomingList"><tr><td colspan="3">Loading...</td></tr></tbody>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th><th></th></tr></thead>
+                <tbody id="dashApptUpcomingList"><tr><td colspan="4">Loading...</td></tr></tbody>
             </table></div>
+            <!-- B8.11 Part C: appointment-prep result, populated by
+                 generateAppointmentPrep() below -- read-only, discarded on
+                 next click, never persisted. -->
+            <div id="apptPrepResultArea" style="white-space:pre-wrap; font-size:0.9rem; color:var(--charcoal); margin-top:0.75rem;"></div>
         </div>
 
         <div class="erp-card">
@@ -6890,6 +6918,68 @@ def _render_sales_portal() -> str:
             return sessionStorage.getItem('restoricon_token') || '';
         }}
 
+        // B8.11 Part B: "AI Sales Copilot" pipeline/lead/opportunity
+        // summarization panel. Read-only -- POSTs only the panel/prompt
+        // selection, never any CRM record; the server retrieves and scopes
+        // the real data itself (see routes.py's own actor-scoping comment).
+        // Up to the same ~180s timeout as /api/v1/ai/chat's own completion
+        // call (both go through the same budget-gated helper).
+        async function generateSalesCopilotSummary() {{
+            const btn = document.getElementById('copilotGenerateBtn');
+            const resultArea = document.getElementById('copilotResultArea');
+            const panel = document.getElementById('copilotPanel').value;
+            const prompt = document.getElementById('copilotPrompt').value;
+            btn.disabled = true;
+            btn.innerText = 'Generating...';
+            resultArea.textContent = 'Generating summary... this can take a little while on a local model.';
+            try {{
+                const res = await fetch('/api/v1/sales/copilot-summary', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + getAuthToken(), 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ panel: panel, prompt: prompt }}),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{
+                    resultArea.textContent = 'Error: ' + (data.error || ('request failed (' + res.status + ')'));
+                }} else {{
+                    const content = (data.choices && data.choices[0] && data.choices[0].message)
+                        ? data.choices[0].message.content : JSON.stringify(data);
+                    resultArea.textContent = content;
+                }}
+            }} catch (err) {{
+                resultArea.textContent = 'Error: network error generating summary.';
+            }} finally {{
+                btn.disabled = false;
+                btn.innerText = 'Generate';
+            }}
+        }}
+
+        // B8.11 Part C: "AI Sales Copilot" appointment-prep. Read-only --
+        // POSTs only the appointment_id; the server resolves customer_id,
+        // retrieves properties/estimates/communications server-side scoped
+        // to that customer, and generates one summary.
+        async function generateAppointmentPrep(appointmentId) {{
+            const resultArea = document.getElementById('apptPrepResultArea');
+            resultArea.textContent = 'Preparing appointment summary... this can take a little while on a local model.';
+            try {{
+                const res = await fetch('/api/v1/sales/appointment-prep', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + getAuthToken(), 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ appointment_id: appointmentId }}),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{
+                    resultArea.textContent = 'Error: ' + (data.error || ('request failed (' + res.status + ')'));
+                }} else {{
+                    const content = (data.choices && data.choices[0] && data.choices[0].message)
+                        ? data.choices[0].message.content : JSON.stringify(data);
+                    resultArea.textContent = content;
+                }}
+            }} catch (err) {{
+                resultArea.textContent = 'Error: network error preparing appointment summary.';
+            }}
+        }}
+
         // B8.10a: shared badge/action-button renderers for the Follow-ups
         // panel and the Customer 360 Tasks panel -- both display the same
         // Task rows fetched from GET /api/v1/crm/tasks (directly or via the
@@ -7197,8 +7287,8 @@ def _render_sales_portal() -> str:
                     const dashboardUnavailableMsg = 'Cannot load dashboard: no associated user identity';
                     errBanner.style.display = 'block';
                     errMsg.textContent = dashboardUnavailableMsg;
-                    document.getElementById('dashApptTodayList').innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
-                    document.getElementById('dashApptUpcomingList').innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('dashApptTodayList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('dashApptUpcomingList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
                     document.getElementById('followupsList').innerHTML = `<tr><td colspan="6" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
                     document.getElementById('pipelineSummaryList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
                     document.getElementById('pipelineTotals').textContent = '';
@@ -7223,19 +7313,23 @@ def _render_sales_portal() -> str:
                     // StaffSchedule records above -- these are Appointment rows).
                     const apptToday = document.getElementById('dashApptTodayList');
                     const apptUpcoming = document.getElementById('dashApptUpcomingList');
+                    // B8.11 Part C: "Prep" button per row, calling
+                    // generateAppointmentPrep(a.id) below -- read-only,
+                    // fans out from this appointment's own customer_id.
                     const renderAppts = (list) => list.map(a =>
                         `<tr>
                             <td>${{escapeHtml(a.start_time)}}</td>
                             <td>${{escapeHtml(a.title)}}</td>
                             <td><span class="badge ${{a.status === 'confirmed' ? 'badge-info' : 'badge-gold'}}">${{escapeHtml(a.status)}}</span></td>
+                            <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="generateAppointmentPrep(${{a.id}})">Prep</button></td>
                         </tr>`
                     ).join('');
                     apptToday.innerHTML = (data.appointments && data.appointments.today && data.appointments.today.length > 0)
                         ? renderAppts(data.appointments.today)
-                        : '<tr><td colspan="3" style="color:var(--text-muted)">No appointments today.</td></tr>';
+                        : '<tr><td colspan="4" style="color:var(--text-muted)">No appointments today.</td></tr>';
                     apptUpcoming.innerHTML = (data.appointments && data.appointments.upcoming && data.appointments.upcoming.length > 0)
                         ? renderAppts(data.appointments.upcoming)
-                        : '<tr><td colspan="3" style="color:var(--text-muted)">No upcoming appointments.</td></tr>';
+                        : '<tr><td colspan="4" style="color:var(--text-muted)">No upcoming appointments.</td></tr>';
 
                     // New Leads badge (count only -- the My Leads table above stays
                     // fed by the unparameterized /api/v1/leads fetch, NOT this

@@ -13,13 +13,16 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from ..auth import (
     AuthContext,
     AuthService,
     PERM_READ_ALL_CUSTOMERS,
+    PERM_READ_CRM,
+    PERM_READ_LEADS,
+    PERM_READ_OPPORTUNITIES,
     PERM_LOG_COMMUNICATION,
     PERM_MANAGE_USERS,
     PERM_READ_TEAM_COMMISSIONS,
@@ -354,6 +357,292 @@ def _emit_ai_chat_telemetry(
             "telemetry: failed to record inference-completion for /api/v1/ai/chat",
             exc_info=True,
         )
+
+
+def _call_budget_gated_completion(
+    *,
+    messages: List[Dict[str, Any]],
+    max_tokens: int,
+    temperature: float = 0.3,
+    enable_thinking: bool = False,
+    model_name: str = "codey",
+    on_success: Optional[Callable[[Dict[str, Any], float, Optional[float], Optional[int]], None]] = None,
+) -> Tuple[int, Dict[str, str], Dict[str, Any]]:
+    """Shared RAM-discipline-gated llama-server completion call (B8.11 Part
+    A), extracted from `/api/v1/ai/chat`'s original inline implementation
+    so the new `/api/v1/sales/copilot-summary` and
+    `/api/v1/sales/appointment-prep` routes (B8.11 Parts B/C) reuse the
+    identical context-budget admission gate rather than reimplementing or
+    bypassing it -- this device's RAM discipline (CLAUDE.md rule 2) is a
+    requirement, not a style choice.
+
+    `on_success`, when given, is a `(resp_data, wall_ms, queue_wait_ms,
+    n_ctx) -> None` callable invoked once `resp_data` is fully parsed,
+    before this function returns. `/api/v1/ai/chat`'s own Category-A
+    telemetry (`_emit_ai_chat_telemetry`) is deliberately NOT folded into
+    this shared helper -- it is schema-tagged specifically for that one
+    endpoint (`docs/telemetry_layer_design.md` §2.A), so hoisting it here
+    would mislabel the two new routes' completions as `ai_chat` telemetry,
+    silently corrupting that signal. `/api/v1/ai/chat` passes a closure
+    that calls `_emit_ai_chat_telemetry` with its own
+    `interactive_at_request_start`; the two new B8.11 routes pass no hook
+    at all (no telemetry for them this round).
+
+    Returns the exact `(status, headers, body)` tuple a route handler
+    returns directly: 429 when the budget gate refuses admission, 503 on
+    a gate error, the upstream HTTP error's own status on an `HTTPError`,
+    502 on any other upstream failure, otherwise the llama-server
+    completion's own status/body.
+
+    The `core.resource_gate` imports stay lazy and INSIDE this function
+    (never hoisted to module scope) for two reasons that both predate this
+    extraction: the optional-dependency fallback below (an `ImportError`
+    here means the gate is simply skipped), and
+    `tests/test_restoricon_core/test_api.py`'s strict release spy, which
+    patches `core.resource_gate.release_context_budget` directly (NEW-443)
+    -- a lazy, inside-the-function import re-reads that module attribute
+    at call time, so the patch takes effect regardless of which function
+    body performs the import.
+    """
+    port = int(os.getenv("PRIMARY_SERVER_PORT", "8080"))
+    host = os.getenv("PRIMARY_SERVER_HOST", "127.0.0.1")
+
+    reservation_id = None
+    budget_decision = None
+    queue_wait_ms = None
+    try:
+        from core.resource_gate import (
+            release_context_budget,
+            wait_and_reserve_context_budget,
+        )
+
+        _gate_wait_start = time.monotonic()
+        budget_decision = wait_and_reserve_context_budget(
+            port, messages, max_tokens, host=host
+        )
+        queue_wait_ms = (time.monotonic() - _gate_wait_start) * 1000.0
+        if not budget_decision.admitted:
+            return 429, {"Content-Type": "application/json"}, {
+                "error": f"AI model context-budget admission refused: {budget_decision.reason}"
+            }
+        reservation_id = budget_decision.reservation_id
+    except ImportError:
+        pass
+    except Exception as e:
+        return 503, {"Content-Type": "application/json"}, {
+            "error": f"Context budget gate error: {str(e)}"
+        }
+
+    try:
+        req_payload = {
+            "model": model_name,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
+        }
+        data_bytes = json.dumps(req_payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"http://{host}:{port}/v1/chat/completions",
+            data=data_bytes,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        _llm_call_start = time.monotonic()
+        with urllib.request.urlopen(req, timeout=180.0) as resp:
+            resp_data = json.loads(resp.read().decode("utf-8"))
+            wall_ms = (time.monotonic() - _llm_call_start) * 1000.0
+            # Passive read of an already-parsed resp_data, same contract as
+            # _emit_ai_chat_telemetry's own call site -- must not and does
+            # not change resp_data or the tuple returned to the caller.
+            if on_success is not None:
+                on_success(
+                    resp_data,
+                    wall_ms,
+                    queue_wait_ms,
+                    budget_decision.effective_n_ctx if budget_decision else None,
+                )
+            return resp.status, {"Content-Type": "application/json"}, resp_data
+    except urllib.error.HTTPError as http_err:
+        err_body = http_err.read().decode("utf-8", errors="replace")
+        try:
+            err_json = json.loads(err_body)
+        except Exception:
+            err_json = {"error": err_body or str(http_err)}
+        return http_err.code, {"Content-Type": "application/json"}, err_json
+    except Exception as e:
+        return 502, {"Content-Type": "application/json"}, {
+            "error": f"AI completion upstream error: {str(e)}"
+        }
+    finally:
+        # Release the context-budget reservation regardless of success,
+        # failure, or early return above -- same reasoning as the original
+        # /api/v1/ai/chat inline implementation this was extracted from.
+        if reservation_id:
+            import logging
+
+            logger = logging.getLogger("restoricon_core.api")
+            try:
+                from core.resource_gate import release_context_budget
+
+                if not release_context_budget(reservation_id):
+                    logger.warning(
+                        "AI completion proxy: release_context_budget() found "
+                        "reservation %s already gone/expired (NEW-430)",
+                        reservation_id,
+                    )
+            except Exception as e:
+                # Broad catch is deliberate (NEW-444): a release failure
+                # must never alter the already-computed HTTP response, and
+                # a leaked reservation is bounded by the 1800s
+                # CONTEXT_RESERVATION_MAX_AGE_SECONDS age reap.
+                logger.warning(
+                    "AI completion proxy: failed to release context reservation %s: %s",
+                    reservation_id,
+                    e,
+                )
+
+
+# ── B8.11 "AI Sales Copilot" helpers (Parts B/C) ─────────────────────────
+#
+# Retrieve-then-generate, Core-orchestrated (NOT the model calling tools
+# live -- that is 12.x's separate tool_crm_query mechanism, untouched by
+# this round). Core-side code below calls CCOS capabilities itself via
+# ccos.core.plugin_manager (a plain Python import -- routes.py already
+# imports core.resource_gate, so Core-process-imports-ccos is existing
+# precedent), assembles the retrieved data into a prompt, and makes ONE
+# completion call through _call_budget_gated_completion(). No caching, no
+# second CRM copy in CCOS, no write path -- every call is live, on-demand,
+# strictly read-only summarization over existing Customer/Property/
+# Communication/Estimate data (sales_rep_portal.md's own binding scope
+# constraint for this feature).
+
+_SALES_COPILOT_SYSTEM_PROMPT = (
+    "You are a sales copilot for Restoricon, a construction/restoration "
+    "company. You are given structured CRM data retrieved just now for "
+    "this specific request. Summarize it concisely and give concrete, "
+    "actionable recommendations. Never invent data not present below. "
+    "This is a read-only summary -- you cannot take any action."
+)
+
+
+def _get_crm_core_query_plugin_manager():
+    """Lazy import, same pattern as core/agent.py's tool_crm_query() --
+    loads the crm_core_query CCOS plugin on the shared, process-global
+    PluginManager singleton if it isn't already loaded."""
+    from ccos.core.plugin_manager import get_plugin_manager
+
+    pm = get_plugin_manager()
+    if "crm_core_query" not in pm._modules:
+        loaded = pm.load("crm_core_query")
+        if not loaded:
+            raise RuntimeError("crm_core_query CCOS plugin failed to load")
+    return pm
+
+
+# NEW-750-class fix (code-reviewer round 1, b8_11_ai_sales_copilot_approved):
+# per-panel entitlement, not scope -- which CRM read permission the REAL
+# actor must hold to see this panel's data AT ALL, independent of the
+# assigned_user_id scope (team vs rep) decided below. Each tuple is derived
+# directly from the real Core service method the CCOS capability ultimately
+# proxies to, not invented: CRMService.list_leads() gates on PERM_READ_LEADS
+# or PERM_READ_CRM (crm_service.py:1101); list_opportunities() (used for
+# both "opportunities" and the "pipeline" panel's own summary/fallback
+# paths) gates on PERM_READ_OPPORTUNITIES or PERM_READ_CRM (crm_service.py:
+# 1704, get_pipeline_summary at 1975 uses the identical disjunction);
+# list_tasks() gates on PERM_READ_CRM or PERM_READ_OPPORTUNITIES or
+# PERM_READ_LEADS (crm_service.py:2356-2360). Deliberately NOT
+# PERM_READ_TEAM_SALES_DATA -- that permission is consumed purely as the
+# rep-vs-team *scope* widener (line ~3499 below, same as every service
+# method above), never as an entitlement check in any of these methods;
+# including it here would let the scope permission double as entitlement,
+# which is backwards and would not even fix the reviewer's repro (a
+# ROLE_TECHNICIAN has none of these permissions regardless).
+_COPILOT_PANEL_PERMISSIONS: Dict[str, Tuple[str, ...]] = {
+    "pipeline": (PERM_READ_OPPORTUNITIES, PERM_READ_CRM),
+    "leads": (PERM_READ_LEADS, PERM_READ_CRM),
+    "opportunities": (PERM_READ_OPPORTUNITIES, PERM_READ_CRM),
+    "tasks": (PERM_READ_CRM, PERM_READ_OPPORTUNITIES, PERM_READ_LEADS),
+}
+
+
+def _fetch_sales_copilot_panel_data(
+    pm: Any, panel: str, assigned_user_id: Optional[int]
+) -> Dict[str, Any]:
+    """Retrieve the structured CRM data for one sales-dashboard copilot
+    panel, honoring the already-resolved `assigned_user_id` scope (None =
+    team-wide, an int = this one rep only -- resolved by the route handler
+    from the REAL actor's permissions, never delegated to CCOS, see the
+    route's own comment).
+
+    `pipeline` is the one panel `crm.get_pipeline_summary` cannot itself
+    scope (CoreQueryClient.get_pipeline_summary() takes no
+    assigned_user_id -- CRMService.get_pipeline_summary(actor) always
+    aggregates whatever self.list_opportunities(actor) returns for
+    WHICHEVER actor calls it, and the CCOS crm-reader token's actor always
+    holds PERM_READ_TEAM_SALES_DATA). Calling that capability unscoped for
+    a narrowed rep would silently return the whole team's pipeline --
+    exactly the cross-rep leak this round's spec warns about. So for a
+    narrowed rep, this function instead retrieves
+    crm.list_opportunities(assigned_user_id=...) (which DOES accept the
+    scope) and aggregates the per-stage summary itself, in Core; a
+    team-scoped actor still gets the real crm.get_pipeline_summary call.
+    """
+    if panel == "pipeline":
+        if assigned_user_id is None:
+            return {"pipeline_summary": pm.call_capability("crm.get_pipeline_summary")}
+        opps = pm.call_capability("crm.list_opportunities", assigned_user_id=assigned_user_id)
+        stage_totals: Dict[str, Dict[str, Any]] = {}
+        for o in opps.get("opportunities", []):
+            stage = o.get("pipeline_stage") or "unknown"
+            bucket = stage_totals.setdefault(stage, {"count": 0, "total_value": 0.0})
+            bucket["count"] += 1
+            bucket["total_value"] += float(o.get("estimated_value") or 0.0)
+        return {
+            "rep_scoped_pipeline_by_stage": stage_totals,
+            "truncated": opps.get("truncated", False),
+        }
+    if panel == "leads":
+        return pm.call_capability("crm.list_leads", assigned_user_id=assigned_user_id)
+    if panel == "opportunities":
+        return pm.call_capability("crm.list_opportunities", assigned_user_id=assigned_user_id)
+    if panel == "tasks":
+        return pm.call_capability("crm.list_tasks", assigned_user_id=assigned_user_id)
+    # Deliberately NO "customers" panel: crm.list_customers has no
+    # assigned_user_id parameter at all (CoreQueryClient.list_customers(),
+    # and /api/v1/customers' own GET branch parses no such query param
+    # either -- CRMService.list_customers narrows purely from the calling
+    # actor's own PERM_READ_TEAM_SALES_DATA, which the CCOS crm-reader
+    # token always holds). Exactly the same unscopable-via-this-token shape
+    # as the "pipeline" branch above, but with no scoped fallback query
+    # available to substitute (list_customers has no customer-level
+    # pipeline_stage-equivalent field to aggregate from). A panel this
+    # route cannot safely scope for a narrowed actor does not "fit the
+    # requested panel" (per this round's own spec wording) -- so it is
+    # excluded from _COPILOT_PANELS entirely rather than shipped unscoped.
+    raise ValueError(f"Unknown sales copilot panel '{panel}'")
+
+
+def _build_sales_copilot_messages(
+    panel: str, scope: str, data: Dict[str, Any], user_prompt: str
+) -> List[Dict[str, str]]:
+    """Assemble the one-shot chat messages list for the copilot completion
+    call. The prompt is built here and discarded -- never persisted, never
+    written to ccos_memory or the trajectory store (the "never a second
+    copy of CRM data inside CCOS memory" scope constraint)."""
+    user_prompt = (user_prompt or "").strip() or f"Summarize this {scope}-scoped {panel} data."
+    data_json = json.dumps(data, default=str)
+    return [
+        {"role": "system", "content": _SALES_COPILOT_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"Request: {user_prompt}\n\n"
+                f"Panel: {panel} (scope: {scope})\n\n"
+                f"Retrieved CRM data (JSON):\n{data_json}"
+            ),
+        },
+    ]
 
 
 class APIRouter:
@@ -3146,9 +3435,6 @@ class APIRouter:
                 enable_thinking = bool(json_body.get("enable_thinking", False))
                 model_name = json_body.get("model", "codey")
 
-                port = int(os.getenv("PRIMARY_SERVER_PORT", "8080"))
-                host = os.getenv("PRIMARY_SERVER_HOST", "127.0.0.1")
-
                 # Category-A `interactive` (design §2.A) must reflect the
                 # state AT REQUEST START, not at emission time after the
                 # up-to-180s completion call below -- captured here, once,
@@ -3168,123 +3454,177 @@ class APIRouter:
                     # request -- degrades to the safe default above.
                     interactive_at_request_start = False
 
-                reservation_id = None
-                budget_decision = None
-                queue_wait_ms = None
-                try:
-                    from core.resource_gate import (
-                        release_context_budget,
-                        wait_and_reserve_context_budget,
+                # B8.11 Part A: the budget-gated completion call itself is
+                # now the shared `_call_budget_gated_completion()` helper
+                # (defined above `class APIRouter`) -- this route's own
+                # Category-A telemetry (_emit_ai_chat_telemetry, schema-
+                # tagged for this endpoint specifically) is passed in as an
+                # `on_success` hook rather than folded into the shared
+                # helper, so it stays attributed to /api/v1/ai/chat only.
+                def _emit_ai_chat_telemetry_hook(
+                    resp_data: Dict[str, Any],
+                    wall_ms: float,
+                    queue_wait_ms: Optional[float],
+                    n_ctx: Optional[int],
+                ) -> None:
+                    _emit_ai_chat_telemetry(
+                        resp_data=resp_data,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        enable_thinking=enable_thinking,
+                        wall_ms=wall_ms,
+                        queue_wait_ms=queue_wait_ms,
+                        n_ctx=n_ctx,
+                        interactive=interactive_at_request_start,
                     )
 
-                    _gate_wait_start = time.monotonic()
-                    budget_decision = wait_and_reserve_context_budget(
-                        port, messages, max_tokens, host=host
-                    )
-                    # Passive timing read around an already-existing call --
-                    # not an instrumentation point inside the wrapper or its
-                    # lock (design §5.1's ruling: "Instrument at
-                    # wait_and_reserve_context_budget()'s return and its
-                    # call sites instead, one record per wrapper call").
-                    queue_wait_ms = (time.monotonic() - _gate_wait_start) * 1000.0
-                    if not budget_decision.admitted:
-                        return 429, {"Content-Type": "application/json"}, {
-                            "error": f"AI model context-budget admission refused: {budget_decision.reason}"
-                        }
-                    reservation_id = budget_decision.reservation_id
-                except ImportError:
-                    pass
-                except Exception as e:
-                    return 503, {"Content-Type": "application/json"}, {
-                        "error": f"Context budget gate error: {str(e)}"
+                return _call_budget_gated_completion(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    enable_thinking=enable_thinking,
+                    model_name=model_name,
+                    on_success=_emit_ai_chat_telemetry_hook,
+                )
+
+            # -------------------------------------------------------------
+            # B8.11 Part B: "AI Sales Copilot" -- pipeline/lead/opportunity
+            # summarization panel (sales dashboard). Uses ONLY the CCOS
+            # capabilities already built in ccos/plugins/crm/core_query/ --
+            # zero new CCOS capabilities for this route.
+            # -------------------------------------------------------------
+            if path == "/api/v1/sales/copilot-summary" and method == "POST":
+                # Same NEW-546 guard as /api/v1/sales/dashboard and
+                # /api/v1/sales/communications-center: a valid token with no
+                # real user_id cannot be scoped by the rep-ownership
+                # narrowing below.
+                if actor.user_id is None:
+                    return 403, {"Content-Type": "application/json"}, {
+                        "error": "Actor has no associated user_id; cannot scope sales copilot data"
                     }
 
-                try:
-                    req_payload = {
-                        "model": model_name,
-                        "messages": messages,
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                        "chat_template_kwargs": {"enable_thinking": enable_thinking},
+                panel = json_body.get("panel") or "pipeline"
+                # No "customers" panel: crm.list_customers has no
+                # assigned_user_id scope knob at all (see
+                # _fetch_sales_copilot_panel_data's own comment) -- a
+                # narrowed rep could never be safely scoped for it.
+                if panel not in _COPILOT_PANEL_PERMISSIONS:
+                    return 400, {"Content-Type": "application/json"}, {
+                        "error": f"Unknown panel '{panel}'. Valid: pipeline, leads, opportunities, tasks"
                     }
-                    data_bytes = json.dumps(req_payload).encode("utf-8")
-                    req = urllib.request.Request(
-                        f"http://{host}:{port}/v1/chat/completions",
-                        data=data_bytes,
-                        headers={"Content-Type": "application/json"},
-                        method="POST",
-                    )
-                    _llm_call_start = time.monotonic()
-                    with urllib.request.urlopen(req, timeout=180.0) as resp:
-                        resp_data = json.loads(resp.read().decode("utf-8"))
-                        wall_ms = (time.monotonic() - _llm_call_start) * 1000.0
-                        # Category-A telemetry (T3): a passive read of
-                        # resp_data AFTER it is fully parsed -- must not
-                        # and does not change resp_data or the tuple
-                        # returned to the caller below (design fact 0.18).
-                        _emit_ai_chat_telemetry(
-                            resp_data=resp_data,
-                            messages=messages,
-                            max_tokens=max_tokens,
-                            enable_thinking=enable_thinking,
-                            wall_ms=wall_ms,
-                            queue_wait_ms=queue_wait_ms,
-                            n_ctx=budget_decision.effective_n_ctx if budget_decision else None,
-                            interactive=interactive_at_request_start,
-                        )
-                        return resp.status, {"Content-Type": "application/json"}, resp_data
-                except urllib.error.HTTPError as http_err:
-                    err_body = http_err.read().decode("utf-8", errors="replace")
-                    try:
-                        err_json = json.loads(err_body)
-                    except Exception:
-                        err_json = {"error": err_body or str(http_err)}
-                    return http_err.code, {"Content-Type": "application/json"}, err_json
+
+                # Entitlement gate (code-reviewer round 1, Critical finding,
+                # b8_11_ai_sales_copilot_approved): the panel-name check
+                # above is a 400 on a static, already-public valid-panel
+                # list, not a capability call -- it has to run first only
+                # because the per-panel permission lookup below needs a
+                # known panel key. The actual security property ("no CCOS
+                # capability call before the REAL actor's entitlement is
+                # checked") still holds: this gate runs before
+                # _fetch_sales_copilot_panel_data/pm.call_capability, same
+                # as the scope derivation right after it. Without this, the
+                # route only checked actor.user_id is None (403) and the
+                # panel name (400) before calling CCOS under the always-
+                # fully-permissioned codey-ccos-crm-reader token -- a
+                # ROLE_TECHNICIAN (zero CRM read permission) got real CRM
+                # data back (live-reproduced by the reviewer).
+                required_perms = _COPILOT_PANEL_PERMISSIONS[panel]
+                if not any(actor.has_permission(p) for p in required_perms):
+                    return 403, {"Content-Type": "application/json"}, {
+                        "error": f"Actor lacks permission to view the '{panel}' sales copilot panel"
+                    }
+
+                user_prompt = json_body.get("prompt", "")
+
+                # CRITICAL: the scope (which rep's data this summary covers)
+                # is decided HERE, in Core, from the REAL requesting actor's
+                # REAL permissions -- NOT delegated to CCOS. The
+                # codey-ccos-crm-reader CCOS token unconditionally holds
+                # PERM_READ_TEAM_SALES_DATA (by design, so cross-rep queries
+                # from the live agent tool work) -- calling a CCOS capability
+                # unscoped and letting CCOS's own permission check decide
+                # would give EVERY actor team-wide data regardless of their
+                # real permission, a silent cross-rep data leak, not an
+                # error. assigned_user_id=None means "team-wide" (only when
+                # the REAL actor actually holds PERM_READ_TEAM_SALES_DATA).
+                assigned_user_id = None if actor.has_permission(PERM_READ_TEAM_SALES_DATA) else actor.user_id
+                scope = "team" if assigned_user_id is None else "rep"
+
+                try:
+                    pm = _get_crm_core_query_plugin_manager()
+                    panel_data = _fetch_sales_copilot_panel_data(pm, panel, assigned_user_id)
                 except Exception as e:
                     return 502, {"Content-Type": "application/json"}, {
-                        "error": f"AI completion upstream error: {str(e)}"
+                        "error": f"CRM data retrieval failed: {e}"
                     }
-                finally:
-                    # Release the context-budget reservation regardless of
-                    # success, failure, or early return above. This is a
-                    # reservation-lifetime ledger keyed on `reservation_id`,
-                    # not `/slots`-occupancy tracking -- releasing it the
-                    # moment this HTTP handler returns is correct here
-                    # (unlike the design round's rejected "release on
-                    # HTTP-return" idea for slot occupancy). A `False`
-                    # return means the reservation was already reaped or
-                    # expired before this block ran -- the NEW-430 signal
-                    # that a phantom long-lived reservation existed. The
-                    # `release_context_budget` import is kept lazy so both
-                    # the optional-dependency case and call-site patching
-                    # keep working -- do not hoist it to module scope.
-                    if reservation_id:
-                        import logging
 
-                        logger = logging.getLogger("restoricon_core.api")
-                        try:
-                            from core.resource_gate import release_context_budget
+                messages = _build_sales_copilot_messages(panel, scope, panel_data, user_prompt)
+                return _call_budget_gated_completion(messages=messages, max_tokens=512)
 
-                            if not release_context_budget(reservation_id):
-                                logger.warning(
-                                    "AI chat proxy: release_context_budget() found "
-                                    "reservation %s already gone/expired (NEW-430)",
-                                    reservation_id,
-                                )
-                        except Exception as e:
-                            # Broad catch is deliberate (NEW-444): a release
-                            # failure must never alter the already-computed
-                            # HTTP response, and a leaked reservation is
-                            # bounded by the 1800s
-                            # CONTEXT_RESERVATION_MAX_AGE_SECONDS age reap. A
-                            # signature regression (NEW-442's class) is caught
-                            # by test_api.py's strict release spy (NEW-443),
-                            # not by this handler.
-                            logger.warning(
-                                "AI chat proxy: failed to release context reservation %s: %s",
-                                reservation_id,
-                                e,
-                            )
+            # -------------------------------------------------------------
+            # B8.11 Part C: "AI Sales Copilot" -- appointment-prep. Fans out
+            # from the given appointment's customer_id (Appointment has no
+            # property_id/lead_id/opportunity_id of its own, models.py:1032)
+            # to crm.list_properties/list_estimates/list_communications, all
+            # customer_id-scoped, then one completion call via the same
+            # Part A helper.
+            # -------------------------------------------------------------
+            if path == "/api/v1/sales/appointment-prep" and method == "POST":
+                if actor.user_id is None:
+                    return 403, {"Content-Type": "application/json"}, {
+                        "error": "Actor has no associated user_id; cannot scope appointment prep data"
+                    }
+
+                appointment_id = _parse_int_body_field(json_body, "appointment_id", None)
+                if appointment_id is None:
+                    return 400, {"Content-Type": "application/json"}, {"error": "Missing appointment_id in request body"}
+
+                appt = self.scheduling.get_appointment(appointment_id, actor)
+                if not appt:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
+
+                # Same rep-vs-team scoping rule as /api/v1/sales/dashboard's
+                # own appointments filter (routes.py ~line 3981): a narrowed
+                # actor (no PERM_READ_TEAM_SALES_DATA) may only prep an
+                # appointment assigned to them. Appointment.assigned_user_id
+                # being None is a 403 for a narrowed actor here too -- same
+                # strict-filter divergence from the unclaimed-pool rule
+                # already flagged as NEW-551 for the dashboard; not a new
+                # rule invented for this route.
+                if (
+                    not actor.has_permission(PERM_READ_TEAM_SALES_DATA)
+                    and appt.assigned_user_id != actor.user_id
+                ):
+                    return 403, {"Content-Type": "application/json"}, {
+                        "error": "Actor is not assigned to this appointment and lacks team-wide sales data access"
+                    }
+
+                if appt.customer_id is None:
+                    return 400, {"Content-Type": "application/json"}, {
+                        "error": "Appointment has no customer_id; nothing to prep"
+                    }
+
+                user_prompt = json_body.get("prompt", "")
+
+                try:
+                    pm = _get_crm_core_query_plugin_manager()
+                    properties = pm.call_capability("crm.list_properties", customer_id=appt.customer_id)
+                    estimates = pm.call_capability("crm.list_estimates", customer_id=appt.customer_id)
+                    communications = pm.call_capability("crm.list_communications", customer_id=appt.customer_id)
+                except Exception as e:
+                    return 502, {"Content-Type": "application/json"}, {
+                        "error": f"CRM data retrieval failed: {e}"
+                    }
+
+                prep_data = {
+                    "appointment": appt.to_dict(),
+                    "properties": properties,
+                    "estimates": estimates,
+                    "communications": communications,
+                }
+                scope = "team" if actor.has_permission(PERM_READ_TEAM_SALES_DATA) else "rep"
+                messages = _build_sales_copilot_messages("appointment_prep", scope, prep_data, user_prompt)
+                return _call_budget_gated_completion(messages=messages, max_tokens=512)
 
             # ==========================================
             # OPERATIONS DOMAIN ENGINE (Phase B3)

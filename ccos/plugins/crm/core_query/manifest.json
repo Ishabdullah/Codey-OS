@@ -189,6 +189,81 @@
       }
     },
     {
+      "name": "crm.list_properties",
+      "description": "List properties (plugin-side capped at 50 rows), optionally scoped to one customer_id",
+      "implementation": "crm_core_query:list_properties_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "properties": {"type": "array"},
+          "returned": {"type": "integer"},
+          "truncated": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "crm.list_estimates",
+      "description": "List estimates (plugin-side capped at 50 rows), optionally filtered by customer_id/project_id -- materials_cost/labor_cost/subcontractor_cost/markup_percent are stripped client-side (NEW-752)",
+      "implementation": "crm_core_query:list_estimates_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {"type": "integer"},
+          "project_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "estimates": {"type": "array"},
+          "returned": {"type": "integer"},
+          "truncated": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "crm.list_communications",
+      "description": "List communications (plugin-side capped at 50 rows), optionally filtered by customer_id/project_id/lead_id/channel/limit/offset",
+      "implementation": "crm_core_query:list_communications_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {"type": "integer"},
+          "project_id": {"type": "integer"},
+          "lead_id": {"type": "integer"},
+          "channel": {"type": "string"},
+          "limit": {"type": "integer", "default": 50},
+          "offset": {"type": "integer", "default": 0}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "communications": {"type": "array"},
+          "returned": {"type": "integer"},
+          "truncated": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    {
       "name": "crm.list_tasks",
       "description": "List CRM follow-up tasks (plugin-side capped at 50 rows), optionally filtered",
       "implementation": "crm_core_query:list_tasks_capability",

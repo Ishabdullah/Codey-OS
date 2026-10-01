@@ -228,8 +228,9 @@ def tool_peer_delegate(peer: str, task: str) -> str:
     return mgr.summarize_result(cli.name, output, task)
 
 
-# CODEY_MASTER_PLAN.md 12.x Part C: the nine read-only CRM/sales query
-# capabilities registered by ccos/plugins/crm/core_query/ (manifest name
+# CODEY_MASTER_PLAN.md 12.x Part C (originally nine) + B8.11 Part C (three
+# more, 2026-10-01): the twelve read-only CRM/sales query capabilities
+# registered by ccos/plugins/crm/core_query/ (manifest name
 # "crm_core_query"), the only capability names tool_crm_query() is ever
 # allowed to dispatch to via pm.call_capability(). This whitelist is
 # deliberately NOT "any string the model supplies" -- call_capability()
@@ -237,7 +238,8 @@ def tool_peer_delegate(peer: str, task: str) -> str:
 # "coding.run_agent" itself, so an unrestricted `kind` here would let a
 # model response recursively re-enter the agent loop (or reach any other
 # capability) through this one tool. Keep this set in sync with that
-# manifest's "capabilities" list if either changes.
+# manifest's "capabilities" list if either changes -- forgetting this is
+# the exact drift NEW-750 found in a different plugin.
 _CRM_QUERY_CAPABILITIES = {
     "count_open_leads": "crm.count_open_leads",
     "list_leads": "crm.list_leads",
@@ -253,6 +255,15 @@ _CRM_QUERY_CAPABILITIES = {
     "list_customers": "crm.list_customers",
     "get_customer": "crm.get_customer",
     "list_tasks": "crm.list_tasks",
+    # B8.11 Part C (appointment-prep fan-out from Appointment.customer_id).
+    # crm.list_estimates strips materials_cost/labor_cost/subcontractor_cost/
+    # markup_percent client-side (client.py, NEW-752) -- this capability is
+    # reachable from THIS tool too, not just Core's new
+    # /api/v1/sales/appointment-prep route, which is why that strip lives in
+    # client.py rather than only in the new route handler.
+    "list_properties": "crm.list_properties",
+    "list_estimates": "crm.list_estimates",
+    "list_communications": "crm.list_communications",
 }
 
 _CRM_TOOL_DISABLED_VALUES = {"0", "false", "no", "off"}
@@ -271,9 +282,9 @@ def _crm_tool_enabled() -> bool:
 
 def tool_crm_query(args: Dict[str, Any]) -> str:
     """Query Restoricon Core's CRM/sales data read-only, via CCOS's
-    crm_core_query plugin (CODEY_MASTER_PLAN.md 12.x). `args["kind"]`
-    selects one of the nine whitelisted read capabilities in
-    _CRM_QUERY_CAPABILITIES; every other key in `args` is forwarded as a
+    crm_core_query plugin (CODEY_MASTER_PLAN.md 12.x + B8.11 Part C).
+    `args["kind"]` selects one of the twelve whitelisted read capabilities
+    in _CRM_QUERY_CAPABILITIES; every other key in `args` is forwarded as a
     keyword argument to that capability (e.g. `lead_id`,
     `assigned_user_id`, `status`).
 

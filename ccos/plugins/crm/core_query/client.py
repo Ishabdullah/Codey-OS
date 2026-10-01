@@ -198,6 +198,73 @@ class CoreQueryClient:
     def get_customer(self, customer_id: int) -> Dict[str, Any]:
         return self._get(f"/api/v1/customers/{int(customer_id)}")
 
+    # ── Properties ───────────────────────────────────────────────────────
+    def list_properties(self, customer_id: Optional[int] = None) -> Dict[str, Any]:
+        """List properties, optionally scoped to one customer. Appointment-
+        prep's only caller of this (B8.11 Part C) always passes customer_id
+        -- see the fan-out-from-customer_id derivation in this plugin's
+        round's spec, since Appointment has no property_id/lead_id/
+        opportunity_id of its own (restoricon_core/models.py:1032)."""
+        body = self._get("/api/v1/properties", params=_clean({"customer_id": customer_id}))
+        return _apply_list_cap(body.get("properties", []), "properties")
+
+    # ── Estimates ────────────────────────────────────────────────────────
+    # B8.11 Part C MANDATORY FIX: CRMService._row_to_estimate()
+    # (crm_service.py:3332-3347) masks these 4 cost fields by ROLE
+    # (`actor_role in (ROLE_CUSTOMER, ROLE_TECHNICIAN)`), NOT by
+    # PERM_READ_ESTIMATE_COSTS -- the permission this round's deny-list
+    # denies for codey-ccos-crm-reader. ROLE_AI_AGENT is neither masked
+    # role, so Core returns these 4 fields IN FULL to this token despite
+    # that permission being denied. Stripped here, client-side, by exact
+    # field name (never substring match), before the capability layer ever
+    # sees them. This only fixes this one caller -- the underlying Core
+    # masking defect remains for every other ai_agent-role caller of
+    # get_estimate/list_estimates (both go through the same masking
+    # function) -- see NEW_ISSUES.md NEW-752, logged as a Confirmed
+    # finding, not closed by this patch. Confirmed (crm_service.py:3216-
+    # 3237, `_compute_line_item_costs`) that an Estimate's line_items use
+    # `quantity`/`unit_cost`/`category` field names, never these 4 -- so a
+    # top-level-only strip is sufficient; no nested occurrence to also strip.
+    _ESTIMATE_COST_FIELDS_TO_STRIP = ("materials_cost", "labor_cost", "subcontractor_cost", "markup_percent")
+
+    def list_estimates(
+        self,
+        customer_id: Optional[int] = None,
+        project_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        body = self._get(
+            "/api/v1/estimates",
+            params=_clean({"customer_id": customer_id, "project_id": project_id}),
+        )
+        stripped = [
+            {k: v for k, v in e.items() if k not in self._ESTIMATE_COST_FIELDS_TO_STRIP}
+            for e in body.get("estimates", [])
+        ]
+        return _apply_list_cap(stripped, "estimates")
+
+    # ── Communications ───────────────────────────────────────────────────
+    def list_communications(
+        self,
+        customer_id: Optional[int] = None,
+        project_id: Optional[int] = None,
+        lead_id: Optional[int] = None,
+        channel: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        body = self._get(
+            "/api/v1/communications",
+            params=_clean({
+                "customer_id": customer_id,
+                "project_id": project_id,
+                "lead_id": lead_id,
+                "channel": channel,
+                "limit": limit,
+                "offset": offset,
+            }),
+        )
+        return _apply_list_cap(body.get("communications", []), "communications")
+
     # ── Tasks ────────────────────────────────────────────────────────────
     def list_tasks(
         self,
