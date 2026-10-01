@@ -229,6 +229,7 @@ search_files               pattern, path (usually ".")
 note_save                  key, value
 note_forget                key
 peer_delegate              peer, task
+crm_query                  kind, plus kind-specific args (see below)
 
 SYNTAX: Wrap the tool name in quotes. Put all arguments in an "args" object with braces.
 
@@ -246,6 +247,22 @@ EXAMPLE FOR shell:
 <tool>
 {"name": "shell", "args": {"command": "ls -la"}}
 </tool>
+
+EXAMPLE FOR crm_query (read-only Restoricon CRM/sales data — never writes):
+<tool>
+{"name": "crm_query", "args": {"kind": "count_open_leads", "assigned_user_id": 7}}
+</tool>
+Valid "kind" values: count_open_leads, list_leads, get_lead,
+list_opportunities, get_opportunity, get_pipeline_summary, list_customers,
+get_customer, list_tasks. Each is backed by one existing read-only Core API
+route — there is no write variant reachable through this tool. get_lead/
+get_opportunity/get_customer require a "lead_id"/"opportunity_id"/
+"customer_id" integer arg; list_* accept optional filter args (e.g. "status",
+"assigned_user_id"). list_leads/list_opportunities/list_tasks responses are
+capped at 50 rows with a "truncated"/"note" marker when more exist — narrow
+your filters rather than assuming you've seen everything. (There is no
+"score_lead" kind — Core's lead-scoring route writes to the lead record on
+every call, so it is not reachable through this read-only tool.)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PATCH_FILE — old_str MUST BE REAL FILE CONTENT, NEVER A GUESS

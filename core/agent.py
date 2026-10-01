@@ -228,6 +228,99 @@ def tool_peer_delegate(peer: str, task: str) -> str:
     return mgr.summarize_result(cli.name, output, task)
 
 
+# CODEY_MASTER_PLAN.md 12.x Part C: the nine read-only CRM/sales query
+# capabilities registered by ccos/plugins/crm/core_query/ (manifest name
+# "crm_core_query"), the only capability names tool_crm_query() is ever
+# allowed to dispatch to via pm.call_capability(). This whitelist is
+# deliberately NOT "any string the model supplies" -- call_capability()
+# will happily dispatch to ANY registered capability, including
+# "coding.run_agent" itself, so an unrestricted `kind` here would let a
+# model response recursively re-enter the agent loop (or reach any other
+# capability) through this one tool. Keep this set in sync with that
+# manifest's "capabilities" list if either changes.
+_CRM_QUERY_CAPABILITIES = {
+    "count_open_leads": "crm.count_open_leads",
+    "list_leads": "crm.list_leads",
+    "get_lead": "crm.get_lead",
+    # No "score_lead" entry: GET /api/v1/leads/{id}/score persists via
+    # update_lead() for any existing lead regardless of HTTP method, so
+    # it 403s under the CRM-reader token's deny-list -- deliberately not
+    # wrapped this round (see ccos/plugins/crm/core_query/client.py's
+    # comment and NEW_ISSUES.md's headline finding for this round).
+    "list_opportunities": "crm.list_opportunities",
+    "get_opportunity": "crm.get_opportunity",
+    "get_pipeline_summary": "crm.get_pipeline_summary",
+    "list_customers": "crm.list_customers",
+    "get_customer": "crm.get_customer",
+    "list_tasks": "crm.list_tasks",
+}
+
+_CRM_TOOL_DISABLED_VALUES = {"0", "false", "no", "off"}
+
+
+def _crm_tool_enabled() -> bool:
+    """CODEY_CRM_TOOL_ENABLED kill switch, same precedent as
+    CODEY_SELF_IMPROVE (CLAUDE.md rule 1). Default ON: this is a
+    deliberately-authorized feature (CODEY_MASTER_PLAN.md 12.x), not a
+    self-improvement mechanism that needs to default off behind a
+    promotion gate. Accepts the obvious off-spellings, not just "0"."""
+    import os as _os
+
+    return _os.environ.get("CODEY_CRM_TOOL_ENABLED", "1").strip().lower() not in _CRM_TOOL_DISABLED_VALUES
+
+
+def tool_crm_query(args: Dict[str, Any]) -> str:
+    """Query Restoricon Core's CRM/sales data read-only, via CCOS's
+    crm_core_query plugin (CODEY_MASTER_PLAN.md 12.x). `args["kind"]`
+    selects one of the nine whitelisted read capabilities in
+    _CRM_QUERY_CAPABILITIES; every other key in `args` is forwarded as a
+    keyword argument to that capability (e.g. `lead_id`,
+    `assigned_user_id`, `status`).
+
+    Live in both the interactive CLI and the daemon's background task
+    queue (core/task_executor.py runs through this same TOOLS dict).
+
+    Fail-open: this function never raises. Any failure -- the kill
+    switch being off, an unknown `kind`, a missing/invalid CRM read
+    token, Core being unreachable, Core returning a non-2xx response --
+    is caught and returned as a normal "[ERROR] ..." tool-error string,
+    matching this file's existing tool-handler convention (see
+    execute_tool()'s own outer try/except), never propagated to crash
+    the agent loop.
+    """
+    try:
+        if not _crm_tool_enabled():
+            return "[ERROR] crm_query is disabled (CODEY_CRM_TOOL_ENABLED is off)"
+
+        kind = args.get("kind", "")
+        cap_name = _CRM_QUERY_CAPABILITIES.get(kind)
+        if not cap_name:
+            return (
+                "[ERROR] Unknown crm_query kind '" + str(kind) + "'. Valid kinds: "
+                + ", ".join(sorted(_CRM_QUERY_CAPABILITIES))
+            )
+
+        call_kwargs = {k: v for k, v in args.items() if k != "kind"}
+
+        from ccos.core.plugin_manager import get_plugin_manager
+
+        pm = get_plugin_manager()
+        if "crm_core_query" not in pm._modules:
+            loaded = pm.load("crm_core_query")
+            if not loaded:
+                plugin = pm.get_plugin("crm_core_query")
+                detail = getattr(plugin, "error", None) if plugin else None
+                return (
+                    "[ERROR] crm_query: failed to load the crm_core_query CCOS plugin"
+                    + (f" ({detail})" if detail else "")
+                )
+
+        result = pm.call_capability(cap_name, **call_kwargs)
+        return json.dumps(result, default=str)
+    except Exception as e:
+        return f"[ERROR] crm_query({args.get('kind', '')}) failed: {e}"
+
+
 TOOLS = {
     "read_file": lambda args: tool_read_file(args["path"]),
     "write_file": lambda args: tool_write_file(args["path"], args["content"]),
@@ -244,6 +337,7 @@ TOOLS = {
         args.get("peer") or args.get("peer_name") or args.get("name") or "",
         args.get("task") or args.get("prompt") or args.get("command") or "",
     ),
+    "crm_query": tool_crm_query,
 }
 ROGUE_TAG_MAP = {
     "write_file": "write_file",
@@ -256,6 +350,7 @@ ROGUE_TAG_MAP = {
     "note_save": "note_save",
     "note_forget": "note_forget",
     "peer_delegate": "peer_delegate",
+    "crm_query": "crm_query",
 }
 
 HALLUCINATION_MARKERS = [

@@ -1,0 +1,221 @@
+{
+  "schema_version": "2.0.0",
+  "name": "crm_core_query",
+  "version": "1.0.0",
+  "description": "Read-only CCOS CRM/sales query plugin backed by Restoricon Core's existing GET routes (CODEY_MASTER_PLAN.md 12.x) -- no writes, no new Core API routes.",
+  "domain": "crm",
+  "execution_mode": "in_process",
+  "entry_point": "core_query.py",
+  "permissions": [
+    "crm:read"
+  ],
+  "dependencies": [],
+  "capabilities": [
+    {
+      "name": "crm.count_open_leads",
+      "description": "Count open (not converted/lost) leads, optionally scoped to one rep's assigned_user_id",
+      "implementation": "crm_core_query:count_open_leads_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "assigned_user_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "count": {"type": "integer"},
+          "assigned_user_id": {"type": ["integer", "null"]}
+        }
+      }
+    },
+    {
+      "name": "crm.list_leads",
+      "description": "List leads (plugin-side capped at 50 rows), optionally filtered by status/assigned_user_id/territory_id",
+      "implementation": "crm_core_query:list_leads_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string"},
+          "assigned_user_id": {"type": "integer"},
+          "territory_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "leads": {"type": "array"},
+          "returned": {"type": "integer"},
+          "truncated": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "crm.get_lead",
+      "description": "Fetch a single lead by id",
+      "implementation": "crm_core_query:get_lead_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["lead_id"],
+        "properties": {
+          "lead_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "lead": {"type": "object"}
+        }
+      }
+    },
+    {
+      "name": "crm.list_opportunities",
+      "description": "List opportunities (plugin-side capped at 50 rows), optionally filtered by pipeline_stage/customer_id/assigned_user_id",
+      "implementation": "crm_core_query:list_opportunities_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "pipeline_stage": {"type": "string"},
+          "customer_id": {"type": "integer"},
+          "assigned_user_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "opportunities": {"type": "array"},
+          "returned": {"type": "integer"},
+          "truncated": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "crm.get_opportunity",
+      "description": "Fetch a single opportunity by id",
+      "implementation": "crm_core_query:get_opportunity_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["opportunity_id"],
+        "properties": {
+          "opportunity_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity": {"type": "object"}
+        }
+      }
+    },
+    {
+      "name": "crm.get_pipeline_summary",
+      "description": "Fetch the CRM sales pipeline summary",
+      "implementation": "crm_core_query:get_pipeline_summary_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "pipeline": {"type": "object"},
+          "summary": {"type": "object"}
+        }
+      }
+    },
+    {
+      "name": "crm.list_customers",
+      "description": "List customers, inheriting Core's own limit=50 default/cap",
+      "implementation": "crm_core_query:list_customers_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string"},
+          "search": {"type": "string"},
+          "limit": {"type": "integer", "default": 50},
+          "offset": {"type": "integer", "default": 0},
+          "territory_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "customers": {"type": "array"}
+        }
+      }
+    },
+    {
+      "name": "crm.get_customer",
+      "description": "Fetch a single customer by id",
+      "implementation": "crm_core_query:get_customer_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["customer_id"],
+        "properties": {
+          "customer_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {"type": "object"}
+        }
+      }
+    },
+    {
+      "name": "crm.list_tasks",
+      "description": "List CRM follow-up tasks (plugin-side capped at 50 rows), optionally filtered",
+      "implementation": "crm_core_query:list_tasks_capability",
+      "category": "crm",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string"},
+          "customer_id": {"type": "integer"},
+          "opportunity_id": {"type": "integer"},
+          "lead_id": {"type": "integer"},
+          "assigned_user_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "tasks": {"type": "array"},
+          "returned": {"type": "integer"},
+          "truncated": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}

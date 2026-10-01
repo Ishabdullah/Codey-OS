@@ -6491,8 +6491,17 @@ Then:
       structure), backed by one existing Core read endpoint
       (`GET /api/v1/leads?assigned_user_id=`, no new API route needed).
       Demonstrates one real end-to-end question ("how many open leads
-      does rep X have") through the planner's real dispatch path
-      (`planner.py` → `plugin_manager.call_capability()`). Auth/config
+      does rep X have") through `plugin_manager.call_capability()`.
+      **Correction (rule 6, 2026-10-01):** this entry previously claimed
+      the demonstration ran "through the planner's real dispatch path"
+      (`planner.py` → `plugin_manager.call_capability()`) — overstated.
+      Verified directly: `main.py`'s only production entry point calls
+      `plugin_manager.call_capability()` directly and never imports
+      `domain_router.py`/`planner.py` at all; only CCOS-internal
+      tests/demos exercise that planner path. The live interactive/daemon
+      agent loop this round actually wires up (`core/agent.py`'s new
+      `crm_query` tool, Part C below) also calls `call_capability()`
+      directly, not through the planner. Auth/config
       placement: reuses `utils.config.get_restoricon_api_config()` for
       host/port; a new token lives under `CODEY_STATE_DIR`
       (`~/.codeyOS/ccos_crm_read_token`, gitignored), provisioned via an
@@ -6527,7 +6536,51 @@ Then:
       deny-list** — smallest change, zero `auth.py` edits required. Ish
       also decided to **hold implementation for now** rather than start
       the implementer pipeline this round; spec stands as
-      implementer-ready whenever picked back up. Not started.
+      implementer-ready whenever picked back up.
+      **Implemented 2026-10-01, code-complete, pending code-reviewer
+      approval (not yet live-verified on-device per rule 7).** Ish
+      decided to ship slice 2 (not just slice 1) in this round: live
+      conversational retrieval access for the local model, not just a
+      dashboard. Built: new plugin `ccos/plugins/crm/core_query/`
+      (manifest `crm_core_query`, `client.py`'s `CoreQueryClient` wrapping
+      `requests` against Core's existing GET routes,
+      `trust_env=False` to avoid an ambient proxy on loopback calls);
+      **9 capabilities, not the originally-scoped 10** —
+      `crm.score_lead` was dropped mid-round (see `NEW-748` below):
+      `GET /api/v1/leads/{id}/score` is not actually read-only
+      (`crm_service.py`'s `score_lead()` persists via `update_lead()` for
+      any existing lead regardless of HTTP method), so it 403s under this
+      round's deny-list token by design and was removed from the plugin,
+      `core/agent.py`'s whitelist, and the system prompt rather than
+      shipped non-functional. `tools/provision_ai_agent_auth.py` extended
+      with a `custom_permissions` param and a mechanically-derived
+      `CRM_READER_DENY_PERMISSIONS` constant (every `write:`/`manage:`
+      permission `ROLE_AI_AGENT` holds, plus `score:leads`/
+      `dispatch:work_orders`/`log:communication` — three write-capable
+      grants that don't use either prefix — plus
+      `PERM_VIEW_REPORTS`/`PERM_READ_TEAM_COMMISSIONS`/
+      `PERM_READ_FINANCIALS`/`PERM_READ_ESTIMATE_COSTS`/
+      `PERM_GLOBAL_SEARCH`), applied to a distinct
+      `codey-ccos-crm-reader` username so Aigentik's own token is never
+      touched; a drift-guard test
+      (`tests/test_provision_ai_agent_auth.py`) pins that every
+      `ROLE_AI_AGENT` permission is accounted for. New live-agent-loop
+      tool `core/agent.py`'s `crm_query` (gated by
+      `CODEY_CRM_TOOL_ENABLED`, default on), dispatching through a hard
+      whitelist of the 9 capability names only — never a model-supplied
+      arbitrary capability name — to `ccos.core.plugin_manager`'s
+      `call_capability()`, live in both the interactive CLI and the
+      daemon's background task queue (`core/task_executor.py` shares the
+      same `TOOLS` dict). `ccos/core/domain_router.py`'s dangling
+      `crm.customer_query` default (`NEW-652`) repointed to the real,
+      registered `crm.list_leads`. Two further findings from this round,
+      both logged, not fixed: `GET`-based CRM reads are unaudited for
+      every caller (`NEW-747`, pre-existing, now more relevant with an
+      autonomous caller), and `ccos/plugins/device/bridge/`'s manifest
+      has an `implementation`/plugin-name mismatch that makes all 8 of
+      its own capabilities unreachable via `call_capability()`
+      (`NEW-750`, found incidentally, out of scope). See `NEW-746`
+      through `NEW-750` for full detail.
 
 ### Phase B — business layer (§6.3–§6.10)
 

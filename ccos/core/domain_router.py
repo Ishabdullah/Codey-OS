@@ -68,7 +68,16 @@ DOMAIN_KEYWORDS: Dict[Domain, List[str]] = {
 DOMAIN_DEFAULT_CAPABILITIES: Dict[Domain, str] = {
     Domain.SYSTEM: "system.info",
     Domain.CODING: "coding.run_agent",
-    Domain.CRM: "crm.customer_query",
+    # Repointed 2026-10-01 (CODEY_MASTER_PLAN.md 12.x Part D): the prior
+    # value, "crm.customer_query", was a dangling name no plugin ever
+    # registered (NEW-652) -- now repointed to a real, registered
+    # capability (ccos/plugins/crm/core_query/, manifest name
+    # "crm_core_query"). Still CCOS-internal/DAG-planner-only: confirmed
+    # directly that main.py never imports domain_router.py or planner.py,
+    # so the live interactive/daemon agent loop (core/agent.py's new
+    # crm_query tool, Part C) never reaches this dict at all -- only
+    # CCOS-internal tests/demos exercise it.
+    Domain.CRM: "crm.list_leads",
     Domain.DATA: "data.process",
     Domain.RESEARCH: "research.search",
     Domain.VISION: "vision.ocr",
