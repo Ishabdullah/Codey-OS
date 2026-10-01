@@ -694,6 +694,7 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **B9.y, admin-portal user-management UX, 2026-10-01** (`bba5ba5`) — customer-login creation via the Add User modal (customer picker, links a login to `customers.id`) and an admin-triggered "Reset Password" action (reset, not reveal). Frontend-only — both backend primitives already existed and were correct. Round-1 code-reviewer caught a real, reproduced cross-record data leak (stale customer email surviving a role switch); fixed and independently re-verified round 2 with a differential test. 5 findings disclosed, not fixed (`NEW-741`..`NEW-745`). **NOT live-verified** — no session this round had browser/device access. B9 estimator sequence (B9.1 → B9.y) is now fully closed. See `PROJECT_LOG.md`'s 2026-10-01 entry and Appendix A's B9.y line for full detail.
 - **B9.x, 12 pricing/retailer tables, 2026-10-01** (`dc141e7`) — the full original B9.1 deferral (`retailers` through `product_search_fts`), plus real FKs attached on `estimate_line_items`' 4 pricing-id columns and `estimates.property_id`. Round-1 code-reviewer caught and the implementer fixed a real Critical commit-before-raise migration bug (self-silencing safety net, CLAUDE.md's worst bug-class shape) before this ever reached `main`; round-2 code-reviewer independently re-reproduced the original failing scenario to confirm the fix, not just read the diff. 45 tests passed. **NOT live-verified** — no session this round had device access. See `PROJECT_LOG.md`'s 2026-10-01 entry and Appendix A's B9.x line for full detail.
 - **B9.8, estimate-to-job workflow (`EstimateService.convert()`), 2026-09-30** (`bc6b6fa`) — Project-creation half of the estimate->job pipeline (Contract half already existed, from `record_decision()`'s D7 invariant). Gated on a signed linked Contract, idempotent, links to an existing Project via `estimates.project_id`/`opportunities.project_id` before creating a new one, priced off the accepted version snapshot. Rule-4 category (writes across estimates/contracts/projects/opportunities). code-reviewer APPROVED, independently verifying transaction integrity and the opportunity-write-back TOCTOU question (none). Two real pre-existing gaps disclosed (`NEW-736`, `NEW-737`). 76 tests passed. **NOT live-verified** — no session this round had device access. See `PROJECT_LOG.md`'s 2026-09-30 B9.8 entry and Appendix A's B9.8 line for full detail.
 - **AGI audit Phases 1-4, merged 2026-09-30** (`ef5c86d`) — `bench/` frozen-benchmark harness, `core/trajectory.py` + pass-through wrappers on `core/agent.py` (`CODEY_TRAJECTORY`, default off), `ccos/core/self_improve.py` master switch (`CODEY_SELF_IMPROVE=off|shadow|on`, default off) gating the four self-improvement modules, honest optimizer scoring (fabricated `+5` bump removed), Qwen3.5-4B fine-tune notebook + verified-trajectory data path, fix-memory hint (`CODEY_USE_FIX_MEMORY`, default off), peer teacher-trace capture. Code-reviewer APPROVED (`core/agent.py` hooks, `ccos/core/self_improve.py` guards). All new behavior confirmed default-off and fail-open; no runtime import of the self-improvement modules. **NOT live-verified with the model** — on-device steps (`LIVE_TEST_QUEUE.md` [AGI-1]: trajectory smoke, bench baseline, fix-memory A/B via `bench.promote`, Colab notebook run, LoRA conversion check) are for Ish to run himself. See Appendix A's AGI-audit-workstream entry for the full merge disclosure (scope check, the on-device full-suite crash that blocked a literal complete run, and why it was ruled pre-existing/unrelated).
@@ -8796,7 +8797,7 @@ this file's own don't-duplicate rule.
       deferred). Full spec: `codey_estimator_service.md`
       §1.9/§8/§9 item 4.
 - [x] **B9.x — DONE, code-complete + code-reviewer APPROVED (2 rounds), NOT live-verified** (commit `dc141e7`, 2026-10-01). All 12 originally-deferred pricing/retailer tables (`retailers`, `retailer_stores`, `retailer_products`, `price_observations`, `search_cache`, `canonical_materials`, `material_matches`, `price_book_items`, `labor_rates`, `labor_rate_history`, `pricing_jobs`, `product_search_fts`), not just the 3 bound to `codey_estimator.ports.py`'s repository Protocols (Ish's decision to scope all 12 in one round). `estimate_line_items`' 4 pricing-id columns and `estimates.property_id` (stale "not built yet" comment corrected) both got real FKs attached, folded in. Round-1 code-reviewer caught a real Critical commit-before-raise migration bug (a safety net that ran after its own rebuild had already committed, then self-silenced on every later open) — fixed and independently re-verified round 2, full detail in `PROJECT_LOG.md`'s 2026-10-01 entry. Two smaller findings disclosed, not fixed: `NEW-739`, `NEW-740`. 45 tests passed. No RBAC/route/UI work — `PERM_MANAGE_PRICE_BOOK` already existed, unused since B9.1.
-- [ ] **B9.y (queued, Ish, 2026-09-30)** — admin-portal user-management UX:
+- [x] **B9.y — DONE, code-complete + code-reviewer APPROVED (2 rounds), NOT live-verified** (commit `bba5ba5`, 2026-10-01; queued Ish, 2026-09-30) — admin-portal user-management UX:
       unify customer-portal account creation into the same
       `POST /api/v1/users` create-user flow already used for
       admin/sales/PM/tech/subcontractor accounts (the backend already
@@ -8825,10 +8826,21 @@ this file's own don't-duplicate rule.
       self-service change) surfaced in the admin UI as a
       "reset/set password" action per user row, not a "view current
       password" field. Needs Ish's confirmation that reset-not-reveal is
-      the right shape before building. Both asks are explicitly deferred
+      the right shape before building. Both asks were explicitly deferred
       by Ish's own instruction ("log it for future work after we are done
-      working on the current project") — not started this round, queued
-      behind the rest of B9.
+      working on the current project") — originally queued behind the
+      rest of B9.
+
+      **Done, 2026-10-01** (`bba5ba5`): Ish confirmed reset-not-reveal.
+      Both asks built, both backend primitives already existed and were
+      correct (confirmed by reading the actual code, not the plan's
+      claim), so this was a frontend-only round. code-reviewer's first
+      pass caught a real, reproduced cross-record data leak (a
+      previously-selected customer's email could survive onto a
+      newly-created non-customer account); fixed and independently
+      re-verified round 2. 5 findings disclosed, none fixed
+      (`NEW-741`..`NEW-745`). Full detail: `PROJECT_LOG.md`'s 2026-10-01
+      B9.y entry.
 
 **The five B9.2+ business/policy questions are answered** — see §8 item 13
 above and `codey_estimator_service.md` §9 for full binding detail. Nothing
