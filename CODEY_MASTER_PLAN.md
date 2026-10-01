@@ -6469,7 +6469,7 @@ Then:
       forwarding, and deployed manifests for `Codey-Aigentik` and `Private-Codey-Agent`.
 - [ ] **11.x** — Model Orchestrator. **Parked** until a domain agent
       needing it is scoped.
-- [ ] **12.x — CCOS read-only CRM query capability (B8.11's actual
+- [x] **12.x — DONE, code-complete + code-reviewer APPROVED, NOT live-verified** (commit `d0def02`, 2026-10-01) — CCOS read-only CRM query capability (B8.11's actual
       prerequisite).** Added 2026-09-26. Coordinator verified directly
       that CCOS today has no path into Restoricon Core's sales/CRM
       data: `domain_router.py`'s CRM domain classifies requests but its
@@ -6537,8 +6537,8 @@ Then:
       also decided to **hold implementation for now** rather than start
       the implementer pipeline this round; spec stands as
       implementer-ready whenever picked back up.
-      **Implemented 2026-10-01, code-complete, pending code-reviewer
-      approval (not yet live-verified on-device per rule 7).** Ish
+      **Implemented 2026-10-01, code-complete + code-reviewer APPROVED
+      (commit `d0def02`; not yet live-verified on-device per rule 7).** Ish
       decided to ship slice 2 (not just slice 1) in this round: live
       conversational retrieval access for the local model, not just a
       dashboard. Built: new plugin `ccos/plugins/crm/core_query/`
