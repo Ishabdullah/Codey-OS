@@ -2682,16 +2682,32 @@ def render_admin_surface() -> str:
                         <input type="email" id="newEmail" required placeholder="jsmith@restoricon.com">
                     </div>
                 </div>
+                <!-- B9.y: customer-login creation via this same Add User modal.
+                     Shown/hidden by toggleNewUserCustomerFields() based on #newRole.
+                     Same search/select pattern as #createLeadModal's
+                     newLeadCustomerSearch/newLeadCustomerResults (searchNewLeadCustomers
+                     etc. above) -- held search-results array, not inline JSON in
+                     onclick (stored-XSS shape already fixed elsewhere in this file). -->
+                <div id="newUserCustomerPickerBlock" class="form-group" style="display:none;">
+                    <label>Link to Customer *</label>
+                    <input type="text" id="newUserCustomerSearch" oninput="searchNewUserCustomers()" placeholder="Start typing a customer name...">
+                    <div id="newUserCustomerResults" style="margin-bottom:0.5rem;"></div>
+                    <p id="newUserSelectedCustomerLabel" style="color:var(--text-muted);"></p>
+                    <button type="button" class="btn-gold" id="newUserClearCustomerBtn" style="display:none;padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="clearNewUserCustomer()">Change</button>
+                    <input type="hidden" id="newCustomerId" value="">
+                    <p id="newUserCustomerExistingWarning" style="color: var(--bronze); font-size: 0.8rem; display:none;"></p>
+                </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label>Role</label>
-                        <select id="newRole">
+                        <select id="newRole" onchange="toggleNewUserCustomerFields()">
                             <option value="technician">Technician</option>
                             <option value="project_manager">Project Manager</option>
                             <option value="sales">Sales</option>
                             <option value="sales_manager">Sales Manager</option>
                             <option value="manager">Manager</option>
                             <option value="admin">Admin</option>
+                            <option value="customer">Customer</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -2699,6 +2715,7 @@ def render_admin_surface() -> str:
                         <input type="text" id="newDept" placeholder="Mitigation Operations">
                     </div>
                 </div>
+                <p id="newUserCustomerRequiredError" style="color: var(--danger); font-size: 0.85rem; display:none;">Select a customer to link this login to before creating a customer-role user.</p>
                 <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
                     <button type="button" onclick="closeAddUserModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
                     <button type="submit" class="btn-gold">Create User</button>
@@ -2760,6 +2777,33 @@ def render_admin_surface() -> str:
             <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
                 <button type="button" onclick="closeEditUserModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
                 <button type="button" onclick="saveEditUser()" class="btn-gold" id="saveEditUserBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reset Password Modal (B9.y): admin-triggered reset, not a reveal --
+         the admin types the new temporary password directly (same convention
+         as the Add User modal's existing "Temporary Password" field), the
+         server never returns the old or new password, and no confirm()
+         dialog is used (matches permModal's no-confirm convention) -- the
+         static note below covers the session-revocation side effect
+         instead. -->
+    <div id="resetPasswordModalOverlay" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Reset Password</h3>
+                <button onclick="closeResetPasswordModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <p>Resetting password for: <strong id="resetPasswordUsername"></strong></p>
+            <div class="form-group">
+                <label>New Password *</label>
+                <input type="password" id="resetPasswordNewValue" minlength="6" required placeholder="••••••••••••">
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">This will immediately revoke all of this user's other active sessions.</p>
+            <p id="resetPasswordError" style="color: var(--danger); font-size: 0.85rem; display:none;"></p>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" onclick="closeResetPasswordModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                <button type="button" onclick="submitResetPassword()" class="btn-gold" id="submitResetPasswordBtn">Reset Password</button>
             </div>
         </div>
     </div>
@@ -3530,6 +3574,11 @@ def render_admin_surface() -> str:
         let userPermissionsState = {};
         let currentEditUserId = null;
         let currentEditUserOriginalRole = null;
+        // B9.y additions: customer-login creation + admin password reset.
+        let usersListCache = [];
+        let newUserSearchDebounce = null;
+        let newUserSearchResults = [];
+        let resetPasswordTargetUserId = null;
 
         function switchErpTab(tabId) {
             document.querySelectorAll('.erp-tab-btn').forEach(b => b.classList.remove('active'));
@@ -4761,6 +4810,14 @@ def render_admin_surface() -> str:
                 if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (res.ok && data.users) {
+                    // B9.y: held array so the new Reset Password button can resolve
+                    // a username from its numeric id (mirrors newLeadSearchResults'
+                    // pattern above) instead of inlining JSON.stringify(u.username)
+                    // into the onclick attribute like the pre-existing Perms/Delete
+                    // buttons do -- that inline-JSON shape is a documented stored-XSS
+                    // vector this file has already fixed elsewhere (NEW_ISSUES.md
+                    // flags the two pre-existing buttons as a separate, unfixed gap).
+                    usersListCache = data.users;
                     tbody.innerHTML = data.users.map(u => `
                         <tr>
                             <td>#${u.id}</td>
@@ -4777,6 +4834,7 @@ def render_admin_surface() -> str:
                             <td>
                                 <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="openEditUserModal(${u.id})">Edit</button>
                                 <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="openPermModal(${u.id}, ${escapeHtml(JSON.stringify(u.username))})">Perms</button>
+                                <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="openResetPasswordModal(${u.id})">Reset Password</button>
                                 <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: ${u.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; border-color: ${u.active ? 'var(--danger)' : 'var(--success)'}; color: ${u.active ? '#FCA5A5' : '#6EE7B7'};" onclick="toggleUserStatus(${u.id}, ${u.active})">
                                     ${u.active ? 'Suspend' : 'Activate'}
                                 </button>
@@ -4958,23 +5016,179 @@ def render_admin_surface() -> str:
         }
 
         function openAddUserModal() {
+            resetNewUserCustomerFields();
             document.getElementById('addUserModalOverlay').classList.add('active');
         }
 
         function closeAddUserModal() {
             document.getElementById('addUserModalOverlay').classList.remove('active');
+            resetNewUserCustomerFields();
+        }
+
+        // B9.y: customer-login creation via this same Add User modal. Shared
+        // reset used by both openAddUserModal() and closeAddUserModal() so a
+        // half-filled customer picker from a previous open never carries over.
+        function resetNewUserCustomerFields() {
+            clearTimeout(newUserSearchDebounce);
+            document.getElementById('newRole').value = 'technician';
+            document.getElementById('newUserCustomerPickerBlock').style.display = 'none';
+            document.getElementById('newUserCustomerSearch').value = '';
+            document.getElementById('newUserCustomerResults').innerHTML = '';
+            document.getElementById('newUserCustomerExistingWarning').style.display = 'none';
+            document.getElementById('newUserCustomerExistingWarning').textContent = '';
+            document.getElementById('newUserCustomerRequiredError').style.display = 'none';
+            document.getElementById('newUserSelectedCustomerLabel').textContent = '';
+            document.getElementById('newUserClearCustomerBtn').style.display = 'none';
+            document.getElementById('newCustomerId').value = '';
+            newUserSearchResults = [];
+            const fullName = document.getElementById('newFullName');
+            fullName.readOnly = false;
+            fullName.value = '';
+            document.getElementById('newEmail').value = '';
+        }
+
+        // Toggles the customer-picker block on/off as #newRole changes.
+        // Switching INTO 'customer': #newFullName becomes readonly (not
+        // removed/un-required -- the field keeps working for existing HTML
+        // validity + submitNewUser's reads, it's just populated from the
+        // selected customer instead of typed). Switching AWAY: restore it to
+        // a normal editable field and clear the hidden customer fields so a
+        // stale customer_id can't leak into a non-customer submission.
+        function toggleNewUserCustomerFields() {
+            const role = document.getElementById('newRole').value;
+            const block = document.getElementById('newUserCustomerPickerBlock');
+            const fullName = document.getElementById('newFullName');
+            if (role === 'customer') {
+                block.style.display = '';
+                fullName.readOnly = true;
+            } else {
+                block.style.display = 'none';
+                fullName.readOnly = false;
+                fullName.value = '';
+                clearNewUserCustomer();
+            }
+        }
+
+        // Type-ahead customer search for the Add User modal's customer
+        // picker -- same 250ms-debounce-then-fetch-then-render-Select-buttons
+        // shape as searchNewLeadCustomers() above, kept as its own parallel
+        // function for the same reason that one is kept separate from
+        // guidedSearchCustomers(): different modal, different element ids,
+        // not worth coupling the state together.
+        async function searchNewUserCustomers() {
+            clearTimeout(newUserSearchDebounce);
+            const term = document.getElementById('newUserCustomerSearch').value.trim();
+            const resultsEl = document.getElementById('newUserCustomerResults');
+            if (!term) { resultsEl.innerHTML = ''; return; }
+            newUserSearchDebounce = setTimeout(async () => {
+                try {
+                    const token = getAuthToken();
+                    const res = await fetch('/api/v1/customers?search=' + encodeURIComponent(term), {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (res.status === 401) { logoutUser(); return; }
+                    const data = await res.json();
+                    if (!res.ok) { resultsEl.innerHTML = '<p style="color:var(--danger);">' + escapeHtml(data.error || 'Search failed.') + '</p>'; return; }
+                    const matches = data.customers || [];
+                    newUserSearchResults = matches;
+                    if (matches.length === 0) {
+                        resultsEl.innerHTML = '<p style="color:var(--text-muted);">No matches.</p>';
+                        return;
+                    }
+                    resultsEl.innerHTML = matches.map(c => `
+                        <div style="padding:0.5rem;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+                            <span>${escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))} ${c.customer_number ? '(#' + c.customer_number + ')' : ''} — ${escapeHtml(c.phone || c.email || '')}</span>
+                            <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" type="button" onclick="selectNewUserCustomer(${c.id})">Select</button>
+                        </div>`
+                    ).join('');
+                } catch (e) { resultsEl.innerHTML = '<p style="color:var(--danger);">Search failed: network error.</p>'; }
+            }, 250);
+        }
+
+        // Looks up the customer object by id from the held search-results
+        // array rather than taking it inline from the onclick attribute --
+        // same stored-XSS avoidance as selectNewLeadCustomer() above.
+        async function selectNewUserCustomer(customerId) {
+            const customer = newUserSearchResults.find(c => c.id === customerId);
+            if (!customer) { console.warn('selectNewUserCustomer: id not found in last search results', customerId); return; }
+            document.getElementById('newCustomerId').value = customer.id;
+            const fullName = (customer.first_name || '') + ' ' + (customer.last_name || '');
+            document.getElementById('newFullName').value = fullName.trim();
+            const emailField = document.getElementById('newEmail');
+            if (!emailField.value.trim() && customer.email) { emailField.value = customer.email; }
+            document.getElementById('newUserSelectedCustomerLabel').textContent =
+                'Selected: ' + fullName.trim() + (customer.customer_number ? ' (#' + customer.customer_number + ')' : '');
+            document.getElementById('newUserClearCustomerBtn').style.display = 'inline-block';
+            document.getElementById('newUserCustomerSearch').value = '';
+            document.getElementById('newUserCustomerResults').innerHTML = '';
+            document.getElementById('newUserCustomerRequiredError').style.display = 'none';
+            await checkExistingCustomerLogins(customer.id);
+        }
+
+        function clearNewUserCustomer() {
+            document.getElementById('newCustomerId').value = '';
+            document.getElementById('newUserSelectedCustomerLabel').textContent = '';
+            document.getElementById('newUserClearCustomerBtn').style.display = 'none';
+            document.getElementById('newUserCustomerExistingWarning').style.display = 'none';
+            document.getElementById('newUserCustomerExistingWarning').textContent = '';
+            const fullName = document.getElementById('newFullName');
+            // Unconditional: this used to be gated on `fullName.readOnly`,
+            // which was fine for the "Change" button (role still 'customer',
+            // readOnly still true) but silently DID NOTHING in
+            // toggleNewUserCustomerFields()'s role-switch-away branch, which
+            // sets readOnly = false on the line before calling here -- so
+            // #newEmail kept the previously-selected customer's email
+            // attached to a brand-new non-customer account. Both call sites
+            // want the full name and email cleared every time; don't
+            // re-gate this on readOnly.
+            fullName.value = '';
+            document.getElementById('newEmail').value = '';
+        }
+
+        // Optional, informational-only check (B9.y spec): users.customer_id
+        // has no UNIQUE constraint (logged separately in NEW_ISSUES.md as a
+        // pre-existing gap, not fixed here), so more than one login can end
+        // up attached to the same customer_id. This surfaces that before
+        // submission as a non-blocking warning -- it does not prevent
+        // creating the new login.
+        async function checkExistingCustomerLogins(customerId) {
+            const warnEl = document.getElementById('newUserCustomerExistingWarning');
+            warnEl.style.display = 'none';
+            warnEl.textContent = '';
+            try {
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/users?role=customer', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                const existing = (data.users || []).filter(u => u.customer_id === customerId);
+                if (existing.length) {
+                    warnEl.textContent = 'This customer already has ' + existing.length + ' login(s): ' +
+                        existing.map(u => u.username).join(', ');
+                    warnEl.style.display = '';
+                }
+            } catch (ex) { /* informational only -- a failed check is not worth surfacing an error for */ }
         }
 
         async function submitNewUser(e) {
             e.preventDefault();
+            const role = document.getElementById('newRole').value;
+            const customerIdRaw = document.getElementById('newCustomerId').value;
+            if (role === 'customer' && !customerIdRaw) {
+                document.getElementById('newUserCustomerRequiredError').style.display = '';
+                return;
+            }
+            document.getElementById('newUserCustomerRequiredError').style.display = 'none';
             const token = getAuthToken();
             const payload = {
                 username: document.getElementById('newUsername').value.trim(),
                 password: document.getElementById('newPassword').value,
                 full_name: document.getElementById('newFullName').value.trim(),
                 email: document.getElementById('newEmail').value.trim(),
-                role: document.getElementById('newRole').value,
-                department: document.getElementById('newDept').value.trim()
+                role: role,
+                department: document.getElementById('newDept').value.trim(),
+                customer_id: customerIdRaw ? parseInt(customerIdRaw, 10) : null
             };
 
             try {
@@ -5096,6 +5310,71 @@ def render_admin_surface() -> str:
             } finally {
                 btn.disabled = false;
                 btn.innerText = 'Save Changes';
+            }
+        }
+
+        // Reset Password Modal (B9.y): admin-triggered reset via
+        // POST /api/v1/users/{id}/password. Only the numeric userId crosses
+        // the onclick boundary (see loadUsersList() above) -- the username
+        // shown in the modal is resolved here from usersListCache, never
+        // from inline JSON passed through the DOM attribute.
+        function openResetPasswordModal(userId) {
+            const user = usersListCache.find(u => u.id === userId);
+            if (!user) { console.warn('openResetPasswordModal: id not found in last loaded users list', userId); return; }
+            resetPasswordTargetUserId = userId;
+            document.getElementById('resetPasswordUsername').textContent = user.username;
+            document.getElementById('resetPasswordNewValue').value = '';
+            document.getElementById('resetPasswordError').style.display = 'none';
+            document.getElementById('resetPasswordError').textContent = '';
+            document.getElementById('resetPasswordModalOverlay').classList.add('active');
+        }
+
+        function closeResetPasswordModal() {
+            document.getElementById('resetPasswordModalOverlay').classList.remove('active');
+            document.getElementById('resetPasswordNewValue').value = '';
+            resetPasswordTargetUserId = null;
+        }
+
+        // No old_password sent -- the route treats it as optional
+        // (json_body.get("old_password")) and change_password() only
+        // requires it for a non-admin actor changing their OWN password;
+        // an admin caller with PERM_MANAGE_USERS resetting another user's
+        // password never needs it (restoricon_core/auth.py change_password()).
+        async function submitResetPassword() {
+            const errEl = document.getElementById('resetPasswordError');
+            errEl.style.display = 'none';
+            const newValue = document.getElementById('resetPasswordNewValue').value;
+            if (!newValue || newValue.length < 6) {
+                errEl.textContent = 'Password must be at least 6 characters long.';
+                errEl.style.display = '';
+                return;
+            }
+            const btn = document.getElementById('submitResetPasswordBtn');
+            btn.disabled = true;
+            btn.innerText = 'Resetting...';
+            const token = getAuthToken();
+            try {
+                const res = await fetch(`/api/v1/users/${resetPasswordTargetUserId}/password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({ new_password: newValue })
+                });
+                if (res.ok) {
+                    closeResetPasswordModal();
+                } else {
+                    const data = await res.json();
+                    errEl.textContent = data.error || 'Failed to reset password';
+                    errEl.style.display = '';
+                }
+            } catch (ex) {
+                errEl.textContent = 'Connection error';
+                errEl.style.display = '';
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Reset Password';
             }
         }
 

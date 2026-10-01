@@ -388,3 +388,221 @@ def test_admin_surface_documents_panel_renders_names_not_raw_ids():
     assert "d.project_name || ('Project #' + d.project_id)" in documents_js
     assert "escapeHtml(d.customer_name" in documents_js
     assert "escapeHtml(d.project_name" in documents_js
+
+
+# ---------------------------------------------------------------------------
+# B9.y: customer-login creation via the existing Add User modal + an
+# admin-triggered password reset action. Frontend-only round -- the backend
+# primitives (role='customer' + customer_id on POST /api/v1/users,
+# POST /api/v1/users/{id}/password) already exist and are unchanged here.
+# ---------------------------------------------------------------------------
+
+
+def test_admin_surface_new_role_dropdown_has_customer_option():
+    html = render_admin_surface()
+    i = html.find('id="newRole"')
+    j = html.find("</select>", i)
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert '<option value="customer">Customer</option>' in region
+    # 7 options total: 6 pre-existing standard roles + the new 'customer'.
+    assert region.count("<option value=") == 7
+
+
+def test_admin_surface_edit_role_dropdown_unchanged_no_customer_option():
+    """Regression guard (B9.y spec, explicit out-of-scope item): #editRole
+    must stay at its pre-existing 6 options with no 'customer' option --
+    this modal doesn't collect a customer_id, so adding 'customer' here
+    would let a save 400 via _validate_user_role_invariants. Someone may be
+    tempted to "fix" the #newRole/#editRole asymmetry; don't -- it's
+    deliberate (see the comment at web_surfaces.py's editUserModalOverlay)."""
+    html = render_admin_surface()
+    i = html.find('id="editRole"')
+    j = html.find("</select>", i)
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert '<option value="customer">Customer</option>' not in region
+    assert region.count("<option value=") == 6
+
+
+def test_admin_surface_new_user_customer_picker_dom_ids_start_hidden():
+    html = render_admin_surface()
+    for stable_id in (
+        'id="newUserCustomerPickerBlock"',
+        'id="newUserCustomerSearch"',
+        'id="newUserCustomerResults"',
+        'id="newUserSelectedCustomerLabel"',
+        'id="newUserClearCustomerBtn"',
+        'id="newCustomerId"',
+    ):
+        assert stable_id in html, stable_id
+    i = html.find('id="newUserCustomerPickerBlock"')
+    j = html.find(">", i)
+    assert 'style="display:none;"' in html[i:j]
+
+
+def test_admin_surface_submit_new_user_includes_customer_id_conditionally():
+    html = render_admin_surface()
+    assert "async function submitNewUser(e)" in html
+    i = html.find("async function submitNewUser(e)")
+    j = html.find("\n        }\n", i)
+    fn_body = html[i:j]
+    assert "customer_id: customerIdRaw ? parseInt(customerIdRaw, 10) : null" in fn_body
+    # Client-side guard: role === 'customer' with no selected customer_id
+    # must block submit instead of letting the server 400.
+    assert "role === 'customer' && !customerIdRaw" in fn_body
+
+
+def test_admin_surface_has_reset_password_button_per_row_with_numeric_id_only():
+    """The new Reset Password button deliberately does NOT follow the
+    pre-existing Perms/Delete buttons' inline-onclick-JSON pattern
+    (escapeHtml(JSON.stringify(u.username)) passed into onclick) -- that
+    shape is a documented stored-XSS vector elsewhere in this file. Only
+    the numeric id crosses the onclick boundary; the username is resolved
+    inside openResetPasswordModal() from a held array."""
+    html = render_admin_surface()
+    assert 'onclick="openResetPasswordModal(${u.id})"' in html
+    assert "openResetPasswordModal(${u.id}, ${escapeHtml(JSON.stringify(u.username))})" not in html
+
+
+def test_admin_surface_has_reset_password_modal_dom_ids():
+    html = render_admin_surface()
+    for stable_id in (
+        'id="resetPasswordModalOverlay"',
+        'id="resetPasswordUsername"',
+        'id="resetPasswordNewValue"',
+        'id="submitResetPasswordBtn"',
+    ):
+        assert stable_id in html, stable_id
+    i = html.find('id="resetPasswordNewValue"')
+    j = html.find(">", i)
+    assert 'minlength="6"' in html[i:j]
+
+
+def _extract_fn_body_by_braces(html: str, fn_start_marker: str) -> str:
+    """Returns the body of a `function name(...) { ... }` block (the text
+    strictly between its outer braces), located via brace-matching rather
+    than a fixed-offset end marker -- needed here because the statements
+    we care about are nested one level deep (inside an `if`), so a plain
+    substring search can't distinguish "appears in the function" from
+    "appears at the function's top level"."""
+    start = html.find(fn_start_marker)
+    assert start != -1, fn_start_marker
+    open_brace = html.find("{", start)
+    assert open_brace != -1
+    depth = 0
+    i = open_brace
+    while True:
+        ch = html[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return html[open_brace + 1 : i]
+        i += 1
+
+
+def _depth_at_each_index(body: str):
+    """Returns a list the same length as `body` where entry i is the brace
+    depth (relative to the body itself, i.e. the function's own `{ }` are
+    not counted) BEFORE character i is consumed. Used to check whether a
+    given substring match starts at depth 0 (top level of the function)
+    rather than nested inside an `if`/`for`/etc block.
+
+    (An earlier version of this helper split the body into "statements" on
+    top-level `;` instead -- that's wrong: a whole `if (...) { ... }` block
+    has no trailing `;`, so it got treated as a single statement whose raw
+    text still contained a nested substring, silently defeating the check.
+    Verified by hand: that version stayed green even when the fix under
+    test was reverted to the buggy guarded form. Per-index depth tracking
+    doesn't have this blind spot.)"""
+    depths = []
+    depth = 0
+    for ch in body:
+        depths.append(depth)
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+    return depths
+
+
+def _has_top_level_occurrence(body: str, needle: str) -> bool:
+    depths = _depth_at_each_index(body)
+    start = 0
+    while True:
+        idx = body.find(needle, start)
+        if idx == -1:
+            return False
+        if depths[idx] == 0:
+            return True
+        start = idx + 1
+
+
+def test_clear_new_user_customer_clears_email_unconditionally():
+    """NEW-fix (B9.y review round): clearNewUserCustomer() must clear
+    #newEmail as a TOP-LEVEL statement of its own body, not nested inside
+    an `if (fullName.readOnly)` guard. The pre-fix code already contained
+    the literal string "document.getElementById('newEmail').value = '';"
+    -- it was just one brace deeper, inside a guard that's already false
+    by the time toggleNewUserCustomerFields()'s role-switch-away branch
+    calls this function (it sets fullName.readOnly = false on the
+    preceding line). A plain substring-presence assertion is green on
+    both the buggy and fixed code and proves nothing; this test instead
+    asserts the statement sits at depth 0 in the function body, which is
+    only true post-fix. (Verified by hand: temporarily re-wrapping the
+    statement in `if (fullName.readOnly) { ... }` turns this test red.)
+    """
+    html = render_admin_surface()
+    body = _extract_fn_body_by_braces(html, "function clearNewUserCustomer()")
+    assert _has_top_level_occurrence(
+        body, "getElementById('newEmail').value = ''"
+    ), body
+
+
+def test_toggle_new_user_customer_fields_else_branch_still_clears_customer_state():
+    """Regression guard for the other half of the fix: the role-switch-away
+    (else) branch of toggleNewUserCustomerFields() must still call
+    clearNewUserCustomer() -- a future edit could drop the call site
+    entirely now that the email-clear no longer depends on statement
+    ordering within this function. (Statement ORDER relative to
+    `fullName.readOnly = false` is deliberately not asserted here post-fix
+    -- once clearNewUserCustomer()'s own guard is gone, ordering is no
+    longer load-bearing, and pinning it would lock in an arbitrary
+    sequence a harmless future edit could "break".)
+    """
+    html = render_admin_surface()
+    body = _extract_fn_body_by_braces(html, "function toggleNewUserCustomerFields()")
+    else_idx = body.find("} else {")
+    assert else_idx != -1
+    else_branch = body[else_idx:]
+    assert "clearNewUserCustomer();" in else_branch
+
+
+def test_reset_new_user_customer_fields_clears_new_email():
+    """NEW-fix (B9.y review round): resetNewUserCustomerFields() -- called
+    from both openAddUserModal() and closeAddUserModal() -- must also
+    clear #newEmail, otherwise a stale email from a previous (unrelated)
+    user-creation attempt survives a modal close/reopen cycle. Asserted
+    at depth 0 of the function body for the same reason as above (there's
+    no guard here to dodge, but keep the extraction consistent)."""
+    html = render_admin_surface()
+    body = _extract_fn_body_by_braces(html, "function resetNewUserCustomerFields()")
+    assert _has_top_level_occurrence(
+        body, "getElementById('newEmail').value = ''"
+    ), body
+
+
+def test_admin_surface_reset_password_never_echoes_the_new_password():
+    """No alert()/confirm() near submitResetPassword may contain the
+    password variable -- a reset is not a reveal."""
+    html = render_admin_surface()
+    assert "async function submitResetPassword()" in html
+    i = html.find("async function submitResetPassword()")
+    j = html.find("\n        }\n", i)
+    fn_body = html[i:j]
+    assert "alert(" not in fn_body
+    # Body sent to the server carries only new_password, never old_password.
+    assert "new_password: newValue" in fn_body
+    assert "old_password" not in fn_body

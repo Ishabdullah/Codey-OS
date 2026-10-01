@@ -3063,3 +3063,157 @@ def test_api_new529_bare_delete_on_path_ending_in_literal_delete_now_404s(api_se
     status, body = make_request(f"{base_url}/api/v1/contacts/{cid}", headers=headers)
     assert status == 200, body
     assert body["contact"]["name"] == "Literal Delete Suffix Contact"
+
+
+# ---------------------------------------------------------------------------
+# B9.y: admin-portal UI additions (customer-login creation via the Add User
+# modal, admin-triggered password reset). These confirm the route-level
+# backend primitives the new frontend wires into -- they were not already
+# covered by an HTTP round-trip test (test_api_login_and_authenticated_crud
+# above only exercises role=customer user creation at the auth_service
+# layer directly, not via POST /api/v1/users).
+# ---------------------------------------------------------------------------
+
+
+def test_api_create_customer_role_user_requires_customer_id(api_server):
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    # Missing customer_id: _validate_user_role_invariants rejects it, the
+    # route's existing top-level `except ValueError` turns that into a 400.
+    status, body = make_request(
+        f"{base_url}/api/v1/users",
+        method="POST",
+        headers=headers,
+        data={
+            "username": "nocustid",
+            "password": "SomePassword123",
+            "full_name": "No Cust Id",
+            "email": "nocustid@example.com",
+            "role": "customer",
+        },
+    )
+    assert status == 400, body
+    assert "error" in body
+
+
+def test_api_create_customer_role_user_with_customer_id_succeeds(api_server):
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers",
+        method="POST",
+        headers=headers,
+        data={
+            "first_name": "Dana",
+            "last_name": "Diaz",
+            "email": "dana@example.com",
+            "service_address": "200 Elm St, Hartford, CT",
+            "customer_type": "residential",
+            "status": "active",
+        },
+    )
+    assert status == 201, body
+    cust_id = body["customer"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/users",
+        method="POST",
+        headers=headers,
+        data={
+            "username": "danalogin",
+            "password": "DanaPassword123",
+            "full_name": "Dana Diaz",
+            "email": "dana@example.com",
+            "role": "customer",
+            "customer_id": cust_id,
+        },
+    )
+    assert status == 201, body
+    assert body["user"]["role"] == "customer"
+    assert body["user"]["customer_id"] == cust_id
+
+
+def test_api_admin_reset_password_without_old_password_revokes_target_sessions(api_server):
+    """Mirrors the new Reset Password admin-portal action: an admin
+    (PERM_MANAGE_USERS) resets another user's password with no
+    old_password in the body, and every one of that OTHER user's existing
+    sessions is revoked (change_password()'s `is_self=False, is_admin=True`
+    branch skips old-password verification; its revoke SQL excludes only
+    the ACTOR's token, so none of the target's sessions are the actor's own
+    and all of them are revoked)."""
+    server, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    admin_headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/users",
+        method="POST",
+        headers=admin_headers,
+        data={
+            "username": "target_user",
+            "password": "OriginalPassword123",
+            "full_name": "Target User",
+            "email": "target@example.com",
+            "role": "technician",
+        },
+    )
+    assert status == 201, body
+    target_user_id = body["user"]["id"]
+
+    # Target logs in, establishing a real session the reset must revoke.
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "target_user", "password": "OriginalPassword123"},
+    )
+    assert status == 200
+    target_token = body["token"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/users/{target_user_id}/password",
+        method="POST",
+        headers=admin_headers,
+        data={"new_password": "BrandNewPassword456"},
+    )
+    assert status == 200, body
+
+    # Target's pre-reset session is now revoked.
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {target_token}"},
+    )
+    assert status == 401, body
+
+    # The new password is live; the old one no longer authenticates.
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "target_user", "password": "BrandNewPassword456"},
+    )
+    assert status == 200, body
+
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "target_user", "password": "OriginalPassword123"},
+    )
+    assert status == 401, body
