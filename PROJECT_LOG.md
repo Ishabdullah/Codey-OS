@@ -1,3 +1,42 @@
+## 2026-10-01 — Stage 0 / S0.1: trajectories recorded at full fidelity, new export hygiene (secrets/oversize/duplicates dropped, never cut), bench grade() fix — code-complete + reviewer APPROVED, NOT live-verified
+
+**What changed (branch `codey-os-dev-v2`):** Ish asked for nothing to be truncated and every flagged issue fixed. Pipeline used:
+- architect spec (Opus);
+- implementer (Sonnet);
+- code-reviewer (Opus), 4 rounds;
+- a final one-bound regex fix by the orchestrator (trivial-fix rule);
+- a fresh full-suite run by the orchestrator.
+
+- **`core/trajectory.py`:**
+  - **Full fidelity:** episodes now store prompt, final answer, tool args and results in full. The 4000/2000/2000/1000-char caps are removed; the architect found the prompt/final caps, which the handoff missed.
+  - **Safety bounds only:** `_MAX_FIELD_CHARS=1_000_000` per field and `_MAX_EPISODE_CHARS=8_000_000` per episode (reviewer M2: phone RAM). An over-bound field becomes `[[codey-trajectory:omitted-oversize chars=N]]`, and the episode is excluded at export. Content is never partially kept.
+  - **Unchanged:** still fail-open, and byte-identical with `CODEY_TRAJECTORY` unset (reviewer-verified). No new imports, no schema change. Teacher-trace caps are unchanged; that is S0.1b item 1.
+- **New `core/export_hygiene.py`, run unconditionally in `export_dataset` (Ish-approved: secrets must never reach training data):**
+  - **Drops whole examples, never redacts or cuts:** examples with a secret, the oversize marker or an exact duplicate (sha256 minus metadata) are removed. `curate_verified` skips episodes whose raw fields END with the legacy `...[truncated]` marker; mid-text occurrences are legitimate (reviewer M1).
+  - **Atomic write:** temp file plus `os.replace`; the export is now mode 0600.
+  - **Clean examples unchanged:** byte-identical to before.
+  - **Single `SECRET_PATTERNS` list, linear time:** round 1 had two quadratic patterns, and 1MB could take hours. Now the worst 1MB adversarial case is ~1.3s, guarded by a timing regression test.
+  - **Coverage:** OpenAI/Anthropic/OpenRouter/AWS/GCP/HF/GitHub/GitLab/npm/Stripe/Slack keys, JWT, bearer/basic headers, URL credentials, quoted/YAML/env/`-e`/`--password=`/mysql `-p`/`x-api-key:` forms.
+  - **False positives on real code removed:** e.g. `os.environ.get(...)`, type annotations, `${VAR}` placeholders. Whole-repo scan: the only hits are literal passwords in test fixtures.
+  - **Accepted trade-offs:** see `NEW-763`.
+- **`bench/verify.py`:** `grade()` copies `hidden/` with `copytree(dirs_exist_ok=True, ignore=__pycache__/.pytest_cache/*.pyc)`. The new tests failed on the old code and pass on the new (`NEW-754`).
+- **Tests:**
+  - New `tests/test_export_hygiene.py` covers the acceptance test (>8KB `write_file` round-trips intact into the exported example), legacy and oversize exclusion, the mid-text marker kept, 50+ secret positives and 30+ negatives, dedup, byte-identity, drop-not-truncate, fail-closed scan, atomic write and linear timing.
+  - `tests/test_trajectory.py` extended for full fidelity, bounds, budget reset and fail-open on both wrapper paths.
+  - `tests/test_bench_harness.py` +2.
+- **Verification:** this was the orchestrator's own run, not a separate verifier agent. The haiku verifier's earlier run predated rounds 3 and 4 and was stopped.
+  - Command: `python3 -m pytest tests -q`.
+  - Result: **3005 passed** in 590s (Python 3.11.15, cloud); the baseline before S0.1 was 2873.
+  - `ccos/tests`: 114 passed.
+  - Source grep for token-shaped literals: none. Fixtures are built by concatenation; Python folds them only inside gitignored `.pyc` files.
+- **Tier (rule 7):** code-complete + reviewer APPROVED. **Not live-verified, not run on Termux / Python 3.12+.** Ish's phone run of `python -m pytest tests/test_trajectory.py tests/test_export_hygiene.py tests/test_bench_harness.py -q` is the next check.
+- **New findings:** `NEW-754` (fixed), `NEW-755`..`NEW-763`. The S0.1b spec is committed as `docs/plans/S0.1b_SPEC.md`.
+- **Not done:**
+  - S0.1b, which needs S0.1 landed first.
+  - S0.1c and the transcript-vs-reconstructed policy, both awaiting Ish.
+  - S0.5 docs drift: its agent was cancelled mid-run with no edits made; awaiting Ish.
+- **Area of concern:** `NEW-760`, an intermittent ccos test failure seen only while two pytest runs shared the machine, and also present on unmodified `73d2a2c`.
+
 ## 2026-10-01 — Developmental program v2, Stage 0 kickoff: plan approved, branch `codey-os-dev-v2` opened (docs only, no code)
 
 **What changed:** Ish opened the developmental program from `docs/plans/CODEY_OS_AGENT_HANDOFF.md` (now committed) with rollback tag `rollback/2026-09-30-pre-dev-v2` and branch `codey-os-dev-v2`, both at `73d2a2c` (= `main`). A cloud orchestrator session re-verified the handoff's Stage 0 findings against `73d2a2c` (rule 12) and wrote `docs/plans/STAGE0_EXECUTION_PLAN.md`, which Ish approved. No runtime code changed.

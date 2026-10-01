@@ -14,8 +14,9 @@ def grade(task: Task, workspace: Path, timeout: int = 60) -> bool:
         with tempfile.TemporaryDirectory(prefix="bench_grade_") as td:
             work = Path(td) / "w"
             shutil.copytree(workspace, work, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
-            for f in task.hidden.iterdir():  # hidden tests overwrite any agent-written file of same name
-                shutil.copy2(f, work / f.name)
+            # hidden tests (and any fixture subdirs) overwrite any agent-written file of same name
+            shutil.copytree(task.hidden, work, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc"))
             r = subprocess.run(
                 [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", str(work)],
                 cwd=work, capture_output=True, text=True, timeout=timeout)

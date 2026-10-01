@@ -20087,3 +20087,62 @@ B8.9a entry), so it keeps `NEW-544`; this finding is renumbered to
 - **This round's change does NOT touch this:** the `copilot-summary` entitlement fix added in this round (`_COPILOT_PANEL_PERMISSIONS` gate) is scoped to `/api/v1/sales/copilot-summary` only, per the reviewer's explicit task framing (confirm, not fix, unless the role-matrix antecedent turned out false — it didn't). `appointment-prep`'s entitlement flow is unmodified by this round's diff.
 - **Fix direction (not decided/fixed this round):** either (a) add an explicit real-actor entitlement gate to `/api/v1/sales/appointment-prep` mirroring the pattern used for the other CCOS fan-out routes, checked against the actual permissions `list_properties`/`list_estimates`/`list_communications` require, or (b) thread the real actor's permission set into the CCOS capability call itself so the real checks fire downstream, not an over-permissioned proxy actor's. Needs an explicit decision since it touches how CCOS-vs-Core permission delegation works for this whole feature class, not just one route.
 - **Cross-reference:** `restoricon_core/api/routes.py` (`/api/v1/sales/appointment-prep` branch), `restoricon_core/services/crm_service.py` (`list_properties` line 861, `list_estimates` line 3393), `restoricon_core/services/communication_service.py` (`query_communications`, lines 213-244), `restoricon_core/auth.py` (`ROLE_PERMISSIONS`), `.claude/agent-memory/code-reviewer/b8_11_ai_sales_copilot_approved.md` (original Warning).
+
+## Found 2026-10-01 — Developmental program v2, Stage 0: S0.1 trajectory fidelity + S0.1b scoping (branch `codey-os-dev-v2`, cloud orchestrator session)
+
+IDs below were allocated on `codey-os-dev-v2` while `main` was at `NEW-753`. If `main` allocates the same numbers before the merge, renumber these at merge time (precedent: `NEW-729`..`NEW-734`), never the `main` ones.
+
+### [NEW-754] Confirmed, FIXED this round: `bench/verify.py` `grade()` scored every task as failed when a task's `hidden/` held any subdirectory
+
+- **Status:** Confirmed and fixed (cloud orchestrator, reproduced 2026-10-01). `grade()` copied each entry of `task.hidden` with `shutil.copy2`. A subdirectory (e.g. `__pycache__/` left by running pytest from the repo root, which collects `bench/tasks/*/hidden/`) raised `IsADirectoryError`. `grade()` swallowed it and returned False, so even the oracle agent scored 0/8 (two `tests/test_bench_harness.py` tests failed).
+- **Fix:** `shutil.copytree(task.hidden, work, dirs_exist_ok=True, ignore=ignore_patterns("__pycache__", ".pytest_cache", "*.pyc"))`; hidden files still overwrite agent files of the same name. Two regression tests were added, confirmed failing on the old code and passing on the new.
+
+### [NEW-755] Confirmed, fix scheduled (S0.1b item 3): `core/sessions.py` keeps its own, weaker secret list
+
+- `core/sessions.py:19-36` redacts with `sk-[a-zA-Z0-9]{48}`, which misses modern `sk-proj-`/OpenRouter keys, plus an unquoted `password=\S+`. This duplicates and diverges from the single list now in `core/export_hygiene.SECRET_PATTERNS`. Fix direction (spec'd): sessions imports a `redact_secrets` built on the shared list and keeps its legacy patterns for recall; it fails closed on redaction error.
+
+### [NEW-756] Confirmed, fix scheduled (S0.1b 6a/6b + S0.1c): the live agent loop silently truncates content the model sees, and training does not match inference
+
+- The model sees `last_tool_result[:2000]` (`core/agent.py:~2419`), `[:400]` (~2207), `[:300]` (~2348), `[:200]` (~2052); peer output is cut to 2000 chars in `core/peer_cli.py:~331-335`; `search_files` silently keeps 50 lines (`tools/shell_tools.py:~247`). `curate_verified` exported full results in a different frame with a one-line system prompt, while the live prompt is up to 20000 chars (`build_recursive_prompt`).
+- About 20 further context-assembly cuts were found (history kept to the last 16 messages, summarizer, memory_v2 file blocks, layered_prompt budget, retrieval/skills budgets, recursive critique, orchestrator `prior_results[-3:]`, etc.). The full file:line inventory is in `docs/plans/S0.1b_SPEC.md` (finding F10).
+- Fix direction (spec'd): flag `CODEY_FULL_TOOL_RESULTS` (default OFF, fail-open, bench-gated) for full-or-paged tool results with a `read_result` tool; record exact transcripts under `CODEY_TRAJECTORY` so training uses what the model saw. The remaining cuts get their own round (S0.1c).
+
+### [NEW-757] Confirmed + Suspected, fix scheduled (S0.1b item 5): the fine-tune notebook silently truncates long examples and may use stale TRL argument names
+
+- Confirmed: the 4b notebook uses `max_seq_length=4096` (`core/finetune_prep.py:~586,~601`) and the legacy template uses 2048 (~425, ~532), so SFT silently truncates longer examples. Fix: a tokenizer-based length filter that drops long examples and prints the count, plus a `--ft-max-seq-len` parameter.
+- Suspected: the notebook pip-installs the latest TRL but passes `SFTConfig(max_seq_length=…)` and `SFTTrainer(tokenizer=…)`, which newer TRL may have renamed (`max_length`, `processing_class`). If so, it would crash on Colab. Verify against the real wheel before editing (rule 12).
+- Confirmed (follow-up, not scheduled): the 4b notebook trains on all tokens, not only assistant turns. Also Suspected: reasoning content is dropped (`core/inference_hybrid.py:~604/~698` reads only `content`), and the notebook's chat-template think-block handling is unverified.
+
+### [NEW-758] Confirmed, partially scheduled (S0.1b item 2): verified teacher traces can never reach training data
+
+- `verified_teacher_traces()` had no consumer, `label_teacher` has no production caller, and `core/agent.py`'s `_record_teacher` discards the trace id, so in real use no teacher trace is ever verified. S0.1b item 2 adds the export path (`curate_teacher`). A labeling hook (an external verifier for peer output) is still needed, so it yields 0 examples until then.
+
+### [NEW-759] Confirmed, fix scheduled (S0.1b item 4): `--finetune` still includes unverified heuristic data despite `NEW-729`
+
+- `prepare_finetune_data` calls `curate_examples(days, min_quality)` (`core/finetune_prep.py:~830`) with `verified_only` defaulting to False, so heuristic `episodic_log` examples reach export. Fix (spec'd): verified-only by default, with an explicit `--ft-include-heuristic` opt-in; the ccos fine-tune plugin is aligned the same way.
+
+### [NEW-760] Confirmed intermittent, not fixed: `ccos/tests/test_multi_domain.py::test_orchestrator_multi_domain_deliberation_and_execution` sometimes fails with `No loaded plugin implements 'crm.get_customer'`
+
+- **Failures:** 2 of 2 runs (cloud, 2026-10-01): once on an unmodified `73d2a2c` worktree and once on the S0.1 tree.
+- **Passes:** 5 of 5 later runs, both alone and as part of the full `ccos/tests` run, on the same S0.1 tree.
+- **Correlation:** both failures happened while another full `pytest tests` run was executing at the same time on the same machine.
+- **Suspected cause:** shared state between concurrent test processes, such as plugin discovery reading or writing a shared path under the home directory (`~/.codeyOS`). This is not verified.
+- **Not caused by S0.1:** it fails on unmodified `73d2a2c` too.
+- **Fix direction:** isolate the test's plugin and state directories (tmp HOME / `CODEY_STATE_DIR`), so it is deterministic under parallel or CI runs.
+
+### [NEW-761] Confirmed, not fixed: several modules budget against the configured `n_ctx`, not the effective one
+
+- `core/tokens.py:48`, `core/summarizer.py:176/198` and `memory_v2.get_ctx_total` use `MODEL_CONFIG["n_ctx"]` (65536), but daemon/background tasks run at `min(n_ctx,16384)` (`utils/config.py:137-138`, `core/loader_v2.py:1342`), so the usage bar and summarize threshold are wrong for daemon tasks. The comment at `prompts/layered_prompt.py:303` says "32 768" (stale).
+- Suspected companion: there is no in-turn check on how much `messages` grows, so an unadmittable request becomes `"[ERROR] Chat completions inference failed"`, which the loop likely returns as the final answer.
+
+### [NEW-762] Confirmed/Suspected, assigned to S0.4/S0.6: bench gaps found while scoping
+
+- Suspected (S0.4): `grade()` lets an agent-written `conftest.py`/`pytest.ini`/`pyproject.toml` in the workspace change how the hidden tests run.
+- Confirmed (S0.6): no bench task produces a tool result over 2000 chars, so a gate for `CODEY_FULL_TOOL_RESULTS` cannot measure anything until long-output tasks exist.
+
+### [NEW-763] Confirmed, accepted trade-offs of the new export hygiene (`core/export_hygiene.py`), recorded rather than fixed
+
+- **Accepted false negatives**, listed in the module docstring: an all-lowercase-letters `mysql -p` password; a `{"token": "<letters only>"}` value; a YAML `api_key:` whose value is a single camelCase/PascalCase identifier.
+- **Accepted false positives**: test fixtures holding literal passwords (e.g. `ccos/tests/test_device_bridge.py:50,131-133`) cause examples containing them to be dropped. That is correct under the drop policy.
+- **File permissions**: exported datasets are now written via `tempfile` + `os.replace`, so the file is mode 0600 instead of umask default. This is intentional, for possibly-private data.
+- **Recording resource bounds**: 1,000,000 chars per field and 8,000,000 chars per episode (`core/trajectory.py`). Over either bound, the field is replaced by an `omitted-oversize` marker and the episode is excluded at export. These are not measured on-device yet; S0.8 should record the DB growth rate under `CODEY_TRAJECTORY=1`.
