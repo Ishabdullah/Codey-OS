@@ -557,6 +557,43 @@ scheduling entirely? Test the concurrency question first, then decide.
 This section is the current-state snapshot. Keep it accurate; it is the
 first thing a new session reads after the rules.
 
+> **⚠ READ FIRST — superseding current-state snapshot exists (2026-10-06).**
+> A full read-only architectural census of all 7 repos was completed on
+> 2026-10-06 (commit `ff1fe43`) and produced
+> **`CODEY_OS_MASTER_BLUEPRINT.md`** — a verified current-state architecture
+> (§2), a reachability-based capability census (§5), and a dependency-ordered
+> roadmap (§21). Per-task evidence with `file:line` citations is in
+> `docs/census-2026-10-06/`; findings are logged as `NEW-761`…`NEW-790`.
+>
+> **Status:** the blueprint is a **complete draft pending Ish's review**. It
+> does **not** supersede this document until Ish explicitly approves it, so
+> this file's §2 rules remain in force and nothing here has been rewritten.
+> But where §4 below and the blueprint's §2/§5 disagree, **the blueprint is
+> the verified one** — §4's snapshot predates the census and several of its
+> claims are code-complete rather than live-verified (rule 7).
+>
+> Material corrections the census established, relevant to reading §4:
+> - **CCOS has no runtime.** Its live surface is 5 of ~25 modules, ~8,000
+>   lines dormant; the sandbox and the only safety validator have never run
+>   (`NEW-769`, `NEW-763`). §3's OS-shell architecture is largely not wired.
+> - **Evaluation leakage** feeds the frozen benchmark into the fine-tune
+>   corpus, and this file's §6 / `AGI_AUDIT_LOG.md` Phase 3 step is what
+>   triggers it (`NEW-761`, Critical).
+> - **Promotion rollback does not exist** — rule 1 is 3-of-4 in code
+>   (`NEW-762`).
+> - **Memory:** 1 of 5 tiers reaches a prompt; RAG has no corpus
+>   (`NEW-770`, `NEW-771`).
+> - **Estimator and pricing subsystems are code-complete but have never run
+>   in production** — every one of their tables in the live DB is empty
+>   (`NEW-777`). Any §4/§6 line calling them done means code-complete.
+> - **The Core API is not a persistent service** and the production store was
+>   last written 2026-09-30 — see the blueprint's §9.4; this is open decision
+>   #1 for Ish.
+>
+> **Planning guidance:** work the blueprint's §21 roadmap, not §6 /
+> Appendix A below, for anything the census touched. Appendix A's register
+> remains valid for items the census did not reach.
+
 **Read §4.1 and §4.2 with one qualifier in mind:** every live-verified
 result below was measured against the **retired** Qwen2.5-Coder-7B and
 1.5B models (§1.4). The *mechanisms* they verify — gate admission, slot
@@ -5165,6 +5202,39 @@ about product direction rather than implementation detail.
 Every open item from the superseded `TODO.md`, re-homed. IDs are kept
 unchanged so the archived evidence stays findable. `[ ]` = open,
 `[x]` = done (kept only where the note carries live information).
+
+> **⚠ 2026-10-06 — this register is now partially superseded.** The census
+> (commit `ff1fe43`) found that several items here are blocked by, or
+> invalidated by, prerequisites no prior plan recorded. For anything the
+> census touched, work **`CODEY_OS_MASTER_BLUEPRINT.md` §21** instead; this
+> register remains valid for items the census did not reach.
+>
+> Specifically, the blueprint's §21 **P0** must land before the AGI
+> workstream below proceeds any further:
+> - The **AGI audit workstream's** next documented step (enable
+>   `CODEY_TRAJECTORY=1`, run the bench, label episodes) is exactly what
+>   triggers the evaluation leak — the frozen benchmark becomes the
+>   fine-tune corpus, and the resulting scores would rise while meaning
+>   nothing (`NEW-761`, Critical). **Do not run it** until that is fixed.
+>   This supersedes `AGI_AUDIT_PLAN.md`'s Phase 3 instruction, which needs
+>   rewriting (blueprint §21 WP0.5, open decision #2).
+> - Rule 1's promotion gate is **3-of-4 in code — rollback does not exist**
+>   (`NEW-762`), so "gated activation" is not yet achievable as rule 1
+>   defines it. Blueprint §21 WP1.3.
+> - The self-improvement modules are dormant **by design** and
+>   `CODEY_SELF_IMPROVE=on` would currently change nothing — no production
+>   path imports them and no production code constructs an approving
+>   `GateDecision`. The env switch guards a machine that isn't connected.
+> - The AGI scorecard's 18/100 baseline **has no rubric in the repo**, so it
+>   is unreproducible and progress against rule 1's ceiling is unmeasurable
+>   (`NEW-776`). Blueprint §21 WP1.4.
+> - `codey-os-dev-v2` still holds the S0 trajectory-fidelity work — **two
+>   commits, 11 files, 944 insertions**, including `core/export_hygiene.py`
+>   (blueprint §21 WP1.2). Main truncates trajectories at record time, which
+>   bounds any fine-tune claim.
+> - **Branch-cleanup note corrected:** the entry below states "`main` is now
+>   the only branch" as of 2026-09-30. `codey-os-dev-v2` exists and carries
+>   unmerged work (above), so that claim is stale rather than wrong-at-time.
 
 **AGI audit workstream (2026-09-30):** tracked in `AGI_AUDIT_PLAN.md` (phases 1-4) and `AGI_AUDIT_LOG.md`. **Merged to `main` 2026-09-30** (`ef5c86d`, from branch `codey-os-agi` @ `6ea4230`) after a Phase-A verification gate: scope check clean (no touches to `restoricon_core/`, `core/resource_gate.py`, `core/loader_v2.py`, daemon-lifecycle files, or `install.sh`), business-safety check clean (all new hooks pass-through/fail-open with flags unset, `functools.wraps` preserved, no runtime import of the self-improvement modules), code-reviewer APPROVED. Phases 1-4 are **code-complete + sandbox/phone test-verified, NOT live-verified with the model**: a literal complete full-suite run could not be obtained on-device (blocked by a pre-existing, file-disjoint crash unrelated to this diff — see `PROJECT_LOG.md`'s 2026-09-30 merge entry for the full disclosure), but every test that did run (~93% of 2851 collected, all 5 scoped AGI test files 39/39, all 8 backup-secrets tests) passed clean once a known ambient-`HTTP_PROXY` false-alarm (`NEW-518` repeat) was ruled out. Live steps remain in `LIVE_TEST_QUEUE.md` [AGI-1], for Ish to run himself. Findings `NEW-729`..`NEW-734` (renumbered at merge time from the branch's original `NEW-546`..`NEW-551`, which collided with IDs `main` had independently allocated to unrelated RBAC findings after the branch was cut — no existing `main` ID was changed). Per rule 1 (as amended 2026-09-30) self-improvement is gated by `CODEY_SELF_IMPROVE` (default off) and the promotion gate; no capability-level evaluator exists yet, so the optimizer deploys nothing. All new env flags (`CODEY_TRAJECTORY`, `CODEY_SELF_IMPROVE`, `CODEY_USE_FIX_MEMORY`) remain unset in every launcher/config/`install.sh`. 4.2 was withdrawn as not-a-defect (rule 6). Rollback: `rollback/2026-09-30-pre-agi-merge` tag @ pre-merge `main` (`910e485`), in addition to `rollback/2026-09-30-pre-agi-audit-fixes` @ `91ee3c1`. **Branch cleanup, 2026-09-30 — COMPLETE, `main` is now the only branch.** `feat/termux-api-agent-tools` merged (`3216ac4`, present but inert — see Appendix A's branch-cleanup entry). `feat/estimator-phase3-schema` found to be a stale zombie — it was already merged into `main` and deleted once before, 2026-09-29, as `bb7a59d` (see this section's B9 entry above); the `origin` copy found during cleanup was a leftover pre-merge snapshot with no unmerged value, deleted rather than merged (`NEW-735`, resolved). 3 other fully-redundant branches also deleted. Both rollback tags (`rollback/2026-09-30-pre-agi-audit-fixes`, `rollback/2026-09-30-pre-agi-merge`) kept, preserving both rollback points.
 

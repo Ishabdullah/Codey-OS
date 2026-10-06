@@ -553,7 +553,22 @@ removal. **Nothing below has been deleted** — this is the proposal.
 
 ### 6.3 Working-tree and data noise
 
-- **254 leaked 32-hex dirs, 7.9 MB** — fix `core/resource_bus.py:112-121` at source and **remove the `.gitignore:46` mask** (§C2-F2)
+- **254 leaked 32-hex dirs, 7.9 MB — root cause identified.** Each holds exactly
+  `resource_bus.db` (28,672 B) + `resource_bus.lock`, i.e. what
+  `core/resource_bus.py:112-121` creates under a caller-supplied `state_dir`:
+  `_get_db_path()`/`_get_lock_path()` call `base.mkdir(parents=True,
+  exist_ok=True)` on `Path(state_dir)`. **Something called it 254 times with a
+  `uuid4().hex` directory resolved against `cwd`** (the repo root) instead of a
+  tmpdir. mtimes span 2026-09-03 → 2026-10-06, so it is still accumulating. The
+  unit tests are *not* the culprit — `tests/test_resource_gate.py:651+` correctly
+  passes pytest's `tmp_path`; the remaining caller is unidentified and is the one
+  thing to find before fixing.
+  *Fix:* make `state_dir` resolution reject bare relative paths (or anchor to
+  `CODEY_STATE_DIR`), locate and fix the caller, then **remove the `.gitignore:46`
+  mask** — a literal 32-char `[0-9a-f]` glob added to hide the symptom rather than
+  fix the leak — so the problem cannot silently return. Same test-isolation class
+  as the recombiner/optimizer/sandbox bugs fixed in `dd49c1d`, which this instance
+  escaped.
 - `cap_metrics` (454 rows) + `reflections.jsonl` (235 KB) — **no reachable writer**; purge or quarantine **before** any gate exists (§15.4)
 - `.claude/agent-memory/` — 337 files, 87% of all `.md`; retention policy (§8.4)
 - 5 orphaned declared dependencies (§20.3)
@@ -836,16 +851,46 @@ via that variable; the live path is never the default in any dev or test
 configuration. Detailed controls in §16 once the destructive-action inventory
 lands.
 
-### 9.4 Open item requiring Ish — service is not running
+### 9.4 Open item requiring Ish — the Core API is not a persistent service
 
-At census start `ps aux` showed only `python battery-watch.py` (PID 31924) and
-`ss -tlnp` showed **no listening TCP ports** — the Core API on 8770 is **down**.
+Verified, and more specific than "it's down":
 
-Production data exists and is current to 2026-09-30, but nothing is serving it.
-Either the service is started on demand, or production is effectively offline.
-**This is a finding, not an all-clear**, and it changes what "keep Restoricon
-operational" concretely requires. Must be resolved with Ish before this section
-can be called complete.
+| Check | Result |
+|---|---|
+| Listening ports at census start | **none** (`ss -tlnp`) — Core API on 8770 not bound |
+| Processes | only `python battery-watch.py` (PID 31924) |
+| **On-demand / lazy start path** | **none exists.** `start_restoricon()` is defined at `lib/service_manager.sh:226` and called from exactly one place — `start_all_services` at `:894`. Nothing auto-starts it on an API call. |
+| Last production write | `~/.codeyOS/restoricon.db` mtime **2026-09-30 17:50 — 6 days before this census** |
+| Activity today | a model *was* loaded at 08:34 (`llama-server.log` 08:35, `resource_gate_state.json` 08:34) — i.e. interactive use, not Restoricon serving |
+
+**Conclusion:** the Core API requires an explicit `codey-start`; it is not a
+persistent or on-demand service, and no production write has occurred in 6 days.
+
+So "Restoricon must remain operational" (directive §5) currently describes a
+**manually-started service over a 6-day-stale datastore**, not a running
+production system. This materially changes what the firewall must protect:
+continuous-availability protection is not the live constraint — **data integrity
+is**. The 249 contacts / 309 communications / 783 audit records are the asset;
+uptime is not presently a property the system has.
+
+**Question for Ish:** is Restoricon production genuinely in active use (started
+manually per session), or is it dormant pending further build-out? The §5
+protections stay in force either way — but the answer changes whether
+"availability" or "data integrity" is the binding requirement, and therefore how
+much of the roadmap needs to run against copies versus simply avoiding writes.
+
+### 9.5 New finding — stale `llama-server` PID file
+
+`~/.codeyOS/llama-server-8080.pid` contains PID **10370**, written 2026-10-06
+08:34. `kill -0 10370` fails — **the process is dead and the PID file was left
+behind.**
+
+This is adjacent to the self-race class CLAUDE.md rule 4 was written for (a daemon
+reading a stale/preemptive PID as evidence a duplicate is running). The resource
+gate does reap dead PIDs (`list_slots(..., reap_dead=True)`), so this is likely
+handled on the slot path — but the bare PID file is not self-cleaning, and
+`codeydOS` cleans only port 8080's. Logged rather than assumed benign; needs a
+`NEW-###` and a check of every reader of that file.
 
 ## 10. NPU-first inference integration (CPU fallback, benchmark gates)
 

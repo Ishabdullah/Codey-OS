@@ -20136,3 +20136,215 @@ B8.9a entry), so it keeps `NEW-544`; this finding is renumbered to
 - **Status:** Confirmed (live-verifier, 2026-10-06, paired test with and without the ambient proxy env vars this Claude Code session runs under). `core/resource_gate.py`'s `_fetch_slots_prompt_tokens()` calls `urllib.request.urlopen('http://127.0.0.1:8080/slots')` with no proxy bypass; under this session's ambient `HTTP_PROXY`/`http_proxy`/`HTTPS_PROXY`/`https_proxy`, that call gets routed through the proxy and returns `405 Method Not Allowed` instead of real slot data, even though the target is `127.0.0.1`. With those vars unset, the identical call succeeds. This is NOT a production bug — a real user's normal Termux session has no such ambient proxy — but it is a real trap for any future Claude/Antigravity dev session doing live model-load verification here, and the failure mode is severe: `wait_and_reserve_context_budget()`'s fail-closed refusal only fires after a full 600-second hang (`CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS`), not a fast error, so anyone debugging this blind would reasonably conclude the model itself is hung rather than suspecting a proxy artifact.
 - **Fix direction (not decided/fixed this round, Ish's call on priority since it's dev-environment-only):** apply the same `trust_env=False`-equivalent hardening `client.py` already uses to `resource_gate.py`'s `urllib` calls, purely for future dev-session robustness — no production impact either way.
 - **Cross-reference:** `core/resource_gate.py` (`_fetch_slots_prompt_tokens`, `wait_and_reserve_context_budget`), `ccos/plugins/crm/core_query/client.py` (the already-correct pattern), project memory's "Sandbox proxy test artifact" note.
+
+---
+
+## Census round 2026-10-06 (Opus blueprint directive) — NEW-761..NEW-790
+
+All findings below come from the read-only architectural census that produced
+`CODEY_OS_MASTER_BLUEPRINT.md`. Full evidence with `file:line` in
+`docs/census-2026-10-06/`. Nothing was fixed this round — the directive scoped it
+to census + blueprint only, pending Ish's review. Ratings reflect actual certainty
+(rule 8); several are Confirmed-but-latent, which is noted explicitly rather than
+inflated or discounted.
+
+### [NEW-761] Confirmed, CRITICAL, latent-but-prescribed: the 8 frozen benchmark tasks feed the fine-tune corpus, and `AGI_AUDIT_LOG.md`'s documented Phase 3 step is what triggers it
+
+- **Status:** Confirmed (census A4; all three hops independently re-verified by the coordinator by reading the files directly, not from the subagent's summary). Hop 1: `bench/runner.py:32-35` calls `label_tag(f"bench:{t.id}", f"bench:{sh[:12]}", passed, ...)`, writing bench episodes into the trajectory store. Hop 2: `core/trajectory.py:108-114`'s `verified_episodes()` runs `SELECT ... WHERE verifier IS NOT NULL AND passed=1` with **no tag predicate** — bench episodes are selected indiscriminately. Hop 3: `core/finetune_prep.py:127-130` iterates exactly that and converts each row into a training example. Net effect: the frozen evaluation set becomes the training set, after which `bench/gate.py` grades candidates on the same 8 tasks. Every subsequent promotion decision measures memorization, and **scores would go up**, so the contamination is invisible from the metric.
+- **Root cause is architectural, not a slip:** `core/trajectory.py:108`'s own docstring describes `verified_episodes()` as "the only eligible fine-tune/eval data" — conflating the training source and the evaluation source in one function.
+- **Latent today** (`CODEY_TRAJECTORY=1` unset) but **fires on the first prescribed run**: `AGI_AUDIT_LOG.md`'s Phase 3 entry instructs "enable `CODEY_TRAJECTORY=1`, run the bench, label episodes." Not fixed on `codey-os-dev-v2` either — its new `core/export_hygiene.py` contains zero hits for `bench`/`tag`/`verifier`.
+- **Fix direction (needs Ish, because it rewrites a documented workflow):** split `verified_episodes()` into separate training-source and evaluation-source accessors so provenance makes bench episodes structurally ineligible rather than filtered by convention; add a regression test that fails if any `bench:`-tagged episode can reach `finetune_prep`; correct the Phase 3 instruction.
+- **Cross-reference:** `bench/runner.py`, `core/trajectory.py`, `core/finetune_prep.py`, `AGI_AUDIT_LOG.md`, blueprint §17.1, `NEW-762`.
+
+### [NEW-762] Confirmed, High: promotion rollback does not exist — CLAUDE.md rule 1 is 3-of-4 in code, and no model/adapter registry exists
+
+- **Status:** Confirmed (census A4). Rule 1 requires candidate-vs-baseline on a frozen benchmark, a regression slice, an append-only ledger, **and rollback**. Gate ✓ (`bench/gate.py:23-40`, genuinely conservative and fail-closed), frozen suite ✓ (lock verified), append-mode ledger ✓ **but empty — no bench result has ever been written**. Rollback ✗: `ccos/core/capability_optimizer.py:397-422` backs up to `data/versions/` and writes a `previous_version` field, and **nothing reads either**; an exhaustive grep for `previous_version|def rollback|def revert|versions/` returns only that write plus two unrelated functions (`core/checkpoint.py:184`, `core/lora_import.py:451`). No model/adapter registry exists. Adapter adoption's gate requirement is DOCS-ONLY — printed as advice at `core/finetune_prep.py:601,783-784` while `core/lora_import.py` consults no gate at all (zero hits).
+- **Why it is currently harmless, and why that is the reason to fix it now:** `compare_and_upgrade`'s unprotected live-overwrite is unreachable because its only caller hardcodes `no_evaluator()`. The missing rollback is latent precisely because the gate is not yet connected — which is exactly why rollback must exist *before* the connection, not after.
+- **Fix direction:** wire the already-written `core/checkpoint.py` rollback/list/prune rather than writing new code; make `lora_import` consult the gate; add a registry recording provenance + gate results.
+- **Cross-reference:** `bench/gate.py`, `core/lora_import.py`, `core/checkpoint.py:184`, `ccos/core/capability_optimizer.py:397-422`, blueprint §17.2, `NEW-761`.
+
+### [NEW-763] Confirmed, High: there is no Action Gateway — irreversible actions cross three disjoint surfaces, and the system's only safety validator has never run
+
+- **Status:** Confirmed (census A3). Three surfaces with three different regimes: the agent's `TOOLS` dict (`core/agent.py:335-352`) enforces 18 substring patterns + a y/n prompt, bypassable via `yolo=True` (`core/task_executor.py:393`); CCOS `call_capability` (`ccos/core/plugin_manager.py:446`) has **zero safety checks of any kind**; `restoricon_core/` is properly RBAC'd and audited. `validate_tool_safety` (`ccos/core/tool_router.py:23`) — the one safety validator in the codebase — has exactly one caller, `ccos/core/agent_orchestrator.py:1094`, inside `execute_plan`, which is **unreachable**. The safety veto is dead code.
+- **Also:** sandbox `ALLOWED_DIRS` includes `ccos/` itself (self-modification hole — needs an explicit rule-1 decision before the sandbox is ever activated); `patch_file` has no confirmation, no protected-name check and **no snapshot**, yet `prompts/system_prompt.py` steers the model to it for all edits.
+- **Two latent gateway defects that become live the moment CCOS is wired:** `extended_api.py`'s `allow_dangerous` is a defaulted kwarg rather than a boundary; `device_bridge`'s auth **fails open** and its telephony veto blocks only emergency numbers.
+- **Cross-reference:** blueprint §16, `NEW-767`, `NEW-769`.
+
+### [NEW-764] Confirmed, High: Aigentik's `/send-email` route has no auth, no do-not-contact check, and no rule-engine gating
+
+- **Status:** Confirmed (census B1). `http-server.js` (port 8081, loopback) exposes `/send-email` such that **any local caller can send a real outbound email to an arbitrary address**, bypassing every safety gate the main inbound pipeline applies. The file also has **zero test coverage**. The production store has a populated `do_not_contact` table (4 rows) — a compliance mechanism this route bypasses entirely.
+- **Severity note:** directive §15 human-gates "new real-person communication permissions"; this is an existing, ungated, unlogged one. Together with `NEW-765` there are **two independent unauthenticated paths to emailing real people**.
+- **Cross-reference:** `~/Codey-Aigentik/http-server.js`, blueprint §13.4, `NEW-765`.
+
+### [NEW-765] Confirmed, High: `restoricon_core/notification_service.py` POSTs to Aigentik→Gmail with zero RBAC checks and zero audit records
+
+- **Status:** Confirmed (census A3). `notification_service.py:13,53-64` sends outbound notifications with no RBAC check and **no audit record** — the clearest externally-visible irreversible action in the system, and it is both ungated and unlogged. Audit-coverage gaps also confirmed at `pdf_service` and `pricing_repo`.
+- **Record correction (rule 6):** project memory recorded "all 55 service audit sites canonical" (2026-09-03). Actual current count is ~137 `.log(` sites / 154 `build_audit_details` uses — the count has roughly tripled, so the memory note was accurate when written and is now stale.
+- **Cross-reference:** `restoricon_core/notification_service.py`, blueprint §16.4, §20.5, `NEW-764`.
+
+### [NEW-766] Confirmed, High: Private-Codey-Agent does not compile at HEAD — the most recent commit's own feature is miswired
+
+- **Status:** Confirmed (census B2; independently re-verified by the coordinator reading both files). `lib/screens/business_dashboard_screen.dart:6,9-13` declares `final RestoriconApiClient apiClient;` with `required this.apiClient`. Both navigation call sites construct it with **zero arguments**: `lib/screens/home_screen.dart:637` and `:1054` both read `MaterialPageRoute(builder: (_) => const BusinessDashboardScreen())`. A missing `required` argument is a hard Dart compile error. The commit that added this wiring — `efe9a1c`, "wire Business Dashboard into AppBar and drawer navigation", the newest commit in the repo — **does not compile as committed**.
+- **`.github/workflows/android-release.yml:61,67` runs `flutter build apk --release` on push**, so CI has either been red since 2026-08-30 or has not run. Not confirmed live (static inspection only, no Flutter toolchain run) — **checking the CI log is the immediate next step**.
+- **Cross-reference:** blueprint §12.1, `NEW-768`.
+
+### [NEW-767] Confirmed, High: the device-bridge capability CCOS exposes to its planner fabricates every result
+
+- **Status:** Confirmed (census B2). `get_default_device_bridge_client()` wires to an **in-process mock server** whose default handlers return hardcoded values — `"screen_width": 1080`, `"sent": True` with no actual SMS send — and never touches a socket. The planner can therefore call a device capability, receive a confident success envelope, and record a trajectory in which an action "succeeded" that never happened.
+- **Why this is rated High rather than Medium:** under directive §14 ("experience is not learning until it measurably changes future behavior"), this poisons the experience store with fabricated successes. It must be fixed **before** any trajectory-driven learning is switched on — it is an S0 data-integrity blocker, not an S1 integration task.
+- **Also:** safety-veto asymmetry — Codey-OS's `validate_telephony_safety` runs **only on the mock-dispatch path** (the one that does nothing real), while the Flutter app's own `handleRequestEnvelope`, the side that would actually dial or text, has **no equivalent veto**.
+- **Salvageable:** the wire protocol/envelope schema is well designed and matches on both sides.
+- **Cross-reference:** blueprint §12.3, §12.4, `NEW-763`, `NEW-768`.
+
+### [NEW-768] Confirmed, Medium: three mutually incompatible port guesses for the Codey-OS↔Private-Codey-Agent link, none of them bound by anything
+
+- **Status:** Confirmed (census B2). `restoricon_api_client.dart:14` defaults to `127.0.0.1:8765`; the actual Core API is on **8770** (`utils/config.py:689,707,712`) — hardcoded mismatch with **no override path anywhere in the app**. `device_bridge_client_service.dart:25` defaults to `8088`; **nothing in Codey-OS ever binds 8088** (`DeviceBridgeServer.start()`, the only method that opens a real socket, is called in exactly one test file with an ephemeral port, never in production). A third integration point, `ccos/plugins/device/private_agent/manifest.json`, references port **8766** and a `python3 agent.py` start command **that does not exist anywhere in the repo**, is not registered in any capability listing, and has a stale leftover `.pid` file beside it — fiction rather than dormant code.
+- **Also:** no auth/login flow exists anywhere in the app (no hardcoded credential found, which is good — but also no token acquisition, storage or presentation, while the production store holds 96 `api_tokens` rows and `restoricon_core/` enforces RBAC). Lower-severity contract mismatches: `/finance/summary` returns `net_margin_percent` where the client expects `gross_margin_percent` (saved only by an incidental fallback to the executive-report endpoint); `/api/v1/projects` **silently ignores** the client's `status`/`limit` filters; `getCustomers()`/`getArAging()` are dead client code.
+- **Cross-reference:** blueprint §12.2, §12.5, §12.6, `NEW-766`, `NEW-767`.
+
+### [NEW-769] Confirmed, High: CCOS has no runtime — the documented OS shell is a library, with ~8,000 lines dormant and only 5 of ~25 modules reachable
+
+- **Status:** Confirmed by three independent census tasks (A1, A2, A3) from different directions. `start_all_services` (`lib/service_manager.sh:891-899`) starts **nothing** from `ccos/`; CCOS is an in-process import reached only from `main.py:561` and `restoricon_core/api/routes.py:533`. An exhaustive `from ccos` grep across the live tree returns **9 hits across 2 modules**; the transitive closure adds three more, giving a live surface of exactly five: `plugin_manager`, `capability_registry`, `manifest_schema_v2`, `task_context`, `task_blackboard`. Dormant (callers only in `ccos/demo_*.py` and tests): `planner`, `agent_orchestrator`, `sandbox`, `tool_router`, `domain_router`, `lifecycle_manager`, `device_manager`, `ccos_memory`, `reflection_engine`, `performance_tracker`, and `telemetry_engine` (724-728 lines, **zero callers at all**).
+- **Consequences:** the sandbox **never runs** (the agent's `shell` tool does not use it); the safety veto never runs (`NEW-763`); and `CODEY_MASTER_PLAN.md` §3's description of an OS shell that "discovers, routes, monitors" describes something the imports do not support. This is the largest documented-vs-actual divergence in the system.
+- **Resolution for planning:** `core/` is canonical for cognition. `core/planner_v2.py` is the production planner (`core/daemon.py:889`), not `ccos/core/planner.py`.
+- **Cross-reference:** blueprint §2.1, §5.2, §15.3, §16.2, `NEW-785`.
+
+### [NEW-770] Confirmed, High: of five documented memory tiers, one reaches a prompt — and `core/memory_v2.py`'s docstring asserts all five work
+
+- **Status:** Confirmed (census A2). Tier 1 (Working) does reach the prompt (`prompts/layered_prompt.py:355` → `core/context.py:176` → `core/memory_v2.py:593`) **but auto-loading is gated at `core/agent.py:1641` by `if used < total * 0.5`**, so it silently stops once the prompt fills half of `n_ctx` — memory disappears exactly when context is most contested, with no signal. Tier 2 (Project) is **write-only**: its only writers are `daemon.py:937,944` and it stores an **md5 hash, not content**; the "Project Memory" block that does render in the prompt comes from the unrelated `core/codeymd.py`, so reading the prompt output would wrongly suggest tier 2 works. Tier 3 (Long-term embeddings) is fully DORMANT — `store_in_longterm` and `Memory.search()` have zero callers, and `core/embeddings.get_embedding_store` is called from exactly one place (`memory_v2.py:299`); it is a **dead parallel retrieval stack**, while the live RAG uses a separate numpy index in `tools/kb_semantic.py`. Tiers 4/5 write only inside `_run_symbolic_pipeline`, gated off by `CODEY_SYMBOLIC=0` (`core/agent.py:1327`). A sixth, undocumented store (`Memory._summary`) has zero production writers, superseded by `core/summarizer.py`.
+- **Record correction (rule 6):** `core/memory_v2.py:5-22`'s docstring asserts five working tiers **as present-tense fact**. It is the primary source of this misconception and should be corrected in place.
+- **Cross-reference:** blueprint §15.1, `NEW-771`.
+
+### [NEW-771] Confirmed, High: RAG is wired end-to-end and has no corpus, and there is no programmatic ingestion path
+
+- **Status:** Confirmed (census A2, both facts verified statically). `$CODEY_DIR/knowledge` **does not exist** and `kb_semantic.has_index()` returns **False**, so `retrieve()` returns `""` on every call and the `retrieval` and `skills` prompt layers are **permanently empty**. There is no programmatic ingestion path either: `index_directory`/`build_semantic_index` have **zero Python callers and no `__main__`**; the only invoker is `tools/setup_skills.sh`, which has never been run. Likely `install.sh` gap (rule 11).
+- **Cross-reference:** `tools/kb_semantic.py`, `tools/setup_skills.sh`, `install.sh`, blueprint §15.2, `NEW-770`.
+
+### [NEW-772] Confirmed, Medium: CLAUDE.md's repo map omits four tracked subsystems totalling 93 Python files, including the one holding all the RBAC
+
+- **Status:** Confirmed (coordinator + censuses A1, A3, A4 independently). CLAUDE.md's "Current repo structure" block omits `bench/` (44 tracked files, 34 `.py`), `restoricon_core/` (29/29), `codey_estimator/` (21/21) and `telemetry/` (11/9) — **93 tracked `.py` files, ~19% of the repo's 502**. It also omits `codey` and `codey-metrics` from the entry points while calling `codey-start`/`codey-stop` "the unified entry points"; in source `codey` is the superset and `codey-start` a thin subset. And it claims ".github/ GitHub workflows" when no `workflows/` directory exists (`NEW-773`).
+- **Why this is worse than ordinary doc drift:** CLAUDE.md is the first file every new agent context reads, and the map is explicitly the project's defence against the repeat-finding problem (`NEW-26`/`NEW-27`). `restoricon_core/` — which census A3 found holds most of the destructive surface and all the RBAC — is the single most consequential directory to be missing. An agent trusting the map would not know it exists.
+- **Fix direction:** regenerate the map from `git ls-files` and **add a test that fails when a tracked top-level dir is absent from it**, so hand-maintenance cannot let this recur.
+- **Cross-reference:** `CLAUDE.md`, blueprint §8.3, §7.2, `NEW-773`, `NEW-789`.
+
+### [NEW-773] Confirmed, High: there is no CI at all — 2,854 tests exist and nothing runs them automatically
+
+- **Status:** Confirmed (census A4; re-verified by the coordinator). `.github/` contains exactly one file (`REPOSITORY_DESCRIPTION.md`); `ls .github/workflows/` returns `No such file or directory`. No GitLab/Circle/Makefile/pre-commit config either. **No pytest config at all** — `pytest.ini`, `pyproject.toml` and a root `conftest.py` are all absent. CLAUDE.md's map claims GitHub workflows exist (`NEW-772`).
+- **Note the contrast:** `Private-Codey-Agent` *has* CI and it is almost certainly red (`NEW-766`); Codey-OS has none.
+- **Related:** `tests/security/test_shell_injection.py` is the only caller of `validate_command_structure` (`tools/shell_tools.py:108`) — a green security suite exercising a function production never calls (`NEW-786`). And the ambient-proxy trap bit this census again: `HTTP_PROXY=http://127.0.0.1:41245` (+3 variants) was set, requiring `env -u`; that belongs in a `conftest.py` rather than tribal knowledge (`NEW-756` is the same class).
+- **Cross-reference:** blueprint §20.1, §20.2, `NEW-756`, `NEW-772`, `NEW-786`.
+
+### [NEW-774] Confirmed, Medium, rule-11 violation: `python_multipart` is imported unguarded but is in neither `requirements.txt` nor `install.sh`
+
+- **Status:** Confirmed (census A4). `restoricon_core/api/routes.py:2414` imports `python_multipart` **unguarded**; it is installed on this device (`python-multipart==0.0.32`) but absent from both `requirements.txt` and `install.sh`, so a fresh clone following rule 11's promise ("run `install.sh` once and end up with a fully working system") gets a broken Core API. Also 5 orphaned declared deps; and no `sqlite3` CLI is installed despite a SQLite-centric system.
+- **Related, needs a decision first:** `install.sh:219-220` clones llama.cpp `--depth 1` **unpinned** (`NEW-757`), which is structurally incompatible with the commit-pinned NPU patch sets (`NEW-778`) — so that line cannot be fixed until the pin question is settled.
+- **Near-miss worth recording:** `rich` looked unused until its submodule-form imports were found at `core/display.py:8-9`. Any automated dependency sweep must handle import-form variation.
+- **Cross-reference:** `restoricon_core/api/routes.py:2414`, `requirements.txt`, `install.sh`, blueprint §20.3, `NEW-757`, `NEW-778`.
+
+### [NEW-775] Confirmed, Low (noise + test-isolation defect), root cause identified: 254 leaked 32-hex state directories in the repo root, hidden by a `.gitignore` rule rather than fixed
+
+- **Status:** Confirmed (coordinator + census A1, same conclusion independently). `ls -d */ | grep -cE '^[0-9a-f]{32}/$'` → **254**; `du -csh` → **7.9M**. Each holds exactly `resource_bus.db` (28,672 B) + `resource_bus.lock` — precisely what `core/resource_bus.py:112-121` creates: `_get_db_path()`/`_get_lock_path()` call `base.mkdir(parents=True, exist_ok=True)` on `Path(state_dir)`, so a bare 32-hex **relative** `state_dir` is created relative to cwd, i.e. the repo root. mtimes span 2026-09-03 → 2026-10-06, so it is **still accumulating**.
+- **Not the unit tests:** `tests/test_resource_gate.py:651+` correctly passes pytest's `tmp_path`. The caller supplying a bare `uuid4().hex` dir is **unidentified** and is the thing to find before fixing.
+- **The notable part:** the response to the leak was `.gitignore:44-46` — a literal 32-char `[0-9a-f]` glob described as "Session log directories" — which hides the symptom and leaves the write-into-repo-root behaviour in place. Same test-isolation class as the recombiner/optimizer/sandbox bugs fixed in `dd49c1d`, which this instance escaped.
+- **Fix direction:** reject bare relative `state_dir` values (or anchor to `CODEY_STATE_DIR`), find and fix the caller, then remove the `.gitignore` mask so it cannot silently return.
+- **Cross-reference:** `core/resource_bus.py:112-121`, `.gitignore:44-46`, `tests/test_resource_gate.py:651`, blueprint §6.3.
+
+### [NEW-776] Confirmed, Medium: the AGI scorecard's 18/100 baseline has no rubric anywhere in the repo, so it is unreproducible
+
+- **Status:** Confirmed (census A4). 18/100 is cited twice in prose with **no rubric in the repo**, making the baseline unreproducible and progress toward rule 1's stated ceiling unmeasurable. `AGI_AUDIT_LOG.md` is also stale (last entry 2026-09-30 despite 2026-10-01 AGI-track work).
+- **Why it matters for rule 1 specifically:** rule 1 says "a score is not a goal in itself... never a number that was pushed up by relabeling." With no version-controlled rubric there is currently no way to distinguish a real improvement from a relabeling.
+- **Cross-reference:** `AGI_AUDIT_PLAN.md`, `AGI_AUDIT_LOG.md`, blueprint §17.3.
+
+### [NEW-777] Confirmed, Medium: 10 of 21 vendored estimator modules are dormant because the pricing worker that would call them was never written
+
+- **Status:** Confirmed (census B3). `Codey-OS/codey_estimator/` is a **byte-for-byte verbatim vendored copy** of `Codey-Estimator-reference/src/codey_estimator/` (confirmed by `diff` on every file pair; only the package `__init__.py` differs, by a provenance docstring) — so this is **not** a duplicate-implementation conflict, correcting the census's own starting hypothesis. The reference repo is a stdlib-only library (`pyproject.toml: dependencies = []`) with no DB/API/service code; the service layer exists only in Codey-OS. Reachability traced `codey-start` → `lib/service_manager.sh:start_restoricon()` → `python3 -m restoricon_core.api.server` → `EstimateService`/`pricing_repo.py`, which import exactly **7 of 21** modules (`calc/engine`, `dto`, `errors`, `units`, `money`, `ports`, `refresh`). The other **10 are DORMANT**: `catalog/*.py` (material matching/normalization) and `retailers/*.py` (retailer parsing/CSV import) have zero callers anywhere in `restoricon_core/`. `pricing_job_service.py` is 122 lines of job-lifecycle bookkeeping — **the scraping/matching logic that would call them does not exist**.
+- **Corroborated by production data:** `material_matches`, `retailer_products`, `price_observations` and every other pricing/retailer table in `~/.codeyOS/restoricon.db` are **empty** — because nothing writes to them, not because the feature is idle.
+- **Branch anomaly resolved, not a finding:** `Codey-Estimator-reference`'s missing `main` branch is a shallow single-commit clone artifact, intentional per `NEW_ISSUES.md:18426` (read-only vendoring source).
+- **Fix direction:** write the pricing worker; add a vendoring-drift check so the verbatim copy cannot silently diverge.
+- **Cross-reference:** blueprint §14, `NEW-787`.
+
+### [NEW-778] Confirmed, High (blocks directive §6's stated precondition): both deployed models are ineligible for both NPU prefill→decode prototypes
+
+- **Status:** Confirmed (census B4; both GGUF headers read in full per rule 12, not inferred from names). The primary default is `general.architecture = 'qwen35'` — **hybrid SSM+attention** (`ssm.conv_kernel`/`state_size`/`group_count`/`inner_size` present, `full_attention_interval=4` so only ~8 of 32 blocks hold a KV cache, `key/value_length=256`, tagged `image-text-to-text`), and `llm_arch_is_hybrid()==true` (`llama-arch.cpp:1091-1114`). The embed model is `nomic-bert` with `attention.causal=False` — **no KV cache at all**. Both patch allowlists were opened directly: patch #5 is `QWEN2||QWEN3`; patch #7 is `QWEN2||QWEN3||(LLAMA&&!is_swa_any())`. **Neither deployed model qualifies**, because the handoff works by migrating a KV cache between backends.
+- **Consequence:** directive §6's "benchmark exact deployed Codey models before changing production defaults" is **not satisfiable** on this path without new SSM-state-migration work, which is research rather than integration.
+- **Evidence discipline worth preserving:** only ONE NPU result is validated-and-reproducible — Mistral-7B NPU-hybrid, n=3 rotated order with SDs, **29.17s vs CPU 116.13s (74.9%)** — and it must always travel with four qualifiers: prefill-only (NPU *decode* at 3.79/5.85 tok/s is **slower** than CPU's 6.26), first-response-only (the handoff is one-way; a second call throws), warm-only, and **on a model Codey-OS does not deploy**. The repo itself labels its 95.22/29.22 tok/s figures "not matched performance benchmark results." All OpenCL performance is n=1 with non-matched start temperatures and **negative in every matched comparison**.
+- **Hard ceilings:** one NPU session only (`0x200` AEE_ERPC, cause unidentified) versus Codey-OS's three servers; context 65,536 production vs 2,560 max NPU-benchmarked (**25.6× gap**); and OpenCL **silently runs attention on CPU despite reporting 29/29 offload** — the exact failure mode that would make a backend adapter record a false capability.
+- **Smaller than it looks:** `llama-server` is an unbuilt target, not missing software — `tools/server/` exists in both patched trees but `scripts/build.sh:58` and `build-npu.sh:66` both set `-DLLAMA_BUILD_SERVER=OFF`.
+- **Cheapest next step (static, no model load):** check `ggml-hexagon`'s `supports_op` for `qwen35` SSM ops and `nomic-bert` non-causal attention — this gates every remaining question.
+- **Cross-reference:** blueprint §10, `NEW-774`, `NEW-779`, `NEW-788`.
+
+### [NEW-779] Suspected, High if confirmed: `core/resource_gate.py`'s KV cost model may overestimate memory by ~4× because it appears to assume 32 uniform attention layers
+
+- **Status:** Suspected (census A1 raised it as an open question and explicitly did **not** audit the 4,911 lines of cost math, so this is flagged rather than asserted). The deployed model's `full_attention_interval=4` means only ~8 of 32 blocks hold a KV cache (`NEW-778`), plus SSM state that a pure-attention model would not have. If the cost model assumes uniform attention, it overestimates — and a 4× overestimate would make the gate refuse loads it could safely admit, and would corrupt every NPU/CPU scheduling decision downstream.
+- **Needs:** a real audit of `core/resource_gate.py`'s cost math against the actual `qwen35` topology, then a live-verifier check that predicted memory matches measured RSS within a stated tolerance (one model-load cycle under rule 2).
+- **Cross-reference:** blueprint §2.3, §19.2, `NEW-778`.
+
+### [NEW-780] Confirmed, Medium: a dashboard-only user registers as "no human present", and the code anticipated exactly this
+
+- **Status:** Confirmed (census A1). `is_interactive_session_active()` (`core/resource_gate.py:3961-3981`) now resolves to TUI-PID-file scanning alone, and the **only** writer is `main.py:401-447`. **Nothing in `restoricon_core/` writes a session marker**, so someone working entirely through `/admin` is invisible to the signal — changing background-dispatch deferral (`daemon.py:1288,1488`), the interactive-vs-background `n_ctx` choice (`loader_v2.py:1363-1372`), and context-budget admission at three sites.
+- **The code predicted this:** `resource_gate.py:3977-3980` says "if a GUI is ever reintroduced, restore the signal WITH a freshness/liveness guard." The web dashboard **is** that reintroduction and the signal was never restored.
+- **Collides with standing direction:** "dashboard = single control surface" (Ish, 2026-09-10).
+- **Cross-reference:** blueprint §2.5, §19.2.
+
+### [NEW-781] Confirmed, High (rule-2 territory): Aigentik loads the 2.7 GB model outside the daemon, in a short-lived Node-spawned Python process, with all failures silenced
+
+- **Status:** Confirmed (census A1). `~/Codey-Aigentik/index.js:228` runs `execSync("python3 .../tools/ensure_model_cli.py")`, whose `main()` calls `core.loader_v2.get_loader()` **directly** (`tools/ensure_model_cli.py:92`) — so a full model load happens **outside the daemon**, reached from `start_all_services` step 3. The release side *does* go through the daemon socket (`tools/release_model_cli.py:73,77`), so the asymmetry is in acquisition only. Both calls use `stdio:'ignore'`, making **every failure silent to Aigentik**.
+- **Why rated High:** this is squarely CLAUDE.md rule 2 (this device has crashed from concurrent model loads). What currently makes it safe is the per-port lock (`loader_v2.py:564-600`) and slot reservation (`:1450`); **whether those suffice under real concurrent load is not statically verifiable** and needs live-verifier time.
+- **Cross-reference:** blueprint §2.2, §19.2, `NEW-783`.
+
+### [NEW-782] Suspected (latent, not live-triggered): `contacts.js`'s `mapJSToCore` has the identical spread shape that caused NEW-517
+
+- **Status:** Suspected (census B1, which audited **all ~54 Aigentik→Core call sites across 12 files** and found all of them currently correct, including both previously-fixed bugs — NEW-517's spread-leak in `subcontractor-recruiter.js` and the `sendCalendarInvite()` argument transposition from `8b61916`, each re-verified in current source). The one new finding: `~/Codey-Aigentik/contacts.js:76-89` does `coreObj.external_id = jsObj.id` **without deleting `jsObj.id`** — the exact shape of NEW-517. It is not live-triggered today only because its sole call site happens to pass a fresh object with no `id` key. One new caller passing an object that has an `id` reopens NEW-517 identically.
+- **Vindicates** the standing memory note to keep watching Aigentik↔Core call sites for this class. Recommend fixing the shape rather than relying on caller discipline.
+- **Cross-reference:** `~/Codey-Aigentik/contacts.js:76-89`, `NEW-514`, `NEW-515`, `NEW-516`, `NEW-517`, blueprint §13.3.
+
+### [NEW-783] Confirmed, Low: a stale `llama-server` PID file is left behind after shutdown
+
+- **Status:** Confirmed (coordinator). `~/.codeyOS/llama-server-8080.pid` contains PID **10370**, written 2026-10-06 08:34; `kill -0 10370` fails — the process is dead and the file was left behind. Adjacent to the self-race class rule 4 exists for (a daemon reading a stale PID as evidence a duplicate is running). The resource gate does reap dead PIDs (`list_slots(..., reap_dead=True)`) so the slot path is likely fine, but the bare PID file is not self-cleaning and `codeydOS` cleans only port 8080's — **census A1 separately found the embed server (port 8082) has no PID file at all**, so its orphans are untracked entirely.
+- **Needs:** a check of every reader of that file before assuming benign.
+- **Cross-reference:** blueprint §9.5, §19.2, `NEW-781`.
+
+### [NEW-784] Confirmed, Medium (latent hazard for a future gate): `cap_metrics` holds 454 rows and `reflections.jsonl` 235 KB with today's mtime, and neither has a reachable writer
+
+- **Status:** Confirmed (census A2). `cap_metrics` (454 rows) and `ccos/data/reflections.jsonl` (235 KB, mtime today) have **no reachable writer** in the live tree. If the promotion-gate bridge is ever built (`NEW-762`), **stale or demo-generated metrics would silently drive real promotion decisions** — directive §12's "evaluation leakage risk" in a second, distinct form from `NEW-761`.
+- **Fix direction:** purge or quarantine with provenance recorded **before** any gate is wired, not after; make the gate refuse any row lacking provenance.
+- **Also from the same census:** `ccos_memory.py`'s declared schema is **absent from its own DB**, and **three modules share that DB path with disjoint schemas**.
+- **Cross-reference:** blueprint §15.4, §15.6, `NEW-761`, `NEW-762`.
+
+### [NEW-785] Confirmed, Low: two telemetry systems exist, and CLAUDE.md's map names the dormant one
+
+- **Status:** Confirmed (census A4). The **live** system is the top-level `telemetry/` package (~160 KB, **9 real production callers**, 250 run files on disk, and `docs/telemetry_layer_design.md` is accurate for it — one of the few docs that holds up). `ccos/core/telemetry_engine.py` (728 lines) is **DORMANT** — its only referents are itself, its demo and its test. CLAUDE.md's repo map names the dormant one and omits the live one (`NEW-772`).
+- **Fix direction:** delete the 728 dormant lines or justify keeping them; correct the map.
+- **Cross-reference:** blueprint §20.4, `NEW-769`, `NEW-772`.
+
+### [NEW-786] Confirmed, Medium: two shell-command validators are dormant, and the security test suite covers one of them rather than the enforced path
+
+- **Status:** Confirmed (census A3). `_validate_command` plus its 54-entry `ALLOWED_COMMANDS` (`tools/shell_tools.py:38-83,162`) has **zero callers**. `validate_command_structure` (`tools/shell_tools.py:108`) is called **only** by `tests/security/test_shell_injection.py` — a green security suite exercising a function production never calls. The actually-enforced policy is "18 substring patterns + y/n prompt", bypassable via `yolo=True` (`core/task_executor.py:393`).
+- **Assessed honestly:** this is **not** a live injection hole — the absence of `shell=True` is what saves it, not the validators. And the unattended daemon is better guarded than the interactive agent (`_DAEMON_ALLOWED_PREFIXES` is real and correctly excludes git writes).
+- **Why it still matters:** it is the "passing test that guards nothing" shape, one level up from CLAUDE.md's "a fix that passes every test can still be wrong."
+- **Fix direction:** make one validator live or delete both with an equivalence argument, and retarget the security suite at the enforced path.
+- **Cross-reference:** `tools/shell_tools.py`, `tests/security/test_shell_injection.py`, blueprint §16.3, `NEW-763`, `NEW-773`.
+
+### [NEW-787] Confirmed, Low: `codey_estimator_schema.md` is a stale B9.1-era snapshot and contradicts both the live code and the live DB in two places
+
+- **Status:** Confirmed (census B3, against the live DB copy and current source). (1) The doc says `estimate_line_items`'s 4 pricing-id columns have "NO FOREIGN KEY, deferred to a later phase" — the live DB and `restoricon_core/database.py:414-432` have **all 4 FKs attached**. (2) The doc says `estimates.property_id` is "bare INTEGER, NO FOREIGN KEY" — the live DB has the FK attached via `_migrate_estimates_property_id_fk` (`database.py:3022`). Both stem from one root cause: the doc was never updated for the B9.x pricing round. The drift is in the *pessimistic* direction, but it would mislead anyone planning the "later phase" that already happened.
+- **Also verified this round (rule 6, re-confirmed from source rather than trusted from memory):** the B9.x "commit before raise" concern is **genuinely fixed** — `restoricon_core/database.py:3060-3204`'s pre-flight dangling-id check runs before any DDL touches disk, and the terminal `PRAGMA foreign_key_check` (`:3185-3189`) is still inside the `with conn:` block, so raising there rolls back rather than leaving a committed partial write.
+- **Cross-reference:** `codey_estimator_schema.md`, `restoricon_core/database.py`, blueprint §14.3, §14.4, `NEW-777`.
+
+### [NEW-788] Confirmed, Low, cross-repo: the OpenCL repo's 2026-10-05 preservation audit asserts `~/llama.cpp` HEAD is unchanged, and `b5b805a` invalidated that premise the next day
+
+- **Status:** Confirmed (census B4). `OpenCL-S24-Ultra`'s October-5 preservation audit records `~/llama.cpp` HEAD as unchanged; `b5b805a` (2026-10-06, this repo's `NEW-754`/`NEW-758` round) rebuilt that checkout to `0.6.0-dev`/`4f540676`, and `utils/config.py:40-49` now prefers it. The two patch sets pin upstream `e358d591` and the accelerator builds ship `libllama.so.0.5.0`, so the research repo's stated baseline no longer matches the tree it describes.
+- **Why it was not caught in-round:** `NEW-758`'s resolution was scoped to Codey-OS and correctly noted the missing version pin, but nothing cross-checked the OpenCL repo's recorded assumptions about the shared checkout. This is the first cross-repo instance of the `NEW-757` unpinned-clone risk.
+- **Cross-reference:** `OpenCL-S24-Ultra` (Oct-05 preservation audit), `b5b805a`, `utils/config.py:40-49`, `NEW-757`, `NEW-758`, `NEW-778`, blueprint §10.7.
+
+### [NEW-789] Confirmed, Medium: `docs/architecture.md` is ~10 weeks stale and describes the aspirational OS shell as live; `docs/security.md` omits the security problems
+
+- **Status:** Confirmed (censuses A1, B1, and the doc inventory, independently). `docs/architecture.md` was last touched 2026-07-29 and its diagram still shows **local-JSON storage**, predating the Core API cutover entirely and omitting Aigentik's `http-server.js`. Given `NEW-769` (CCOS has no runtime, only 5 of ~25 modules reachable), it describes an architecture the imports do not support — treat as DOCS-ONLY until re-verified line by line. `docs/security.md` **falsely claims** Gmail + llama-server are Aigentik's only network traffic, omitting both the Core API calls and the unauthenticated inbound server (`NEW-764`) — i.e. the security doc omits the security problem.
+- **Doc-surface context:** of 389 `.md` files, **337 (87%) are `.claude/agent-memory/` scratch notes** (280 for code-reviewer alone), so the real documentation surface is ~52 files. 14 project docs date to 2026-07-29/30 or earlier; `docs/version-history.md` (2026-06-13) is the oldest.
+- **Cross-reference:** `docs/architecture.md`, `docs/security.md`, blueprint §8, `NEW-764`, `NEW-769`, `NEW-772`.
+
+### [NEW-790] Confirmed, Low: 16 live source comments point readers at archived documents they are told never to plan from
+
+- **Status:** Confirmed (census A1). **15 live source comments cite `docs/archive/TODO.md`** and one cites the archived `CODEY_OS_MASTER_VISION.md`. Both were archived on 2026-08-21 as "evidence only — never plan work from them" (CLAUDE.md), so anyone following an in-code pointer lands in exactly the material they are instructed not to execute.
+- **Also in the misleading-reference class, from the same censuses:** `core/resource_gate.py:1076`'s comment claims nothing calls `reserve_slot()` when `core/loader_v2.py:1450` is the single real production call site (verified repo-wide); `ThermalManager.reset()`'s docstring names a "cooldown period" **absent from all nine `THERMAL_CONFIG` keys** (verified by full dump, not by grepping for `cooldown`); `config.json`'s `gui`/8888 block is a leftover from the GUI deleted in `65c9f10`, whose own review round called for sweeping the `8888` constants and missed `config.json`; and Aigentik's `a_port` is parsed at `lib/service_manager.sh:285,436,496` and never used again — dead twice over, since `index.js` contains no `listen(` and is a worker, not a server.
+- **Cross-reference:** blueprint §6.4, `NEW-772`, `NEW-789`.
