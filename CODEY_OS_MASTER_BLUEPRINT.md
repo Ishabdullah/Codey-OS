@@ -347,10 +347,38 @@ production business system, and they share a release. That is the structural
 reason §9's firewall has to be enforced by convention (`RESTORICON_DB_PATH`)
 rather than by boundary.
 
-**Not recommending a split now.** It is high-churn, it would fragment the Core API,
-and §5's protections are achievable without it. **Flagged as the one place where
-directive §4's reasoning and the current layout genuinely diverge**, for Ish's
-decision — with §9.3's env-var seam as the interim control.
+### 3.5 DECIDED — `restoricon_core/` splits into its own repo (Ish, 2026-10-06)
+
+The census recommended keeping it in place with the boundary enforced at the
+env-var seam. **Ish decided to split it now**, matching directive §4's reasoning
+literally: production gets a genuinely independent release lifecycle, and the
+system holding all the RBAC and most of the destructive surface stops sharing a
+commit history with the research system.
+
+**This is the decision of record and the roadmap implements it** (WP5.1). The
+honest trade-offs, kept visible rather than buried:
+
+| Cost | Mitigation |
+|---|---|
+| High churn — ~29 `.py` files plus the API surface | `git mv`/`git filter-repo` to preserve history; one bounded batch |
+| A new cross-repo contract to maintain | §3.4's hardening applies — one endpoint source of truth, versioned API |
+| Competes for time with P0's security fixes | **Sequenced after P0** — see below |
+
+**Sequencing constraint (the one thing that must not be got wrong):**
+`restoricon_core/notification_service.py` is the file holding one of the two
+unauthenticated email paths (`NEW-765`). Splitting the repo while that fix is
+pending would mean landing a live security fix across a repo move. **So: P0's
+security fixes land first, in one repo; the split happens after.** WP5.1 is
+positioned accordingly.
+
+**Second constraint:** the split must not happen before the §16 Action Gateway
+(P2), because the gateway is what makes the production boundary explicit *in code*
+— it turns the split from a file move into a real architectural boundary. Doing
+the move first would just relocate the three-disjoint-surfaces problem into two
+repos.
+
+**Interim control until the split lands:** §9.3's `RESTORICON_DB_PATH` seam,
+unchanged.
 
 ### 3.4 Contract hardening required
 
@@ -737,7 +765,7 @@ authority tier:
 | Reference (implementation) | `docs/*` — each marked verified or suspect |
 | Historical | `docs/archive/*` |
 
-**Archive (proposed, not executed).** Move to `docs/archive/` with a
+**Archive — APPROVED by Ish 2026-10-06 (execute in P5).** Move to `docs/archive/` with a
 `> **SUPERSEDED** — historical evidence only, do not execute` banner:
 `Codey-OS-audit.md` (superseded by this blueprint's census),
 `docs/importantdoc.md` (name conveys nothing; content to be triaged),
@@ -2140,6 +2168,20 @@ on.
 - *DoD:* the leakage test is green and in CI (after WP1.1).
 - *Needs Ish:* confirms the documented Phase 3 workflow changes (§17.6).
 
+**WP0.7 — Move the Cloudflare tunnel token out of plaintext** *(Ish's decision 7)*
+- *Objective:* remove the last plaintext credential on device (§20.5).
+- *Deps:* none. *Repo:* Codey-OS — `config.json:3`, reusing
+  `core/backup_secrets.py`'s `~/.codeyOS/age.key` at-rest pattern.
+- *Intent:* encrypt the token at rest via the mechanism the project already has;
+  load/decrypt at service start. **No rotation** — Ish's call, and no exposure
+  evidence (gitignored, `git ls-files`-confirmed untracked, and
+  `lib/service_manager.sh:980-993` already redacts token-shaped keys on print).
+- *Tests:* the service starts with the token encrypted; `config.json` contains no
+  credential; printing stays redacted.
+- *Gate:* code-reviewer (security). *Rollback:* keep the plaintext value in the
+  escrow path until the encrypted load is confirmed working, then remove.
+- *DoD:* no plaintext credential in any file on device.
+
 **WP0.6 — Quarantine unsourced metrics**
 - *Objective:* stale/demo data cannot drive future promotion decisions (§15.4).
 - *Deps:* none. *Repo:* Codey-OS — `cap_metrics` (454 rows),
@@ -2177,6 +2219,17 @@ on.
 - *Rollback:* rollback tag before the merge.
 - *DoD:* `_MAX_RESULT` no longer truncates at record time; dev-v2 is merged or
   formally superseded and the branch deleted.
+
+**WP1.3a — Derive the gate's required sample size** *(Ish's decision 3; do before WP1.3)*
+- *Objective:* replace the 30-pair/~13 h figure with a statistically derived `n`.
+- *Deps:* none — this is arithmetic, **zero device time**.
+- *Intent:* power analysis for the effect size the gate needs to detect. The 30-pair
+  number was a cost estimate, never a derived requirement; nobody computed what `n`
+  the gate actually needs. Then batch whatever `n` it implies into overnight runs.
+- *Tests:* the derivation is recorded and reproducible (same inputs → same `n`).
+- *DoD:* a documented required `n` with its assumptions stated, and the resulting
+  wall-clock cost. **If the answer is 30, that is a valid outcome** — the point is
+  to know rather than assume. Feeds `bench/scorecard.md` (WP1.4).
 
 **WP1.3 — Rollback and a model/adapter registry**
 - *Objective:* satisfy the missing fourth element of CLAUDE.md rule 1 (§17.2).
@@ -2219,10 +2272,22 @@ on.
 
 **WP1.7 — Dependency and install.sh correctness (rule 11)**
 - *Objective:* a fresh clone works (§20.3).
-- *Deps:* none, except the llama.cpp pin decision (§10.5) for that one line.
+- *Deps:* none — the llama.cpp pin is now decided (WP1.7a).
 - *Repo:* Codey-OS — `requirements.txt`, `install.sh`.
-- *Intent:* add `python-multipart`; prune 5 orphans; add `sqlite3` if needed;
-  resolve `install.sh:219-220`'s unpinned `--depth 1` clone (NEW-757).
+- *Intent:* add `python-multipart`; prune 5 orphans; add `sqlite3` if needed.
+
+**WP1.7a — Pin `install.sh`'s llama.cpp clone** *(Ish's decision 4b)*
+- *Objective:* fix `NEW-757`'s root cause — the unpinned clone that caused this
+  drift twice and left the OpenCL repo's preservation audit stale (`NEW-788`).
+- *Deps:* none. *Repo:* Codey-OS — `install.sh:219-220`.
+- *Intent:* pin `install_llama_cpp()`'s `git clone --depth 1` to **`4f540676`**
+  (current, verified to have `--load-mode` and to match the Termux package's flag
+  set). Patch forward-port is **not** part of this — deferred to WP3.4.
+- *Tests:* a fresh install resolves the pinned revision; the spawn contract from
+  `b5b805a` still works against it.
+- *Doc:* correct the OpenCL repo's preservation-audit premise (`NEW-788`).
+- *DoD:* `install.sh` produces a binary whose flag set matches what
+  `core/loader_v2.py` emits, deterministically.
 - *Tests:* a clean-environment install check in CI if feasible.
 - *DoD:* no unguarded import of an undeclared dependency.
 
@@ -2277,20 +2342,61 @@ on.
 - *Tests:* a patch can be reverted; protected paths refused.
 - *DoD:* every `patch_file` call is recoverable.
 
-**WP2.5 — Sandbox self-modification decision** *(needs Ish)*
-- Sandbox `ALLOWED_DIRS` includes `ccos/` itself. Per rule 1 this needs an explicit
-  decision before the sandbox is ever activated. **Blocking question, not an
-  implementation task.**
+**WP2.3a — Remove `ccos/` from sandbox `ALLOWED_DIRS`** *(Ish's decision 5)*
+- *Objective:* close the self-modification hole before it can ever matter.
+- *Deps:* none — **can land immediately**; the sandbox never runs today, so this
+  costs nothing and carries no regression risk.
+- *Repo:* Codey-OS — `ccos/core/sandbox.py` (`ALLOWED_DIRS`).
+- *Intent:* remove `ccos/` from the allowlist. Self-modification is a capability to
+  grant deliberately later — behind the promotion gate, with working rollback
+  (WP1.3) — not one inherited from a config default written before the gate existed.
+- *Tests:* an invariant test asserting `ccos/` is not in `ALLOWED_DIRS`, so a future
+  edit cannot silently reopen it.
+- *Rollback:* trivial revert. *DoD:* sandboxed code cannot write to the sandbox or
+  the capability layer governing it.
 
 ---
 
 ### P3 — Brain abstraction and NPU (directive §6's first priority)
 
+**Structure per Ish's decision 4a:** `qwen35` is kept and the SSM-state-migration
+research is accepted as the path to NPU eligibility. Because that research is
+open-ended, it runs as a **parallel track** and does **not** gate WP3.1 — the
+BrainManager boundary is worth building on its own merits and is what the research
+plugs into when it lands.
+
+```
+P3a (research track, open-ended)     P3b (engineering track, bounded)
+  WP3.0 supports_op check    ──────▶   WP3.1 BrainManager boundary
+  WP3.0b SSM migration R&D             WP3.2 single model-load owner
+         │                                    │
+         └──────────▶ WP3.4 NPU adapter ◀─────┘
+```
+
 **WP3.0 — `ggml-hexagon supports_op` check** *(do first; static, free)*
-- *Objective:* determine whether `qwen35` SSM ops and `nomic-bert` non-causal
-  attention are supported at all. **Gates every remaining NPU question** (§10.6 N0).
-- *Deps:* none. *Repo:* OpenCL-S24-Ultra (read-only).
-- *DoD:* a documented yes/no per op class.
+- *Objective:* determine whether `qwen35`'s SSM ops and `nomic-bert`'s non-causal
+  attention are supported at all. **This scopes the research in 4a** — if the ops
+  are unsupported at the backend level, SSM-state migration alone will not be
+  enough, and that is much better known before the research starts than after.
+- *Deps:* none. *Repo:* OpenCL-S24-Ultra (read-only). No model load.
+- *DoD:* a documented yes/no per op class, recorded in the blueprint.
+
+**WP3.0b — SSM-state-migration research** *(Ish's decision 4a; research, §22 item 2)*
+- *Objective:* make `qwen35`'s hybrid SSM+attention state migratable between
+  backends so prefill→decode handoff becomes possible without changing models.
+- *Deps:* WP3.0 (which tells you whether the ops exist at all).
+- *Scope:* `ssm.conv_kernel`/`state_size`/`group_count`/`inner_size` state plus the
+  ~8-of-32 attention blocks' KV cache; patch allowlists currently
+  `QWEN2||QWEN3` (#5) and `QWEN2||QWEN3||(LLAMA&&!is_swa_any())` (#7).
+- *Gate:* a correctness check before any performance claim — a migrated state must
+  produce **identical** output to an un-migrated run on the same prompt. Per §10.3,
+  a backend that silently falls back is worse than one that fails, so verify
+  *where* work ran, not just that it returned.
+- *Explicitly research, not engineering (§22 item 2):* **no timeline committed, and
+  it is not permitted to become a dependency of any other work package.** If it
+  stalls, P3b continues and the NPU adapter waits.
+- *DoD:* either a working migration with a correctness proof, or a documented
+  negative result with the reason — both are acceptable outcomes.
 
 **WP3.1 — BrainManager boundary** *(valuable regardless of NPU)*
 - *Objective:* backend-independent inference adapter (§10.6 N1, §18.3).
@@ -2318,12 +2424,14 @@ on.
   rule 2.
 - *DoD:* exactly one process can load a model; Aigentik sees load errors.
 
-**WP3.3 — Model eligibility decision** *(needs Ish, §10.5)*
-- Deploy a Qwen2/Qwen3 model to match the patch allowlists, do the SSM-migration
-  research for `qwen35`, or defer NPU. Plus: pin llama.cpp or forward-port 8
-  patches. **Blocking decision; WP3.1 does not wait on it.**
+**WP3.3 — ~~Model eligibility decision~~ RESOLVED (Ish, 2026-10-06)**
+- **4a:** keep `qwen35`; pursue SSM-state migration → **WP3.0b**.
+- **4b:** pin `install.sh` to `4f540676` → **WP1.7a**. Patch forward-port deferred
+  into WP3.4, where it belongs with the adapter work.
 
-**WP3.4 — NPU adapter** *(gated on WP3.0 + WP3.3)*
+**WP3.4 — NPU adapter** *(gated on WP3.0 + WP3.0b + WP3.1)*
+- Includes forward-porting the 8 patches to the pinned revision (deferred here from
+  decision 4b), since that work only pays off once the adapter exists.
 - *Objective:* NPU as a selectable backend, CPU preserved as default.
 - *Intent:* build `llama-server` for the accelerator trees
   (`-DLLAMA_BUILD_SERVER=OFF` today); express the **single-session ceiling** as a
@@ -2363,9 +2471,34 @@ P5 runs **in parallel** with P2–P4 as bounded batches, per directive §9 — n
 saved for the end. Order: rule-6 comment corrections and the `resource_bus` leak
 first (cheap, zero-risk), then duplicate consolidation one pair per batch
 (§6.1), then dead-code deletion with replacement arguments (§6.2), then the
-`ccos/core` vs `ccos/dormant` split (§7.2) **last**. Doc work (§8.4) lands with
-each batch, and the CLAUDE.md map-completeness test (§8.4 item 1) ships in P1
-alongside CI.
+`ccos/core` vs `ccos/dormant` split (§7.2) **last**. Doc work (§8.4, **approved by
+Ish 2026-10-06**) lands with each batch, and the CLAUDE.md map-completeness test
+(§8.4 item 1) ships in P1 alongside CI.
+
+**WP5.1 — Split `restoricon_core/` into its own repo** *(Ish's decision 6; §3.5)*
+- *Objective:* give the production business system an independent release lifecycle,
+  per directive §4.
+- *Deps:* **P0 complete** (so the `notification_service.py` security fix lands in one
+  repo, not across a move) **and P2's Action Gateway complete** (so the split is a
+  real architectural boundary rather than a relocation of the
+  three-disjoint-surfaces problem). Both constraints are explained in §3.5.
+- *Repo:* new production repo + Codey-OS — `restoricon_core/` (~29 `.py`) plus the
+  API surface.
+- *Intent:* `git filter-repo`/`git mv` to preserve history; one versioned cross-repo
+  API contract with a single endpoint source of truth (§3.4); `RESTORICON_DB_PATH`
+  remains the DB seam.
+- *Tests:* the Core API's full suite passes from the new repo; Aigentik's 54 call
+  sites and Private-Codey-Agent's client still resolve (after WP0.4/§12.7).
+- *Gate:* code-reviewer (mandatory — it moves all the RBAC and most of the
+  destructive surface). **No live-verifier availability concern** — production is
+  manually started (§9.4), which is what makes this split cheap to do safely now.
+- *Rollback:* rollback tag before the move; the old path stays importable until the
+  new repo is proven.
+- *Cleanup/doc:* CLAUDE.md map regenerated (it currently omits `restoricon_core/`
+  entirely — `NEW-772`); `docs/INDEX.md` updated; §3 contracts rewritten.
+- *DoD:* Codey-OS no longer contains production business code; the Core API serves
+  from its own repo with its own release tags; one commit cannot change both the
+  research system and the production system.
 
 ---
 
@@ -2389,18 +2522,32 @@ exists to correct — planning from intent rather than from the system's actual 
 
 ---
 
-### Decisions blocking the roadmap (all need Ish)
+### Decisions — ALL RESOLVED by Ish, 2026-10-06
 
-| # | Decision | Blocks |
+| # | Decision | Ish's call |
 |---|---|---|
-| ~~1~~ | ~~Is Restoricon production actually live?~~ **ANSWERED 2026-10-06:** manually started, not yet in full use. Data integrity — not availability — is the binding constraint; services may be stopped/restarted during development with a check-before-acting rule. See §9.4. | **resolved** |
-| 2 | Rewrite `AGI_AUDIT_LOG.md`'s Phase 3 workflow, which prescribes the leak (§17.6) | WP0.5 |
-| 3 | The gate's 30-pair minimum costs **~13 h device time** (§17.6) — scheduling | the entire AGI track's cadence |
-| 4 | Model eligibility + llama.cpp pin (§10.5) | WP3.4 |
-| 5 | Sandbox `ALLOWED_DIRS` including `ccos/` — self-modification (§16.8) | sandbox activation |
-| 6 | Should `restoricon_core/` split out of Codey-OS? (§3.3) | long-term boundary |
-| 7 | Plaintext Cloudflare tunnel token in `config.json` (§20.5) | residual risk acceptance |
-| 8 | Escrow DR key (`setup_dr_key.py --force`) — carried over, still pending | DR readiness |
+| 1 | Is Restoricon production live? | **Manually started, not yet in full use.** Data integrity — not availability — is the binding constraint; services may be stopped/restarted during development under a check-before-acting rule. §9.4 |
+| 2 | Rewrite `AGI_AUDIT_LOG.md`'s Phase 3 workflow, which prescribes the leak | **Yes.** WP0.5 includes the rewrite. |
+| 3 | The gate's 30-pair / ~13 h device-time minimum | **Derive a defensible smaller `n` via power analysis first, then batch overnight.** The 30-pair figure was a cost, never a derived requirement. WP1.3a. |
+| 4a | NPU model eligibility | **Do the SSM-state-migration research to support `qwen35`.** Keeps the single-model architecture. Accepted as open-ended research (§22 item 2). |
+| 4b | llama.cpp pin | **Pin `install.sh` to a known-good revision (`4f540676`).** Patch forward-port deferred to the NPU task. WP1.7a. |
+| 5 | Sandbox `ALLOWED_DIRS` including `ccos/` | **Remove `ccos/`.** Costs nothing today (the sandbox never runs); self-modification is re-granted deliberately later, behind the gate with working rollback. WP2.3a. |
+| 6 | Should `restoricon_core/` split out? | **Split it into its own repo now.** Supersedes §3.3's recommendation — see §3.5 for the decision record and the sequencing constraint. |
+| 7 | Plaintext Cloudflare tunnel token | **Move to the existing age/keystore mechanism.** No rotation (no exposure evidence). WP0.7. |
+| 8 | Escrow DR key (`setup_dr_key.py --force`) | **Still open** — carried over from the admin-dashboard programme; not raised this round. Flagged, not forgotten. |
+
+**Two decisions went against the blueprint's recommendation (4a and 6). Both are
+recorded as Ish's calls and the roadmap below implements them**, with one
+sequencing constraint noted on each — not a re-litigation, just ordering:
+
+- **4a:** the SSM research is open-ended, so it must **not** gate the BrainManager
+  boundary. P3 runs them in parallel: the boundary is independently valuable
+  (it fixes the dual model-load owner and the divergent spawn sites) and the
+  research feeds the adapter when it lands.
+- **6:** the split touches the file holding the two unauthenticated email paths
+  (`notification_service.py`), so it is sequenced **after P0**. Doing surgery on
+  that file mid-move would mean fixing a live security hole across a repo
+  boundary.
 
 ## 22. Known research uncertainties (separated from engineering)
 
@@ -2415,6 +2562,13 @@ than assume answers.
 2. **Whether `qwen35`'s hybrid SSM/attention state can migrate between backends
    at all.** Blocks NPU prefill→decode for the deployed model (§10.1). This is a
    genuine research question in llama.cpp territory, not an integration task.
+   **Ish chose this path (decision 4a, 2026-10-06)** over deploying a Qwen3 model,
+   to keep the single-model architecture — so it is now an *accepted research
+   track* (WP3.0b) rather than a hypothetical. The standing rule below still
+   applies with full force: **it may not become a dependency of any other work
+   package.** P3b (BrainManager, single load owner) proceeds in parallel and waits
+   on nothing here; only WP3.4's NPU adapter does. A documented negative result is
+   an acceptable outcome.
 3. **Whether the single-NPU-session ceiling is fixable.** Cause of `0x200`
    AEE_ERPC unidentified (§10.3). Codey-OS needs three servers.
 4. **What a defensible minimum sample is for promotion.** The 30-pair/13-hour
