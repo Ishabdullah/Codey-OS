@@ -29,10 +29,23 @@ EMBED_SERVER_PORT = int(os.environ.get("CODEY_EMBED_PORT", "8082"))
 
 # Detection of llama-server binary and library path
 _HOME_LLAMA = Path.home() / "llama.cpp" / "build" / "bin"
+_SOURCE_BUILT_LLAMA_SERVER = _HOME_LLAMA / "llama-server"
+# Priority (Ish's decision): the install.sh-built binary (install_llama_cpp(),
+# cloned/built at ~/llama.cpp/build/bin/llama-server) is preferred over
+# whatever's on PATH — this repo tracks and builds against that binary, so
+# it should win whenever it's actually present and executable. Only fall
+# back to the PATH/Termux-package binary (shutil.which) when the source
+# build doesn't exist yet, e.g. a fresh device before install.sh has run, or
+# a failed build.
 LLAMA_SERVER_BIN = (
     os.environ.get("CODEY_LLAMA_SERVER")
+    or (
+        str(_SOURCE_BUILT_LLAMA_SERVER)
+        if os.access(_SOURCE_BUILT_LLAMA_SERVER, os.X_OK)
+        else None
+    )
     or shutil.which("llama-server")
-    or str(_HOME_LLAMA / "llama-server")
+    or str(_SOURCE_BUILT_LLAMA_SERVER)
 )
 LLAMA_LIB = os.environ.get("CODEY_LLAMA_LIB") or str(_HOME_LLAMA)
 

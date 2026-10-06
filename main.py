@@ -257,6 +257,34 @@ def _is_unrecovered_gate_denial(loader) -> bool:
     )
 
 
+def _warn_if_model_load_incomplete(loader, ok: bool) -> None:
+    """
+    NEW-754's silent-degrade fix. `_is_unrecovered_gate_denial()` + the
+    hard-bail `error()`/`shutdown()`/`return` at each call site already
+    catches `LOAD_OUTCOME_GATE_DENIED`/`_HARD` and stops execution before
+    this helper would ever run — control cannot reach this call in that
+    case. What that bail does NOT catch is `LOAD_OUTCOME_SPAWN_FAILED` /
+    `LOAD_OUTCOME_ERROR` (binary/model missing, the process dying
+    immediately after spawn, etc.): today, those outcomes fall through
+    silently and execution proceeds as if a model were resident — the
+    REPL starts, or `run_init()`/`run_tdd_loop()`/`fix_file()` runs, with
+    no model loaded, and the first real inference call is the only place
+    the failure becomes visible.
+
+    Call this immediately before the next visible action at each of the
+    4 real call sites (the interactive REPL banner, `run_init()`,
+    `run_tdd_loop()`, `fix_file()`) — not back at the original `ok = ...`
+    line, where today's existing error/warning already scrolls past
+    unnoticed before the user's attention is on the screen.
+    """
+    if not ok:
+        warning(
+            f"No model is currently loaded (reason: {loader.get_last_ensure_reason()}). "
+            "The first real request will likely fail until this is resolved — "
+            "check core/state/llama-server.log."
+        )
+
+
 def shutdown():
     # Stop system monitor
     try:
@@ -1653,6 +1681,10 @@ def repl(
     # v2: Use loader_v2 to ensure model is available (skip for remote backends)
     from utils.config import is_remote_backend
 
+    # Sentinel for _warn_if_model_load_incomplete() below — stays None (no
+    # warning call) when running against a remote backend, where no local
+    # loader/ok outcome exists at all.
+    _repl_model_load = None
     if not is_remote_backend():
         loader = get_loader()
         try:
@@ -1668,6 +1700,7 @@ def repl(
             )
             shutdown()
             return
+        _repl_model_load = (loader, ok)
 
     from core.codeymd import find_codeymd
     from core.project import detect_project
@@ -1711,6 +1744,9 @@ def repl(
         finally:
             shutdown()
         return
+
+    if _repl_model_load is not None:
+        _warn_if_model_load_incomplete(*_repl_model_load)
 
     info("Type your task. /help for commands.")
     separator()
@@ -2000,6 +2036,7 @@ def main():
             )
             shutdown()
             return
+        _warn_if_model_load_incomplete(loader, ok)
         run_init()
         shutdown()
         return
@@ -2034,6 +2071,7 @@ def main():
             )
             shutdown()
             return
+        _warn_if_model_load_incomplete(loader, ok)
         run_tdd_loop(args.tdd, test_file, yolo=args.yolo)
         shutdown()
         return
@@ -2061,6 +2099,7 @@ def main():
 
         config.AGENT_CONFIG["confirm_write"] = False
         config.AGENT_CONFIG["confirm_shell"] = False
+        _warn_if_model_load_incomplete(loader, ok)
         fix_file(args.fix, extra_instruction=args.prompt or "", yolo=True)
         shutdown()
         return

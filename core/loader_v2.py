@@ -712,30 +712,40 @@ class LlamaServer:
                     # needing message.content free of reasoning text.
                 ]
 
-                # Add stop tokens (using --reverse-prompt)
-                for stop in MODEL_CONFIG.get("stop", []):
-                    cmd.extend(["--reverse-prompt", stop])
+                # NEW-755: stop-sequence enforcement does NOT rely on this CLI
+                # flag. `--reverse-prompt` is llama-server's interactive-
+                # terminal-mode halt mechanism; nothing in this codebase
+                # writes to the spawned process's stdin, so it never has any
+                # effect here. Stop sequences are instead enforced per-request
+                # via the JSON body's "stop" field, in all 3 real inference
+                # call paths: this file's own `LlamaServer.infer()`,
+                # `core/inference_v2.py`'s `_infer_chat()`, and
+                # `core/inference.py`'s `infer()`. The loop that used to
+                # append `--reverse-prompt` per MODEL_CONFIG["stop"] entry was
+                # deleted here as dead/vestigial for this deployment.
 
-                # ── mmap / mlock settings for the model (Change 2) ──────────────
-                # Pass --mmap / --no-mmap explicitly in both directions so the flag
-                # is visible in ps output and not left to llama.cpp's default.
-                # --no-mlock does NOT exist in this llama.cpp build; omitting --mlock
-                # is sufficient to keep mlock disabled (the llama.cpp default).
+                # ── load-mode setting for the model (NEW-754) ───────────────────
+                # The installed llama-server build replaced the old
+                # --mmap/--no-mmap/--mlock flags with a single --load-mode
+                # enum (none|mmap|mlock|mmap+mlock|auto). Map the two
+                # independent QWEN_MMAP/QWEN_MLOCK booleans onto it. Must be
+                # passed as two separate argv elements (`--load-mode`, value)
+                # — `--load-mode=value` is rejected by this build.
                 try:
                     from utils.config import QWEN_MLOCK, QWEN_MMAP
 
-                    if QWEN_MMAP:
-                        cmd.append("--mmap")
+                    if QWEN_MMAP and not QWEN_MLOCK:
+                        _load_mode = "mmap"
+                    elif QWEN_MLOCK and not QWEN_MMAP:
+                        _load_mode = "mlock"
+                    elif QWEN_MMAP and QWEN_MLOCK:
+                        _load_mode = "mmap+mlock"
                     else:
-                        cmd.append("--no-mmap")
-                    if QWEN_MLOCK:
-                        cmd.append("--mlock")
-                    info(
-                        f"model: mmap={'enabled' if QWEN_MMAP else 'disabled'}, "
-                        f"mlock={'enabled' if QWEN_MLOCK else 'disabled'}"
-                    )
+                        _load_mode = "none"
+                    cmd.extend(["--load-mode", _load_mode])
+                    info(f"model: --load-mode={_load_mode}")
                 except ImportError:
-                    pass  # Config not available — use llama.cpp defaults (mmap on, mlock off)
+                    pass  # Config not available — let the binary use its own "auto" default
 
                 # T9: capture the final argv for ModelLoader.load_primary() to amend
                 # onto this process's run-provenance record afterwards. A plain list
@@ -750,6 +760,36 @@ class LlamaServer:
                 log_file.parent.mkdir(parents=True, exist_ok=True)
 
                 with open(log_file, "w") as f:
+                    # NEW-754: two llama-server binaries can exist on this
+                    # device (the Termux package and install.sh's source
+                    # build) and can drift independently/report different
+                    # versions for the same flag set. Record which binary
+                    # path got resolved and what it reports for --version
+                    # right here, as the first lines of this log, so a
+                    # future binary/version mismatch is visible without a
+                    # live-verification session. Cheap (no model load) and
+                    # deliberately fail-open: a bare except is safe here
+                    # because this is a diagnostic read-only probe, not the
+                    # real spawn — any failure (binary missing, --version
+                    # unsupported, timeout) must never block or crash the
+                    # actual model load that follows.
+                    try:
+                        _version_probe = subprocess.run(
+                            [str(LLAMA_SERVER_BIN), "--version"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        _version_out = (
+                            _version_probe.stdout.strip() + _version_probe.stderr.strip()
+                        ).strip() or "(no output)"
+                        f.write(f"Resolved llama-server binary: {LLAMA_SERVER_BIN}\n")
+                        f.write(f"--version output: {_version_out}\n")
+                    except Exception as _version_exc:
+                        f.write(
+                            f"Resolved llama-server binary: {LLAMA_SERVER_BIN}\n"
+                            f"--version probe failed ({_version_exc}) — continuing with real spawn anyway\n"
+                        )
                     f.write(f"Starting llama-server: {' '.join(cmd)}\n")
                     f.flush()
 
