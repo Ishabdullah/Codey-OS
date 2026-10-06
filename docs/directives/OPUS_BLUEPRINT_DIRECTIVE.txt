@@ -1,0 +1,211 @@
+
+CODEY-OS OPUS MASTER BLUEPRINT DIRECTIVE
+Repository Census • Architecture Reconciliation • Cleanup • NPU Integration • Complete Developmental Roadmap
+This document tells Opus how to discover and construct the definitive blueprint. It is not itself permission to blindly implement assumptions.
+1. Assignment
+Opus is to perform a comprehensive read-only architectural census of the current Codey ecosystem and then construct ONE authoritative, implementation-ready master blueprint for completing Codey-OS. The blueprint must reconcile what already exists, unfinished work, dormant systems, duplicate/dead code, companion repositories, current agent workflow, NPU/inference work, developmental goals, production constraints, testing, migration, cleanup and documentation.
+Do not begin the large implementation program while constructing the blueprint. First understand the system well enough that the blueprint is based on reality rather than old plans.
+2. Ultimate Objective
+Codey-OS is a persistent developmental AI architecture, not merely an LLM wrapper and not a claim that AGI has already been designed. The system should be capable of accumulating verified experience, memory, skills and developmental history; becoming progressively less teacher-dependent; generating bounded practice and curiosity; safely testing improvements; and replacing or enlarging its underlying neural brain without losing the larger system's accumulated development.
+The neural model is a replaceable brain, not Codey's identity.
+The whole system is the research object.
+Learning and improvement require measurable evidence.
+The architecture must support continued growth without requiring a future large model to exist today.
+3. Required Repositories and Lineage
+Codey -> Codey-v2 -> Codey-OSAigentik-CLI -> Codey-Aigentik        # communications / "mouth"private-agent -> Private-Codey-Agent  # actuator / "hands"; external-fork ancestryCodey-Estimator                       # estimating/domain skillOpenCL-S24-Ultra                      # CPU/GPU/NPU/hybrid inference researchRestoricon                            # live production business/domain system
+Inspect the actual repositories, relevant branches/tags, imports, service boundaries, APIs, configuration, tests and git history. Do not rely on README claims where source/runtime evidence differs.
+4. Repository Boundary Policy
+Default architecture: coordinated multi-repo system. Do not merge repositories merely to make the tree look simpler.
+Repository
+Default disposition
+Reason
+Codey-OS
+Core repository
+Cognition, orchestration, developmental systems, policy, evaluation, memory, resource/inference interfaces
+Codey-Aigentik
+Separate integrated capability/service
+Communications have distinct dependencies and failure boundary
+Private-Codey-Agent
+Separate strongly permissioned capability/service
+Real-world/device actuation deserves a security boundary
+Codey-Estimator
+Separate canonical capability until integration is fully proven
+Avoid losing standalone working implementation during migration
+OpenCL-S24-Ultra
+Separate research/backend repository
+Hardware/compiler/llama.cpp experiments must not destabilize cognitive core
+Restoricon
+Separate production repository
+Production availability and release lifecycle are independent
+Opus may recommend a different boundary for a specific component only when source inspection demonstrates a concrete benefit and the blueprint includes migration, rollback, testing and ownership consequences.
+5. Absolute Restoricon Production Rule
+Restoricon must remain operational while Codey development proceeds. Development must fail around Restoricon; Restoricon must never fail because Codey is experimenting.
+Do not stop, restart, disable, replace, migrate, reconfigure or repurpose live Restoricon processes/services/databases/ports/deployments merely for Codey work.
+Do not knowingly consume shared CPU, RAM, storage, battery, network or other resources in a manner that threatens Restoricon availability.
+Do not use live Restoricon data as developmental Playground data.
+Use mocks, fixtures, staging or read-only interfaces wherever possible.
+Any genuine production migration, schema change, deployment change, credential change or destructive production write is a separately identified maintenance action requiring Ish's explicit approval.
+Production secrets never enter teacher prompts, developmental logs, training datasets or public repositories.
+Map current production dependencies before planning integration work; include health checks, rollback and compatibility tests.
+No autonomous agent may expand its own Restoricon privileges.
+6. FIRST PRIORITY: NPU Integration Into Codey-OS
+OpenCL-S24-Ultra now contains a separately validated Hexagon v75 NPU path and experimental NPU-prefill/CPU-decode work. Treat NPU integration as the first major technical architecture priority after the census, but do not hard-code NPU as universally superior.
+Create/complete a backend-independent BrainManager / inference adapter boundary in Codey-OS.
+Integrate the validated NPU path as a selectable backend.
+Preserve CPU as known fallback/baseline.
+Support phase-aware execution such as NPU prefill -> CPU decode where validated.
+Keep OpenCL GPU available as experimental/research backend.
+Record per-model/per-context/per-workload compatibility and performance rather than assuming all GGUFs work equally.
+Resource policy should consider RAM, context, battery, temperature, CPU/NPU/GPU availability and workload phase.
+Do not copy unstable research patches into cognitive code; integrate through a stable backend contract.
+Benchmark exact deployed Codey models before changing production defaults.
+7. Existing Codey Agent Pipeline Is the Development Pipeline
+Claude Code/Opus must inspect and use the agent pipeline already implemented and used in Codey-OS. Do not casually invent a second competing development-agent orchestration layer.
+Map actual current roles and execution flow before using them.
+Use existing architect/implementer/reviewer/live-verifier/advisor or equivalent current agents where they exist.
+Extend the pipeline only when a missing role is demonstrated.
+Architecture decisions receive independent review.
+Implementation receives tests and code review.
+Live/model-dependent behavior is verified by the appropriate live verifier.
+Documentation agents update canonical docs after accepted changes.
+The final blueprint should specify how this pipeline recursively executes the roadmap.
+8. Comprehensive System Census Required Before Blueprint
+Opus must inspect beyond the previously known Stage 0 list. The purpose is to discover everything the older plans missed.
+Runtime entry points and service topology.
+Agent pipeline and orchestration.
+Model loading, daemon, resource gate, thermal/system monitoring and inference paths.
+Memory tiers, retrieval, embeddings, episodic/semantic/procedural stores and whether they are actually read back into behavior.
+RAG and context construction.
+Tool system, capability registry, plugin system and Action Gateway equivalents.
+Decision/policy engines.
+Reflection, goals, performance tracking and self-improvement code.
+Benchmarks, promotion gates, rollback, model/adapter registry and evaluation leakage risks.
+Sandbox/world isolation and real-world action controls.
+Codey-Aigentik integration status and unfinished communications capabilities.
+Private-Codey-Agent integration status, permissions, missing actuator interfaces and unfinished work.
+Codey-Estimator integration status, duplicate implementations and remaining migration work.
+Restoricon interfaces and production coupling.
+OpenCL-S24-Ultra CPU/GPU/NPU/hybrid capabilities and what is actually ready for Codey consumption.
+Tests, CI, scripts, configuration, dependency management, startup/daemon behavior and observability.
+Security, secret handling, audit logs and destructive-operation controls.
+Documentation accuracy and architectural drift.
+Branches containing useful unfinished work that never reached main.
+TODO/FIXME/NotImplemented/dead feature flags/stubs/dormant modules and unreachable systems.
+Anything else source inspection shows is necessary to complete the intended Codey-OS architecture even if no previous planning document mentions it.
+9. Codebase Cleanup and Structural Refactoring Mandate
+The roadmap must include continuous cleanup. Do not postpone all technical debt until the end.
+Identify dead/unreachable code with evidence before deletion.
+Identify duplicate implementations and choose one canonical path.
+Remove superseded compatibility shims when no supported caller requires them.
+Consolidate repeated utilities/configuration/schema definitions where doing so reduces real maintenance burden.
+Repair misleading names and obsolete comments.
+Restructure the Codey-OS directory tree when current placement obscures subsystem ownership or causes circular/duplicate architecture.
+Separate core interfaces from adapters/integrations where useful.
+Move tests with or near their logical subsystem according to the chosen project convention.
+Update imports, manifests, startup scripts, configuration, tests and canonical documentation in the same structural change.
+Perform refactors in bounded batches with tests and rollback commits.
+Do not mix large behavioral changes and massive file moves when they can be separated.
+Preserve git history as reasonably as possible through moves/renames.
+Never delete code merely because it appears unused from one search; inspect dynamic imports, plugins, shell entry points, services and external callers.
+Before removing legacy code, state what replaces it and how equivalence is verified.
+10. Directory Tree Review
+Opus must evaluate whether the current Codey-OS directory structure still represents the architecture. If not, the blueprint should propose a target tree and a staged migration rather than randomly moving files during unrelated work.
+Illustrative ownership categories only; derive the real target from source:core/  cognition/  agents/  memory/  learning/  policy/  evaluation/  inference/  resources/  capabilities/  integrations/  runtime/tests/benchmarks/docs/scripts/config/Do NOT adopt this example blindly.
+11. Documentation Consolidation and Archive
+Codey currently has multiple generations of audits, roadmaps, master visions and handoffs. Opus must inventory them, determine which remain authoritative, and make future navigation obvious.
+Create one canonical master blueprint as the primary execution document.
+Maintain a concise documentation index identifying current authoritative documents.
+Archive superseded planning/audit/handoff documents in a clearly named archive/history location rather than deleting useful project history.
+Mark archived documents as historical/superseded so future agents do not execute them as current instructions.
+Preserve foundational design/history that remains useful, but remove duplicate current instructions.
+Update CLAUDE.md references if appropriate, without overriding its valid repository rules.
+Keep implementation/reference documentation separate from historical planning documents.
+After major roadmap milestones, update the blueprint status instead of spawning another competing master plan unless genuinely necessary.
+12. Gap Analysis Beyond Existing Plans
+The prior S0-S6 developmental plan is a starting hypothesis, not a complete inventory. Opus must compare it with the actual system and add missing work.
+For every intended subsystem, answer: What exists? What works? What is connected to the live path? What is unfinished? What is duplicated? What is missing? What blocks later stages?
+Explicitly inspect Private-Codey-Agent because it is known not to be fully implemented/integrated.
+Explicitly inspect Codey-Aigentik, Codey-Estimator and inference integration for incomplete work.
+Find partially completed features that old documents forgot.
+Find architectural prerequisites implied by later developmental stages but absent from prior roadmaps.
+Find security/reliability/observability/deployment prerequisites needed to safely run the complete system.
+The final blueprint must absorb these findings into one dependency-ordered roadmap.
+13. Developmental Architecture To Preserve
+S0 Newborn / truthful foundation
+Measurement, trajectory fidelity, benchmark/gates, rollback, worlds/Action Gateway, architecture reconciliation, resource/inference foundation, production firewall.
+S1 Infant / reliable action
+Reliable tool use, constrained outputs, tests, replanning, routing/classification, calibration and verified consequences.
+S2 Toddler / memory and imitation
+Verified experience retrieval, skill library, behavioral memory readback, teachers, sleep/consolidation and retention.
+S3 Child / curiosity and practice
+Practice generation, learning-progress curiosity, prediction logs, self-play and bounded curriculum.
+S4 Adolescent / self-directed improvement
+Curriculum selection, prompt/policy search, verified datasets, safe SFT/LoRA, champion/challenger evaluation.
+S5 Young Adult / brain swap
+Replace/enlarge underlying models while preserving and re-verifying accumulated model-independent development.
+S6 Adult / graduated autonomy
+Capability-specific autonomy based on evidence, clean safety history, rollback and human-authorized ceilings.
+Opus may split/reorder/add phases when actual dependency analysis justifies it. Preserve the developmental intent rather than worshiping old numbering.
+14. Learning and Verification Principles
+Experience is not learning until it measurably changes future behavior.
+Canonical trajectories remain complete; display/export truncation is separate.
+Durable skills/training data require appropriate external verification.
+Teacher models provide candidate guidance, not unquestioned truth.
+Model-independent skills/memory should survive brain swaps.
+Sleep/consolidation may replay, deduplicate, cluster failures, extract procedures and prepare verified datasets.
+LoRA/SFT is a slower consolidation mechanism, not Codey's only memory.
+Curiosity should emphasize learning progress rather than raw novelty.
+Self-improvement follows hypothesis -> isolated candidate -> benchmark -> regression/safety check -> promote/reject -> record -> rollback capability.
+Retain both architectural scoring and Developmental Index measurements: growth/exposure, sample efficiency, retention, transfer, teacher dependence, self-directed improvement, calibration, breadth and zero safety violations.
+15. Authorization for the Later Implementation Program
+The final blueprint should be written so Claude Code can execute the complete Codey-OS buildout rather than requiring Ish to invent each next task manually. Technical stage gates remain mandatory, but successful gates may advance the engineering roadmap without a human stop after every minor phase.
+A failed technical/safety gate blocks promotion and triggers repair/re-evaluation.
+Human approval remains mandatory for increasing real-world autonomy ceilings, broadening Restoricon production access, destructive production actions, new real-person communication permissions, removal of safety boundaries, or other explicitly high-impact external changes.
+The blueprint should distinguish engineering authorization from external-world authority.
+16. Required Blueprint Structure
+The final blueprint Opus creates should contain at least:
+Executive architecture and research objective.
+Verified current-state architecture diagram and runtime flow.
+Repo-by-repo responsibility and integration contracts.
+Branch/tag/current-work reconciliation.
+Feature/capability census with IMPLEMENTED/PARTIAL/DORMANT/DOCS-ONLY/MISSING status.
+Dead/duplicate/legacy code cleanup inventory.
+Proposed target Codey-OS directory tree and staged refactor if needed.
+Documentation archive/index plan.
+Restoricon production dependency/firewall map.
+NPU-first inference integration plan with CPU fallback and benchmark gates.
+Agent-pipeline execution strategy.
+Private-Codey-Agent completion/integration plan.
+Codey-Aigentik completion/integration plan.
+Codey-Estimator completion/integration plan.
+Memory/learning/sleep/curiosity/teacher/self-improvement plan.
+Action Gateway/worlds/autonomy/safety plan.
+Benchmark/evaluation/promotion/rollback plan.
+Brain abstraction and future brain-swap plan.
+Resource/thermal/battery/inference scheduling plan.
+Testing/CI/observability/security/dependency cleanup plan.
+Dependency-ordered master roadmap from present state through completed developmental architecture.
+For every roadmap work package: objective, dependencies, repositories/files/subsystems, implementation intent, tests, benchmark/gate, rollback, cleanup/doc work, and definition of done.
+Milestones that leave Codey runnable rather than one enormous unmergeable rewrite.
+Known research uncertainties clearly separated from ordinary engineering tasks.
+17. Blueprint Construction Workflow
+Read this directive and current CLAUDE.md.
+Inspect current git state before changing anything.
+Use the existing Codey-OS agent pipeline/subagents to parallelize repository census, architecture analysis, security review, testing review, inference review and documentation inventory.
+Inspect source and relevant branches/tags across all named repositories.
+Run safe read-only/static analysis and existing tests where doing so cannot affect production.
+Build a factual current-state matrix.
+Identify missing work and contradictions between old plans and actual code.
+Design target architecture/repo contracts/directory structure.
+Construct the dependency graph.
+Produce the single definitive master blueprint.
+Produce an archive/index proposal for old documents.
+Do not begin the full implementation until Ish has reviewed the resulting blueprint.
+18. Initial Prompt for Opus
+Read CODEY_OS_OPUS_BLUEPRINT_DIRECTIVE.docx from Downloads. Use current CLAUDE.md, actual source, git history, tests and the existing Codey-OS agent pipeline to construct ONE definitive master blueprint. Do not begin the full implementation yet.
+Inspect Codey-OS, Codey-Aigentik, Private-Codey-Agent, Codey-Estimator, OpenCL-S24-Ultra, Restoricon and relevant historical branches. Find implemented, partial, dormant, duplicated, dead and missing work, including anything older plans omitted.
+Make NPU integration the first major inference priority through a backend-independent design with CPU fallback. Include code cleanup, justified directory restructuring, unfinished companion-repo integrations, tests/gates/rollback, and a canonical documentation index/archive.
+Keep repos separate by default. Restoricon is live production: do not stop, restart, disable, migrate, replace, reconfigure or consume resources needed by it. High-impact external authority remains human-gated.
+Return the comprehensive blueprint and proposed documentation archive/index for Ish's review before the full implementation program begins.
+19. Governing Principle
+The blueprint must describe the system Codey actually needs, not merely complete a checklist inherited from older documents.
