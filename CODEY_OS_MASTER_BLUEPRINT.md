@@ -152,10 +152,15 @@ fixed before there is anything to lose.
 - **P5** — cleanup, continuous and in parallel (directive §9), not deferred.
 - **P6** — S2–S6, **deliberately not detailed yet**; re-planned when P4 lands.
 
-Eight decisions need Ish before parts of the roadmap can proceed; they are
-tabulated at the end of §21. The first is whether Restoricon production is
-currently live at all — the Core API on :8770 was **down** throughout this census,
-which changes what "keep Restoricon operational" concretely requires.
+Eight decisions were raised for Ish; they are tabulated at the end of §21.
+**One is already resolved:** Restoricon is **manually started and not yet in full
+operational use** (Ish, 2026-10-06), so **data integrity — not availability — is
+the binding constraint**. That materially de-risks the roadmap: services may be
+stopped and restarted during development under a check-before-acting rule, and no
+zero-downtime migration machinery is needed. What does *not* relax: never writing
+to the live store from development work, and the two unauthenticated email paths,
+which stay the highest-severity findings regardless (`contacts` holds 249 real
+people). See §9.4. **Seven decisions remain open.**
 
 ### 1.6 Restoricon safety statement
 
@@ -873,11 +878,66 @@ continuous-availability protection is not the live constraint — **data integri
 is**. The 249 contacts / 309 communications / 783 audit records are the asset;
 uptime is not presently a property the system has.
 
-**Question for Ish:** is Restoricon production genuinely in active use (started
-manually per session), or is it dormant pending further build-out? The §5
-protections stay in force either way — but the answer changes whether
-"availability" or "data integrity" is the binding requirement, and therefore how
-much of the roadmap needs to run against copies versus simply avoiding writes.
+**ANSWERED — Ish, 2026-10-06:** *"its manuelly started but still not fully in use
+as we develope this."*
+
+So Restoricon is **manually started and not yet in full operational use** while
+development proceeds. This is now a settled premise, not an open question.
+
+#### What this changes — availability is not the binding constraint
+
+Directive §5's prohibitions ("do not stop, restart, disable, reconfigure live
+Restoricon processes") were written against a worst case — a continuously-serving
+production system. That worst case does not hold. The binding constraint is
+**data integrity**, and the asset is the data itself:
+
+| Protected | Why |
+|---|---|
+| **The data** — 249 contacts, 309 communications, 23 customers, 5 leads, 6 users, 96 api_tokens, 783 audit records | real business records; irreplaceable; the actual asset |
+| **The audit trail** | 783 rows; compliance value; append-only semantics must hold |
+| **`do_not_contact`** (4 rows) | real compliance obligation to real people |
+| **Service uptime** | **not** a property the system currently has or needs |
+
+#### What this unblocks
+
+Several roadmap constraints relax, and the blueprint is adjusted accordingly:
+
+1. **Services may be stopped and restarted during development.** This was the
+   single heaviest constraint on §19's work (readiness gating, PID lifecycle,
+   single model-load owner) and on §10's BrainManager work, all of which touch
+   process lifecycle. Rule 4's code-reviewer requirement still applies — that is
+   about *bug risk*, not availability — but there is no longer a
+   "production is serving, don't touch it" blocker.
+2. **No zero-downtime migration machinery is needed.** Schema changes can take the
+   service down. The existing backup-before-migration convention (4 dated backups
+   in `~/.codeyOS/`) is the right and sufficient control.
+3. **Restart coordination replaces restart prohibition.** Because Ish starts it
+   manually, a process could be running at any time. The operative rule becomes:
+   **check before acting** (`ps`/`ss` for a live Core API and a resident model)
+   rather than never acting. This is also rule 2's existing discipline.
+
+#### What does NOT relax
+
+- **Never write to the live store from development work.** `RESTORICON_DB_PATH`
+  points at a copy in every dev/test/Playground configuration (§9.3). Unchanged.
+- **Never use live data as developmental Playground data** (directive §5).
+  Unchanged — and now easier to honour, since nothing depends on the live copy
+  being warm.
+- **Back up before any schema change**, per the established convention.
+- **Production secrets stay out of prompts, logs, and training data.** Unchanged.
+- **The §13.4 / §16.4 email paths remain the highest-severity finding** — "not
+  fully in use" does **not** make an unauthenticated send-to-real-people route
+  safe. `contacts` holds 249 real people and `communication_history` shows 309
+  real messages already sent. This is the one place where the relaxed premise
+  changes nothing at all.
+
+#### Residual risk worth naming
+
+"Not fully in use" is a *current* state, and the roadmap runs for months. The
+firewall should be built for the system becoming live during the programme, not
+only for today — i.e. design the `RESTORICON_DB_PATH` seam and the §16 gateway
+now, while it is cheap, rather than retrofitting them under production pressure
+later.
 
 ### 9.5 New finding — stale `llama-server` PID file
 
@@ -2333,7 +2393,7 @@ exists to correct — planning from intent rather than from the system's actual 
 
 | # | Decision | Blocks |
 |---|---|---|
-| 1 | Is Restoricon production actually live? The Core API on :8770 is **down** (§9.4) | the whole §9 firewall premise |
+| ~~1~~ | ~~Is Restoricon production actually live?~~ **ANSWERED 2026-10-06:** manually started, not yet in full use. Data integrity — not availability — is the binding constraint; services may be stopped/restarted during development with a check-before-acting rule. See §9.4. | **resolved** |
 | 2 | Rewrite `AGI_AUDIT_LOG.md`'s Phase 3 workflow, which prescribes the leak (§17.6) | WP0.5 |
 | 3 | The gate's 30-pair minimum costs **~13 h device time** (§17.6) — scheduling | the entire AGI track's cadence |
 | 4 | Model eligibility + llama.cpp pin (§10.5) | WP3.4 |
