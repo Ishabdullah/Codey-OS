@@ -326,11 +326,15 @@ This vindicates CLAUDE.md rule 12's specific warning: Qwen3.5 is **not** Qwen3
 with a bigger number. It is a hybrid SSM/attention model where most blocks carry
 no KV cache at all.
 
-**Consequence — open risk:** `core/resource_gate.py`'s KV cost model **may
-overestimate memory by ~4×** if it assumes 32 uniform attention layers. A1 did not
-audit those 4,911 lines. This is a **high-value follow-up**: a 4× overestimate
-would make the resource gate refuse loads it could safely admit, and it directly
-affects every NPU/CPU scheduling decision in §10/§19.
+**Correction (2026-10-07, rule 6 — resolved, not open):** this ~4× overestimate
+was already fixed and live-verified over a month before this census, in commit
+`a030bbf` ("M1-A: teach the resource gate Qwen3.5-4B's hybrid arch",
+2026-08-22) and verified in `PROJECT_LOG.md`'s "M1-E: live verification of the
+Qwen3.5-4B migration" (2026-08-23) — `NEW-157` is closed with real measurement
+(3 spawns, RSS 2-10% above the point estimate, inside headroom). A1 read
+`resource_gate.py`'s current state but didn't check `git log`/`NEW_ISSUES.md`
+history for this symbol before flagging it as open. The real residual gap is a
+much smaller, separate undercount — `NEW-205` — see WP1.6 below.
 
 ### 2.4 Spawn-path divergence
 
@@ -545,7 +549,7 @@ completeness. Detail and `file:line` citations in §2, §10, §12–§20.
 | Daemon + PID/socket lifecycle | IMPLEMENTED | no readiness gating (§2.6) |
 | Core API (`restoricon_core/`, :8770) | IMPLEMENTED | RBAC + audit; most of the destructive surface |
 | Model loading (`loader_v2.py`) | IMPLEMENTED | but **two owners** (§2.2) |
-| Resource gate + context budget | IMPLEMENTED | KV cost model possibly ~4× wrong (§2.3) |
+| Resource gate + context budget | IMPLEMENTED | ~4× overestimate already resolved (§2.3, NEW-157); residual ~150.75 MiB undercount open (NEW-205, WP1.6) |
 | Per-port lock / slot reservation | IMPLEMENTED | NEW-259 fix present |
 | `telemetry/` (top-level) | IMPLEMENTED | 9 production callers |
 | Production planner (`core/planner_v2.py`) | IMPLEMENTED | canonical; `ccos/core/planner.py` is not |
@@ -1216,11 +1220,12 @@ baseline. **Unify the two divergent spawn sites** (§2.4) here.
 
 **Phase N2 — resolve §10.5's three decisions with Ish.** N1 does not block on them.
 
-**Phase N3 — fix the KV cost model first.** §2.3 flags that
-`core/resource_gate.py` may overestimate KV memory by **~4×** by assuming 32
-uniform attention layers when `full_attention_interval=4` means only ~8 carry a KV
-cache. Every scheduling decision in §19 and every NPU admission check depends on
-this being right. Audit the 4,911 lines.
+**Phase N3 — the ~4× KV cost model concern is already resolved** (§2.3
+correction, 2026-10-07, rule 6) — `commit a030bbf` already makes
+`resource_gate.py` topology-aware for `full_attention_interval=4`, live-verified
+in `NEW-157`. The real residual gap is `NEW-205` (WP1.6), a much smaller
+(~150.75 MiB) undercount from the recurrent-state formula assuming 1 sequence
+slot when production runs 4.
 
 **Phase N4 — NPU as a selectable adapter**, gated on N2's model decision, with:
 CPU preserved as default until a matched benchmark on a *deployed* model beats it;
@@ -2207,7 +2212,7 @@ The resource gate is **real, not shelfware** — the strongest subsystem found:
 
 | Gap | Evidence | Consequence |
 |---|---|---|
-| **KV cost model may be ~4× wrong** | §2.3 — `full_attention_interval=4` means only ~8 of 32 blocks hold a KV cache; `core/resource_gate.py` (4,911 lines) not audited | Gate may refuse loads it could safely admit; corrupts every §10/§19 scheduling decision |
+| **KV cost model's ~4× concern already resolved; a small residual gap is open** | §2.3 correction — `commit a030bbf` already makes the model topology-aware for `full_attention_interval=4`, live-verified (`NEW-157`, closed). Real residual: `NEW-205` — `recurrent_state_bytes` is computed for 1 sequence slot, but production runs `n_seq_max=4` (the vendored binary's unset-`-np` default; `loader_v2.py` never overrides it) | ~150.75 MiB undercount (confirmed via llama.cpp source: `recurrent_rs_size` scales by `n_seq_max`). Low severity — absorbed by the ×1.25 headroom factor per M1-E's measured peak (5.34 GiB vs 6.065 GiB required) |
 | **Dashboard users are invisible** | §2.5 — `is_interactive_session_active()` (`resource_gate.py:3961-3981`) scans TUI PID files only; sole writer `main.py:401-447`; nothing in `restoricon_core/` writes a marker | Dashboard-only work reads as "no human present", changing dispatch deferral, `n_ctx` choice, and admission at 3 sites |
 | **Second model-load owner** | §2.2 — Aigentik's `ensure_model_cli.py` bypass, `stdio:'ignore'` | 2.7 GB load outside the daemon, failures silent. Rule 2 territory. |
 | **Thermal accounting is daemon-only** | no interactive path brackets inference | interactive sessions accrue no thermal duration |
@@ -2221,8 +2226,10 @@ by `.gitignore:46` rather than fixed.
 
 ### 19.3 Plan
 
-1. **Audit the KV cost model against the real `qwen35` topology** (§10.6 Phase N3).
-   Prerequisite for everything else here — a 4× error invalidates all admission math.
+1. **Fix the KV cost model's residual `NEW-205` undercount** (WP1.6) — the
+   larger ~4× concern this item previously described is already resolved
+   (§2.3 correction); what remains is a much smaller, low-severity
+   recurrent-state slot-count fix.
 2. **Restore the interactivity signal for the dashboard**, with the
    freshness/liveness guard `resource_gate.py:3977-3980` already specifies. Aligns
    with the standing "dashboard = single control surface" direction.
@@ -2693,17 +2700,51 @@ real, undone decision.
 - *Tests:* a multi-file `hidden/` dir verifies correctly — **done**; a real error raises — **open**.
 - *DoD:* no benchmark path swallows exceptions into a false verdict — **not yet met**.
 
-**WP1.6 — Audit the KV cost model**
-- *Objective:* resolve the possible ~4× memory overestimate (§2.3). Blocks §19 and
-  all NPU admission math.
-- *Deps:* none. *Repo:* Codey-OS — `core/resource_gate.py` (4,911 lines).
-- *Intent:* make cost topology-aware for `qwen35`'s `full_attention_interval=4`
-  (~8 of 32 blocks hold a KV cache) plus SSM state.
-- *Tests:* computed cost matches measured RSS within a stated tolerance.
-- *Gate:* **live-verifier** — needs a real model load under rule 2 (one cycle,
-  `free -h` recorded, confirmed unloaded).
-- *Rollback:* revert to the current estimator. *DoD:* predicted vs actual memory
-  agree on the deployed model.
+**WP1.6 — Fix `NEW-205`'s recurrent-state slot-count undercount** — **rescoped
+2026-10-07 (rule 6).** The item's original premise (a possible ~4× KV-cache
+overestimate) was already fixed and live-verified a month before the
+2026-10-06 census (commit `a030bbf`, `NEW-157` closed — see §2.3's
+correction). The real residual gap, found by project-architect re-deriving
+against the actual vendored llama.cpp source (not reused from memory, per
+rule 12): `core/resource_gate.py`'s `QWEN35_4B_ARCH.recurrent_state_bytes`
+(`:1054`) is computed for 1 sequence slot, but production `llama-server`
+launches run `n_seq_max=4` (the vendored binary's unset-`-np` default;
+`loader_v2.py` never overrides it). Confirmed exact: `52,690,944 × 4 =
+210,763,776` bytes — a 158,072,832-byte (~150.75 MiB) undercount, low
+severity, absorbed by the existing ×1.25 headroom factor.
+- *Objective:* close `NEW-205` — the gate's recurrent-state term must scale
+  with the real launch-time slot count.
+- *Deps:* none. *Repo:* Codey-OS — `core/resource_gate.py:925-1055` (ModelArch +
+  `QWEN35_4B_ARCH`), `:1259-1283` (`estimate_kv_cache_bytes`), `:1305-1345`
+  (`estimate_model_load_cost`), `:1517-1808` (stale worked-arithmetic comments
+  citing the old single-slot figures — update these too).
+- *Intent:* add a new `ModelArch.n_seq_max: int = 1` field (conventional-model
+  default), set `QWEN35_4B_ARCH.n_seq_max=4` with a comment citing the
+  vendored-binary default this repo doesn't own (must be revisited if
+  `loader_v2.py` ever passes `--parallel`/`-np`, or on a llama.cpp bump), and
+  multiply the recurrent term by it in `estimate_model_load_cost()` — kept as
+  a separate, named factor rather than folded into the existing constant's
+  arithmetic (which already has an unrelated `(4-1)` conv-kernel term).
+- *Tests:* a unit test asserting the recurrent term is `210,763,776` bytes,
+  not `52,690,944`; a pre-registered falsifiable prediction against M1-E's
+  already-recorded RSS values (old total estimate `5,209,547,936` →
+  new `5,367,620,768` bytes; M1-E's 4 measured RSS values should land
+  roughly −1.0% to +6.9% above the new estimate, not the old +2.0%/+10.1%).
+- *Gate:* code-reviewer (admission-safety arithmetic; direction matters —
+  this is an under-count, meaning the gate currently over-admits slightly,
+  opposite direction from the blueprint's old over-refusal claim).
+  **Live-verifier may not be needed**: implementer must first re-confirm
+  (cheaply, zero RAM cost) that production still launches at `n_seq_max=4`
+  (re-grep `~/.codeyOS/llama-server.log`, don't reuse an old log line) and
+  that `loader_v2.py` still has no `--parallel`/`-np` flag (re-check given
+  WP1.3 touched loader-adjacent code). If both hold, M1-E's existing
+  recorded RSS values are strong enough evidence without burning a fresh
+  rule-2 model-load cycle on a 0.15 GiB correction — flag to the coordinator
+  rather than deciding unilaterally if this reasoning doesn't hold at
+  commit time.
+- *Rollback:* revert to the single-slot estimator. *DoD:* `QWEN35_4B_ARCH`'s
+  recurrent-state term matches the real 4-slot allocator math; worked-example
+  comments updated to match.
 
 **WP1.7 — Dependency and install.sh correctness (rule 11)**
 - *Objective:* a fresh clone works (§20.3).
