@@ -2202,7 +2202,15 @@ build-verified — no flutter/dart on this device (`NEW-795`).
 - *Tests:* CI build green. *Gate:* code-reviewer (light).
 - *Rollback:* revert. *DoD:* `flutter build apk --release` succeeds in CI.
 
-**WP0.5 — Close the evaluation leak**
+**WP0.5 — Close the evaluation leak** — **DONE 2026-10-07.** `verified_episodes()`
+removed; split into `verified_training_episodes()` (structurally excludes
+`tag LIKE 'bench:%'`) and `verified_eval_episodes()` (the complement).
+`finetune_prep.py` updated to the training accessor. `AGI_AUDIT_LOG.md`'s
+Phase 3 entry corrected with a new dated top entry (reverse-chronological,
+append-only — the original entry's text is untouched). code-reviewer
+APPROVED. A second, currently-inert instance of the same shape found and
+logged (`teacher_traces` has no `tag` column at all — `NEW-796`), not fixed
+since no consumer exists yet.
 - *Objective:* benchmark episodes are **structurally ineligible** as training data
   (§17.1). Without this, every later measurement is meaningless.
 - *Deps:* none. *Repo:* Codey-OS — `core/trajectory.py:108-114`,
@@ -2219,7 +2227,19 @@ build-verified — no flutter/dart on this device (`NEW-795`).
 - *DoD:* the leakage test is green and in CI (after WP1.1).
 - *Needs Ish:* confirms the documented Phase 3 workflow changes (§17.6).
 
-**WP0.7 — Move the Cloudflare tunnel token out of plaintext** *(Ish's decision 7)*
+**WP0.7 — Move the Cloudflare tunnel token out of plaintext** *(Ish's decision 7)* —
+**DONE 2026-10-07.** `utils/config.py`'s `get_cloudflare_tunnel_token()` now
+decrypts `~/.codeyOS/cloudflare_tunnel_token.age` (age, reusing
+`core/backup_secrets.py`'s existing `~/.codeyOS/age.key` identity -- no new
+key material) ahead of the legacy plaintext fallback. New
+`tools/encrypt_cloudflare_token.py` one-time migration, run for real on this
+device: the real token encrypted, round-trip-verified against the real key,
+and only then the plaintext removed from the real `config.json` (confirmed
+`cloudflared` not running first). code-reviewer APPROVED. Found and fixed
+in-round: a real `.gitignore` collision (`*token*` silently excluded both new
+files from `git add`, `NEW-797`) and a real test-isolation bug (the encrypted
+file leaking into existing precedence tests that pass an explicit `config=`
+override, fixed by gating the new check on `config is None`).
 - *Objective:* remove the last plaintext credential on device (§20.5).
 - *Deps:* none. *Repo:* Codey-OS — `config.json:3`, reusing
   `core/backup_secrets.py`'s `~/.codeyOS/age.key` at-rest pattern.
@@ -2233,7 +2253,25 @@ build-verified — no flutter/dart on this device (`NEW-795`).
   escrow path until the encrypted load is confirmed working, then remove.
 - *DoD:* no plaintext credential in any file on device.
 
-**WP0.6 — Quarantine unsourced metrics**
+**WP0.6 — Quarantine unsourced metrics** — **DONE 2026-10-07.** Bigger root
+cause found than expected: `cap_metrics`/`reflections.jsonl` kept growing
+(454 at census → 467) because six production classes
+(`AgentOrchestrator`/`AutoImprovementLoop`/`GoalEngine`/
+`CapabilityOptimizer`/`LifecycleManager`/`SkillRecombiner`) call
+`get_performance_tracker()`/`get_reflection_engine()` with no injection
+point, so every CCOS test constructing one with defaults wrote real rows.
+Fixed at the root (new autouse isolation fixtures in `ccos/tests/conftest.py`
++ `tests/conftest.py`) before quarantining the existing data (new
+`tools/quarantine_unsourced_ccos_metrics.py`, run for real: `cap_metrics`
+renamed in place to `cap_metrics_quarantined_20261007` with all 467 rows
+preserved; `reflections.jsonl` moved to
+`reflections.jsonl.quarantined-2026-10-07` with all 960 lines preserved —
+neither deleted, per this item's own intent). code-reviewer APPROVED,
+two follow-ups applied before commit: a `.gitignore` gap that left the
+quarantine's own stated rollback copy untracked AND unignored (fixed,
+same shape as `NEW-797`), and a real remaining gap logged rather than
+chased (`NEW-798`): four `ccos/demo_*.py` scripts are manually-runnable
+entry points that still hit the same unguarded singletons.
 - *Objective:* stale/demo data cannot drive future promotion decisions (§15.4).
 - *Deps:* none. *Repo:* Codey-OS — `cap_metrics` (454 rows),
   `ccos/data/reflections.jsonl` (235 KB), both with no reachable writer.

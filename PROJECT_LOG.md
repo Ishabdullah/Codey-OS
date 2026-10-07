@@ -1,4 +1,95 @@
-## 2026-10-07 (later same day) — P0 round: WP0.1-WP0.4 (stop-the-bleeding security/data-integrity fixes). **START HERE for the next session.**
+## 2026-10-07 (later still) — P0 complete: WP0.5-WP0.7, closing out all 7 of P0's work packages. **START HERE for the next session.**
+
+**What changed:** the remaining three P0 items, continuing the same round
+as WP0.1-WP0.4 below. Commits `f3459b0` (WP0.5), `71c08ce` (WP0.6),
+`9fa5594` (WP0.7). **All of P0 is now done** — every item named in
+`CODEY_OS_MASTER_BLUEPRINT.md` §21's P0 section has landed, code-reviewer
+approved, and ledgered.
+
+- **WP0.5 — the evaluation leak closed (`NEW-761`, the census's single
+  most Critical finding).** Three-hop leak: `bench/runner.py` labels
+  every bench episode `tag=f"bench:{task.id}"` → the old bare
+  `verified_episodes()` selected on verifier/passed with **no tag
+  filter** → `finetune_prep.py`'s `curate_verified()` fed that straight
+  into fine-tune export. Following `AGI_AUDIT_LOG.md`'s own documented
+  Phase 3 workflow would have put the 8 frozen benchmark tasks into the
+  training corpus, then graded candidates on those same 8 tasks. Fixed
+  by splitting into `verified_training_episodes()` (structurally
+  excludes `tag LIKE 'bench:%'`) and `verified_eval_episodes()` (the
+  complement). `AGI_AUDIT_LOG.md` corrected with a new dated entry
+  (append-only, reverse-chronological — the original entry's text
+  untouched). No device time spent; `CODEY_TRAJECTORY` was never
+  enabled to produce this fix. code-reviewer APPROVED after the
+  end-to-end test was strengthened (mixing one bench-tagged and one
+  ordinary episode in the same db, asserting exactly the ordinary one
+  exports — an empty-result-only assertion can't distinguish "the
+  filter worked" from "the call is broken"). One related, currently-
+  inert finding logged (`NEW-796`): `teacher_traces` has no `tag`
+  column at all, same shape of bug, no consumer yet.
+- **WP0.6 — unsourced CCOS metrics quarantined, root cause fixed first.**
+  `cap_metrics`/`reflections.jsonl` had grown from 454 rows (census) to
+  467 purely from CCOS test runs: six production classes
+  (`AgentOrchestrator`/`AutoImprovementLoop`/`GoalEngine`/
+  `CapabilityOptimizer`/`LifecycleManager`/`SkillRecombiner`) call the
+  `get_performance_tracker()`/`get_reflection_engine()` singletons with
+  no injection point, so every test constructing one with defaults wrote
+  real rows into real on-device files. Fixed the leak first (new
+  autouse isolation fixtures in both `ccos/tests/conftest.py` and the
+  top-level `tests/conftest.py`, confirmed live via `md5sum` before/after
+  full suite runs), then quarantined — never deleted — the existing data
+  (`cap_metrics` renamed in place to `cap_metrics_quarantined_20261007`,
+  467 rows preserved; `reflections.jsonl` moved to
+  `reflections.jsonl.quarantined-2026-10-07`, 960 lines preserved).
+  code-reviewer APPROVED, with a throwaway repro to confirm the
+  module-attribute-patching mechanism actually works rather than just
+  reading and assuming it. Two follow-ups applied before commit: a
+  `.gitignore` gap left the quarantine's own stated rollback copy
+  untracked *and* unignored, vulnerable to a silent `git clean -fd`
+  (fixed — same shape as `NEW-797` below); a real remaining gap logged,
+  not chased (`NEW-798`): four `ccos/demo_*.py` scripts are
+  manually-runnable entry points hitting the same unguarded singletons
+  outside pytest.
+- **WP0.7 — the Cloudflare tunnel token moved out of plaintext.** The
+  last plaintext credential on device. `get_cloudflare_tunnel_token()`
+  now decrypts `~/.codeyOS/cloudflare_tunnel_token.age` (age, reusing
+  the existing `~/.codeyOS/age.key` identity — no new key material, no
+  rotation, per Ish's decision 7). New
+  `tools/encrypt_cloudflare_token.py` migration script, **run for real
+  on this device**: the real token encrypted, round-trip-verified
+  against the real key, `cloudflared` confirmed not running, then the
+  plaintext removed from the real `config.json`. A real bug found and
+  fixed in the same round: the new encrypted-file check initially
+  overrode an explicit `config=` test argument with whatever happened
+  to exist on this device's real disk — fixed by gating on
+  `config is None`. code-reviewer APPROVED.
+- **A recurring `.gitignore` friction, found twice this round and fixed
+  both times rather than left to resurface a third time (`NEW-797`,
+  then again inside WP0.6's review):** `*token*`/`*secret*`/etc. silently
+  exclude legitimate source files from `git add` with zero warning —
+  caught because `tools/encrypt_cloudflare_token.py` and
+  `tests/test_wp0_7_cloudflare_token_encryption.py` were invisible to
+  `git status` for most of this round. Fixed via the existing one-off
+  `!`-exception convention (not a pattern rewrite) both times.
+- **Findings logged this half of the round:** `NEW-797` (gitignore
+  substring-match collision), `NEW-798` (demo scripts bypass the new
+  CCOS test-isolation fixtures).
+- **Tier (rule 7):** WP0.5/0.6/0.7 all code-complete + code-reviewer
+  approved + test-verified via real suite runs, and — unlike WP0.3/0.4's
+  Dart side — fully live-verified on this device where the work touched
+  real on-device state (the actual trajectory DB schema, the actual
+  `cap_metrics`/`reflections.jsonl` files, the actual Cloudflare token
+  and `age.key`).
+- **P0 is now fully closed.** Next per the blueprint's own ordering is
+  P1 (make measurement trustworthy — CI is already done as part of an
+  earlier round today; `WP1.2` reconciling `codey-os-dev-v2`, `WP1.3`
+  rollback/registry, `WP1.4` the scorecard rubric, `WP1.5`
+  `bench/verify.py`'s fragility — already partially exercised this
+  round via `NEW-791`'s pycache incident, `WP1.6` the KV cost model,
+  `WP1.7`/`WP1.7a` dependency hygiene). This round deliberately stops at
+  the end of P0 rather than continuing into P1 without checking in
+  first.
+
+## 2026-10-07 (later same day) — P0 round: WP0.1-WP0.4 (stop-the-bleeding security/data-integrity fixes).
 
 **What changed:** Ish's "proceed in order, don't stop" instruction. All four
 of P0's non-WP0.5/0.6/0.7 items from `CODEY_OS_MASTER_BLUEPRINT.md` §21,
