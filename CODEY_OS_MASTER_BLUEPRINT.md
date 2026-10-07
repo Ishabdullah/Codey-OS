@@ -2892,14 +2892,16 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICE 1 DONE 2026-10-07; full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-2 DONE 2026-10-07; full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
-(`a5b93379043fcf32c`). Commit `021ecf9`.
+(slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`). Commits `021ecf9`
+(slice 1), `e26e6e6` (slice 2).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
   `ccos/core/plugin_manager.py:446`, `restoricon_core/` all route through it
-  — **not yet done, slice 1 touched neither of these.**
+  — **partially done:** `core/agent.py`'s shell-exec path (slice 2, below)
+  routes through it; CCOS capabilities and `restoricon_core/` do not yet.
 - **Slice 1 scope (deliberately narrow, per project-architect's decision that
   the full WP was too large for one dispatch):** defined all three authority
   classes (`READ`/`ACT`/`HIGH_IMPACT`) now, per §16.9/§23.4.1 — taxonomy
@@ -2934,23 +2936,63 @@ not yet met (far from it — see residual scope below).** Code-reviewer-approved
   outbound HTTP, DB writes, message/email sends, and device actions are
   entirely untouched.** Sequencing the remaining slices (by call-site
   category, roughly matching the *Intent* line's own list) is open work.
-- **Two findings logged, not fixed (`NEW-834` Low, `NEW-835` Low):** a
-  pre-existing user-authored CODEY.md line could be silently overwritten by
-  a future *allowed* sync (currently unreachable — fail-closed means this
-  path never reaches the overwrite today); the audit-write's `mkdir` call
-  sits outside its own `try/except`, could propagate uncaught to a future,
-  differently-wrapped caller.
+- **Slice 2 (shell exec, `tools/shell_tools.py`'s `shell()` — the single
+  chokepoint all shell-exec paths funnel through, per project-architect's
+  trace of every caller):** new `classify_shell_command()` checks the
+  existing `DANGEROUS_PATTERNS` list first (so `find . -delete` classifies
+  `HIGH_IMPACT`, not `READ`) — deliberately NOT the broader `DANGEROUS_
+  COMMANDS`/`is_dangerous()` set, which would have made the agent unable to
+  run basic file ops unattended, an unreviewed scope expansion. New
+  `ActionGateway.gate_exec()` mirrors `gate_write`'s shape, delegating to
+  the existing `_execute_shell_command()` primitive. The real fail-closed
+  predicate, verified against all 4 known callers: `confirm_available =
+  (not yolo) and confirm_shell` — **not** `yolo` alone, since the ordinary
+  `TOOLS["shell"]` path never forwards `yolo` at all, so `confirm_shell` is
+  the actual signal for "is anybody watching."
+- **Real production behavior change, disclosed per rule 6/7
+  (`NEW-838`, Confirmed, Medium):** a human present during an interactive
+  `--yolo` session previously could still manually approve a `HIGH_IMPACT`
+  command at the confirm prompt (the prompt still ran regardless of
+  `confirm_shell`'s value); now the command fails closed with no prompt
+  shown at all. Accepted as the correct, intended consequence of applying
+  Ish's HIGH_IMPACT policy honestly to a case its original framing didn't
+  anticipate — not a bug to revert.
+- **A correctness fix bundled into slice 2, found via the implementer's own
+  advisor review:** `core/agent.py`'s `is_error()` now also treats
+  `[BLOCKED]` as an error (previously only `[ERROR]` was) — without this, a
+  refusal string would fall through every "not `[ERROR]`" success-path
+  check and get silently logged/displayed as a success, the exact failure
+  mode this slice exists to prevent. Side effect: `core/task_executor.py`'s
+  pre-existing, unrelated `_daemon_shell` `[BLOCKED]` strings are now also
+  correctly classified as errors, which they weren't before.
+- **Four findings logged, not fixed:** `NEW-834` (Low) and `NEW-835` (Low,
+  slice 1) — see prior entries; `NEW-836` (Low) — the daemon's own
+  allowlist refusals happen before `shell()` is reached, so they bypass
+  this slice's audit trail entirely; `NEW-837` (Low) — a declined
+  interactive confirmation is misaudited as a successful execution (the
+  caller-visible result is still correct; only the audit record is wrong,
+  and in the conservative over-reporting direction, not the dangerous one);
+  `NEW-838` (Medium, the `--yolo` behavior change above).
 - *Tests:* every destructive primitive is unreachable except via the gateway (an
-  invariant test, like §15.4's dormancy assertion) — **met for the one call
-  site slice 1 covers; not yet true repo-wide.** 10/10 new tests pass, plus a
-  24-test regression check; code-reviewer additionally live-smoke-tested the
-  real production audit-ledger path (not just test fixtures).
+  invariant test, like §15.4's dormancy assertion) — **met for the two call
+  sites slices 1-2 cover (one file write, one shell-exec chokepoint); not
+  yet true repo-wide.** Slice 1: 10/10 new tests, 24-test regression check,
+  code-reviewer live-smoke-tested the real audit-ledger path. Slice 2: 40
+  passed across the gateway/shell/preferences/injection test files; a real
+  `rm -rf` manually run against a scratch dir under `confirm_shell=False`
+  confirmed refused, audited, and the directory untouched (now a durable
+  regression test, not just a one-shot manual run); code-reviewer separately
+  ran the full suite under RAM monitoring (980 passed/1 pre-existing flaky
+  unrelated to this diff/1 skipped).
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED.**
+  **APPROVED, both slices.**
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
   split is gone. **Not yet met — 41 of 42 known write-primitive files remain
-  unmediated, plus every non-file-write category in the *Intent* line.**
+  unmediated; shell exec is now mediated (slice 2) but with the two gaps
+  noted above (`NEW-836`, daemon allowlist refusals; `NEW-837`, declined-
+  confirmation audit fidelity); git writes, outbound HTTP, DB writes,
+  message/email sends, and device actions remain entirely untouched.**
 
 **WP2.2 — Worlds / Playground isolation**
 - *Objective:* developmental work can never address the live store (§9.3, directive §5).

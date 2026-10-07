@@ -1,4 +1,78 @@
-## 2026-10-07 (P2 begins) — WP2.1 slice 1: the Action Gateway exists, with its first real call site wired (NEW-817 closed). Far from full DoD. **START HERE for the next session.**
+## 2026-10-07 (P2 continues) — WP2.1 slice 2: shell exec now mediated through the Action Gateway — the single most dangerous previously-unmediated surface. **START HERE for the next session.**
+
+**What changed:** project-architect chose shell exec as slice 2 over CCOS
+capability invocation or more file-write sites, reasoning that arbitrary
+command execution gated only by a substring check + a y/n prompt
+bypassable via `yolo=True` is the single highest-consequence unmediated
+surface §16.1 names, and it reuses slice 1's gateway/taxonomy with no new
+mechanism — CCOS capabilities have far lower real traffic (8/161
+capabilities ever used) and are a good slice-3 candidate instead.
+
+- **A real finding corrected the architect's own framing before coding
+  started:** §16.1's "bypassable via `yolo=True`" claim is only literally
+  accurate for the daemon's direct call. Tracing all 4 real callers of
+  `shell()` showed the ordinary agent-loop path (`TOOLS["shell"]`'s
+  lambda) never forwards `yolo` at all — the actual bypass mechanism there
+  is a separate `confirm_shell` config flag. The implemented predicate,
+  verified against every caller: `confirm_available = (not yolo) and
+  confirm_shell`, not `yolo` alone (which would have given the opposite,
+  wrong answer for CLI `--yolo`/fixmode/tdd).
+- **Fix (commit `e26e6e6`):** new `classify_shell_command()` checks the
+  existing `DANGEROUS_PATTERNS` list first (so `find . -delete`
+  classifies `HIGH_IMPACT`, not `READ` via a bare `find` match) —
+  deliberately not the broader `DANGEROUS_COMMANDS`/`is_dangerous()` set,
+  which would have silently expanded scope to block basic unattended file
+  ops. New `ActionGateway.gate_exec()` mirrors slice 1's `gate_write`
+  shape, delegating to the existing execution primitive rather than
+  reimplementing subprocess handling.
+- **A real bug found and fixed in the same round, via the implementer's
+  own advisor review, not originally in the spec:** `core/agent.py`'s
+  `is_error()` only recognized `[ERROR]`, so the new `[BLOCKED]` refusal
+  string would have fallen through every "not an error" success-path
+  check and been silently logged/displayed as if the command succeeded —
+  the exact failure mode this slice exists to prevent. Fixed, with a
+  disclosed side effect: `core/task_executor.py`'s pre-existing,
+  unrelated `_daemon_shell` `[BLOCKED]` strings are now also correctly
+  classified as errors, which they weren't before this round.
+- **A real production behavior change, disclosed rather than buried
+  (`NEW-838`, Confirmed, Medium):** a human present during an interactive
+  `--yolo` session previously could still manually approve a `HIGH_IMPACT`
+  command at the confirm prompt. Now it fails closed with no prompt shown
+  at all. Accepted as the correct, intended consequence of applying Ish's
+  HIGH_IMPACT policy honestly to a case its original framing didn't
+  anticipate (a human present despite `confirm_shell=False`) — not a
+  regression to revert.
+- **Manual verification, now a durable regression test:** ran a real
+  `rm -rf` against a scratch directory under `confirm_shell=False` —
+  refused, audited, directory and its contents untouched.
+- **Code-reviewer (`a31252e02705ee263`) independently traced the
+  fail-closed path, the classification ordering, and the confirm_available
+  predicate against all 4 callers, then ran the full suite under RAM
+  monitoring** (980 passed/1 pre-existing order-dependent flaky test
+  unrelated to this diff/1 skipped) **and ruled explicitly on the one open
+  design question the implementer raised** (a declined confirmation gets
+  misaudited as a success — ruled non-blocking since the error is
+  conservative/over-reporting, not under-reporting a real execution;
+  logged as `NEW-837` for a future slice rather than patched with a wrong-
+  layer fix). **Verdict: APPROVED.**
+- **Four findings logged this round, not fixed:** `NEW-836` (Low, the
+  daemon's own allowlist refusals bypass this slice's audit trail
+  entirely, a design-time-disclosed gap, not a regression); `NEW-837`
+  (Low, declined-confirmation audit fidelity); `NEW-838` (Medium, the
+  `--yolo` behavior change above); and `NEW-835` (from slice 1) was
+  updated, not duplicated — code-reviewer confirmed this slice hit the
+  exact second call site that finding predicted would eventually trigger
+  the `mkdir`-outside-`try/except` gap (masked here too, by
+  `execute_tool`'s own outer exception handler, but a real fidelity bug
+  nonetheless: a successful command's real output can get silently
+  replaced with a generic error string on a disk-full/permissions audit-
+  write failure).
+- *Gate:* code-reviewer — **APPROVED.** *DoD:* still not met — 41 of 42
+  known write-primitive files remain unmediated; git writes, outbound
+  HTTP, DB writes, message/email sends, and device actions are entirely
+  untouched. Next slice needs its own scoping round.
+
+## 2026-10-07 (P2 begins) — WP2.1 slice 1: the Action Gateway exists, with its first real call site wired (NEW-817 closed). Far from full DoD.
 
 **What changed:** this is the first P2 item, and the first architecturally
 significant (not narrow-surgical) work this session. project-architect's
