@@ -174,11 +174,8 @@ install_python_deps() {
         "numpy>=1.24.0" \
         "watchdog>=3.0.0" \
         "requests>=2.31.0" \
-        "httpx>=0.27.0" \
-        "pyyaml>=6.0" \
-        "filelock>=3.13.0" \
-        "tqdm>=4.65.0" \
         "hnswlib>=0.7.0" \
+        "networkx>=3.0" \
         "pyttsx3>=2.90" \
         "python-multipart>=0.0.9" \
         "google-cloud-storage==2.11.0" \

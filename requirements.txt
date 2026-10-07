@@ -5,13 +5,11 @@ rich>=14.0.0
 numpy>=1.24.0
 watchdog>=3.0.0
 requests>=2.31.0
-httpx>=0.27.0
-pyyaml>=6.0
-filelock>=3.13.0
-tqdm>=4.65.0
 hnswlib>=0.7.0          # vector search (falls back to numpy if missing)
 pytest>=9.0.0           # optional: run tests with  pytest tests/
 networkx>=3.0           # symbolic graph layer (Mentalese Engine)
+pyttsx3>=2.90           # TTS (core/voice.py)
+python-multipart>=0.0.9 # multipart parsing (restoricon_core/api/routes.py)
 reportlab>=5.0.0        # PDF rendering (restoricon_core/services/pdf_service.py, B8.6d-a).
                          # reportlab itself is pure Python (0 .so files, verified), but
                          # reportlab>=5's own install_requires pulls in Pillow (compiled)
@@ -48,9 +46,8 @@ watchdog>=3.0.0
 #
 #   Step 2 — Install pure-Python packages via pip:
 #     pip install datasets huggingface-hub "fsspec==2026.2.0" \
-#                 httpcore httpx typer tqdm hnswlib \
-#                 aiohttp multiprocess dill xxhash pyyaml \
-#                 filelock requests
+#                 hnswlib aiohttp multiprocess dill xxhash \
+#                 requests
 #
 # On desktop Linux, you can install everything via pip (no pkg step needed).
 #
@@ -71,17 +68,11 @@ watchdog>=3.0.0
 datasets>=2.14.0
 huggingface-hub>=0.23.0
 fsspec==2026.2.0
-httpcore>=1.0.0
-httpx>=0.27.0
-typer>=0.9.0
-tqdm>=4.65.0
 hnswlib>=0.7.0
 aiohttp>=3.9.0          # pipeline: transitive via fsspec[http]/datasets
 multiprocess>=0.70.0
 dill>=0.3.7
 xxhash>=3.4.0
-pyyaml>=6.0
-filelock>=3.13.0
 requests>=2.31.0
 
 # Pipeline — must be installed via pkg on Termux (pre-built ARM packages):
