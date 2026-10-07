@@ -782,6 +782,33 @@ def get_aigentik_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, An
     }
 
 
+def get_aigentik_internal_token() -> Optional[str]:
+    """
+    Shared loopback bearer secret for calling Aigentik's internal
+    http-server.js (port 8081, /send-email + /send-invite +
+    /send-cancellation) -- WP0.1 (CODEY_OS_MASTER_BLUEPRINT.md §21,
+    NEW-764). Those routes had no auth at all before this; both sides of
+    this call now require the same shared secret, generated once by
+    install.sh.
+
+    Precedence:
+      1. AIGENTIK_INTERNAL_TOKEN env var
+      2. ~/.codeyOS/aigentik_internal_token (install.sh writes this)
+    Returns None if neither is set -- the caller (NotificationService)
+    then sends no Authorization header, and the server fails closed with
+    a real 401 rather than ever treating a missing token as "trusted".
+    """
+    env = os.environ.get("AIGENTIK_INTERNAL_TOKEN")
+    if env:
+        return env
+    path = CODEY_STATE_DIR / "aigentik_internal_token"
+    try:
+        token = path.read_text().strip()
+    except OSError:
+        return None
+    return token or None
+
+
 # ── Telemetry layer — Phase 3 T0 (docs/telemetry_layer_design.md) ───────────
 # Do not hardcode "metrics" or ".codeyOS/metrics" anywhere else; import
 # METRICS_DIR from here (mirrors the CODEY_STATE_DIR convention at

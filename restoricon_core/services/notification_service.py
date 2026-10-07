@@ -4,6 +4,8 @@ import urllib.error
 import logging
 from typing import Optional, Dict, Any
 
+from utils.config import get_aigentik_internal_token
+
 logger = logging.getLogger(__name__)
 
 class NotificationService:
@@ -51,8 +53,22 @@ class NotificationService:
         return self._post_request(url, data)
 
     def _post_request(self, url: str, data: Dict[str, Any], timeout: float = 2.0) -> bool:
+        """WP0.1: http-server.js now requires this bearer token (NEW-764 --
+        the route used to accept any local caller unauthenticated). If no
+        token is configured, the request is sent without the header and
+        the server correctly rejects it with a real 401 rather than this
+        client silently pretending the call succeeded."""
         payload = json.dumps(data).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        token = get_aigentik_internal_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        else:
+            logger.warning(
+                "NotificationService: AIGENTIK_INTERNAL_TOKEN not configured; "
+                "request to %s will be sent unauthenticated and rejected", url,
+            )
+        req = urllib.request.Request(url, data=payload, headers=headers)
 
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:

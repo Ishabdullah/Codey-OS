@@ -352,6 +352,42 @@ setup_daemon_dir() {
     print_success "Daemon directory: $HOME/.codeyOS"
 }
 
+setup_aigentik_internal_token() {
+    # WP0.1 (CODEY_OS_MASTER_BLUEPRINT.md §21, NEW-764): the shared bearer
+    # secret that authenticates NotificationService -> Aigentik's
+    # http-server.js (/send-email, /send-invite, /send-cancellation).
+    # Those routes had no auth at all before this; both sides read this
+    # same file. Generated once -- never overwrites an existing token, so
+    # re-running install.sh doesn't invalidate it if Aigentik has already
+    # been configured with the old value.
+    local token_path="$HOME/.codeyOS/aigentik_internal_token"
+    # -s (non-empty), not -f: a prior run whose generator failed or whose
+    # redirect created a zero-byte file must retry here, not report
+    # success forever and leave the server permanently 401-rejecting.
+    if [ -s "$token_path" ]; then
+        print_success "Aigentik internal token already present"
+        return
+    fi
+    # Tighten before create, not after -- no world/group-readable window.
+    # Scoped to this subshell only, so it doesn't change the umask for
+    # the rest of install.sh's run.
+    (
+        umask 077
+        if command -v openssl >/dev/null 2>&1; then
+            openssl rand -hex 32 > "$token_path"
+        else
+            python3 -c "import secrets; print(secrets.token_hex(32))" > "$token_path"
+        fi
+    )
+    if [ ! -s "$token_path" ]; then
+        rm -f "$token_path"
+        print_warning "Failed to generate Aigentik internal token -- notification sends to Aigentik will be rejected (401) until this is fixed"
+        return
+    fi
+    chmod 600 "$token_path"
+    print_success "Generated Aigentik internal token: $token_path"
+}
+
 setup_config() {
     print_step "Configuration"
     if [ ! -f "$CODEY_OS_DIR/config.json" ] && [ -f "$CODEY_OS_DIR/config.json.example" ]; then
@@ -620,6 +656,7 @@ main() {
 
     make_executable
     setup_daemon_dir
+    setup_aigentik_internal_token
     setup_config
     setup_path
     setup_symlinks
