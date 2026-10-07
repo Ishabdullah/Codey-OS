@@ -21,6 +21,14 @@ from typing import Any, Dict, List, Optional
 from ccos.core.capability_registry import get_capability_registry
 from ccos.core.device_manager import get_device_manager
 
+# WP0.6 (CODEY_OS_MASTER_BLUEPRINT.md §21): module-level constant, not
+# inlined in __init__, so tests can monkeypatch it the same way
+# performance_tracker.py's DB_PATH already works -- see
+# ccos/tests/conftest.py's isolation fixture. Was inlined as
+# Path(__file__).parent.parent / "data" / "reflections.jsonl" directly
+# in the constructor before this round; same resolved path, just named.
+REFLECTIONS_PATH = str(Path(__file__).parent.parent / "data" / "reflections.jsonl")
+
 
 @dataclass
 class TaskReflection:
@@ -52,9 +60,7 @@ class ReflectionEngine:
     """
 
     def __init__(self, log_path: str = None):
-        self._log_path = log_path or str(
-            Path(__file__).parent.parent / "data" / "reflections.jsonl"
-        )
+        self._log_path = log_path or REFLECTIONS_PATH
         self._registry = get_capability_registry()
         self._device = get_device_manager()
         self._reflections: List[TaskReflection] = []

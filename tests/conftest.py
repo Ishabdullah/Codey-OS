@@ -114,3 +114,33 @@ def _hermetic_llama_server_bin(tmp_path_factory, monkeypatch):
     placeholder.write_text("#!/bin/sh\n")
     monkeypatch.setattr(lv, "LLAMA_SERVER_BIN", str(placeholder))
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_ccos_performance_and_reflection_singletons(tmp_path, monkeypatch):
+    """
+    WP0.6 (CODEY_OS_MASTER_BLUEPRINT.md §21). ccos.core.performance_tracker's
+    get_performance_tracker() and ccos.core.reflection_engine's
+    get_reflection_engine() are process-wide singletons that fall back to
+    the REAL on-device ccos/data/ccos_memory.db and reflections.jsonl
+    whenever a caller constructs AgentOrchestrator/AutoImprovementLoop/
+    GoalEngine/CapabilityOptimizer/LifecycleManager/SkillRecombiner with
+    defaults -- none of those six classes accept an injected tracker or
+    reflection instance. A top-level test exercising any of them (e.g.
+    tests/test_agent_orchestrator_execution.py) would silently write real
+    rows into those files exactly like ccos/tests/ did before this same
+    round added the identical fixture there (see
+    ccos/tests/conftest.py:_isolate_performance_and_reflection_singletons
+    for the full account, including the confirmed row-count drift this
+    caused). Looks modules up in sys.modules so tests that never import
+    ccos don't pay the import cost.
+    """
+    pt = sys.modules.get("ccos.core.performance_tracker")
+    if pt is not None:
+        monkeypatch.setattr(pt, "_tracker", None)
+        monkeypatch.setattr(pt, "DB_PATH", str(tmp_path / "ccos_memory_test.db"))
+    refl = sys.modules.get("ccos.core.reflection_engine")
+    if refl is not None:
+        monkeypatch.setattr(refl, "_engine", None)
+        monkeypatch.setattr(refl, "REFLECTIONS_PATH", str(tmp_path / "reflections_test.jsonl"))
+    yield
