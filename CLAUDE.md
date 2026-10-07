@@ -2,14 +2,35 @@
 
 ## Start here (read this first, every new chat/context window)
 
-1. **`CODEY_MASTER_PLAN.md`** — **the single authoritative plan.** It is
-   the spec, the rules, the architecture, the current-state snapshot, and
-   the ordered outstanding-work register, all in one file. Read its §0
-   (how to read it), §2 (rules), §4 (where things stand), then §6/Appendix
-   A for what's left. Don't contradict it without an explicit, logged
+0. **`CODEY_OS_MASTER_BLUEPRINT.md`** — **the current work register and the
+   verified current-state architecture** (census of 2026-10-06, commits
+   `ff1fe43` → `b7de2ab`). Read §1 (executive summary), then §21 (the
+   dependency-ordered roadmap and the resolved-decision table). All 8 open
+   decisions were resolved by Ish on 2026-10-06, so the roadmap is ready to
+   execute; implementation had **not** started as of that date.
+   **Work §21's roadmap, not `CODEY_MASTER_PLAN.md` §6 / Appendix A, for
+   anything the census touched.** Evidence with `file:line` citations is in
+   `docs/census-2026-10-06/`; findings are `NEW-761`…`NEW-790`.
+   *Two things not to get wrong:* (a) **do not enable `CODEY_TRAJECTORY=1`
+   and run the bench** until WP0.5 lands — that documented step is what
+   triggers `NEW-761`'s evaluation leak, and the symptom is scores going
+   *up*; (b) Restoricon is **manually started and not yet in full use**, so
+   data integrity (not uptime) is the binding constraint — services may be
+   restarted during development after checking `ps`/`ss`, but **never write
+   to the live store** (`RESTORICON_DB_PATH` points at a copy in every
+   dev/test configuration).
+1. **`CODEY_MASTER_PLAN.md`** — **the authoritative rules and project
+   history.** Its §2 numbered rules remain fully in force and are not
+   superseded by anything. Read §0 (how to read it) and §2 (rules) always.
+   Its §4 current-state snapshot and §6/Appendix A work register are
+   **partially superseded** by the blueprint above — both now carry banners
+   saying so, and where they disagree with the blueprint's §2/§5, **the
+   blueprint is the verified one** (it was traced from source; §4 predates
+   the census). Don't contradict either without an explicit, logged
    decision from Ish.
 2. **`PROJECT_LOG.md`** — reverse-chronological record of every round.
-   Read the top few entries for what just happened.
+   Read the top few entries for what just happened. The top entry names
+   the three no-dependency work packages to begin with.
 3. **`NEW_ISSUES.md`** — the append-only findings ledger (`NEW-##` IDs).
    Authoritative for any individual finding's status.
 

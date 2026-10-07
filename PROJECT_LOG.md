@@ -1,3 +1,34 @@
+## 2026-10-06 (later same day) — all 8 blueprint decisions resolved by Ish; roadmap restructured. **START HERE for the next session.**
+
+**What changed:** Ish reviewed `CODEY_OS_MASTER_BLUEPRINT.md` and resolved every open decision. Commits `651eef1` (decision 1) and `b7de2ab` (decisions 2-8 + roadmap restructure). The blueprint is now decision-complete; implementation has **not** started.
+
+**The 8 decisions, as recorded in blueprint §21's table:**
+
+1. **Restoricon is manually started and not yet in full operational use.** So **data integrity, not availability, is the binding constraint.** Services *may* be stopped/restarted during development under a check-before-acting rule (`ps`/`ss` first), and no zero-downtime migration machinery is needed. What does NOT relax: never write to the live store from development work (`RESTORICON_DB_PATH` points at a copy in every dev/test config), never use live data as Playground data, back up before schema changes, and the two unauthenticated email paths remain the highest-severity findings regardless — `contacts` holds 249 real people.
+2. **Rewrite `AGI_AUDIT_LOG.md`'s Phase 3 workflow: YES.** Folded into WP0.5. **Until that lands, do NOT enable `CODEY_TRAJECTORY=1` and run the bench** — that documented step is exactly what triggers `NEW-761`'s evaluation leak.
+3. **Gate sample size: derive a defensible `n` by power analysis first, then batch overnight** (new WP1.3a). The 30-pair/~13h figure was a cost estimate, never a derived requirement. Zero device time to compute.
+4a. **NPU: keep `qwen35`, pursue SSM-state-migration research** (new WP3.0b) — chosen over deploying a Qwen3 model, to preserve the single-model architecture. Accepted as open-ended research.
+4b. **Pin `install.sh`'s llama.cpp clone to `4f540676`** (new WP1.7a). Patch forward-port deferred into WP3.4.
+5. **Remove `ccos/` from sandbox `ALLOWED_DIRS`** (new WP2.3a) — closes the self-modification hole; zero cost today since the sandbox never runs.
+6. **Split `restoricon_core/` into its own repo** (new WP5.1, §3.5) — supersedes the blueprint's own recommendation to keep it.
+7. **Move the Cloudflare tunnel token to the existing `age.key` mechanism, no rotation** (new WP0.7).
+8. **Escrow DR key (`setup_dr_key.py --force`): STILL OPEN** — carried over from the admin-dashboard programme, not raised this round.
+
+**Two decisions went against the blueprint's recommendation (4a and 6).** Both are implemented as Ish's calls, each with one *sequencing* constraint added rather than relitigated:
+- **4a:** the SSM research is open-ended, so P3 is split into a research track (P3a: WP3.0 `supports_op` check, then WP3.0b migration R&D) and a bounded engineering track (P3b: WP3.1 BrainManager boundary, WP3.2 single model-load owner) **running in parallel**. Per §22's standing rule the research **may not become a dependency of any other work package**; only WP3.4's NPU adapter waits on it. WP3.0 comes first because it *scopes* the research — if the ops are unsupported at backend level, state migration alone won't suffice.
+- **6:** the split is sequenced **after P0** (so `restoricon_core/notification_service.py`'s security fix lands in one repo, not across a move) **and after P2's Action Gateway** (so it becomes a real architectural boundary rather than relocating the three-disjoint-surfaces problem into two repos).
+
+**§8.4's documentation archive/index plan: APPROVED as proposed**, executing in P5.
+
+**Where to begin next session — three items with no dependencies and essentially no risk:**
+- **WP1.1 — add CI.** Cheapest high-value change in the whole blueprint: 2,854 tests already exist and nothing runs them. Needs `.github/workflows/`, `pytest.ini`, and a root `conftest.py` that unsets `HTTP_PROXY`/`HTTPS_PROXY` (+variants) so the known false-failure artifact can't recur.
+- **WP2.3a — remove `ccos/` from `ALLOWED_DIRS`**, plus an invariant test so it can't silently reopen.
+- **WP1.3a — the power analysis** for the gate's required `n`. Pure arithmetic, no device time.
+
+Then P0's security fixes (WP0.1-WP0.5), which are the real priority: two unauthenticated paths to emailing real people, a device mock that fabricates successes, a compile break at Private-Codey-Agent HEAD, and the evaluation leak.
+
+**Tier (rule 7):** blueprint decision-complete and committed; **no implementation started**. Work blueprint §21's roadmap, not `CODEY_MASTER_PLAN.md` §6 / Appendix A, for anything the census touched.
+
 ## 2026-10-06 — Full read-only architectural census of all 7 repos + the definitive master blueprint (`CODEY_OS_MASTER_BLUEPRINT.md`); nothing implemented
 
 **What changed:** Ish supplied `CODEY_OS_OPUS_BLUEPRINT_DIRECTIVE.docx` (Downloads, 45,662 bytes) directing a comprehensive read-only census of the whole Codey ecosystem followed by ONE authoritative, implementation-ready blueprint — explicitly *not* the implementation program. Directive text archived verbatim at `docs/directives/OPUS_BLUEPRINT_DIRECTIVE.txt`. Deliverables: `CODEY_OS_MASTER_BLUEPRINT.md` (all 22 directive §16 sections) and `docs/census-2026-10-06/` (10 per-task reports, ~340 KB, every claim carrying `file:line`). Commit `ff1fe43`.
