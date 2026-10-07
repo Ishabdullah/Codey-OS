@@ -12,7 +12,6 @@ import json
 import re
 import socket
 import threading
-import time
 import uuid
 from typing import Any, Callable, Dict, Optional, Set, Tuple
 
@@ -188,65 +187,28 @@ class DeviceBridgeServer:
         self._running = False
         self._server_socket: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
-        self._register_default_handlers()
+        # WP0.3 (CODEY_OS_MASTER_BLUEPRINT.md §21, NEW-767): this used to
+        # call _register_default_handlers(), which installed mock
+        # handlers returning hardcoded "success" for every action --
+        # "sent": True with no SMS ever sent, "ui_hierarchy" with no real
+        # device attached. A caller (e.g. CCOS's planner, once it can
+        # reach this capability) could not distinguish a fabricated
+        # success from a real one, which would poison the experience
+        # store with false successes the moment trajectory-driven
+        # learning is switched on (directive §14's "experience is not
+        # learning until it measurably changes future behavior" --
+        # fabricated experience is the thing that breaks that). No
+        # handlers are registered by default now; handle_envelope()
+        # below returns an explicit "not connected" error for any action
+        # with no real handler, never a synthetic payload. A real
+        # transport (register_handler() wired to an actual connected
+        # device/limb) is what makes an action succeed.
 
     def register_handler(
         self, action_type: str, handler: Callable[[Dict[str, Any]], Dict[str, Any]]
     ):
         """Register handler for a specific action type."""
         self._handlers[action_type] = handler
-
-    def _register_default_handlers(self):
-        """Register default mock/stub implementations for all actions."""
-        self._handlers[ACTION_INSPECT_UI] = lambda p: {
-            "ui_hierarchy": {"root": {"class": "FrameLayout", "children": []}},
-            "screen_width": 1080,
-            "screen_height": 2400,
-            "focused_app": p.get("package_name", "com.android.launcher"),
-        }
-        self._handlers[ACTION_PERFORM_GESTURE] = lambda p: {
-            "performed": True,
-            "gesture": p.get("gesture", "tap"),
-            "coordinates": (p.get("x", 0), p.get("y", 0)),
-        }
-        self._handlers[ACTION_SEND_SMS] = lambda p: {
-            "sent": True,
-            "recipient": p.get("phone_number"),
-            "message_id": f"sms_{int(time.time())}",
-        }
-        self._handlers[ACTION_MAKE_CALL] = lambda p: {
-            "initiated": True,
-            "recipient": p.get("phone_number"),
-            "call_id": f"call_{int(time.time())}",
-        }
-        self._handlers[ACTION_LAUNCH_APP] = lambda p: {
-            "launched": True,
-            "package_name": p.get("package_name"),
-            "activity": p.get("activity"),
-        }
-        self._handlers[ACTION_READ_NOTIFICATIONS] = lambda p: {
-            "notifications": [
-                {
-                    "id": 1,
-                    "package": "com.android.mms",
-                    "title": "System Update",
-                    "text": "All services nominal",
-                    "timestamp": time.time(),
-                }
-            ][: p.get("limit", 10)]
-        }
-        self._handlers[ACTION_THIRD_PARTY_MESSAGE] = lambda p: {
-            "sent": True,
-            "app": p.get("app", "whatsapp"),
-            "recipient": p.get("recipient"),
-            "message_id": f"msg_{p.get('app', 'app')}_{int(time.time())}",
-        }
-        self._handlers[ACTION_EXECUTE_TASK] = lambda p: {
-            "success": True,
-            "goal": p.get("goal"),
-            "steps_executed": p.get("steps_executed", 1),
-            "final_status": "completed",
-        }
 
     def handle_envelope(self, req_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Validate safety, authenticate, and dispatch a request envelope."""
@@ -290,12 +252,23 @@ class DeviceBridgeServer:
                         error=f"Safety veto: Emergency number '{recipient}' is blocked for third-party messaging",
                     ).to_dict()
 
-        handler = self._handlers.get(req.action_type)
-        if not handler:
+        if req.action_type not in ALL_ACTIONS:
             return DeviceBridgeResponse(
                 request_id=req.request_id,
                 status="error",
                 error=f"Unsupported action type: '{req.action_type}'",
+            ).to_dict()
+
+        handler = self._handlers.get(req.action_type)
+        if not handler:
+            # WP0.3 (NEW-767): no real handler registered means no device
+            # is actually connected -- fails loudly, never fabricates a
+            # payload. A real transport (register_handler() wired to an
+            # actual device/limb) is what makes this succeed.
+            return DeviceBridgeResponse(
+                request_id=req.request_id,
+                status="error",
+                error=f"Device not connected: no real handler registered for '{req.action_type}'",
             ).to_dict()
 
         try:

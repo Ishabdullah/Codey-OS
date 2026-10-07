@@ -6,6 +6,7 @@ Exposes CCOS capability wrapper functions mapped to DeviceBridgeClient.
 from typing import Any, Dict, Optional
 from ccos.core.device_bridge import (
     DeviceBridgeClient,
+    DeviceBridgeError,
     get_default_device_bridge_client,
 )
 
@@ -74,9 +75,15 @@ def uninstall() -> bool:
 
 
 def test() -> bool:
-    """Plugin self-test verifying UI inspection and safe dispatch."""
+    """Plugin self-test. WP0.3 (NEW-767): no real device is connected in
+    this environment, so the only correct behavior is a loud
+    DeviceBridgeError -- a fabricated success here would be exactly the
+    bug this fix closes. Confirms the fail-loud contract, not a UI shape
+    that no longer exists by default."""
     client = _get_client()
-    ui = client.inspect_ui()
-    assert isinstance(ui, dict), "UI response must be dict"
-    assert "ui_hierarchy" in ui, "UI response must include ui_hierarchy"
-    return True
+    try:
+        client.inspect_ui()
+    except DeviceBridgeError as e:
+        assert "not connected" in str(e).lower(), f"unexpected DeviceBridgeError shape: {e}"
+        return True
+    raise AssertionError("inspect_ui() succeeded with no device connected -- should have raised DeviceBridgeError")

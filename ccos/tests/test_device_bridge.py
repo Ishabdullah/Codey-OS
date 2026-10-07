@@ -3,10 +3,17 @@
 Unit tests for Device Bridge IPC envelopes, action dispatch, safety vetoes, and socket comms.
 """
 
+import time
+
 import pytest
 
 from ccos.core.device_bridge import (
     ACTION_INSPECT_UI,
+    ACTION_MAKE_CALL,
+    ACTION_LAUNCH_APP,
+    ACTION_PERFORM_GESTURE,
+    ACTION_READ_NOTIFICATIONS,
+    ACTION_SEND_SMS,
     DeviceBridgeRequest,
     DeviceBridgeResponse,
     DeviceBridgeServer,
@@ -16,6 +23,53 @@ from ccos.core.device_bridge import (
     validate_telephony_safety,
     normalize_phone_number,
 )
+
+
+def _register_fake_connected_handlers(server: DeviceBridgeServer) -> None:
+    """WP0.3 (NEW-767): production no longer registers mock handlers by
+    default -- an unconnected bridge must fail loudly. These tests exist
+    to exercise dispatch/auth/safety-veto/socket plumbing, which still
+    needs *some* handler behind it, so each test that wants a successful
+    dispatch explicitly simulates "a real device is connected" via
+    register_handler(), the same mechanism a real limb integration would
+    use. This is a test fixture, not a production default."""
+    server.register_handler(ACTION_INSPECT_UI, lambda p: {
+        "ui_hierarchy": {"root": {"class": "FrameLayout", "children": []}},
+        "screen_width": 1080,
+        "screen_height": 2400,
+        "focused_app": p.get("package_name", "com.android.launcher"),
+    })
+    server.register_handler(ACTION_PERFORM_GESTURE, lambda p: {
+        "performed": True,
+        "gesture": p.get("gesture", "tap"),
+        "coordinates": (p.get("x", 0), p.get("y", 0)),
+    })
+    server.register_handler(ACTION_SEND_SMS, lambda p: {
+        "sent": True,
+        "recipient": p.get("phone_number"),
+        "message_id": f"sms_{int(time.time())}",
+    })
+    server.register_handler(ACTION_MAKE_CALL, lambda p: {
+        "initiated": True,
+        "recipient": p.get("phone_number"),
+        "call_id": f"call_{int(time.time())}",
+    })
+    server.register_handler(ACTION_LAUNCH_APP, lambda p: {
+        "launched": True,
+        "package_name": p.get("package_name"),
+        "activity": p.get("activity"),
+    })
+    server.register_handler(ACTION_READ_NOTIFICATIONS, lambda p: {
+        "notifications": [
+            {
+                "id": 1,
+                "package": "com.android.mms",
+                "title": "System Update",
+                "text": "All services nominal",
+                "timestamp": time.time(),
+            }
+        ][: p.get("limit", 10)]
+    })
 
 
 def test_phone_normalization():
@@ -74,8 +128,39 @@ def test_request_response_envelopes():
     assert resp2.status == "success"
 
 
+def test_unconnected_bridge_fails_loudly_not_fabricated():
+    """WP0.3 (NEW-767): the whole point of this fix. No handler
+    registered -- a real response must never be fabricated."""
+    server = DeviceBridgeServer()
+    client = DeviceBridgeClient(server_instance=server)
+
+    with pytest.raises(DeviceBridgeError) as exc_info:
+        client.inspect_ui()
+    assert "not connected" in str(exc_info.value).lower()
+
+    with pytest.raises(DeviceBridgeError) as exc_info:
+        client.send_sms("+1-555-0100", "test")
+    assert "not connected" in str(exc_info.value).lower()
+
+
+def test_genuinely_unknown_action_is_unsupported_not_not_connected():
+    """The two error branches emitted an identical string before this
+    fix (both said "Unsupported action type") -- this proves the new
+    split actually discriminates: an action outside ALL_ACTIONS is a
+    different failure (client error) from a known action with no real
+    handler behind it (not connected)."""
+    server = DeviceBridgeServer()
+    client = DeviceBridgeClient(server_instance=server)
+
+    with pytest.raises(DeviceBridgeError) as exc_info:
+        client.send_request("not_a_real_action_type")
+    assert "unsupported" in str(exc_info.value).lower()
+    assert "not connected" not in str(exc_info.value).lower()
+
+
 def test_server_dispatch_all_actions():
     server = DeviceBridgeServer()
+    _register_fake_connected_handlers(server)
     client = DeviceBridgeClient(server_instance=server)
 
     # 1. inspect_ui
@@ -129,6 +214,7 @@ def test_safety_veto_blocks_emergency_sms_and_call():
 
 def test_auth_token_verification():
     server = DeviceBridgeServer(auth_token="valid_secret_token")
+    _register_fake_connected_handlers(server)
     client_bad = DeviceBridgeClient(server_instance=server, auth_token="wrong_token")
     client_good = DeviceBridgeClient(server_instance=server, auth_token="valid_secret_token")
 
@@ -142,6 +228,7 @@ def test_auth_token_verification():
 
 def test_loopback_tcp_socket_communication():
     server = DeviceBridgeServer(host="127.0.0.1", port=0)
+    _register_fake_connected_handlers(server)
     server.start()
     try:
         assert server.port > 0
