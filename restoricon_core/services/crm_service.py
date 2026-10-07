@@ -3175,15 +3175,44 @@ class CRMService:
                 ).fetchone()
                 
                 if pm_row and pm_row["email"] and self.notification_service:
+                    # WP0.2 (CODEY_OS_MASTER_BLUEPRINT.md §21, audit gap at
+                    # notification_service): the project-field change above
+                    # is already audited, but the notification send itself
+                    # -- a real outbound email to a real address -- had no
+                    # record of its own, success or failure. RBAC for
+                    # *triggering* this send is already covered by
+                    # update_project's PERM_WRITE_PROJECTS/reassignment
+                    # check above; this closes the missing audit half.
+                    _notify_sent = False
                     try:
-                        self.notification_service.send_email(
+                        _notify_sent = bool(self.notification_service.send_email(
                             to_email=pm_row["email"],
                             subject=f"Project Assignment: Project {project_id}",
                             body=f"Hi {pm_row['full_name'] or 'Staff'},\n\nYou have been assigned as the Project Manager for Project {project_id}."
-                        )
+                        ))
                     except Exception as e:
                         import logging
                         logging.getLogger(__name__).warning(f"Failed to send assignment notification: {e}")
+                        self.audit.log(
+                            action="notify_email_failed",
+                            entity_type="project",
+                            entity_id=project_id,
+                            change_summary=f"PM-assignment notification to {pm_row['email']} raised: {e}",
+                            actor=actor,
+                            details=build_audit_details(after={"to": pm_row["email"], "error": str(e)}),
+                        )
+                    else:
+                        self.audit.log(
+                            action="notify_email_sent" if _notify_sent else "notify_email_failed",
+                            entity_type="project",
+                            entity_id=project_id,
+                            change_summary=(
+                                f"PM-assignment notification {'sent to' if _notify_sent else 'failed to send to'} "
+                                f"{pm_row['email']}"
+                            ),
+                            actor=actor,
+                            details=build_audit_details(after={"to": pm_row["email"], "sent": _notify_sent}),
+                        )
 
         # NEW-306: return the already-fetched/converted post-write row
         # directly instead of a redundant self.get_project() call --

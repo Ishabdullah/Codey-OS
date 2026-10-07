@@ -2856,6 +2856,22 @@ class APIRouter:
                     timeout=15.0,
                 )
                 if not sent:
+                    # WP0.2 (audit gap at notification_service): a failed
+                    # send previously left zero trace anywhere -- the 502
+                    # below told the rep, but nothing was ever recorded,
+                    # unlike the success path's communication_history row.
+                    # Audited here, not in communication_history (which is
+                    # reserved for actual customer-facing interactions),
+                    # so a failed attempt is distinguishable from one that
+                    # never happened without implying a message was sent.
+                    self.audit.log(
+                        action="notify_email_failed",
+                        entity_type="customer",
+                        entity_id=customer_id,
+                        change_summary=f"Sales-portal compose to {customer.email} failed to send",
+                        actor=actor,
+                        details=build_audit_details(after={"to": customer.email, "subject": subject}),
+                    )
                     # NEW-623 residual: even with this route's own longer
                     # 15.0s timeout, a false-negative (the email actually
                     # sent but this call still reports failure) is not
