@@ -50,6 +50,11 @@ NC='\033[0m'
 # ── Paths ─────────────────────────────────────────────────────────────────────
 CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLAMA_CPP_DIR="$HOME/llama.cpp"
+# Pinned to the exact commit this device's binary is built from (verified
+# 2026-10-07: `git -C ~/llama.cpp rev-parse HEAD` == this SHA, binary reports
+# "0.6.0-dev (build 1372, commit 4f540676)", has --load-mode, no --mmap/
+# --mlock -- matches core/loader_v2.py's expectations exactly, NEW-757/758).
+LLAMA_CPP_PIN="4f5406761517648c23dbd60ea5ade37f77a316c9"
 MODELS_DIR="$HOME/models"
 PRIMARY_MODEL_DIR="$MODELS_DIR/qwen3.5-4b-instruct"
 EMBED_MODEL_DIR="$MODELS_DIR/nomic-embed"
@@ -204,17 +209,33 @@ install_llama_cpp() {
     print_step "llama.cpp"
 
     if [ -f "$LLAMA_CPP_DIR/build/bin/llama-server" ]; then
+        if [ -d "$LLAMA_CPP_DIR/.git" ]; then
+            INSTALLED_HEAD=$(git -C "$LLAMA_CPP_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+            if [ "$INSTALLED_HEAD" != "$LLAMA_CPP_PIN" ]; then
+                print_warning "llama.cpp HEAD ($INSTALLED_HEAD) does not match the pinned commit ($LLAMA_CPP_PIN) -- NOT rebuilding or touching the tree, just flagging the drift (NEW-757)"
+            fi
+        fi
         print_success "llama-server already built — skipping"
         return 0
     fi
 
     if [ -d "$LLAMA_CPP_DIR" ]; then
         print_status "Updating existing llama.cpp clone..."
-        cd "$LLAMA_CPP_DIR"
-        git pull || print_warning "git pull failed — building from existing source"
+        PORCELAIN=$(git -C "$LLAMA_CPP_DIR" status --porcelain 2>/dev/null || echo "")
+        CUR_HEAD=$(git -C "$LLAMA_CPP_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+        if [ -n "$PORCELAIN" ]; then
+            print_warning "llama.cpp working tree has local changes -- not touching HEAD (currently $CUR_HEAD, pinned $LLAMA_CPP_PIN) — building from existing source at this HEAD. Modified files:"
+            print_warning "$PORCELAIN"
+        elif [ "$CUR_HEAD" != "$LLAMA_CPP_PIN" ]; then
+            git -C "$LLAMA_CPP_DIR" fetch --depth 1 origin "$LLAMA_CPP_PIN" && git -C "$LLAMA_CPP_DIR" checkout "$LLAMA_CPP_PIN" \
+                || print_warning "git fetch/checkout to pinned commit failed — building from existing source"
+        fi
     else
-        print_status "Cloning llama.cpp (shallow)..."
-        git clone --depth 1 https://github.com/ggerganov/llama.cpp "$LLAMA_CPP_DIR" || {
+        print_status "Cloning llama.cpp at pinned commit $LLAMA_CPP_PIN..."
+        git init -q "$LLAMA_CPP_DIR" \
+            && git -C "$LLAMA_CPP_DIR" remote add origin https://github.com/ggerganov/llama.cpp \
+            && git -C "$LLAMA_CPP_DIR" fetch --depth 1 origin "$LLAMA_CPP_PIN" \
+            && git -C "$LLAMA_CPP_DIR" checkout "$LLAMA_CPP_PIN" || {
             print_error "Failed to clone llama.cpp"
             return 1
         }
