@@ -201,11 +201,15 @@ to the live store from development work, and the two unauthenticated email paths
 which stay the highest-severity findings regardless (`contacts` holds 249 real
 people). See §9.4.
 
-**Decision-register status (corrected 2026-10-07).** All eight of the originally
-raised decisions were resolved by Ish on 2026-10-06 **except** decision 8 (the
-escrow DR key), which remains open and carried over. **Four new decisions — 9–12 —
-were raised on 2026-10-07 by §23 and are open**; all four are product/privacy
-direction, not implementation. The register at the end of §21 is canonical.
+**Decision-register status (corrected 2026-10-07, later same day).** All eight
+of the originally raised decisions were resolved by Ish on 2026-10-06 **except**
+decision 8 (the escrow DR key), which remains open and carried over. **Four new
+decisions — 9–12 — were raised on 2026-10-07 by §23 and resolved the same
+day**: no proactive initiation until a wantedness signal exists; real deletion
+must override append-only when asked; external models never see human-model
+data without explicit per-task authorization; §23 is additive with P1–P4
+keeping priority. **Only decision 8 remains open.** The register at the end of
+§21 is canonical.
 
 ### 1.6 Restoricon safety statement
 
@@ -2999,7 +3003,7 @@ tracks above get real work packages; until then they are a dependency map.
 
 ---
 
-### Decisions — 1–7 resolved by Ish 2026-10-06; 8–12 OPEN
+### Decisions — 1–7, 9–12 resolved by Ish; 8 OPEN
 
 | # | Decision | Ish's call |
 |---|---|---|
@@ -3012,10 +3016,10 @@ tracks above get real work packages; until then they are a dependency map.
 | 6 | Should `restoricon_core/` split out? | **Split it into its own repo now.** Supersedes §3.3's recommendation — see §3.5 for the decision record and the sequencing constraint. |
 | 7 | Plaintext Cloudflare tunnel token | **Move to the existing age/keystore mechanism.** No rotation (no exposure evidence). WP0.7. |
 | 8 | Escrow DR key (`setup_dr_key.py --force`) | **Still open** — carried over from the admin-dashboard programme; not raised this round. Flagged, not forgotten. |
-| 9 | **Is proactive initiation permitted at all, and under what ceiling?** (§23 item 11) | **OPEN — raised 2026-10-07, §23.6 item 1.** Product + trust decision, not implementation. **No code should be written toward item 11 before this is answered**; §21's P6 track E is gated on it. |
-| 10 | **Deletion and ownership policy for personal stores** (§23 item 10) | **OPEN — raised 2026-10-07, §23.6 item 2.** What must "delete what Codey knows about me" do, given an append-only relationship store and an identity shaped by it? Determines the schema, so cheapest to answer **before P6 track C**, and it cannot be derived from the code. |
-| 11 | **May any external model ever see human-model or relationship data, and under whose authorization?** (§23 item 10) | **OPEN — raised 2026-10-07, §23.6 item 3.** The minimum-context projection mechanism is implementable; the *default* and the authorization path are policy. Relevant because a remote `CODEY_BACKEND` path already exists. |
-| 12 | **Confirm §23 is additive and P1–P4 keep priority** | **OPEN — raised 2026-10-07, §23.6 item 4.** This blueprint's reading of Ish's own framing, flagged for explicit confirmation because the whole roadmap's ordering rests on it. |
+| 9 | **Is proactive initiation permitted at all, and under what ceiling?** (§23 item 11) | **Not yet — deferred entirely (2026-10-07).** No code toward item 11 until a "was this interruption wanted" feedback signal exists to learn from; matches §22 item 7's existing human-gated-autonomy-ceiling stance. §21's P6 track E stays gated on this signal, not just on this decision. |
+| 10 | **Deletion and ownership policy for personal stores** (§23 item 10) | **Real deletion must be possible, overriding append-only when asked (2026-10-07).** User control over personal data takes priority over the append-only design — append-only is a technical convenience for continuity, not a promise nothing can be erased. A deletion request is an explicit, audited exception to the normal write policy, not a redesign of it. Binding on P6 track C and §23.3's store-boundary schema. |
+| 11 | **May any external model ever see human-model or relationship data, and under whose authorization?** (§23 item 10) | **Never by default; explicit authorization required every time (2026-10-07).** The strictest reading of item 10's own "minimum context unless explicitly authorized" principle. The most sensitive data this system ever holds stays on-device unless explicitly authorized per task, not by a one-time blanket setting — binding on the minimum-context projection mechanism whenever it's built, and on the existing `CODEY_BACKEND` remote path today. |
+| 12 | **Confirm §23 is additive and P1–P4 keep priority** | **Confirmed (2026-10-07).** §23 work is promoted into active phases only when genuinely ready (the 7 items already pulled into WP2.1/WP4.6-4.8); everything else stays in P6 as a dependency map, not a competing work queue. |
 
 **Two decisions went against the blueprint's recommendation (4a and 6). Both are
 recorded as Ish's calls and the roadmap below implements them**, with one
@@ -3380,25 +3384,35 @@ expected**, because §21 is mostly prerequisites rather than commitments.
    contradict both the current single-model architecture and §18's brain
    abstraction. Already covered by §8.4's archive plan; reasons sharpened in §8.4.
 
-### 23.6 What needs Ish, not a judgment call
+### 23.6 Ish's decisions (resolved 2026-10-07)
 
 Per CLAUDE.md's escalation convention — product direction, not implementation.
-Everything else in §23 is decided within this blueprint's remit.
+All four raised this round are now resolved; see the main decisions register
+(rows 9–12) for the one-line record. Full reasoning:
 
-1. **Is proactive initiation permitted at all, and under what ceiling?** Item 11
-   describes a Codey that interrupts. That is a product decision with a privacy
-   and trust dimension, and §22 item 7 already keeps autonomy ceilings
-   human-gated. No code should be written toward item 11 before this is answered.
-2. **The deletion and ownership policy for personal stores.** What must "delete
-   what Codey knows about me" actually do, given an append-only relationship
-   store and an identity shaped by it? This determines the schema, so it is
-   cheapest to answer before P6 track C and it cannot be derived from the code.
-3. **May any external model ever see human-model or relationship data, and under
-   whose authorization?** Item 10 says "minimum context required unless
-   explicitly authorized." The mechanism is implementable; the *default* and the
-   authorization path are policy.
-4. **Confirmation that §23 is additive and P1–P4 keep priority.** Stated as this
-   blueprint's reading of Ish's own framing, flagged for explicit confirmation
-   because the whole roadmap's ordering rests on it.
+1. **Proactive initiation (item 11): not yet — deferred entirely.** No code
+   toward item 11 until a "was this interruption wanted" feedback signal exists
+   to learn from — building the interruption mechanism first would mean
+   guessing at the one thing the vision says must be *learned*, not assumed.
+   Matches §22 item 7's existing human-gated-autonomy-ceiling stance. P6 track
+   E stays gated on the signal, not merely on this decision being answered.
+2. **Deletion and ownership policy for personal stores: real deletion must be
+   possible, overriding append-only when asked.** User control over personal
+   data takes priority over the append-only design — append-only is a
+   technical convenience for continuity, not a promise that nothing can be
+   erased. A deletion request is an explicit, audited *exception* to the
+   normal write policy, not a redesign of it. Binding on §23.3's store-boundary
+   schema and on P6 track C.
+3. **External model access to human-model/relationship data: never by
+   default, explicit authorization required every time.** The strictest
+   reading of item 10's own "minimum context required unless explicitly
+   authorized" principle — the most sensitive data this system will ever hold
+   stays on-device unless explicitly authorized per task, not by a one-time
+   blanket setting. Binding on the minimum-context projection mechanism
+   whenever it's built, and on the existing `CODEY_BACKEND` remote path today.
+4. **§23 is additive; P1–P4 keep priority: confirmed.** Companion-vision work
+   is promoted into active phases only when genuinely ready (the 7 items
+   already pulled into WP2.1/WP4.6–4.8 this round); everything else stays in
+   P6 as a dependency map, not a competing work queue.
 5. **Carried over, unchanged:** decision 8 in §21's table (escrow DR key,
    `setup_dr_key.py --force`) remains open and is not affected by §23.
