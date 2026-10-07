@@ -7,8 +7,11 @@ audit: self-judged success is not a training signal).
 
 Fail-open: every hook swallows its own exceptions; a broken store must never
 change agent behavior. Data is local only and contains prompts/code/tool
-output -- treat the DB as private. Concern: args/results are truncated, not
-scrubbed of secrets; do not export the DB off-device without review.
+output -- treat the DB as private. Concern: episode fields are stored at full
+fidelity (bounded only by a 1M-char per-field safety limit, oversize fields are
+replaced by a marker); secrets are NOT scrubbed at record time, only at export
+(core/export_hygiene.py drops examples containing them). The DB itself is still
+private; do not copy it off-device.
 """
 import functools
 import json
@@ -18,8 +21,10 @@ import threading
 import time
 from pathlib import Path
 
-_MAX_ARGS = 2000
-_MAX_RESULT = 1000
+LEGACY_TRUNC_MARKER = "...[truncated]"
+OVERSIZE_MARKER_PREFIX = "[[codey-trajectory:omitted-oversize"
+_MAX_FIELD_CHARS = 1_000_000
+_MAX_EPISODE_CHARS = 8_000_000  # total across prompt, final, all call args+results
 _local = threading.local()
 _lock = threading.Lock()
 
@@ -60,7 +65,25 @@ def _connect(path=None):
 
 def _trunc(x, n):
     s = x if isinstance(x, str) else json.dumps(x, default=str)
-    return s if len(s) <= n else s[:n] + "...[truncated]"
+    return s if len(s) <= n else s[:n] + LEGACY_TRUNC_MARKER
+
+
+def _bounded(x) -> str:
+    """Full-fidelity serialization; a field above _MAX_FIELD_CHARS is replaced entirely by a marker."""
+    s = x if isinstance(x, str) else json.dumps(x, default=str)
+    return s if len(s) <= _MAX_FIELD_CHARS else f"{OVERSIZE_MARKER_PREFIX} chars={len(s)}]]"
+
+
+def _budgeted(ep, x) -> str:
+    """_bounded plus a per-episode char budget. Once the running total would exceed
+    _MAX_EPISODE_CHARS, this and every later field of the episode become the oversize
+    marker (so the episode is excluded at export and RAM stops growing)."""
+    s = _bounded(x)
+    if ep.get("blown") or ep["chars"] + len(s) > _MAX_EPISODE_CHARS:
+        ep["blown"] = True
+        return f"{OVERSIZE_MARKER_PREFIX} chars={len(s)}]]"
+    ep["chars"] += len(s)
+    return s
 
 
 def _save_episode(ep, path=None):
@@ -208,7 +231,8 @@ def instrument_run_agent(fn):
         try:
             prompt = args[0] if args else kwargs.get("user_message", "")
             _local.ep = {"ts": time.time(), "tag": os.environ.get("CODEY_TRAJECTORY_TAG", ""),
-                         "prompt": _trunc(prompt, 4000), "calls": [], "final": "", "crashed": 0, "secs": 0.0}
+                         "prompt": "", "calls": [], "final": "", "crashed": 0, "secs": 0.0, "chars": 0}
+            _local.ep["prompt"] = _budgeted(_local.ep, prompt)
         except Exception:
             _local.ep = None
             return fn(*args, **kwargs)
@@ -216,7 +240,7 @@ def instrument_run_agent(fn):
         try:
             result = fn(*args, **kwargs)
             try:
-                ep["final"] = _trunc(result[0] if isinstance(result, tuple) else result, 2000)
+                ep["final"] = _budgeted(ep, result[0] if isinstance(result, tuple) else result)
             except Exception:
                 pass
             return result
@@ -246,7 +270,9 @@ def instrument_execute_tool(fn):
             name = tool_dict.get("name", "") if isinstance(tool_dict, dict) else ""
             args = tool_dict.get("args", {}) if isinstance(tool_dict, dict) else {}
             rs = res if isinstance(res, str) else str(res)
-            ep["calls"].append((name, _trunc(args, _MAX_ARGS), _trunc(rs, _MAX_RESULT),
+            b_args = _budgeted(ep, args)
+            b_res = _budgeted(ep, rs)
+            ep["calls"].append((name, b_args, b_res,
                                 int(rs.startswith("[ERROR]")), round(time.time() - t0, 3)))
         except Exception:
             pass

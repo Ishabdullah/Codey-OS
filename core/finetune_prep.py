@@ -17,6 +17,8 @@ Phone only does lightweight data export + file writing.
 """
 
 import json
+import os
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -129,11 +131,27 @@ class DatasetCurator:
         bare verified_episodes() (removed) -- structurally excludes
         anything tagged by the frozen benchmark, so this export path
         cannot leak eval data into training even if a future caller
-        forgets to filter it."""
-        from core.trajectory import verified_training_episodes
+        forgets to filter it.
+
+        WP1.2 (reconciled from codey-os-dev-v2's S0.1): episodes are now
+        recorded at full fidelity (core/trajectory.py's _bounded/_budgeted),
+        with truncation/oversize-omission happening only here, at export.
+        A field ending in the LEGACY marker is pre-full-fidelity data from
+        before this change landed; skipped outright rather than exported
+        with a mid-field artifact baked in. Oversize-marked fields are
+        exported as-is (text, not valid tool-call JSON) and caught later by
+        export_hygiene.sanitize_examples's truncation-marker check."""
+        from core.trajectory import LEGACY_TRUNC_MARKER, verified_training_episodes
 
         out = []
+        legacy_skipped = 0
         for ep in verified_training_episodes(path=path, only_passed=True)[:max_examples]:
+            # Legacy _trunc appended the marker at the END of a field; the same text
+            # mid-field is legitimate content, so only an END match marks truncation.
+            raw = [ep["prompt"], ep["final"]] + [x for c in ep["calls"] for x in (c[1], c[2])]
+            if any(isinstance(x, str) and x.endswith(LEGACY_TRUNC_MARKER) for x in raw):
+                legacy_skipped += 1
+                continue
             convo = [
                 {"role": "system", "content": "You are Codey, a local coding agent. Use tools via <tool>{json}</tool>."},
                 {"role": "user", "content": ep["prompt"]},
@@ -142,7 +160,7 @@ class DatasetCurator:
                 try:
                     a = json.loads(args)
                 except Exception:
-                    a = args  # truncated args were stored as text
+                    a = args  # legacy truncated / oversize args stored as text; excluded at export
                 convo.append({"role": "assistant",
                               "content": "<tool>\n" + json.dumps({"name": name, "args": a}) + "\n</tool>"})
                 convo.append({"role": "user", "content": "[Tool result]\n" + str(result)})
@@ -152,6 +170,8 @@ class DatasetCurator:
             out.append({"conversations": convo,
                         "metadata": {"source": "trajectory", "verifier": ep["verifier"],
                                      "verified": True, "episode_id": ep["id"]}})
+        if legacy_skipped:
+            info(f"curate_verified: skipped {legacy_skipped} episode(s) with legacy-truncated fields")
         return out
 
     def curate_examples(
@@ -321,6 +341,14 @@ def export_dataset(
     Returns:
         Tuple of (output_file, example_count)
     """
+    # WP1.2 (export hygiene, from codey-os-dev-v2's S0.1): unconditional --
+    # drops truncated/secret/duplicate examples BEFORE any file is created.
+    # Scan errors propagate (fail closed); see core/export_hygiene.py.
+    from core.export_hygiene import sanitize_examples
+
+    examples, stats = sanitize_examples(examples)
+    info(f"Export hygiene: {stats}")
+
     output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -354,12 +382,32 @@ def export_dataset(
 
 
 def _write_jsonl(examples: List[Dict], output_file: Path) -> int:
-    """Write examples to JSONL file."""
+    """Write examples to JSONL file.
+
+    WP1.2 (from codey-os-dev-v2's S0.1): write to a sibling temp file then
+    atomically replace -- a failure mid-write must not leave a partial
+    file nor destroy a previous export.
+    """
+    output_file = Path(output_file)
     count = 0
-    with open(output_file, "w", encoding="utf-8") as f:
-        for example in examples:
-            f.write(json.dumps(example, ensure_ascii=False) + "\n")
-            count += 1
+    tmp = None
+    try:
+        # unique name so concurrent exports cannot collide
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(output_file.parent),
+                                         prefix=output_file.name + ".", suffix=".tmp",
+                                         delete=False) as f:
+            tmp = f.name
+            for example in examples:
+                f.write(json.dumps(example, ensure_ascii=False) + "\n")
+                count += 1
+        os.replace(tmp, output_file)
+    except BaseException:
+        try:
+            if tmp:
+                os.unlink(tmp)
+        except OSError:
+            pass  # temp may never have been created; nothing to clean
+        raise
     return count
 
 

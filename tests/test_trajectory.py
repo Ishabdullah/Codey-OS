@@ -1,5 +1,6 @@
 """Trajectory store (AGI audit 2.2): default off, fail-open, verifier-only labels."""
 import inspect
+import json
 import sqlite3
 
 import pytest
@@ -149,17 +150,112 @@ def test_finetune_prep_curate_verified_excludes_bench_tagged_episodes(db, monkey
     assert exported[0]["conversations"][1]["content"] == "do something else"
 
 
-def test_truncation(db, monkeypatch):
+# ---------------------------------------------------------------------
+# WP1.2 (reconciled from codey-os-dev-v2's S0.1, directive §14): episode
+# fields are recorded at full fidelity now -- truncation only ever
+# happens at export (core/finetune_prep.py + core/export_hygiene.py),
+# never at record time. Replaces the old test_truncation, which asserted
+# the opposite of what this now does.
+# ---------------------------------------------------------------------
+
+def test_episode_fields_stored_full(db, monkeypatch):
     monkeypatch.setenv("CODEY_TRAJECTORY", "1")
 
     def big(msg, history):
         tj.instrument_execute_tool(lambda d: "x" * 5000)({"name": "n", "args": {"a": "y" * 5000}})
         return "z" * 5000, history
-    tj.instrument_run_agent(big)("p", [])
+    tj.instrument_run_agent(big)("p" * 5000, [])
     con = sqlite3.connect(db)
     a, r = con.execute("select args,result from tool_calls").fetchone()
-    assert len(a) < 2100 and len(r) < 1100
-    assert len(con.execute("select final from episodes").fetchone()[0]) < 2100
+    assert a == json.dumps({"a": "y" * 5000}) and r == "x" * 5000
+    prompt, final = con.execute("select prompt,final from episodes").fetchone()
+    assert prompt == "p" * 5000 and final == "z" * 5000
+    for v in (a, r, prompt, final):
+        assert "...[truncated]" not in v
+
+
+def test_oversize_field_replaced_by_marker(db, monkeypatch):
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+    monkeypatch.setattr(tj, "_MAX_FIELD_CHARS", 100)
+
+    def big(msg, history):
+        tj.instrument_execute_tool(lambda d: "x" * 100)({"name": "n", "args": {"a": "y" * 200}})
+        tj.instrument_execute_tool(lambda d: "x" * 101)({"name": "n", "args": {}})
+        return "done", history
+    tj.instrument_run_agent(big)("p", [])
+    rows = sqlite3.connect(db).execute("select args,result from tool_calls order by seq").fetchall()
+    assert rows[0][0].startswith(tj.OVERSIZE_MARKER_PREFIX)
+    assert rows[0][1] == "x" * 100
+    assert rows[1][1] == "[[codey-trajectory:omitted-oversize chars=101]]"
+
+
+def test_recording_fail_open_when_bounding_raises(db, monkeypatch):
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+
+    def boom(x):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(tj, "_bounded", boom)
+    assert tj.instrument_run_agent(_fake_agent)("hi", []) == ("done", [])
+
+
+def test_tool_wrapper_fail_open_when_bounding_raises(db, monkeypatch):
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+    seen = []
+
+    def agent(msg, history):
+        seen.append(tj.instrument_execute_tool(lambda d: "ok")({"name": "n", "args": {}}))
+        return "done", history
+
+    def boom(x):
+        raise RuntimeError("boom")
+    # _bounded works for the episode (prompt/final) but raises for tool calls
+    real = tj._bounded
+    monkeypatch.setattr(tj, "_bounded", lambda x: boom(x) if x == {} or x == "ok" else real(x))
+    assert tj.instrument_run_agent(agent)("hi", []) == ("done", [])
+    assert seen == ["ok"]  # tool result unaffected
+    assert sqlite3.connect(db).execute("select n_tools from episodes").fetchone()[0] == 0
+
+
+def test_fail_open_when_save_episode_raises(db, monkeypatch):
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+
+    def boom(ep, path=None):
+        raise RuntimeError("save failed")
+    monkeypatch.setattr(tj, "_save_episode", boom)
+    assert tj.instrument_run_agent(_fake_agent)("hi", []) == ("done", [])
+
+
+def test_episode_budget_marks_rest_as_oversize(db, monkeypatch):
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+    monkeypatch.setattr(tj, "_MAX_EPISODE_CHARS", 250)
+
+    def agent(msg, history):
+        tj.instrument_execute_tool(lambda d: "x" * 100)({"name": "n", "args": {}})
+        tj.instrument_execute_tool(lambda d: "y" * 100)({"name": "n", "args": {}})
+        tj.instrument_execute_tool(lambda d: "z")({"name": "n", "args": {}})
+        return "done", history
+    tj.instrument_run_agent(agent)("p" * 100, [])
+    con = sqlite3.connect(db)
+    rows = con.execute("select args,result from tool_calls order by seq").fetchall()
+    assert rows[0] == ("{}", "x" * 100)  # 100 + 2 + 100 = 202 <= 250
+    assert rows[1][0] == "{}"  # 204 fits
+    assert rows[1][1] == "[[codey-trajectory:omitted-oversize chars=100]]"  # 304 > 250
+    assert rows[2][0].startswith(tj.OVERSIZE_MARKER_PREFIX)  # later small fields also replaced
+    assert rows[2][1] == "[[codey-trajectory:omitted-oversize chars=1]]"
+    assert con.execute("select final from episodes").fetchone()[0] == "[[codey-trajectory:omitted-oversize chars=4]]"
+
+
+def test_next_episode_records_normally_after_budget_blown(db, monkeypatch):
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+    monkeypatch.setattr(tj, "_MAX_EPISODE_CHARS", 50)
+
+    def big(msg, history):
+        return "z" * 100, history
+    tj.instrument_run_agent(big)("p", [])
+    tj.instrument_run_agent(_fake_agent)("hi", [])
+    rows = sqlite3.connect(db).execute("select prompt,final from episodes order by id").fetchall()
+    assert rows[0][1].startswith(tj.OVERSIZE_MARKER_PREFIX)
+    assert rows[1] == ("hi", "done")
 
 
 def test_agent_module_wrapped_and_signature_preserved(monkeypatch):
@@ -179,7 +275,7 @@ def test_teacher_traces_flag_gated_and_verified_only(db, monkeypatch):
     assert tid and tj.verified_teacher_traces() == []  # unlabeled -> ineligible
     tj.label_teacher(tid, "pytest", True)
     rows = tj.verified_teacher_traces()
-    assert len(rows) == 1 and len(rows[0][3]) < 20100
+    assert len(rows) == 1 and len(rows[0][3]) < 20100 and rows[0][3].endswith("...[truncated]")
 
 
 def test_teacher_capture_fail_open(tmp_path, monkeypatch):

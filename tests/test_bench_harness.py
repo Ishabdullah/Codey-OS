@@ -76,3 +76,39 @@ def test_aa_identical_agents_never_significant(tmp_path):
     runner.run_suite(agents.oracle_agent, "a2", ledger)
     r = compare.compare(compare.load(ledger, "a1"), compare.load(ledger, "a2"))
     assert r["p_value"] == 1.0
+
+
+def _tmp_task(tmp_path):
+    from bench.suite import Task
+    t = load_tasks()[0]
+    tdir = tmp_path / "tasks" / t.id
+    shutil.copytree(t.dir, tdir)
+    return Task(t.id, tdir)
+
+
+def test_grade_tolerates_junk_subdirs_in_hidden(tmp_path):
+    # Before the fix (WP1.2/WP1.5, reconciled from codey-os-dev-v2), copy2 on
+    # a hidden/ subdir raised IsADirectoryError, which grade() swallowed ->
+    # False even for the reference solution (NEW-791). Now cache dirs are
+    # ignored, not fatal.
+    t = _tmp_task(tmp_path)
+    (t.hidden / "__pycache__").mkdir()
+    (t.hidden / "__pycache__" / "junk.cpython-311.pyc").write_bytes(b"x")
+    (t.hidden / ".pytest_cache").mkdir()
+    ws = tmp_path / "ws"
+    shutil.copytree(t.reference, ws)
+    assert grade(t, ws) is True
+
+
+def test_grade_copies_hidden_data_subdirs(tmp_path):
+    t = _tmp_task(tmp_path)
+    (t.hidden / "data").mkdir()
+    (t.hidden / "data" / "input.txt").write_text("ok")
+    test_file = next(t.hidden.glob("test_*.py"))
+    with test_file.open("a") as fh:
+        fh.write("\n\ndef test_hidden_data_present():\n"
+                 "    from pathlib import Path\n"
+                 "    assert (Path(__file__).parent / 'data' / 'input.txt').read_text() == 'ok'\n")
+    ws = tmp_path / "ws"
+    shutil.copytree(t.reference, ws)
+    assert grade(t, ws) is True
