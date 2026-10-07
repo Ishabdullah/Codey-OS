@@ -655,17 +655,59 @@ def load_user_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str
         return {}
 
 
+def _decrypt_cloudflare_tunnel_token_file() -> Optional[str]:
+    """WP0.7 (CODEY_OS_MASTER_BLUEPRINT.md §21, Ish's decision 7): the
+    token used to live in config.json plaintext -- the last plaintext
+    credential on device. ~/.codeyOS/cloudflare_tunnel_token.age holds
+    the age-encrypted value instead, decrypted at call time with the
+    same ~/.codeyOS/age.key identity core/backup_secrets.py already
+    uses for at-rest encryption (no new key material, no rotation --
+    Ish's call, no exposure evidence on the plaintext value). Returns
+    None on any failure (missing file, missing age binary, wrong key,
+    corrupt ciphertext) so the caller falls back to the legacy plaintext
+    path rather than raising -- this must never be the reason the
+    tunnel fails to start.
+    """
+    enc_path = CODEY_STATE_DIR / "cloudflare_tunnel_token.age"
+    key_path = CODEY_STATE_DIR / "age.key"
+    if not enc_path.exists() or not key_path.exists():
+        return None
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["age", "-d", "-i", str(key_path), str(enc_path)],
+            capture_output=True, text=True, timeout=10, check=True,
+        )
+    except (subprocess.CalledProcessError, OSError, FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    token = result.stdout.strip()
+    return token or None
+
+
 def get_cloudflare_tunnel_token(config: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """
     Extract Cloudflare tunnel token.
     Precedence:
       1. CLOUDFLARE_TUNNEL_TOKEN or CLOUDFLARED_TOKEN env var
-      2. config["cloudflare"]["tunnel_token"] or config["cloudflare_tunnel_token"]
+      2. ~/.codeyOS/cloudflare_tunnel_token.age, age-decrypted (WP0.7) --
+         only consulted when `config` is not explicitly supplied (i.e.
+         the real production call, `get_cloudflare_tunnel_token()` with
+         no args). An explicit `config` dict is a caller constructing a
+         specific scenario (tests do this) and must not have this
+         device's real on-disk secret silently override it.
+      3. config["cloudflare"]["tunnel_token"] or config["cloudflare_tunnel_token"]
+         -- legacy plaintext fallback, kept until the encrypted path is
+         confirmed working on a given device, then removable.
     Returns string token if set and non-empty, otherwise None.
     """
     env_token = os.environ.get("CLOUDFLARE_TUNNEL_TOKEN") or os.environ.get("CLOUDFLARED_TOKEN")
     if env_token is not None and env_token.strip():
         return env_token.strip()
+
+    if config is None:
+        encrypted_token = _decrypt_cloudflare_tunnel_token_file()
+        if encrypted_token:
+            return encrypted_token
 
     cfg = config if config is not None else load_user_config()
     cf_section = cfg.get("cloudflare", {}) if isinstance(cfg, dict) else {}

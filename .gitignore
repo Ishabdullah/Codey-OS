@@ -33,6 +33,12 @@ config.*.json
 !config.json.example
 # Test file whose name legitimately contains "secret" (NEW-458 backup tests)
 !tests/test_backup_secrets.py
+# Source/test files whose names legitimately contain "token" (WP0.7,
+# 2026-10-07) -- not secret files themselves, silently excluded from
+# `git add` with no warning until noticed via `git status --short`
+# showing nothing for a file known to exist on disk.
+!tools/encrypt_cloudflare_token.py
+!tests/test_wp0_7_cloudflare_token_encryption.py
 
 # CCOS runtime state — rebuilt from plugin manifests / accumulates during
 # normal use, not meant to carry committed content between sessions.

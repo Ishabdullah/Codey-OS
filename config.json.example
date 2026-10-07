@@ -1,6 +1,7 @@
 {
   "cloudflare": {
-    "tunnel_token": ""
+    "tunnel_token": "",
+    "_note": "WP0.7: preferred path is an age-encrypted ~/.codeyOS/cloudflare_tunnel_token.age (python3 -m tools.encrypt_cloudflare_token, after ~/.codeyOS/age.key exists -- see core/backup_secrets.py). tunnel_token here is only the fallback checked if that file doesn't decrypt to anything."
   },
   "restoricon": {
     "api_host": "127.0.0.1",
