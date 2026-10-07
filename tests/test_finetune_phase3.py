@@ -82,7 +82,7 @@ def test_curate_examples_verified_only_skips_heuristic_path(tmp_path, monkeypatc
 def test_reading_verified_does_not_create_db(tmp_path, monkeypatch):
     db = tmp_path / "missing.db"
     monkeypatch.setenv("CODEY_TRAJECTORY_DB", str(db))
-    assert tj.verified_episodes() == [] and not db.exists()
+    assert tj.verified_training_episodes() == [] and not db.exists()
 
 
 def test_cli_and_instructions_fixed(capsys):

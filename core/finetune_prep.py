@@ -123,11 +123,17 @@ class DatasetCurator:
         """Examples from the trajectory store whose outcome an EXTERNAL verifier passed
         (pytest / bench grader / script exit code). This is the only trustworthy label
         source; the older `episodic_log` heuristic path never had data (NEW-546).
-        Needs CODEY_TRAJECTORY=1 during use, then labeling via core.trajectory.label_*."""
-        from core.trajectory import verified_episodes
+        Needs CODEY_TRAJECTORY=1 during use, then labeling via core.trajectory.label_*.
+
+        WP0.5 (NEW-761): uses verified_training_episodes(), not the old
+        bare verified_episodes() (removed) -- structurally excludes
+        anything tagged by the frozen benchmark, so this export path
+        cannot leak eval data into training even if a future caller
+        forgets to filter it."""
+        from core.trajectory import verified_training_episodes
 
         out = []
-        for ep in verified_episodes(path=path, only_passed=True)[:max_examples]:
+        for ep in verified_training_episodes(path=path, only_passed=True)[:max_examples]:
             convo = [
                 {"role": "system", "content": "You are Codey, a local coding agent. Use tools via <tool>{json}</tool>."},
                 {"role": "user", "content": ep["prompt"]},

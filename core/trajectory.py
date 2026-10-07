@@ -105,13 +105,29 @@ def label_tag(tag: str, verifier: str, passed: bool, since_ts: float = 0.0, path
             con.close()
 
 
-def verified_episodes(path=None, only_passed=True):
-    """Episodes with an external verdict -- the only eligible fine-tune/eval data."""
+# WP0.5 (CODEY_OS_MASTER_BLUEPRINT.md §21, NEW-761, Critical). A single
+# `verified_episodes()` (removed) fed BOTH fine-tune export and anything
+# wanting to inspect eval results, with no tag partition -- its own
+# docstring called itself "the only eligible fine-tune/eval data",
+# conflating training and evaluation sources in one function. The
+# documented Phase 3 workflow (AGI_AUDIT_LOG.md) and bench/runner.py's own
+# labeling step (tag=f"bench:{task.id}") meant the 8 frozen benchmark
+# tasks could be fed straight into the fine-tune corpus, then the
+# promotion gate would grade candidates on those same 8 tasks --
+# evaluation leakage, scores moving up for the wrong reason. Split into
+# two accessors below so the conflation can't be expressed: a
+# `tag LIKE 'bench:%'` episode is now structurally ineligible for
+# training, full stop, not dependent on every future caller remembering
+# to filter it out.
+EVAL_TAG_PREFIX = "bench:"
+
+
+def _query_episodes(path, only_passed, tag_sql_filter):
     if not Path(path or db_path()).exists():
         return []  # reading must not create the DB
     con = _connect(path)
     try:
-        q = "SELECT id,prompt,final,verifier,passed FROM episodes WHERE verifier IS NOT NULL"
+        q = f"SELECT id,prompt,final,verifier,passed FROM episodes WHERE verifier IS NOT NULL {tag_sql_filter}"
         if only_passed:
             q += " AND passed=1"
         out = []
@@ -123,6 +139,21 @@ def verified_episodes(path=None, only_passed=True):
         return out
     finally:
         con.close()
+
+
+def verified_training_episodes(path=None, only_passed=True):
+    """Episodes with an external verdict, eligible for fine-tune export.
+    Structurally excludes any episode tagged by the frozen benchmark
+    (tag LIKE 'bench:%') -- those are evaluation data and may never be
+    trained on, regardless of what labeled them or why."""
+    return _query_episodes(path, only_passed, f"AND (tag IS NULL OR tag NOT LIKE '{EVAL_TAG_PREFIX}%')")
+
+
+def verified_eval_episodes(path=None, only_passed=True):
+    """Episodes with an external verdict, tagged by the frozen benchmark
+    (tag LIKE 'bench:%') -- for inspecting/auditing eval results. Never
+    feed this into fine-tune export; use verified_training_episodes()."""
+    return _query_episodes(path, only_passed, f"AND tag LIKE '{EVAL_TAG_PREFIX}%'")
 
 
 def record_teacher_trace(peer: str, task: str, output: str, path=None):

@@ -78,13 +78,75 @@ def test_only_verifier_labels_feed_training_view(db, monkeypatch):
     monkeypatch.setenv("CODEY_TRAJECTORY_TAG", "T")
     w = tj.instrument_run_agent(_fake_agent)
     w("a", []); w("b", [])
-    assert tj.verified_episodes() == []  # unlabeled -> not eligible
+    assert tj.verified_training_episodes() == []  # unlabeled -> not eligible
     assert tj.label_tag("T", "pytest", True) == 2
     assert tj.label_tag("T", "pytest", False) == 0  # already labeled; no overwrite
-    assert len(tj.verified_episodes()) == 2
+    assert len(tj.verified_training_episodes()) == 2
     tj.label_episode(1, "pytest", False)
-    assert len(tj.verified_episodes()) == 1
-    assert len(tj.verified_episodes(only_passed=False)) == 2
+    assert len(tj.verified_training_episodes()) == 1
+    assert len(tj.verified_training_episodes(only_passed=False)) == 2
+
+
+# ---------------------------------------------------------------------
+# WP0.5 (NEW-761, Critical): the evaluation leak. A bench:-tagged
+# episode must be structurally ineligible for fine-tune export,
+# regardless of what verifier labeled it or how. This is the blueprint's
+# own stated acceptance criterion for this work package.
+# ---------------------------------------------------------------------
+
+def test_bench_tagged_episode_never_reaches_training_view(db, monkeypatch):
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+    monkeypatch.setenv("CODEY_TRAJECTORY_TAG", "bench:t01_slugify")
+    tj.instrument_run_agent(_fake_agent)("solve t01", [])
+    # Labeled exactly the way bench/runner.py labels it: verifier passed.
+    assert tj.label_tag("bench:t01_slugify", "bench:abc123", True) == 1
+
+    assert tj.verified_training_episodes() == [], (
+        "a bench:-tagged episode reached the training view -- this is the leak"
+    )
+    # It must still be visible through the eval-only accessor, so eval
+    # auditing isn't silently broken by the same fix.
+    assert len(tj.verified_eval_episodes()) == 1
+
+
+def test_non_bench_tag_still_reaches_training_view(db, monkeypatch):
+    """Guards against an over-broad fix that excludes everything."""
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+    monkeypatch.setenv("CODEY_TRAJECTORY_TAG", "benchmark_unrelated_task")
+    tj.instrument_run_agent(_fake_agent)("do something else", [])
+    assert tj.label_tag("benchmark_unrelated_task", "pytest", True) == 1
+
+    assert len(tj.verified_training_episodes()) == 1
+    assert tj.verified_eval_episodes() == []
+
+
+def test_finetune_prep_curate_verified_excludes_bench_tagged_episodes(db, monkeypatch):
+    """End-to-end: the actual fine-tune export path (core/finetune_prep.py),
+    not just the trajectory-store accessor in isolation. Deliberately
+    mixes one bench-tagged and one ordinary episode in the SAME db and
+    asserts exactly the ordinary one comes out -- an empty-result
+    assertion alone (the original version of this test) can't
+    distinguish "the filter worked" from "the call is broken and always
+    returns nothing" (code-review finding, same shape as NEW-259)."""
+    from core.finetune_prep import DatasetCurator
+
+    monkeypatch.setenv("CODEY_TRAJECTORY", "1")
+
+    monkeypatch.setenv("CODEY_TRAJECTORY_TAG", "bench:t02_fizzbuzz")
+    tj.instrument_run_agent(_fake_agent)("solve t02", [])
+    tj.label_tag("bench:t02_fizzbuzz", "bench:def456", True)
+
+    monkeypatch.setenv("CODEY_TRAJECTORY_TAG", "ordinary_task")
+    tj.instrument_run_agent(_fake_agent)("do something else", [])
+    tj.label_tag("ordinary_task", "pytest", True)
+
+    cur = DatasetCurator.__new__(DatasetCurator)
+    exported = cur.curate_verified(path=db)
+    assert len(exported) == 1, (
+        "expected exactly the ordinary episode, got: "
+        f"{[e['conversations'][1]['content'] for e in exported]}"
+    )
+    assert exported[0]["conversations"][1]["content"] == "do something else"
 
 
 def test_truncation(db, monkeypatch):

@@ -2,6 +2,45 @@
 
 Reverse-chronological. Companion to `AGI_AUDIT_PLAN.md`. Statuses follow CLAUDE.md rule 7: **code-complete** vs **live-verified**.
 
+## 2026-10-07 — WP0.5: the Phase 3 entry below prescribed an evaluation leak; fixed, not just reworded (rule 6)
+
+**Correction, not a rewrite of history below** — the 2026-09-30 Phase 3 entry's
+last line ("No data exists yet: enable `CODEY_TRAJECTORY=1`, run the bench,
+label episodes.") is exactly `NEW-761`'s trigger, confirmed during the
+2026-10-06 census and fixed under `CODEY_OS_MASTER_BLUEPRINT.md` §21's WP0.5
+(Ish's decision 2, 2026-10-06: yes, rewrite this workflow).
+
+**The leak, traced three hops:** `bench/runner.py` labels every bench episode
+with tag `bench:{task.id}` → the old bare `verified_episodes()` (in
+`core/trajectory.py`) selected `WHERE verifier IS NOT NULL AND passed=1` with
+**no tag filter** → `core/finetune_prep.py`'s `curate_verified()` fed that
+straight into the fine-tune export. Following this log's own prescribed
+workflow — enable the flag, run the bench, label episodes — would have put
+the 8 frozen benchmark tasks into the training corpus, after which the
+promotion gate would grade candidates on those same 8 tasks. Scores would go
+up for the wrong reason. Latent as of 2026-09-30/10-06 (the flag defaults
+off, and `bench/promote.py` — called separately from `curate_verified` — has
+never been run against trajectory-sourced data), not yet triggered.
+
+**Fix:** `verified_episodes()` removed, replaced by two accessors that make
+the conflation impossible to express: `verified_training_episodes()`
+(structurally excludes any `tag LIKE 'bench:%'` row) and
+`verified_eval_episodes()` (the complement, for inspecting eval results —
+never fed to fine-tune export). `finetune_prep.py` updated to the training
+accessor. Regression tests added
+(`tests/test_trajectory.py::test_bench_tagged_episode_never_reaches_training_view`,
+`test_finetune_prep_curate_verified_excludes_bench_tagged_episodes`) — the
+blueprint's own stated acceptance criterion for this work package. No device
+time spent and `CODEY_TRAJECTORY` was never enabled to produce this fix —
+pure code read + a unit-test-level reproduction of the labeling shape
+`bench/runner.py` actually uses.
+
+**The corrected workflow, for whoever next runs Phase 3 for real:** enabling
+`CODEY_TRAJECTORY=1` and running the bench is now safe with respect to this
+specific leak — any bench-tagged episode is automatically ineligible for
+`curate_verified()`'s export, not dependent on the operator remembering a
+manual filter step.
+
 ## 2026-09-30 — Phase 4: code-complete (4.1, 4.3); 4.2 withdrawn (rule 6)
 
 - 4.1: `_fix_memory_hint()` in `core/agent.py`, appended to the generic auto-retry "Error:" message only when `CODEY_USE_FIX_MEMORY=1` (default OFF, fail-open). Enable only after a gate-approved bench A/B. CONCERN: `suggest_fix` can return generic template fixes, not only history-learned ones.
