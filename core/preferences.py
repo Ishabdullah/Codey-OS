@@ -15,6 +15,7 @@ Preferences are stored in SQLite and improve over time.
 import json
 import re
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from core.state import get_state_store
@@ -451,8 +452,22 @@ class PreferenceManager:
         if self._cache.get(key, {}).get("confidence", 0) >= 0.8:
             self._sync_to_codeymd(key, value)
 
-    def _sync_to_codeymd(self, key: str, value: str):
-        """Write a learned preference into the Conventions section of CODEY.md."""
+    def _sync_to_codeymd(self, key: str, value: str, confirm_available: bool = False):
+        """Write a learned preference into the Conventions section of CODEY.md.
+
+        Routed through core.action_gateway (WP2.1 slice 1, NEW-817). This is
+        classified HIGH_IMPACT: it's an automated, unconfirmed write into a
+        file the user authors themselves. `confirm_available` defaults to
+        False because this method is called from preference-learning code
+        paths (e.g. learn_from_message/_update_preference) that today never
+        run with a human confirmation path available — that default keeps
+        production behavior honest (every real call today hits the
+        fail-closed branch, by design, per Ish's decision) while still
+        letting callers that DO have a confirmation path (e.g. tests
+        simulating a future interactive context) opt in.
+        """
+        from core.action_gateway import HIGH_IMPACT, get_action_gateway
+
         try:
             from core.codeymd import find_codeymd
 
@@ -474,7 +489,16 @@ class PreferenceManager:
                 "log_style": "Logging",
             }
             label = label_map.get(key, key)
-            entry = f"- {label}: {value}"
+            # Provenance marker (NEW-817): distinguishes an automated write
+            # from a line the user authored themselves, so a future round
+            # that wires a real confirmation path and allows this write
+            # through doesn't silently blend into user-authored content.
+            # `line.startswith(f"- {label}:")`'s re-sync match below still
+            # matches a previously-marked line since the marker is appended
+            # after the value, not prepended.
+            confidence = self._cache.get(key, {}).get("confidence", 0.0)
+            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            entry = f"- {label}: {value}  <!-- auto-learned, confidence {confidence:.2f}, {stamp} -->"
             # If a Conventions section exists, update or append the entry
             if "# Conventions" in text:
                 lines = text.splitlines()
@@ -499,14 +523,37 @@ class PreferenceManager:
                     new_lines.append(line)
                 if in_conv and not entry_written:
                     new_lines.append(entry)
-                codeymd_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                new_content = "\n".join(new_lines) + "\n"
             else:
                 # No Conventions section — append one
-                codeymd_path.write_text(
-                    text.rstrip() + f"\n\n# Conventions\n{entry}\n", encoding="utf-8"
+                new_content = text.rstrip() + f"\n\n# Conventions\n{entry}\n"
+
+            gateway = get_action_gateway()
+            decision = gateway.gate_write(
+                authority=HIGH_IMPACT,
+                action="preferences.sync_to_codeymd",
+                path=str(codeymd_path),
+                content=new_content,
+                confirm_available=confirm_available,
+            )
+            if not decision.allowed:
+                # Fail-closed (no confirmation path) or a real write
+                # failure (e.g. codeymd_path resolved outside the
+                # workspace root) — both are already audited by the
+                # gateway. Nothing left to do here; this replaces the
+                # previous bare `except Exception: pass`, which used to
+                # make a write failure vanish with no trace anywhere.
+                info(
+                    f"CODEY.md preference sync for '{key}' not written "
+                    f"({decision.outcome}): {decision.reason}"
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            # Anything upstream of the gateway call (e.g. find_codeymd()
+            # or the read of the existing file) failing is not itself a
+            # gated action, so it has no audit record of its own — but it
+            # must not vanish silently either, which the previous bare
+            # `except Exception: pass` did.
+            warning(f"Failed to sync preference '{key}' to CODEY.md: {e}")
 
     def learn_from_correction(self, category: str, value: str):
         """
