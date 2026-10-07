@@ -1,4 +1,59 @@
-## 2026-10-07 (P1 continues) — WP1.4: scorecard rubric + scorer, approved. Real measured score 68.363/100. **START HERE for the next session.**
+## 2026-10-07 (P1 continues) — WP1.6: fixed NEW-205, a real recurrent-state slot-count undercount; also a rule-6 correction to the item's own stale premise. **START HERE for the next session.**
+
+**What changed:** project-architect scoping this item found its *own listed
+objective* (resolve a possible ~4× KV-cache overestimate, §2.3) was already
+fixed and live-verified a month before the 2026-10-06 census (`commit
+a030bbf`, `NEW-157` closed, per `M1-A`/`M1-E`). Corrected all 5 blueprint
+citation sites (§2.3, §10.6 Phase N3, §16 table, §19 summary ×2, §21 WP1.6)
+before any code was written — committed separately (`adc8ae3`).
+
+- **The real residual gap, re-derived from the vendored llama.cpp source
+  directly (rule 12 — this model family has burned the project twice
+  already):** `core/resource_gate.py`'s `QWEN35_4B_ARCH.recurrent_state_bytes`
+  was computed for 1 llama-server sequence slot, but production launches run
+  `n_seq_max=4` (the vendored binary's unset-`-np` auto-default;
+  `core/loader_v2.py` never overrides it). Confirmed by both the implementer
+  and code-reviewer independently reading `server.cpp`, `common.cpp`,
+  `llama-model.cpp`, `llama-memory-recurrent.cpp` directly, one layer back
+  from each citation each time — not trusted from the prior memory note.
+- **Fix:** new `ModelArch.n_seq_max: int = 1` field (safe no-op default for
+  every other model, since only `QWEN35_4B_ARCH` has a nonzero
+  `recurrent_state_bytes`); `QWEN35_4B_ARCH.n_seq_max=4`;
+  `estimate_model_load_cost()` now multiplies `arch.recurrent_state_bytes *
+  arch.n_seq_max` as its own named factor. Recurrent term corrected
+  `52,690,944` → `210,763,776` bytes; interactive-65536 total `5,209,547,936`
+  → `5,367,620,768` bytes (~4.9990GiB) — a ~150.75MiB correction, direction
+  matters: this was an under-count, so the gate was over-admitting slightly;
+  the fix makes it more conservative, the right direction. Low severity,
+  absorbed by the existing ×1.25 headroom factor; neither
+  `MAX_CONCURRENT_MODEL_BUDGET_BYTES` nor `MAX_SWAP_ASSIST_BYTES` needed its
+  value changed (margins narrowed to ~1.673GiB / ~0.2513GiB, still
+  comfortable).
+- **No fresh rule-2 model-load cycle needed** — both pre-flight checks
+  (production still at 4 slots, `loader_v2.py` still has no `--parallel`
+  flag) were re-verified cheaply first, and M1-E's existing 4 recorded RSS
+  values corroborate the corrected estimate directly (now ~−1.0% to +6.9%
+  above the new figure, vs. the old +2.0%/+10.1% spread). Flagged to the
+  coordinator as a scope question rather than decided unilaterally by either
+  subagent, per standing practice.
+- **Code-reviewer (`a7f22d43455273b76`) independently re-derived the source
+  chain one layer further back than the implementer's own citations each
+  time**, re-ran the arithmetic in Python rather than trusting the diff's
+  prose, ran the full `tests/test_resource_gate.py` suite (228 passed), and
+  confirmed no process-lifecycle code was touched. **Verdict: APPROVED.**
+- **Two findings logged, not fixed (rule 8):** `NEW-824` (Confirmed,
+  Low) — `CODEY_MASTER_PLAN.md` still carries the stale pre-fix figures at 8
+  cited line numbers, needs a doc-sync pass. `NEW-825` (Suspected, Low) — a
+  `Fatal Python error: Aborted` crash the implementer independently hit
+  during a full `pytest tests/` run, at `restoricon_core/database.py:3064`,
+  does NOT match `NEW-791`'s own citation (`:2473`) when both are read
+  directly — may be a second distinct crash point under the same symptom,
+  not a duplicate; needs a cheap re-check before conflating the two.
+- *Gate:* code-reviewer — **APPROVED**. *DoD:* met — `QWEN35_4B_ARCH`'s
+  recurrent-state term now matches the real 4-slot allocator math; all
+  worked-example comments updated to match.
+
+## 2026-10-07 (P1 continues) — WP1.4: scorecard rubric + scorer, approved. Real measured score 68.363/100.
 
 **What changed:** CLAUDE.md rule 1's "report the measured number, never
 one raised by relabeling" directly governed this round, in both

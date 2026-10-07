@@ -20587,3 +20587,17 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Status:** Suspected, Low — no live false positive today. For a plain `import a.b.c` statement (as opposed to `from a.b import c`), the call-site root-name resolution keys on `"a"` rather than the full dotted path, so two distinct top-level packages sharing a first segment could in principle collide. None of the current target files (`core/memory_v2.py`, `core/context.py`, `core/embeddings.py`, `prompts/layered_prompt.py`) hit this — `layered_prompt.py` only uses `from X import Y` style imports for the relevant names.
 - **Fix direction (not applied):** tighten `_call_root_name()` to track the full dotted path for plain-`import` statements if/when a future target file uses that import style.
 - **Cross-reference:** `bench/scorecard.py` (`imports_resolving_to_file`, `_call_root_name`).
+
+### [NEW-824] Confirmed, Low: `CODEY_MASTER_PLAN.md` carries stale pre-`NEW-205` recurrent-state figures, needs a doc-sync pass
+
+- **Status:** Confirmed (WP1.6, 2026-10-07, found by implementer `a3432eb8f88bb8f99`, confirmed by code-reviewer `a7f22d43455273b76`). `CODEY_MASTER_PLAN.md` still states the pre-fix single-slot figures (`52,690,944` recurrent bytes, `5,209,547,936`/`4,135,806,112` totals, `3.852GiB`) in its §5.1 table and surrounding prose, at lines 888, 1427, 1435, 1446, 2384, 4583, 5353, 5641 (confirmed, multiple hits). `core/resource_gate.py` and its tests now correctly use the `NEW-205`-corrected totals (recurrent `210,763,776` bytes; interactive-65536 total `5,367,620,768`, ~4.9990GiB).
+- **Not fixed this round** — out of WP1.6's code scope; a pure documentation-sync task against `CODEY_MASTER_PLAN.md`.
+- **Fix direction (not applied):** update the cited lines/table to the corrected figures, same as `core/resource_gate.py`'s own comment blocks now show.
+- **Cross-reference:** `core/resource_gate.py` (`QWEN35_4B_ARCH`, `estimate_model_load_cost()`), `CODEY_MASTER_PLAN.md:888,1427,1435,1446,2384,4583,5353,5641` §5.1, blueprint §21 WP1.6.
+
+### [NEW-825] Suspected, Low: `NEW-791`'s own citation (`restoricon_core/database.py:2473`) may not be the same crash site as a second `Fatal Python error: Aborted` observed at `:3064`
+
+- **Status:** Suspected, Low — not triaged this round, flagged only. WP1.6's implementer independently hit a `Fatal Python error: Aborted` crash during a full `pytest tests/` run, inside `restoricon_core/database.py:3064` (`_migrate_estimates_property_id_fk`'s `SELECT ... sqlite_master` call). Code-reviewer read both locations directly and confirmed they are genuinely different code from `NEW-791`'s own citation (`:2473`, inside `init_schema`'s `executescript(_SCHEMA_SQL)` call) — not a line-number typo on either side.
+- **Why this matters:** this may be a second, distinct crash point under the same broad OOM/Aborted symptom `NEW-791` describes, not a duplicate of the same finding. Reusing `NEW-791`'s existing "Confirmed, Medium: device memory exhaustion" framing for a different code location without checking could misattribute a real second bug to an already-understood one.
+- **Fix direction (not applied):** whoever next touches `NEW-791` should re-check whether `:3064` reproduces independently of `:2473`'s known trigger before treating the two as the same finding.
+- **Cross-reference:** `restoricon_core/database.py:2473,3064`, `NEW-791`.

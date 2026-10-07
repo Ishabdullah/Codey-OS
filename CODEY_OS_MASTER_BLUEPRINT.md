@@ -2700,8 +2700,17 @@ real, undone decision.
 - *Tests:* a multi-file `hidden/` dir verifies correctly — **done**; a real error raises — **open**.
 - *DoD:* no benchmark path swallows exceptions into a false verdict — **not yet met**.
 
-**WP1.6 — Fix `NEW-205`'s recurrent-state slot-count undercount** — **rescoped
-2026-10-07 (rule 6).** The item's original premise (a possible ~4× KV-cache
+**WP1.6 — Fix `NEW-205`'s recurrent-state slot-count undercount** — **DONE
+2026-10-07.** Code-reviewer-approved (`a7f22d43455273b76`), both the vendored
+llama.cpp source chain and the real launch config re-verified independently,
+not just re-read. `QWEN35_4B_ARCH.n_seq_max=4` added; recurrent-state term
+corrected from `52,690,944` to `210,763,776` bytes; interactive-65536 total
+corrected from `5,209,547,936` to `5,367,620,768` bytes (~4.9990GiB). Neither
+`MAX_CONCURRENT_MODEL_BUDGET_BYTES` nor `MAX_SWAP_ASSIST_BYTES` needed its
+value changed — margins narrowed (to ~1.673GiB and ~0.2513GiB respectively)
+but remain comfortably positive. `CODEY_MASTER_PLAN.md` still carries the
+stale pre-fix figures (`NEW-824`, doc-sync only, not blocking). **Rescoped
+2026-10-07 (rule 6)** from its original premise (a possible ~4× KV-cache
 overestimate) was already fixed and live-verified a month before the
 2026-10-06 census (commit `a030bbf`, `NEW-157` closed — see §2.3's
 correction). The real residual gap, found by project-architect re-deriving
@@ -2744,7 +2753,12 @@ severity, absorbed by the existing ×1.25 headroom factor.
   commit time.
 - *Rollback:* revert to the single-slot estimator. *DoD:* `QWEN35_4B_ARCH`'s
   recurrent-state term matches the real 4-slot allocator math; worked-example
-  comments updated to match.
+  comments updated to match. **Met.** No fresh rule-2 model-load cycle was
+  needed — pre-flight re-checks confirmed `n_seq_max=4` and no `--parallel`
+  flag still hold today, and M1-E's existing recorded RSS values (4
+  independent spawns) corroborate the corrected estimate directly: they now
+  land ~−1.0% to +6.9% above the new 4.9990GiB figure, vs. the old
+  +2.0%/+10.1% spread against the undercounted 4.8518GiB estimate.
 
 **WP1.7 — Dependency and install.sh correctness (rule 11)**
 - *Objective:* a fresh clone works (§20.3).
