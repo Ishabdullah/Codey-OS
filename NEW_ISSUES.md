@@ -20601,3 +20601,41 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Why this matters:** this may be a second, distinct crash point under the same broad OOM/Aborted symptom `NEW-791` describes, not a duplicate of the same finding. Reusing `NEW-791`'s existing "Confirmed, Medium: device memory exhaustion" framing for a different code location without checking could misattribute a real second bug to an already-understood one.
 - **Fix direction (not applied):** whoever next touches `NEW-791` should re-check whether `:3064` reproduces independently of `:2473`'s known trigger before treating the two as the same finding.
 - **Cross-reference:** `restoricon_core/database.py:2473,3064`, `NEW-791`.
+
+### [NEW-826] Confirmed: `requirements.txt` and `install.sh`'s hardcoded Core pip list are two independent, divergently-maintained dependency lists
+
+- **Status:** Confirmed (WP1.7, 2026-10-07, found by project-architect, corroborated independently by implementer and code-reviewer). Nobody has ever reconciled `requirements.txt`'s Core block against `install.sh:172-186`'s separate hardcoded `pip3 install` list. This round's own findings existed in *both* directions before the fix: `python-multipart`/`pyttsx3` were in `install.sh` but missing from `requirements.txt`; `networkx` was the reverse. 6 shared orphans (`httpx`, `pyyaml`, `filelock`, `tqdm`, `typer`, `httpcore`) were independently present in *both* lists despite zero real import sites anywhere in the repo.
+- **Fixed this round, the specific drift instances found:** both direction-mismatches and all 6 orphans (commit `393694a`). **Not fixed, structural:** the two lists remain two independent sources of truth, so the same class of drift can recur.
+- **Fix direction (not applied):** collapse to one canonical source — e.g. `install.sh` always runs `pip3 install -r requirements.txt` unconditionally (today it's gated behind an interactive `[y/N]` prompt, default N, skipped under `SKIP_CONFIRM=true` — a separate, real finding, see `NEW-827`) and drops its own hardcoded list entirely, or the reverse. Bigger structural `install.sh` change, out of scope for this round.
+- **Cross-reference:** `requirements.txt`, `install.sh:172-186,194-201`, blueprint §21 WP1.7.
+
+### [NEW-827] Confirmed, Medium: `install.sh`'s default non-interactive install path never runs `pip install -r requirements.txt` at all
+
+- **Status:** Confirmed (WP1.7, 2026-10-07, found by project-architect). `install.sh:194-201` only runs `pip3 install -r requirements.txt` behind an interactive `[y/N]` prompt (default **N**), and that prompt is skipped entirely under `SKIP_CONFIRM=true`. On a default fresh non-interactive clone, only `install.sh`'s own separate hardcoded Core pip list (`:172-186`) ever actually installs — `requirements.txt` itself is never consulted by default.
+- **Why this matters:** this is the root mechanism behind `NEW-826`'s drift — `requirements.txt` isn't actually load-bearing for a default install, so anything added only there (without also being hand-added to the hardcoded list) silently never installs on a fresh default clone, contradicting rule 11's "a fresh clone should be able to run install.sh once and end up with a fully working system."
+- **Not fixed this round** — a behavior change to `install.sh`'s install flow, bigger than WP1.7's dependency-list-sync scope.
+- **Fix direction (not applied):** either default that prompt to **Y** for a genuinely fresh install, or (per `NEW-826`'s preferred direction) drop the hardcoded list and always run `pip install -r requirements.txt` unconditionally as the single source of truth.
+- **Cross-reference:** `install.sh:172-201`, `NEW-826`, blueprint §21 WP1.7, CLAUDE.md rule 11.
+
+### [NEW-828] Confirmed, Low: `docs/installation.md` carries the same stale 6-orphan "Step 2" pip-install instruction `requirements.txt` just had corrected
+
+- **Status:** Confirmed (WP1.7, 2026-10-07, found by implementer `a3ebd3c36b0ff4c65`, corroborated by code-reviewer `a64175aab087b941c`). `docs/installation.md:126-129` has the identical stale "Step 2 — Install pure-Python packages via pip" instructional block `requirements.txt:47-51` had before this round's fix, still listing the same 6 confirmed-orphan names (`httpcore`, `httpx`, `typer`, `tqdm`, `pyyaml`, `filelock`) in a `pip install` instruction line — the same drift pattern this round fixed in `requirements.txt`, duplicated in a second, documentation-only location.
+- **Not fixed this round** — out of WP1.7's code scope.
+- **Fix direction (not applied):** mirror `requirements.txt:47-51`'s fix (drop the 6 orphan names from the instruction line).
+- **Cross-reference:** `docs/installation.md:126-129`, `requirements.txt:47-51` (now fixed, commit `393694a`).
+
+### [NEW-829] Confirmed, Low: `docs/tools-embedding-pipeline.md` still lists `tqdm`/`httpx` as required dependencies
+
+- **Status:** Confirmed (WP1.7, 2026-10-07, found by implementer, corroborated by code-reviewer). `docs/tools-embedding-pipeline.md:363-364` has a dependency table still listing `tqdm` and `httpx` as required, with `pip install` instructions pointing at them, despite neither having any real import site anywhere in the repo (confirmed by this round's repo-wide grep).
+- **Not fixed this round** — documentation-only, out of WP1.7's code scope.
+- **Fix direction (not applied):** remove `tqdm`/`httpx` from the table.
+- **Cross-reference:** `docs/tools-embedding-pipeline.md:363-364`.
+
+### [NEW-830] Confirmed, Low: two pre-existing Core-vs-Pipeline categorization asymmetries between `requirements.txt` and `install.sh`
+
+- **Status:** Confirmed (WP1.7, 2026-10-07, found by implementer, corroborated by code-reviewer). Pre-existing, not introduced by this round's diff:
+  1. `pytest>=9.0.0` is in `requirements.txt`'s Core block but absent from `install.sh`'s hardcoded Core pip list — a fresh non-interactive install via `install.sh` does not get `pytest`, even though `requirements.txt` documents it as Core.
+  2. `google-cloud-storage==2.11.0` is in `install.sh`'s hardcoded Core pip list, but sits under `requirements.txt`'s Pipeline section (not its Core block) — `install.sh` treats it as always-installed/Core, `requirements.txt`'s structure implies pipeline-only/optional.
+- **Not fixed this round** — same drift class as `NEW-826`, deferred alongside it rather than fixed piecemeal.
+- **Fix direction (not applied):** resolve as part of `NEW-826`'s eventual single-source-of-truth consolidation.
+- **Cross-reference:** `requirements.txt`, `install.sh:172-186`, `NEW-826`.

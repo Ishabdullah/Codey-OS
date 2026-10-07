@@ -2760,13 +2760,49 @@ severity, absorbed by the existing ×1.25 headroom factor.
   land ~−1.0% to +6.9% above the new 4.9990GiB figure, vs. the old
   +2.0%/+10.1% spread against the undercounted 4.8518GiB estimate.
 
-**WP1.7 — Dependency and install.sh correctness (rule 11)**
+**WP1.7 — Dependency and install.sh correctness (rule 11)** — **DONE
+2026-10-07.** Code-reviewer-approved (`a64175aab087b941c`), after one
+CHANGES REQUESTED round (a self-contradicting instructional comment in
+`requirements.txt` itself, fixed and re-approved). Commit `393694a`.
 - *Objective:* a fresh clone works (§20.3).
-- *Deps:* none — the llama.cpp pin is now decided (WP1.7a).
+- *Deps:* none — the llama.cpp pin is **separately tracked, still open**
+  (WP1.7a below — this item's original "now decided" framing was about
+  Ish's *decision*, not WP1.7a's *implementation*; `install.sh:217` is
+  still an unpinned `git clone --depth 1` as of this round).
 - *Repo:* Codey-OS — `requirements.txt`, `install.sh`.
-- *Intent:* add `python-multipart`; prune 5 orphans; add `sqlite3` if needed.
+- **Premise re-verified before fixing (per the same caution WP1.6 needed)
+  — it had partially drifted since the census:** `python-multipart`/`pyttsx3`
+  were already in `install.sh`'s hardcoded Core pip list but missing from
+  `requirements.txt`; `networkx` was the reverse (needed by
+  `core/symbolic_graph.py`, present in `requirements.txt`, missing from
+  `install.sh`'s list — breaking a fresh *non-interactive* install, since
+  `requirements.txt` itself is never installed by default, see `NEW-827`).
+  The "5 orphans" grew to 6 on re-verification (`httpcore` was an
+  undocumented sixth, missed by the original census).
+- *Intent:* add `python-multipart`/`pyttsx3`/`networkx` to whichever file was
+  missing each; prune the 6 confirmed orphans (`httpx`, `pyyaml`,
+  `filelock`, `tqdm`, `typer`, `httpcore`) from both files, re-verified via
+  repo-wide grep before and after — **done.** `sqlite3`: verified
+  already-correct, no change needed — it's Python stdlib here, nothing
+  shells out to a binary, and `install.sh` already lists the `sqlite`
+  package on every package-manager branch.
+- **Findings logged, not fixed (rule 8):** `NEW-826` (the two files are
+  independently-maintained lists, a structural drift risk), `NEW-827`
+  (install.sh's default non-interactive path never runs
+  `pip install -r requirements.txt` at all — the root mechanism behind
+  `NEW-826`), `NEW-828`/`NEW-829` (two docs with the same stale orphan
+  names), `NEW-830` (two pre-existing Core-vs-Pipeline categorization
+  asymmetries).
+- *Gate:* code-reviewer (lighter pass, not the mandatory rule-4 gate — no
+  process-lifecycle code touched). **APPROVED** after the self-contradiction
+  fix. *DoD:* met for the specific drift instances found this round;
+  `NEW-826`/`827`'s structural fix is separately tracked, not required for
+  this item's own DoD.
 
-**WP1.7a — Pin `install.sh`'s llama.cpp clone** *(Ish's decision 4b)*
+**WP1.7a — Pin `install.sh`'s llama.cpp clone** *(Ish's decision 4b)* —
+**still open.** `install.sh:217` remains an unpinned `git clone --depth 1`
+as of 2026-10-07 — this item was not touched by WP1.7's dependency-list
+round.
 - *Objective:* fix `NEW-757`'s root cause — the unpinned clone that caused this
   drift twice and left the OpenCL repo's preservation audit stale (`NEW-788`).
 - *Deps:* none. *Repo:* Codey-OS — `install.sh:219-220`.

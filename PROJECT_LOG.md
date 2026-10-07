@@ -1,4 +1,60 @@
-## 2026-10-07 (P1 continues) — WP1.6: fixed NEW-205, a real recurrent-state slot-count undercount; also a rule-6 correction to the item's own stale premise. **START HERE for the next session.**
+## 2026-10-07 (P1 continues) — WP1.7: dependency/install.sh drift fixed in both directions, plus a NEW-824 doc-sync done inline so it didn't bloat the queue. **START HERE for the next session.**
+
+**What changed:** same re-verify-the-premise caution WP1.6 needed, applied
+again: project-architect found WP1.7's stated premise had partially
+drifted since the census. `python-multipart`/`pyttsx3` were already in
+`install.sh`'s hardcoded Core pip list but missing from `requirements.txt`;
+`networkx` was the reverse (needed by `core/symbolic_graph.py`, in
+`requirements.txt`, missing from `install.sh` — a real break on a fresh
+*non-interactive* install, since `install.sh` never actually runs
+`pip install -r requirements.txt` by default, logged as `NEW-827`). The
+"5 orphans" the census counted grew to 6 on re-verification (`httpcore`
+was an undocumented sixth).
+
+- **Fix (commit `393694a`):** added the two files' missing entries to
+  each other, matching existing pins; removed all 6 confirmed-orphan
+  packages (zero real import sites anywhere in the repo, re-verified via
+  repo-wide grep before and after every edit) from both files. Did not
+  touch `install.sh:217-220`'s unpinned llama.cpp clone (that's WP1.7a, a
+  *separate, still-open* item — corrected the blueprint's own framing,
+  which had conflated "Ish decided the pin" with "WP1.7a is implemented";
+  it isn't) or the sqlite lines (verified already correct: stdlib module
+  here, nothing shells out to a binary, `install.sh` already lists the
+  right system package on every branch).
+- **Code-reviewer caught a real self-contradiction on the first pass
+  (CHANGES REQUESTED):** `requirements.txt`'s own "Step 2" manual
+  pip-install instructional comment, a few lines below the fix in the
+  *same file*, still told a reader to `pip install` the same 6 packages
+  the round had just removed as orphans — recreating the exact drift
+  this round existed to eliminate. Relayed to the implementer (not a
+  fresh dispatch — resumed via `SendMessage`, standing practice), fixed,
+  re-reviewed, **APPROVED**.
+- **Four more findings surfaced along the way, logged not fixed
+  (`NEW-826`/`828`/`829`/`830`):** the two files are structurally two
+  independent, divergently-maintained lists (root cause, `NEW-826`); two
+  docs (`docs/installation.md`, `docs/tools-embedding-pipeline.md`) carry
+  the same stale orphan names; two pre-existing Core-vs-Pipeline
+  categorization asymmetries (`pytest`, `google-cloud-storage`).
+  `NEW-827` (install.sh's default path never installs `requirements.txt`
+  at all) is the most material of these — logged as Confirmed, Medium,
+  it's the actual mechanism that let the two files drift in the first
+  place, and a future round should probably fix it directly rather than
+  let it sit.
+- **Also folded in this round, per Ish's explicit instruction not to let
+  small adjacent findings bloat the queue:** `NEW-824` (from WP1.6) — the
+  stale pre-fix recurrent-state figures in `CODEY_MASTER_PLAN.md`'s §5.1
+  table and §8 Q1's decision record. Fixed directly by the coordinator
+  (not routed through the full pipeline — pure documentation sync, no
+  code): added rule-6 correction notes with the real corrected totals,
+  explicitly leaving the many genuine historical status-log entries
+  elsewhere untouched (they accurately recorded what was true *at the
+  time each was written*, before `NEW-205` existed — rewriting those would
+  misrepresent history, not correct it). Commit `ed83bc7`.
+- *Gate:* code-reviewer — **APPROVED** (lighter pass; not the mandatory
+  rule-4 gate, no process-lifecycle code touched). *DoD:* met for the
+  specific drift instances found this round.
+
+## 2026-10-07 (P1 continues) — WP1.6: fixed NEW-205, a real recurrent-state slot-count undercount; also a rule-6 correction to the item's own stale premise.
 
 **What changed:** project-architect scoping this item found its *own listed
 objective* (resolve a possible ~4× KV-cache overestimate, §2.3) was already
