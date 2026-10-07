@@ -1,4 +1,112 @@
-## 2026-10-07 — First implementation round: WP1.1 (CI), WP2.3a (sandbox self-mod hole closed), WP1.3a (gate sample-size derivation). **START HERE for the next session.**
+## 2026-10-07 (later same day) — P0 round: WP0.1-WP0.4 (stop-the-bleeding security/data-integrity fixes). **START HERE for the next session.**
+
+**What changed:** Ish's "proceed in order, don't stop" instruction. All four
+of P0's non-WP0.5/0.6/0.7 items from `CODEY_OS_MASTER_BLUEPRINT.md` §21,
+each through the full hub-and-spoke pipeline (project-architect-equivalent
+orientation done by the coordinator directly, implementer work done by the
+coordinator, mandatory code-reviewer gate per item — security/safety for all
+four). Commits: Codey-OS `1e86903`, `e98c003`, `d52b30b`; Codey-Aigentik
+`51fcf54`; Private-Codey-Agent `94fcad1`, `bc63f2d`.
+
+- **WP0.1 — Aigentik's internal HTTP server authenticated + do-not-contact
+  gated (`NEW-764`).** Scope widened beyond the named route during
+  orientation: `/send-invite` and `/send-cancellation` had the identical
+  zero-auth gap as `/send-email` (confirmed by reading `http-server.js`
+  directly, not assumed from the finding's title) — closed for all three.
+  New shared bearer secret (`internal-auth.js` + `~/.codeyOS/aigentik_internal_token`,
+  install.sh-generated) plus the existing `do-not-contact.js` check, now run
+  on every send. **Two code-reviewer rounds** — round 1 found three real
+  bugs the coordinator's own test run hadn't caught: a token-file-read cache
+  that poisoned itself on first miss (a 401 that no later install.sh run or
+  restart would fix), `install.sh`'s `-f` check meaning one failed
+  `openssl`/python3 generation was permanent, and auth running *after* the
+  request body was already buffered/parsed (contrary to the code's own
+  comment). All three fixed and independently re-verified in round 2
+  (including live-testing the umask-scoping fix in an isolated `HOME`).
+  Rule-engine gating (`email-rules.js`) deliberately not applied — it
+  classifies inbound mail, not an outbound-send gate.
+- **WP0.2 — the notification *send itself* audited, not just the write that
+  triggered it (`notification_service` audit gap).** Both real call sites
+  (`crm_service.py`'s PM-assignment email, `routes.py`'s B8.10c compose
+  route) already had adequate RBAC to trigger a send; the actual gap was
+  the send leaving no audit trail of its own. At the compose route, a
+  failed send previously left *zero* record anywhere — the 502 error told
+  the rep "nothing was logged," and that was literally true. Both sites now
+  call `audit.log` on every outcome (sent/failed/exception). code-reviewer
+  APPROVED, including catching a `MagicMock`-not-JSON-serializable bug in
+  testing that needed a `bool(...)` wrap. **Record corrected, not left
+  standing (rule 6):** the blueprint's claimed `pdf_service` audit gap was
+  re-checked and found not to be one — its one real call site already
+  audits both outcomes (`create_document`'s own entry on success, an
+  existing `pdf_generation_failed` call on failure). `pricing_repo`'s gap is
+  real (zero audit/actor plumbing in the whole module) but logged, not
+  fixed (`NEW-792`) — it's a dormant subsystem (`NEW-777`), and threading
+  RBAC through a repo layer with no actor concept at all is disproportionate
+  for a stop-the-bleeding round.
+- **WP0.3 — the device bridge fails loudly instead of fabricating success
+  (`NEW-767`, the census's single most dangerous finding).**
+  `ccos/core/device_bridge.py` no longer registers mock handlers that
+  returned hardcoded fake success (`"sent": True` with no SMS ever sent) by
+  default; an action with no real handler now returns an explicit "Device
+  not connected" error. Added a real telephony safety veto to the Dart
+  acting side (`device_bridge_client_service.dart`), which — per the
+  census's own §12.4 finding — never had one (the Python veto only ran on
+  the mock path that does nothing real). **Round 1 code-reviewer caught a
+  real regression the coordinator's own pytest run never surfaced:**
+  `ccos/plugins/device/bridge/test.py` is a plain `test.py` (not
+  `test_*.py`, so pytest never collects it) — but it's the actual mechanism
+  `ccos/core/sandbox.py`'s `run_plugin_test()` invokes for
+  `agent_orchestrator`'s `PLUGIN_TEST` step, and it still asserted the old
+  fabricated-success shape; the reviewer ran it directly and watched it
+  crash. Fixed by rewriting it to assert the fail-loud contract —
+  deliberately *not* by registering fake handlers on the real production
+  singleton, which the reviewer correctly flagged would have reintroduced
+  the exact hazard being fixed, just inside the orchestrator's own process
+  instead of a test file. Round 2: APPROVED, re-verified live (including
+  running the plugin's `test.py` immediately after the pytest file that
+  touches the same singleton). The fail-open auth check (both the Python
+  and Dart sides) is deliberately **not** fixed this round — confirmed
+  dormant (grepped every caller of `DeviceBridgeServer.start()`, the only
+  path that opens a real network-reachable socket: zero production
+  callers), and the blueprint's own plan sequences that fix after a
+  transport decision this round doesn't make (`NEW-794`).
+- **WP0.4 — Private-Codey-Agent's compile break fixed (`NEW-766`).** Both
+  `home_screen.dart` call sites now pass `RestoriconApiClient()` to
+  `BusinessDashboardScreen`. **A genuine CI gap found and logged while
+  checking history per this item's own DoD (`NEW-793`):** every run in this
+  repo's visible `gh run list` history is `workflow_dispatch`; none are
+  `push`-triggered, despite the workflow declaring a push trigger — which
+  is why the compile-breaking commit (`efe9a1c`, 2026-08-30) sat unnoticed
+  for weeks. Root cause not established (GitHub repo-settings question,
+  outside this session's tool access). code-reviewer APPROVED, including
+  independently confirming the real constructor signatures.
+- **Disclosed, not glossed over: neither WP0.3's Dart veto nor WP0.4's
+  compile fix is build-verified (`NEW-795`).** No `flutter`/`dart` binary
+  exists on this device (`which flutter dart` → nothing). Both were
+  verified by careful reading against the real Dart 3.10 syntax and
+  existing file conventions, not by compiling. Needs a real
+  `flutter build apk --release` / `flutter analyze`, in CI (if `NEW-793` is
+  ever resolved) or run directly by Ish — treat as code-complete, not
+  live-verified (rule 7), until then.
+- **Findings logged this round:** `NEW-792` (pricing_repo audit gap,
+  logged-not-fixed), `NEW-793` (CI push-trigger gap, cross-repo),
+  `NEW-794` (device-bridge fail-open auth, confirmed-dormant,
+  logged-not-fixed), `NEW-795` (two Dart changes code-complete but
+  build-unverified).
+- **Tier (rule 7):** all four WPs code-complete + code-reviewer-approved
+  (WP0.1 and WP0.3 each needed a second round before approval; both
+  real issues, both fixed and re-verified, not rubber-stamped) + test-
+  verified via real suite runs on the Python/JS sides. The two Dart-side
+  changes are explicitly **not** live-verified (see above).
+- **Where to begin next session:** WP0.5 (close the evaluation leak,
+  `NEW-761`) — Ish's decision 2 already said yes to rewriting
+  `AGI_AUDIT_LOG.md`'s Phase 3 workflow. **Do not enable
+  `CODEY_TRAJECTORY=1` and run the bench** before this lands — that's
+  exactly the leak's trigger. Then WP0.7 (Cloudflare tunnel token) and
+  WP0.6 (quarantine unsourced metrics), the remaining P0 items with no
+  dependencies.
+
+## 2026-10-07 — First implementation round: WP1.1 (CI), WP2.3a (sandbox self-mod hole closed), WP1.3a (gate sample-size derivation).
 
 **What changed:** the three no-dependency work packages named at the end of the prior round, implemented and code-reviewer-approved (except WP1.3a, which the blueprint itself exempts from a reviewer gate). Nothing else from P0/P1 started this round — stopping here deliberately per scope.
 

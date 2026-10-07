@@ -1723,8 +1723,11 @@ Two `external_process` plugins (`private_agent`, `aigentik`) are registered but
 Project memory recorded "all 55 service audit sites canonical" (2026-09-03).
 Actual current count: ~137 `.log(` sites / 154 `build_audit_details` uses. The
 count has roughly tripled; the memory note was accurate when written and is now
-stale. **Audit coverage gaps** remain at `notification_service`, `pdf_service`,
-`pricing_repo`.
+stale. **Audit coverage gap closed at `notification_service` (WP0.2,
+2026-10-07).** `pdf_service` was re-checked and found not to be a gap (rule-6
+correction, see §21 item 4). **Gap remains at `pricing_repo`** (zero audit/actor
+plumbing at all; logged, not fixed, in this P0 round -- it's a dormant subsystem,
+`NEW-777`).
 
 ### 16.8 Further safety findings
 
@@ -1748,8 +1751,14 @@ its own source.
    equivalence argument (directive §9). Retarget
    `tests/security/test_shell_injection.py` at the enforced path so the suite
    guards something real.
-4. **Close the audit gaps** (`notification_service`, `pdf_service`,
-   `pricing_repo`) and bring external sends under RBAC + audit.
+4. **Close the audit gaps** (`notification_service`, `pricing_repo`) and bring
+   external sends under RBAC + audit. **Rule-6 correction (2026-10-07,
+   WP0.2):** `pdf_service` is not actually a gap -- re-checked its one real
+   call site (`crm_service.py`'s `sign_contract`) and found both outcomes
+   already audited: success via the `create_document` call's own audit
+   entry, failure via an existing `pdf_generation_failed` audit.log call
+   (`crm_service.py:4553`, predates this round). Downgraded from the
+   original census claim rather than left standing.
 5. **Snapshot-before-patch** for `patch_file`, with protected-name checks.
 6. **Worlds / Playground isolation** keyed on `RESTORICON_DB_PATH` (§9.3) so
    developmental work can never address the live store.
@@ -2111,7 +2120,16 @@ Each item here is either a live path to irreversible real-world action, or a
 mechanism that would silently corrupt the data the whole research programme rests
 on.
 
-**WP0.1 — Authenticate Aigentik's `/send-email`**
+**WP0.1 — Authenticate Aigentik's `/send-email`** — **DONE 2026-10-07.** Scope
+widened beyond the named route: `/send-invite` and `/send-cancellation` had the
+identical gap (confirmed by reading `http-server.js`), closed for all three. New
+shared-secret bearer auth (`internal-auth.js`, `~/.codeyOS/aigentik_internal_token`,
+install.sh-generated) + do-not-contact gate on all three routes. Two
+code-reviewer rounds (round 1: CHANGES REQUESTED on a cache-poisoning bug, an
+install.sh idempotency gap, and auth running after the body read; round 2:
+APPROVED after all three fixed and re-verified independently). Rule-engine
+gating (`email-rules.js`) deliberately not applied -- that module classifies
+inbound mail, it isn't an outbound-send gate.
 - *Objective:* no unauthenticated local caller can send real email.
 - *Deps:* none. *Repo:* Codey-Aigentik — `http-server.js`.
 - *Intent:* require the bearer token; route through the do-not-contact check and
@@ -2122,7 +2140,13 @@ on.
 - *Doc:* correct `docs/security.md`'s false network-traffic claim (§13.6).
 - *DoD:* an unauthenticated POST cannot send mail; a DNC address cannot be mailed.
 
-**WP0.2 — RBAC + audit on `notification_service`**
+**WP0.2 — RBAC + audit on `notification_service`** — **DONE 2026-10-07.** RBAC
+to *trigger* a send was already adequate at both real call sites
+(`crm_service.py`'s PM-assignment email, `routes.py`'s compose route); the real
+gap was the send itself having no audit trail. Added `audit.log` calls
+(success/failure/exception) at both sites. code-reviewer APPROVED. `pdf_service`
+re-checked and found not to be a gap (see §16.7/§21 item 4 corrections);
+`pricing_repo`'s gap logged, not fixed (dormant subsystem, `NEW-777`).
 - *Objective:* close the second unaudited path to real email (§16.4).
 - *Deps:* none. *Repo:* Codey-OS — `restoricon_core/notification_service.py`.
 - *Intent:* apply the existing RBAC check and audit envelope used by the other ~137
@@ -2131,7 +2155,29 @@ on.
 - *Gate:* code-reviewer (security). *Rollback:* revert.
 - *DoD:* every outbound notification appears in `audit_log`.
 
-**WP0.3 — Device bridge must fail loudly, not fabricate**
+**WP0.3 — Device bridge must fail loudly, not fabricate** — **DONE 2026-10-07**
+(the live-danger part), after one review round caught a real regression.
+`ccos/core/device_bridge.py` no longer registers fabricating mock handlers by
+default (`NEW-767`); an action with no real handler now returns an explicit
+"Device not connected" error. Added a real telephony safety veto to the Dart
+acting side (`device_bridge_client_service.dart`), which previously had none
+(§12.4's asymmetry). **Round-1 code-reviewer caught a Critical regression the
+implementer's own test run never surfaced:** `ccos/plugins/device/bridge/test.py`
+(not pytest-collected — plain `test.py`, not `test_*.py`, and it's the real
+mechanism `ccos/core/sandbox.py`'s `run_plugin_test()` invokes for
+`agent_orchestrator`'s `PLUGIN_TEST` step) still asserted the old fabricated-
+success shape and crashed for real when the reviewer ran it directly. Fixed by
+rewriting it to assert the fail-loud contract, *not* by registering fake
+handlers on the real production singleton (which would have reintroduced
+NEW-767 inside the orchestrator's own process) — confirmed by running
+`python3 ccos/plugins/device/bridge/test.py` directly, both standalone and
+immediately after the pytest file that mutates the same module-level
+singleton (also given a `try/finally` teardown per the same review). Round 2:
+APPROVED. The fail-open auth fix is deliberately **not** done here —
+confirmed dormant (no production caller ever opens the real network socket),
+and the blueprint's own §12.7 sequences that fix after a transport decision
+this WP doesn't make (`NEW-794`). Dart changes are code-complete, not
+build-verified — no flutter/dart on this device (`NEW-795`).
 - *Objective:* an unconnected limb never reports success (§12.3). **Highest
   data-integrity priority in the blueprint.**
 - *Deps:* none. *Repos:* Codey-OS (`device_bridge`, mock dispatch),
@@ -2143,7 +2189,12 @@ on.
 - *Gate:* code-reviewer (security + safety). *Rollback:* revert.
 - *DoD:* no code path can return `"sent": True` without a real send.
 
-**WP0.4 — Fix the Private-Codey-Agent compile break**
+**WP0.4 — Fix the Private-Codey-Agent compile break** — **DONE 2026-10-07**
+(mechanically). Both `home_screen.dart` call sites now construct and pass
+`RestoriconApiClient()`. CI history checked: every run in this repo's history
+is `workflow_dispatch`, none `push`-triggered, despite the workflow declaring
+a push trigger (`NEW-793`) — which is why this break went uncaught. Not
+build-verified — no flutter/dart on this device (`NEW-795`).
 - *Objective:* the app builds (§12.1).
 - *Deps:* none. *Repo:* Private-Codey-Agent — `lib/screens/home_screen.dart:637,1054`.
 - *Intent:* pass the required `apiClient`; check CI history for how long
