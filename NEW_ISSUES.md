@@ -20590,10 +20590,10 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 
 ### [NEW-824] Confirmed, Low: `CODEY_MASTER_PLAN.md` carries stale pre-`NEW-205` recurrent-state figures, needs a doc-sync pass
 
-- **Status:** Confirmed (WP1.6, 2026-10-07, found by implementer `a3432eb8f88bb8f99`, confirmed by code-reviewer `a7f22d43455273b76`). `CODEY_MASTER_PLAN.md` still states the pre-fix single-slot figures (`52,690,944` recurrent bytes, `5,209,547,936`/`4,135,806,112` totals, `3.852GiB`) in its §5.1 table and surrounding prose, at lines 888, 1427, 1435, 1446, 2384, 4583, 5353, 5641 (confirmed, multiple hits). `core/resource_gate.py` and its tests now correctly use the `NEW-205`-corrected totals (recurrent `210,763,776` bytes; interactive-65536 total `5,367,620,768`, ~4.9990GiB).
-- **Not fixed this round** — out of WP1.6's code scope; a pure documentation-sync task against `CODEY_MASTER_PLAN.md`.
-- **Fix direction (not applied):** update the cited lines/table to the corrected figures, same as `core/resource_gate.py`'s own comment blocks now show.
-- **Cross-reference:** `core/resource_gate.py` (`QWEN35_4B_ARCH`, `estimate_model_load_cost()`), `CODEY_MASTER_PLAN.md:888,1427,1435,1446,2384,4583,5353,5641` §5.1, blueprint §21 WP1.6.
+- **Status:** Confirmed, fixed 2026-10-07 (same session, folded in immediately rather than left to bloat the queue). `CODEY_MASTER_PLAN.md` stated the pre-fix single-slot figures (`52,690,944` recurrent bytes, `5,209,547,936`/`4,135,806,112` totals, `3.852GiB`) in its §5.1 table and §8 Q1's decision record. `core/resource_gate.py` and its tests use the `NEW-205`-corrected totals (recurrent `210,763,776` bytes; interactive-65536 total `5,367,620,768`, ~4.9990GiB).
+- **Fix applied:** added explicit rule-6 correction notes at §5.1's table (now labeled "pre-`NEW-205`") and §8 Q1's decision record, both stating the real corrected totals (32768 → 3.999GiB, 65536 → 4.999GiB/6.249GiB required) and confirming neither decision the document records is affected by the correction.
+- **Deliberately left untouched:** the many verbatim historical status-log entries elsewhere (e.g. the 2026-08-23/24/26 M1-A/M1-E/M1-F closure narratives, the live-verification entry recording `estimated_cost_bytes=5,209,547,936`) — those are accurate records of what was true/observed *at the time each entry was written*, before `NEW-205` existed. Rewriting them would misrepresent history rather than correct it; only the two forward-looking "current formula" sections were updated.
+- **Cross-reference:** `core/resource_gate.py` (`QWEN35_4B_ARCH`, `estimate_model_load_cost()`), `CODEY_MASTER_PLAN.md` §5.1, §8 Q1, blueprint §21 WP1.6.
 
 ### [NEW-825] Suspected, Low: `NEW-791`'s own citation (`restoricon_core/database.py:2473`) may not be the same crash site as a second `Fatal Python error: Aborted` observed at `:3064`
 

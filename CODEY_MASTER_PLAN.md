@@ -1419,10 +1419,25 @@ hold a fixed-size recurrent state. So the KV term uses **8**, not 32:
 ~43% reduction, not the increase an all-layers-attend formula would
 predict (see §1.4's correction and rule 14).
 
-Totals = file (2.553GiB) + KV + the 0.250GiB compute-overhead constant +
-50.25MiB of SSM state (context-independent, see note 2):
+**Correction, rule 6 (2026-10-07, `NEW-205`):** the table below is the
+*pre-correction* version — it counted SSM/recurrent state for 1 llama-server
+sequence slot, but production launches run `n_seq_max=4` (the vendored
+binary's unset `-np` auto-default; `loader_v2.py` never overrides it), so
+the real recurrent-state cost is 4× the 50.25MiB this section derives, not
+50.25MiB flat. Fixed in `core/resource_gate.py` (not yet re-synced in this
+table — tracked as a doc-sync-only gap); the corrected total adds
+~0.1472GiB (158,072,832 bytes) to every row below. 32768 → **3.999GiB**
+(required 4.999GiB); 65536 → **4.999GiB** (required **6.249GiB**, still
+comfortably admissible against the ~6.49GiB ceiling); 131072/262144 stay
+hard-reject either way. §8 Q1's 65536 answer is unaffected. See
+`CODEY_OS_MASTER_BLUEPRINT.md` §21 WP1.6 for the authoritative current
+figures and full derivation.
 
-| `n_ctx` | KV | Total | Required (×1.25) | vs ~6.49GiB ceiling |
+Totals = file (2.553GiB) + KV + the 0.250GiB compute-overhead constant +
+50.25MiB of SSM state (context-independent, see note 2; **pre-`NEW-205`
+single-slot figure — see correction above**):
+
+| `n_ctx` | KV | Total (pre-`NEW-205`) | Required (×1.25) | vs ~6.49GiB ceiling |
 |---|---|---|---|---|
 | 32768 (current default) | 1.000GiB | **3.852GiB** | 4.815GiB | comfortable |
 | 65536 | 2.000GiB | 4.852GiB | 6.065GiB | **admissible — 2× the context** |
@@ -1473,7 +1488,11 @@ simpler residency problem and materially more context than before.
    still **source-derived, not measured** — M1-E keeps that task. One
    property the old note missed entirely: llama.cpp allocates recurrent
    state **per sequence slot** (`llama-memory-recurrent.cpp:100-101`),
-   so 50.25MiB is one slot's worth and scales with `--parallel`.
+   so 50.25MiB is one slot's worth and scales with `--parallel`. **This was
+   the exact gap `NEW-205` closed (2026-10-07):** the real launch runs 4
+   slots (the vendored server's unset-`-np` default), so this document's
+   own anticipated scaling was real and is now applied in
+   `core/resource_gate.py` — see the correction above the table.
 3. **Everything here is arithmetic and source-reading, not
    measurement.** M1-E measures real resident cost and settles all of it.
 
@@ -4577,11 +4596,13 @@ Numbered for reference. Nothing here is guessed at in this document.
    Ish, 2026-08-22: 65536.** Per §5.1 that is 2.553GiB file + 2.000GiB KV
    + 0.250GiB overhead + 50.25MiB SSM state = **4.852GiB total, 6.065GiB
    required at the ×1.25 factor, admissible against the ~6.49GiB
-   ceiling.** The question had flipped from "how far down" to "how far
-   up": with the 7B, 32768 needed ~7.95GiB of `MemAvailable`, a bar this
-   device has never reached; with the hybrid 4B the same context costs
-   3.852GiB and double it costs 4.852GiB (131072 is still a hard
-   reject).
+   ceiling.** (**Correction, rule 6, 2026-10-07, `NEW-205`:** the SSM-state
+   term is 4× this — real total ≈4.999GiB, required ≈6.249GiB. Still
+   admissible; the decision itself is unaffected.) The question had
+   flipped from "how far down" to "how far up": with the 7B, 32768 needed
+   ~7.95GiB of `MemAvailable`, a bar this device has never reached; with
+   the hybrid 4B the same context costs 3.852GiB (pre-`NEW-205`) and
+   double it costs 4.852GiB (131072 is still a hard reject).
 
    **Two conditions travel with this decision and must stay stated,
    because 65536 is only affordable if both hold:**
