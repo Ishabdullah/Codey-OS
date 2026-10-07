@@ -2684,21 +2684,55 @@ Code-reviewer-approved (`a28a4ba1077086739`). New `bench/scorecard.md` +
   byte-identical JSON) in addition to `tests/test_scorecard.py`'s 4 tests.
 - *DoD:* anyone can recompute the score and get the same number. **Met.**
 
-**WP1.5 — `bench/verify.py` and silent-failure removal** — **PARTIALLY DONE
-2026-10-07 via WP1.2.** The `copy2`-over-`iterdir()` fix (the literal trigger
-of `NEW-791`/`NEW-799`) landed as part of WP1.2's dev-v2 reconciliation, with
-regression tests (`tests/test_bench_harness.py`). **Still open:** the broader
-`except Exception: return False` at `bench/verify.py:24-25` is unchanged —
-any other real error (a timeout, a permissions issue, an unrelated bug) still
-silently becomes a `False` verdict rather than surfacing. Removing that
-bare except and deciding what *should* happen on a genuine grading error
-(raise? a third `None`/error outcome distinct from pass/fail?) is still a
-real, undone decision.
+**WP1.5 — `bench/verify.py` and silent-failure removal** — **DONE
+2026-10-07.** The `copy2`-over-`iterdir()` fix (the literal trigger of
+`NEW-791`/`NEW-799`) landed first via WP1.2's dev-v2 reconciliation. The
+residual — the broader `except Exception: return False` — is now also
+fixed, code-reviewer-approved (`a5ae5ed7e591c4406`), after one fast-follow.
+Commit `50a747a`.
 - *Objective:* the benchmark cannot silently report failure as the suite grows (§17.4).
-- *Deps:* WP1.2 (the fix is on dev-v2) — **done**. *Repo:* Codey-OS — `bench/verify.py:17-24`.
-- *Intent:* fix `copy2`-over-`iterdir()` — **done**; remove `except Exception: return False` — **open**.
-- *Tests:* a multi-file `hidden/` dir verifies correctly — **done**; a real error raises — **open**.
-- *DoD:* no benchmark path swallows exceptions into a false verdict — **not yet met**.
+- *Deps:* WP1.2 (the fix is on dev-v2) — **done**. *Repo:* Codey-OS —
+  `bench/verify.py`, `runner.py`, `compare.py`, `gate.py`.
+- **Decision (project-architect, re-derived from tracing every caller of
+  `grade()`/`compare()`, not from the open question's framing alone):**
+  raise a new `GradingError` on a genuine harness-side failure, not a third
+  dataclass/Enum outcome — the existing boolean-return contract across
+  `tests/test_bench_harness.py` stays valid, and `runner.py` already had
+  the "catch specific exception, record, keep going" pattern for agent
+  crashes to mirror. **Critical, deliberate exception:** `subprocess.
+  TimeoutExpired` stays a `False` verdict, NOT a `GradingError` — excluding
+  a timeout from the comparison would let a hanging agent escape the
+  gate's denominator instead of losing it, a direct hole in the exact
+  evaluator this WP exists to harden.
+- *Intent:* fix `copy2`-over-`iterdir()` — **done**. `grade()` now raises
+  `GradingError` on any non-timeout exception — **done**. `runner.py`
+  catches it per-task (`passed=None`, `grading_error` field, logged — not
+  silent), continues the rest of the suite, and never labels a `None`
+  verdict into the trajectory store (`NEW-761`-sensitive). Also fixed an
+  adjacent pre-existing `except Exception: pass` around `label_tag` itself.
+  `compare()` excludes `passed=None` rows and reports an `"errored"` count.
+  `gate.py` gained `"max_errored": 0` in `DEFAULTS` (fail-closed by
+  default, overridable like every sibling criterion) — a comparison the
+  evaluator partly failed on is not a clean win, per rule 1.
+- **Fast-follow from code-reviewer's first pass:** the errored-blocking
+  check was initially hardcoded (unconditional, not config-driven) —
+  inconsistent with the gate's other four criteria, which are all
+  overridable via `**overrides`. Made it a proper `max_errored` default
+  instead, same safe behavior, now consistent.
+- **Finding logged, not fixed (`NEW-833`, Suspected, Low):** `compare.py`'s
+  `_by_key()` now uses `.get("passed")` defensively, which means a future
+  malformed/truncated ledger row would silently masquerade as a
+  grading-harness error rather than raising — low risk today since
+  `runner.py` is the only real writer and always sets the key.
+- *Tests:* a multi-file `hidden/` dir verifies correctly — **done**; a real
+  harness error raises `GradingError` — **done**; a timeout still returns
+  `False`, named explicitly as the anti-gaming case — **done**; a suite run
+  continues past one task's grading error and doesn't label a bogus
+  verdict — **done**; the gate surfaces and blocks on the errored count —
+  **done**. 33/33 tests pass (`test_bench_harness.py`,
+  `test_promotion_gate.py`, `ccos/tests/test_improvement_loop.py`).
+- *Gate:* code-reviewer — **APPROVED**. *DoD:* no benchmark path swallows
+  exceptions into a false verdict — **met**.
 
 **WP1.6 — Fix `NEW-205`'s recurrent-state slot-count undercount** — **DONE
 2026-10-07.** Code-reviewer-approved (`a7f22d43455273b76`), both the vendored

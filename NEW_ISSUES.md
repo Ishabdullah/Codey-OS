@@ -20653,3 +20653,11 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Not fixed this round** — documentation-only, not investigated beyond the initial sighting.
 - **Fix direction (not applied):** re-read the full section and update to Qwen3.5-4B if confirmed stale.
 - **Cross-reference:** `docs/installation.md` Step 3, `install.sh:24-32`, blueprint §6.2 (M1 migration).
+
+### [NEW-833] Suspected, Low: `bench/compare.py`'s `_by_key()` now masks a malformed ledger row as a grading-harness error instead of raising
+
+- **Status:** Suspected, Low (WP1.5, 2026-10-07, found by implementer `ad8ba27c16e2efc96`, corroborated by code-reviewer `a5ae5ed7e591c4406`). As part of this round's fix, `_by_key()` changed `r["passed"]` (would `KeyError` on a malformed row) to `r.get("passed")` (silently returns `None`) — a defensive change needed so `compare()` can distinguish a genuine grading-harness error (`passed=None`, intentional) from old ledger rows without the concept. Side effect: a future truncated/corrupted ledger line, or a future writer that omits the `passed` key entirely, would now silently masquerade as a "grading-harness error" row (folded into the `errored` count and the gate's fail-closed block) instead of raising — the project's own silent-degradation failure class.
+- **Why low severity today:** the only real ledger writer is `bench/runner.py`, which always sets `passed` explicitly (to `True`, `False`, or `None` with a populated `grading_error`) — there is no code path today that produces a row missing the key.
+- **Not fixed this round** — the defensive `.get()` is required for the fix itself; distinguishing "key missing" from "key present and None" would need a different representation (e.g. a sentinel) not asked for in this round's scope.
+- **Fix direction (not applied):** if a future ledger writer or a corruption-recovery path is ever added, consider a sentinel distinct from `None` for "key missing/malformed" vs. "key present, value is None (real grading error)."
+- **Cross-reference:** `bench/compare.py` (`_by_key`), `bench/runner.py`, blueprint §21 WP1.5.

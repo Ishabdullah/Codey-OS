@@ -1,4 +1,56 @@
-## 2026-10-07 (P1 continues) — WP1.7a: llama.cpp pin landed, closing NEW-757's root cause across two repos. **START HERE for the next session.**
+## 2026-10-07 (P1 continues) — WP1.5's residual closed: bench/verify.py no longer swallows real errors as False. **This closes out P1 — next unstarted item is P2 (WP2.1, the Action Gateway). START HERE for the next session.**
+
+**What changed:** `bench/verify.py`'s `grade()` had a bare
+`except Exception: return False` — any real harness-side failure (a
+missing `hidden/` dir, a `copytree` I/O error) was indistinguishable
+from the agent actually failing the hidden tests. project-architect
+traced every caller of `grade()`/`compare()` before deciding the fix
+shape, rather than picking one from the open question's framing alone.
+
+- **Decision:** raise a new `GradingError` on a genuine harness failure,
+  not a third dataclass/Enum outcome — keeps the existing boolean-return
+  contract every test already assumes, and mirrors `runner.py`'s own
+  existing "catch specific exception, record, keep going" pattern for
+  agent crashes. **The one deliberate exception, caught by the
+  architect's advisor pass and overriding the first-draft framing:**
+  `subprocess.TimeoutExpired` must stay a `False` verdict, NOT a
+  `GradingError` — excluding a timeout from the comparison would let a
+  hanging agent escape the gate's denominator instead of losing it, a
+  direct hole in the exact evaluator this WP exists to harden.
+- **Fix (commit `50a747a`):** `grade()` raises `GradingError` on any
+  non-timeout exception. `runner.py` catches it per-task
+  (`passed=None`, `grading_error` field, printed — not silent),
+  continues the rest of the suite rather than aborting, and never labels
+  a `None` verdict into the trajectory store (`NEW-761`-sensitive — the
+  evaluation-leak finding). Also fixed an adjacent pre-existing
+  `except Exception: pass` around `label_tag` itself, five lines away,
+  same bug class, found and fixed in the same round rather than left for
+  later. `compare()` excludes `passed=None` rows and reports an
+  `"errored"` count rather than raising `TypeError` or dropping it.
+- **A real design deviation, caught and resolved correctly:** the
+  implementer made the errored-count check unconditionally
+  promotion-blocking, beyond the architect's spec ("visible in reasons,
+  does not need to force promote=False"). Code-reviewer's own analysis:
+  the spec as written was structurally impossible to satisfy — anything
+  appended to `decide()`'s `why` list already forces `promote=False` —
+  so the implementer wasn't ignoring the spec, it was silently resolving
+  a spec/structure contradiction, and the fail-closed direction chosen
+  is correct per rule 1 (promoting on a partially-broken evaluator is
+  exactly the relabeling risk CLAUDE.md warns against). **But** every
+  other gate criterion is config-driven via `**overrides`/`DEFAULTS`,
+  and this was the one hardcoded exception — approved with a fast-follow
+  requirement, not a revert: added `"max_errored": 0` to `DEFAULTS`,
+  same safe default, now consistently overridable.
+- **One finding logged, not fixed (`NEW-833`, Suspected, Low):**
+  `compare.py`'s `_by_key()` now uses `.get("passed")` defensively
+  (needed for the fix itself), which means a future malformed ledger row
+  would silently masquerade as a grading-harness error rather than
+  raising — low risk today since `runner.py` is the only real writer.
+- *Gate:* code-reviewer — **APPROVED** after the fast-follow. *DoD:* no
+  benchmark path swallows exceptions into a false verdict — **met**.
+  33/33 tests pass.
+
+## 2026-10-07 (P1 continues) — WP1.7a: llama.cpp pin landed, closing NEW-757's root cause across two repos.
 
 **What changed:** same re-verify-live-on-device caution as WP1.6/WP1.7 —
 `~/llama.cpp` HEAD was already `4f5406761517648c23dbd60ea5ade37f77a316c9`
