@@ -2628,13 +2628,54 @@ reading it — still unrollbackable, out of this WP's scope (`NEW-813`).
 - *DoD:* no adapter can be adopted that cannot be un-adopted. **Met, for the
   model-swap path.**
 
-**WP1.4 — Write the scorecard rubric into the repo**
+**WP1.4 — Write the scorecard rubric into the repo** — **DONE 2026-10-07.**
+Code-reviewer-approved (`a28a4ba1077086739`). New `bench/scorecard.md` +
+`bench/scorecard.py` + `bench/scorecard_manual.json` + `tests/test_scorecard.py`
++ `tests/fixtures/scorecard_fixture/`.
 - *Objective:* make the 18/100 baseline reproducible (§17.3).
 - *Deps:* none. *Repo:* Codey-OS — new `bench/scorecard.md` + scoring code.
 - *Intent:* version-control the rubric; recompute the baseline from it. Per rule 1,
   report the measured number, never one raised by relabeling.
-- *Tests:* scoring is deterministic on fixed input.
-- *DoD:* anyone can recompute the score and get the same number.
+- **Decided outcome: this is NOT a reproduction of the original 18/100** —
+  that score's methodology is unrecoverable/unverifiable from this repo's
+  history, so a second attempt to reproduce it exactly would itself be
+  guessing. `bench/scorecard.md`/`scorecard.py` are instead an independent,
+  forward-looking measurement, built from AST-based structural/reachability
+  checks (never executing pytest or a subprocess as a scoring input, per
+  this repo's documented test-flakiness — a 9-test swing from a missing
+  `llama-server`, a ~34-test swing from ambient `HTTP_PROXY`, see memory).
+  Manual-judgment entries require a mandatory `citation: "file:line"` field;
+  the scorer hard-errors (non-zero exit) on any manual entry missing one —
+  code-reviewer independently verified this with its own malformed file.
+- **Measured score (real run against this repo, 2026-10-07): 68.363/100.**
+  First measured number was 70.696 before a real mechanical bug was found
+  and fixed this same round (see below) — not adjusted toward a target.
+- **Mechanical bug found and fixed (not a relabeling):** sub-items 1c/6c's
+  own labels claimed "reachable from call sites," but the first draft's
+  check was a pure import-graph BFS — a module merely being importable
+  (e.g. for a type hint) was being scored the same as it actually being
+  invoked. Fixed with a genuine AST call-site check
+  (`memory_tier_callsites()`) requiring both an import resolving to the
+  exact target file AND a real `ast.Call` node invoking it. Re-measured:
+  68.363/100 — the bug was real but was not the dominant driver of the gap
+  from the gut-check estimate (~2.3 points).
+- **Known limitation of this first scoring round, logged as `NEW-820`
+  (not fixed this round):** categories 4 (evaluator integrity, 25/25) and
+  5 (rollback/reversibility, 15/15) — 40 of the 100 points — score full
+  marks on structural-presence-only checks (does the gate/rollback
+  machinery exist and call the right functions) for machinery that,
+  per §15.4, has never fired on a real promotion or rollback decision in
+  production. Both the implementer and code-reviewer independently judged
+  this a legitimate rubric-weighting question for a future round, not a
+  label/implementation mismatch like the 1c/6c bug — changing the
+  weighting now, specifically because the number came out higher than
+  expected, would itself be rule 1's prohibited relabeling, in the
+  downward direction. `scorecard.md`'s §4/§5 sections now carry explicit
+  caveat prose stating this plainly.
+- *Tests:* scoring is deterministic on fixed input — verified twice
+  independently by code-reviewer (two live runs against the real repo,
+  byte-identical JSON) in addition to `tests/test_scorecard.py`'s 4 tests.
+- *DoD:* anyone can recompute the score and get the same number. **Met.**
 
 **WP1.5 — `bench/verify.py` and silent-failure removal** — **PARTIALLY DONE
 2026-10-07 via WP1.2.** The `copy2`-over-`iterdir()` fix (the literal trigger

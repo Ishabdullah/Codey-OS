@@ -1,4 +1,75 @@
-## 2026-10-07 (P1 continues) — WP1.3: rollback + model/adapter registry, and a process correction mid-round. **START HERE for the next session.**
+## 2026-10-07 (P1 continues) — WP1.4: scorecard rubric + scorer, approved. Real measured score 68.363/100. **START HERE for the next session.**
+
+**What changed:** CLAUDE.md rule 1's "report the measured number, never
+one raised by relabeling" directly governed this round, in both
+directions. New `bench/scorecard.md` (the rubric, version-controlled),
+`bench/scorecard.py` (the AST-based scorer — never executes pytest or a
+subprocess as a scoring input), `bench/scorecard_manual.json` (cited
+manual-judgment entries), `bench/scorecard_history.jsonl` (append-only
+run ledger), `tests/test_scorecard.py` + `tests/fixtures/scorecard_fixture/`.
+
+- **Decided scope, up front:** the original 18/100 baseline's methodology
+  is unrecoverable/unverifiable from this repo's history, so this is NOT
+  an attempt to reproduce it. `scorecard.md`/`.py` are an independent,
+  forward-looking measurement instead, explicitly labeled as such.
+- **Two implementation rounds.** The first implementer
+  (`aaec3c15a9aa7b4f0`) built most of the scorer but was cut off mid-task
+  by a session rate limit, leaving `scorecard.md`/`.py`/`scorecard_manual.json`
+  written with no test file or fixture. Not resumable (`ListAgents` showed
+  no reachable agent); a fresh second implementer (`af7fab811d29af7c8`)
+  was dispatched with full self-contained context rather than retrying
+  the resume.
+- **A real mechanical bug, found by running the number, not by inspection
+  alone.** The partially-built scorer's first real run against this repo
+  produced 70.696/100 — dramatically higher than project-architect's own
+  gut-check estimate (mid-teens to mid-20s). Per the rubric's own built-in
+  rule ("inspect for a mechanical fault, never adjust a weight to chase a
+  target"), traced the cause: sub-items 1c/6c's own labels claimed
+  "reachable from call sites," but the check was a pure import-graph BFS
+  — a module merely being importable (e.g. for a type hint) scored the
+  same as it actually being invoked. This contradicted the blueprint's
+  own census finding (`NEW-770`/`771`: only 1 of 5 memory tiers actually
+  reaches a prompt). Fixed with a genuine AST call-site check
+  (`memory_tier_callsites()`, requiring both a resolving import AND a
+  real `ast.Call` node). Re-measured: **68.363/100** — the bug was real
+  but was *not* the dominant driver of the gap (~2.3 points of it).
+- **A second, larger issue found and deliberately NOT fixed this round:**
+  categories 4 (evaluator integrity, 25/25) and 5 (rollback/reversibility,
+  15/15) — 40 of the 100 points — score full marks on structural-presence
+  checks for gate/rollback machinery that, per §15.4, has never fired on
+  a real promotion or rollback decision in production. The implementer
+  explicitly declined to fix this in the same round: every 4/5 sub-item's
+  own label honestly says "AST-checked"/"a real call, not just present" —
+  none claim to verify a fired decision, so none are mislabeled the way
+  1c/6c was. Reweighting now, specifically because the number came out
+  higher than expected, would itself be rule 1's prohibited
+  relabeling — in the downward direction, which isn't categorically safer
+  than the more familiar upward case. I agreed with this reasoning rather
+  than pushing for a same-round fix. Logged as `NEW-820` (Confirmed,
+  High); 3 smaller rule-8 items also logged (`NEW-821`-`823`): dead code
+  in category 7's 7a, 5b's already-honestly-labeled partial-credit-for-
+  absence, and a narrow inert `ast.Import`-alias collision risk.
+- **Code-reviewer (`a28a4ba1077086739`) independently re-verified, not
+  just re-read the implementer's claims:** the no-pytest/no-subprocess
+  constraint (grep-confirmed, only docstring hits); real determinism (ran
+  the scorer twice independently against the real repo, diff'd
+  byte-identical); the manual-citation hard-error (with its own
+  independently-constructed malformed file, not the test's copy); the
+  call-site fix's correctness including the `core/codeymd.py` exclusion
+  (read `NEW-770` and blueprint §15.1 directly); hand-verified the
+  fixture's expected score against 4 sub-items by reading all 15 fixture
+  files; cross-checked categories 4/5's claimed wiring against the real
+  files (`bench/gate.py`, `tests/test_trajectory.py`,
+  `bench/power_analysis.md`, `core/model_registry.py`/`lora_import.py`).
+  **Verdict: APPROVED**, plus one recommended (non-blocking) documentation
+  addition — caveat prose for categories 4/5 making the
+  structural-vs-fired distinction visible in the committed rubric itself,
+  not just in agent handoff messages. Added this round before commit.
+- *Gate:* code-reviewer — **APPROVED**. *DoD:* anyone can recompute the
+  score and get the same number — **met**, verified independently by
+  code-reviewer, not just the implementer.
+
+## 2026-10-07 (P1 continues) — WP1.3: rollback + model/adapter registry, and a process correction mid-round.
 
 **What changed:** CLAUDE.md rule 1's missing 4th element (gate, frozen
 suite, and ledger exist; rollback was "3-of-4 in code" per the census).
