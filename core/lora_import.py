@@ -551,6 +551,29 @@ def rollback_to_backup(backup_path: str, model_variant: str) -> Tuple[bool, str]
         return False, f"Rollback failed: {e}"
 
 
+def rollback_adoption(registry_id: str) -> Tuple[bool, str]:
+    """WP1.3: rollback keyed to a core/model_registry.py entry id, rather
+    than requiring the caller to separately track a backup_path. Wires
+    the existing rollback_to_backup() (unchanged, already correct) to
+    the registry rather than duplicating its logic."""
+    from core.model_registry import get_adoption, mark_rolled_back
+
+    entry = get_adoption(registry_id)
+    if entry is None:
+        return False, f"No registry entry found for id {registry_id}"
+    if not entry["adopted"]:
+        return False, f"Registry entry {registry_id} was never adopted (gate refused it) -- nothing to roll back"
+    if entry["rolled_back"]:
+        return False, f"Registry entry {registry_id} was already rolled back"
+    if not entry["backup_path"]:
+        return False, f"Registry entry {registry_id} has no backup_path -- cannot roll back"
+
+    ok, msg = rollback_to_backup(entry["backup_path"], entry["model_variant"])
+    if ok:
+        mark_rolled_back(registry_id)
+    return ok, msg
+
+
 # =============================================================================
 # Main Entry Point
 # =============================================================================
@@ -561,6 +584,8 @@ def import_lora_adapter(
     model_variant: str = "primary",
     quantize: str = "q4_0",
     merge_on_device: bool = False,
+    gate_decision=None,
+    operator_override: bool = False,
 ) -> Dict:
     """
     Main entry point for importing LoRA adapter.
@@ -573,19 +598,68 @@ def import_lora_adapter(
             output_name below), not a functionally different swap target
         quantize: Quantization level
         merge_on_device: Whether to merge on-device (default: expect pre-merged GGUF)
+        gate_decision: a bench.gate.GateDecision (or any object with
+            .promote/.reasons/.stats) proving this adapter beat the
+            champion on the frozen benchmark. WP1.3
+            (CODEY_OS_MASTER_BLUEPRINT.md §17.2/§21, CLAUDE.md rule 1):
+            this function used to consult no gate at all. No decision
+            supplied means no evidence exists yet, so the default is
+            bench.gate.no_evaluator() -- always refuse, never silently
+            adopt. Every attempt, refused or adopted, is recorded in
+            core/model_registry.py regardless of outcome. This value is
+            NEVER fabricated to look like a real pass -- see
+            operator_override below for the one legitimate bypass.
+        operator_override: an explicit human operator bypass (e.g. the
+            CLI's --lora-force-adopt), INDEPENDENT of gate_decision.
+            When True, the gate-refusal check below is skipped so the
+            import proceeds to validate/backup/swap even though
+            gate_decision.promote is honestly still False (or no gate
+            ran at all) -- the gate's own verdict is never rewritten to
+            pretend evidence exists. Every record_adoption_attempt()
+            call in this run is tagged operator_override=True, so the
+            registry row shows both facts at once: the real (refused)
+            gate verdict AND that an operator explicitly overrode it.
+            Default False preserves fail-closed behavior exactly as
+            before: no override and no evidence means always refuse.
 
     Returns:
         Dict with results
     """
+    from bench.gate import no_evaluator
+    from core.model_registry import record_adoption_attempt
+
+    if gate_decision is None:
+        gate_decision = no_evaluator()
+
     results = {
         "success": False,
         "adapter_path": adapter_path,
         "model_variant": model_variant,
     }
 
+    if not getattr(gate_decision, "promote", False) and not operator_override:
+        record_adoption_attempt(
+            model_variant=model_variant, gate_decision=gate_decision,
+            adapter_path=adapter_path, adopted=False,
+            operator_override=operator_override,
+        )
+        results["error"] = (
+            "Refused by promotion gate: " + "; ".join(map(str, getattr(gate_decision, "reasons", []) or []))
+        )
+        return results
+
     # Validate adapter
     valid, msg = validate_lora_adapter(adapter_path)
     if not valid:
+        # NEW-811: record the attempt even though nothing was adopted --
+        # otherwise a gate-passed-but-invalid-adapter attempt leaves no
+        # registry row at all, even though the gate decision itself did
+        # real work and should be auditable.
+        record_adoption_attempt(
+            model_variant=model_variant, gate_decision=gate_decision,
+            adapter_path=adapter_path, adopted=False,
+            operator_override=operator_override,
+        )
         results["error"] = msg
         return results
 
@@ -596,6 +670,25 @@ def import_lora_adapter(
     # Create backup
     backup_path = create_backup_before_import(model_variant)
     results["backup_path"] = backup_path
+
+    if backup_path is None:
+        # No backup means no way to undo the swap below -- refuse rather
+        # than adopt an unrollbackable model (blueprint DoD: "no adapter
+        # can be adopted that cannot be un-adopted"). Must happen before
+        # the merge_on_device branch so merge/swap is never reached.
+        # Applies even under operator_override -- a human override still
+        # cannot create a rollback path that doesn't exist.
+        record_adoption_attempt(
+            model_variant=model_variant, gate_decision=gate_decision,
+            adapter_path=adapter_path, adopted=False,
+            operator_override=operator_override,
+        )
+        results["error"] = (
+            "Refused: could not create a backup of the current model "
+            "(original model missing or copy failed) -- adopting without "
+            "a backup would leave no way to roll back"
+        )
+        return results
 
     if merge_on_device:
         # Full merge on-device (requires llama.cpp, lots of RAM)
@@ -622,6 +715,17 @@ def import_lora_adapter(
         )
 
         if not success:
+            # Same condition NEW-811's fix already covers at the two other
+            # post-gate early returns: the gate already ran (passed or was
+            # overridden), validate_lora_adapter() passed, and
+            # create_backup_before_import() succeeded -- real work
+            # happened, so this attempt must be auditable even though
+            # nothing was adopted.
+            record_adoption_attempt(
+                model_variant=model_variant, gate_decision=gate_decision,
+                adapter_path=adapter_path, adopted=False,
+                operator_override=operator_override,
+            )
             results["error"] = msg
             return results
 
@@ -630,6 +734,12 @@ def import_lora_adapter(
         results["success"] = swap_success
         results["model_path"] = str(output_path)
         results["message"] = swap_msg
+        results["registry_id"] = record_adoption_attempt(
+            model_variant=model_variant, gate_decision=gate_decision,
+            adapter_path=adapter_path, model_path=str(output_path),
+            backup_path=backup_path, adopted=swap_success,
+            operator_override=operator_override,
+        )
 
     else:
         # Expect pre-merged GGUF (user merged on Colab/PC)
@@ -642,6 +752,13 @@ def import_lora_adapter(
             gguf_files = list(adapter_dir.parent.glob("*.gguf"))
 
         if not gguf_files:
+            # NEW-811: same reasoning as the validate_lora_adapter early
+            # return above -- the gate already ran, so record the attempt.
+            record_adoption_attempt(
+                model_variant=model_variant, gate_decision=gate_decision,
+                adapter_path=adapter_path, adopted=False,
+                operator_override=operator_override,
+            )
             results["error"] = (
                 "No GGUF file found. Please merge adapter first or use --merge-on-device"
             )
@@ -668,5 +785,11 @@ To merge the adapter:
         results["success"] = swap_success
         results["model_path"] = str(merged_model)
         results["message"] = swap_msg
+        results["registry_id"] = record_adoption_attempt(
+            model_variant=model_variant, gate_decision=gate_decision,
+            adapter_path=adapter_path, model_path=str(merged_model),
+            backup_path=backup_path, adopted=swap_success,
+            operator_override=operator_override,
+        )
 
     return results

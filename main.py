@@ -90,6 +90,17 @@ def parse_args():
     parser.add_argument(
         "--lora-merge", action="store_true", help="Merge LoRA on-device (requires llama.cpp)"
     )
+    parser.add_argument(
+        "--lora-force-adopt",
+        action="store_true",
+        help=(
+            "Operator override (Ish-approved): adopt the LoRA adapter without "
+            "benchmark evidence. Recorded in the model_adoptions registry as an "
+            "explicit override, never silently indistinguishable from a real "
+            "gate pass. Without this flag, --import-lora always refuses "
+            "(no evaluator exists yet -- WP1.3)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -2127,26 +2138,32 @@ def main():
         _record_cli_telemetry_run_start()
         from core.lora_import import import_lora_adapter
 
+        if args.lora_force_adopt:
+            warning(
+                "--lora-force-adopt: adopting without benchmark evidence "
+                "(operator override, Ish-approved). The gate's own refused "
+                "verdict is recorded honestly -- this is NOT represented as "
+                "a real gate pass, it's recorded as an explicit operator "
+                "override in the model_adoptions registry"
+            )
+
         info(f"Importing LoRA adapter from {args.import_lora}...")
         results = import_lora_adapter(
             adapter_path=args.import_lora,
             model_variant=args.lora_model,
             quantize=args.lora_quant,
             merge_on_device=args.lora_merge,
+            operator_override=args.lora_force_adopt,
         )
         if results.get("success"):
             success(f"LoRA adapter imported: {results.get('model_path')}")
+            registry_id = results.get("registry_id")
             if results.get("backup_path"):
                 info(
                     f"Backup created: {results['backup_path']} "
-                    "(no CLI rollback command exists; restore via the "
-                    "'coding.finetune_rollback_backup' CCOS capability — note "
-                    "NEW-91: rollback overwrites the fine-tuned checkpoint at "
-                    f"{results.get('model_path')} in place with the backed-up "
-                    "base weights and then deletes the backup file, permanently "
-                    "destroying the fine-tuned checkpoint with no way to recover "
-                    "it, so copy that file elsewhere first if you want to keep "
-                    "it before rolling back)"
+                    f"(registry id: {registry_id}). Restore via: "
+                    "python3 -c \"from core.lora_import import rollback_adoption; "
+                    f"print(rollback_adoption('{registry_id}'))\""
                 )
         else:
             error(f"Import failed: {results.get('error', 'Unknown error')}")

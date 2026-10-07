@@ -453,6 +453,49 @@ class StateStore:
                 self._conn.execute(sql)
             self._conn.commit()
 
+    # ==================== Model/adapter registry (WP1.3) ====================
+    # Mirrors the Checkpoints block above exactly -- same table-per-feature
+    # schema-extension pattern, same get-all/get-one/update/delete shape.
+
+    def get_model_adoptions(self, limit: int = 10) -> List[Dict]:
+        """Get recent model/adapter adoption attempts, newest first."""
+        with self._lock:
+            cur = self._conn.execute(
+                # id DESC as a tie-breaker: created_at is second-resolution, and
+                # tests (or any tight automated loop) can create several rows
+                # within the same second -- id is millisecond-resolution and
+                # always monotonically increasing, so this keeps "most recent"
+                # deterministic rather than depending on SQLite's unspecified
+                # tie order.
+                "SELECT * FROM model_adoptions ORDER BY created_at DESC, id DESC LIMIT ?", (limit,)
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_model_adoption(self, adoption_id: str) -> Optional[Dict]:
+        """Get a specific model/adapter adoption attempt."""
+        with self._lock:
+            cur = self._conn.execute("SELECT * FROM model_adoptions WHERE id = ?", (adoption_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def mark_model_adoption_rolled_back(self, adoption_id: str, rolled_back_at: int) -> bool:
+        """Mark an adoption entry as rolled back. Never deletes -- the
+        registry's whole purpose is an undeletable record of what happened."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE model_adoptions SET rolled_back = 1, rolled_back_at = ? WHERE id = ?",
+                (rolled_back_at, adoption_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def delete_model_adoption(self, adoption_id: str) -> bool:
+        """Delete an adoption entry (prune_adoptions() only)."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM model_adoptions WHERE id = ?", (adoption_id,))
+            self._conn.commit()
+            return cur.rowcount > 0
+
 
 # Global state store instance (singleton)
 _state_store: Optional[StateStore] = None
