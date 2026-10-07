@@ -117,8 +117,10 @@ project's own documentation.** A verified three-hop path feeds the 8 frozen
 benchmark tasks into the fine-tuning corpus, after which the gate grades candidates
 on those same 8 tasks. `AGI_AUDIT_LOG.md`'s documented Phase 3 step is the thing
 that triggers it. Latent today; fires on the first prescribed run. Scores would go
-**up**. Separately, **rollback does not exist** — CLAUDE.md rule 1 is 3-of-4 in
-code — and the AGI scorecard's 18/100 baseline has **no rubric in the repo**, so it
+**up**. Separately, **rollback did not exist** — CLAUDE.md rule 1 was 3-of-4 in
+code. **Closed 2026-10-07 for the model-swap path (WP1.3, §17.2, §21)** —
+`ccos/`'s capability-optimizer promotion path still lacks it (`NEW-813`). The
+AGI scorecard's 18/100 baseline still has **no rubric in the repo**, so it
 is unreproducible.
 
 **3. The documented OS shell is largely not wired.** CCOS has no runtime; its live
@@ -558,8 +560,9 @@ completeness. Detail and `file:line` citations in §2, §10, §12–§20.
 | `core/recovery.py` | DORMANT | 521 lines, zero core callers |
 | `checkpoint.rollback/list/prune` | DORMANT | created, never read or pruned |
 | `core/voice.py` | DORMANT | documented broken; reachability unverified |
-| Promotion-gate **rollback** | **MISSING** | rule 1 is 3-of-4 (§17.2) |
-| Model/adapter registry | **MISSING** | §17.2 |
+| Promotion-gate **rollback** (model-swap path) | **DONE 2026-10-07** | WP1.3, §17.2 |
+| Promotion-gate rollback (capability-optimizer path) | **MISSING** | `NEW-813`, §17.2 |
+| Model/adapter registry | **DONE 2026-10-07** | `core/model_registry.py`, WP1.3, §17.2 |
 | AGI scorecard rubric | **MISSING** | 18/100 unreproducible (§17.3) |
 | CI | **MISSING** | no `workflows/` dir; 2,854 tests never run (§20.1) |
 | Knowledge-corpus ingestion | **MISSING** | no programmatic path (§15.2) |
@@ -2037,34 +2040,40 @@ directive §13's S4–S6 (champion/challenger evaluation, verified datasets,
 evidence-based autonomy) is meaningless if the evaluator is contaminated, and the
 contamination would be invisible — scores would go *up*.
 
-### 17.2 Rollback is MISSING — CLAUDE.md rule 1 is 3-of-4 in code
+### 17.2 Rollback — CLOSED for the model-swap path (WP1.3, 2026-10-07); still
+missing for the capability-optimizer path
 
-Rule 1 requires: candidate vs baseline on a frozen benchmark, a regression slice,
-an append-only ledger, **and rollback**.
+**Original finding (2026-10-06 census):** rule 1 requires candidate vs baseline
+on a frozen benchmark, a regression slice, an append-only ledger, **and
+rollback** — and rollback was missing: `ccos/core/capability_optimizer.py:397-422`
+backed up to `data/versions/` and wrote a `previous_version` field with nothing
+reading either; `core/lora_import.py` consulted no gate at all before swapping
+a model into place; no model/adapter registry existed. The original grep that
+turned up `core/checkpoint.py:184` and `core/lora_import.py:451` as "two
+unrelated functions" was itself a misclassification corrected below.
 
-| Requirement | State |
-|---|---|
-| Promotion gate | ✓ `bench/gate.py:23-40` — genuinely conservative, fail-closed |
-| Frozen suite | ✓ lock verified live |
-| Append-only ledger | ✓ append-mode — **but empty; no bench result has ever been written** |
-| **Rollback** | ✗ **MISSING** |
+**Current state, split by path:**
 
-`ccos/core/capability_optimizer.py:397-422` backs up to `data/versions/` and writes
-a `previous_version` field. **Nothing reads either.** An exhaustive grep for
-`previous_version|def rollback|def revert|versions/` returns only that write plus
-two unrelated functions (`core/checkpoint.py:184`, `core/lora_import.py:451`).
+| Requirement | Model-swap path (`core/lora_import.py`) | Capability-optimizer path (`ccos/core/capability_optimizer.py`) |
+|---|---|---|
+| Promotion gate | ✓ `bench/gate.py:23-40`, now actually consulted (WP1.3) | ✓ `gate_decision` param already checked at `compare_and_upgrade` |
+| Frozen suite | ✓ lock verified live | ✓ (same suite) |
+| Append-only ledger | ✓ append-mode — **still empty; no bench result has ever been written** | same — still empty |
+| **Rollback** | ✓ **CLOSED** — `core/model_registry.py` + `rollback_adoption()` (WP1.3, `NEW-811`) | ✗ **still MISSING** — backup written, nothing reads it (`NEW-813`) |
 
-**No model/adapter registry exists.** Adapter adoption's gate requirement is
-DOCS-ONLY — printed as advice at `core/finetune_prep.py:601,783-784`, while
-`core/lora_import.py` **consults no gate at all** (zero hits).
+**Rule-6 correction:** `core/checkpoint.py:184`'s `rollback()` was never the
+right mechanism for a model file — its `CORE_PATTERNS` only cover
+`core/tools/utils/prompts/*.py`, and it does a disruptive git checkout on
+rollback. The correct existing mechanism was `core/lora_import.py:451`'s
+`rollback_to_backup()` all along (already NEW-91/NEW-163-hardened); WP1.3's
+`rollback_adoption()` wires exactly that. See `NEW-810`.
 
-So the one safety property that makes rule 1's "activation" acceptable — the
-ability to undo a bad promotion — is the one that does not exist.
-
-**What keeps this latent:** `compare_and_upgrade`'s unprotected live-overwrite is
-unreachable because its only caller hardcodes `no_evaluator()`. The missing
-rollback is harmless precisely because the gate is not yet connected — which is
-exactly why rollback must be built *before* the connection, not after.
+So: the one safety property that makes rule 1's "activation" acceptable — the
+ability to undo a bad promotion — now exists for model/adapter adoption. It
+still does not exist for `ccos/`'s capability/plugin promotion path, which
+remains harmless only because `compare_and_upgrade`'s only caller still
+hardcodes `no_evaluator()` — unreachable, not yet fixed. `NEW-813` tracks this
+precisely so the two paths aren't conflated into one "rollback: done" claim.
 
 ### 17.3 The AGI scorecard does not exist in the repo
 
@@ -2578,17 +2587,42 @@ consumer exists).
   wall-clock cost. **If the answer is 30, that is a valid outcome** — the point is
   to know rather than assume. Feeds `bench/scorecard.md` (WP1.4).
 
-**WP1.3 — Rollback and a model/adapter registry**
+**WP1.3 — Rollback and a model/adapter registry** — **DONE 2026-10-07**, via the
+full hub-and-spoke pipeline (project-architect scoped it, found two real
+DoD-violating bugs before any code review; implementer built it across three
+rounds; code-reviewer gated it across two rounds, one `CHANGES REQUESTED`).
+New `core/model_registry.py` records every adoption attempt — refused or
+adopted — via `core.state`'s shared SQLite store. `import_lora_adapter()`
+gained `gate_decision=None` (defaults to `no_evaluator()` — always refuse) and
+`operator_override=False` (an explicit human bypass, e.g. the CLI's new
+`--lora-force-adopt`, recorded via a structurally **independent**
+`is_operator_override` column — never fabricated as a passing `gate_decision`,
+a design flaw Ish caught directly in the first draft). **Rule-6 correction:**
+`core/checkpoint.py:184`'s `rollback()` was the wrong citation — it backs up
+only `core/*.py`/`tools/*.py`/`utils/*.py`/`prompts/*.py` files and does a
+disruptive git checkout, never captures a model file. The actually-correct
+existing mechanism, `core/lora_import.py:451`'s `rollback_to_backup()`
+(already NEW-91/NEW-163-hardened), is what the new `rollback_adoption()`
+wires — see `NEW-810`. **Scope, stated precisely so it isn't overclaimed:**
+this closes rule 1's rollback gap for the **model-swap path only**
+(`core/lora_import.py`). `ccos/core/capability_optimizer.py:397-422`'s
+separate capability/plugin promotion path still backs up with nothing
+reading it — still unrollbackable, out of this WP's scope (`NEW-813`).
 - *Objective:* satisfy the missing fourth element of CLAUDE.md rule 1 (§17.2).
 - *Deps:* WP1.1. *Repo:* Codey-OS — `bench/gate.py`, `core/lora_import.py`,
-  `core/checkpoint.py:184` (wire the existing `checkpoint.rollback/list/prune`
-  rather than writing new code).
+  `core/checkpoint.py:184` ~~(wire the existing `checkpoint.rollback/list/prune`
+  rather than writing new code)~~ — **superseded, see `NEW-810` above**: the
+  correct existing mechanism is `core/lora_import.py:451`'s
+  `rollback_to_backup()`, not `checkpoint.py`.
 - *Intent:* a promotion is undoable; `lora_import` consults the gate; a registry
   records model/adapter provenance and gate results.
 - *Tests:* promote-then-rollback restores the prior baseline exactly; adapter
-  adoption without a passing gate is refused.
+  adoption without a passing gate is refused. **29 tests**, verified every
+  round via a direct `sqlite3` query against the real on-device
+  `~/.codeyOS/state.db` confirming zero writes.
 - *Gate:* code-reviewer. *Rollback:* the feature *is* rollback — test it both ways.
-- *DoD:* no adapter can be adopted that cannot be un-adopted.
+- *DoD:* no adapter can be adopted that cannot be un-adopted. **Met, for the
+  model-swap path.**
 
 **WP1.4 — Write the scorecard rubric into the repo**
 - *Objective:* make the 18/100 baseline reproducible (§17.3).
