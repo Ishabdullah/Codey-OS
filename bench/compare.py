@@ -11,7 +11,7 @@ def load(ledger: Path, label: str):
 
 
 def _by_key(rows):
-    return {(r["task"], r["rep"]): r["passed"] for r in rows}
+    return {(r["task"], r["rep"]): r.get("passed") for r in rows}
 
 
 def compare(base_rows, cand_rows) -> dict:
@@ -22,10 +22,17 @@ def compare(base_rows, cand_rows) -> dict:
     keys = sorted(set(a) & set(b))
     if not keys:
         raise ValueError("no overlapping tasks")
+    # a grading-harness error (passed is None) is excluded from the comparison
+    # itself but must stay visible via "errored" -- never silently dropped.
+    errored = sum(1 for k in keys if a[k] is None or b[k] is None)
+    keys = [k for k in keys if a[k] is not None and b[k] is not None]
+    if not keys:
+        raise ValueError("no overlapping tasks without a grading-harness error")
     x, y = [a[k] for k in keys], [b[k] for k in keys]
     bw, cw = paired_counts(x, y)
     lo, hi = bootstrap_ci(x, y)
     n = len(keys)
     return {"n": n, "base_rate": sum(x) / n, "cand_rate": sum(y) / n,
             "base_only": bw, "cand_only": cw,
-            "p_value": mcnemar_exact(bw, cw), "ci95": (lo, hi)}
+            "p_value": mcnemar_exact(bw, cw), "ci95": (lo, hi),
+            "errored": errored}

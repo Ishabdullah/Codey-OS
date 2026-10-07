@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .lock import suite_hash, verify_lock
 from .suite import load_tasks
-from .verify import grade
+from .verify import GradingError, grade
 
 
 def run_suite(agent, label: str, ledger: Path, meta: dict | None = None,
@@ -28,15 +28,28 @@ def run_suite(agent, label: str, ledger: Path, meta: dict | None = None,
                     agent(t, ws)
                 except Exception as e:  # agent crash = failure, recorded
                     err = repr(e)
-                passed = grade(t, ws)
-                if traj_db:  # label the agent's episodes with the EXTERNAL grader verdict
+                grading_error = None
+                try:
+                    passed = grade(t, ws)
+                except GradingError as e:
+                    passed = None
+                    grading_error = repr(e)
+                    print(f"bench/runner: grading error on task {t.id} rep {rep}: {grading_error}")
+                # Label the agent's episodes with the EXTERNAL grader verdict; never
+                # label a bogus (None/grading-error) verdict into the trajectory
+                # store (NEW-761-sensitive: that's what the evaluation-leak finding
+                # was about).
+                if traj_db and passed is not None:
                     try:
                         from core.trajectory import label_tag
                         label_tag(f"bench:{t.id}", f"bench:{sh[:12]}", passed, since_ts=t0, path=traj_db)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Logged, not raised: a trajectory-labeling failure must not
+                        # lose the ledger rows this run already produced.
+                        print(f"bench/runner: label_tag failed for task {t.id} rep {rep}: {e!r}")
                 rows.append({"label": label, "task": t.id, "rep": rep, "passed": passed,
                              "secs": round(time.time() - t0, 2), "error": err,
+                             "grading_error": grading_error,
                              "suite_hash": sh, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
                              "meta": meta or {}})
     ledger.parent.mkdir(parents=True, exist_ok=True)

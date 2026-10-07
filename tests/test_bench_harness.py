@@ -1,11 +1,12 @@
 """Self-checks for bench/: the evaluator must itself be trustworthy (AGI audit 2.1)."""
+import json
 import shutil
 
 import pytest
 
 from bench import agents, compare, lock, runner, stats
 from bench.suite import load_tasks
-from bench.verify import grade
+from bench.verify import GradingError, grade
 
 
 def test_null_scores_zero_and_oracle_scores_all(tmp_path):
@@ -98,6 +99,84 @@ def test_grade_tolerates_junk_subdirs_in_hidden(tmp_path):
     ws = tmp_path / "ws"
     shutil.copytree(t.reference, ws)
     assert grade(t, ws) is True
+
+
+def test_grade_raises_grading_error_on_harness_failure(tmp_path):
+    # A missing hidden/ dir is a harness-side failure (bad task, not an agent
+    # failure) -- must raise GradingError, not silently return False.
+    t = _tmp_task(tmp_path)
+    shutil.rmtree(t.hidden)
+    ws = tmp_path / "ws"
+    shutil.copytree(t.reference, ws)
+    with pytest.raises(GradingError):
+        grade(t, ws)
+
+
+def test_grade_timeout_is_a_fail_not_a_grading_error(tmp_path):
+    # A hanging hidden test must still score False (lose), not be excluded as
+    # a harness error -- otherwise a hanging agent would escape the gate's
+    # comparison denominator instead of losing it (see GradingError's docstring).
+    t = _tmp_task(tmp_path)
+    test_file = next(t.hidden.glob("test_*.py"))
+    with test_file.open("a") as fh:
+        fh.write("\n\ndef test_hangs_forever():\n    import time\n    time.sleep(5)\n")
+    ws = tmp_path / "ws"
+    shutil.copytree(t.reference, ws)
+    assert grade(t, ws, timeout=1) is False
+
+
+def test_run_suite_records_grading_error_and_continues(tmp_path, monkeypatch, capsys):
+    tasks = load_tasks()[:2]
+    calls = []
+
+    def fake_grade(t, ws):
+        calls.append(t.id)
+        if len(calls) == 1:
+            raise GradingError("boom")
+        return True
+
+    monkeypatch.setattr(runner, "grade", fake_grade)
+    rows = runner.run_suite(agents.null_agent, "x", tmp_path / "l.jsonl", tasks=tasks)
+    assert len(rows) == 2, "a grading error on one task must not abort the rest of the run"
+    assert rows[0]["passed"] is None and "boom" in rows[0]["grading_error"]
+    assert rows[1]["passed"] is True and rows[1]["grading_error"] is None
+    assert "boom" in capsys.readouterr().out, "a grading error must not be silent at the terminal"
+
+
+def test_run_suite_skips_label_tag_for_grading_error(tmp_path, monkeypatch):
+    calls = []
+    import core.trajectory as traj_mod
+    monkeypatch.setattr(traj_mod, "label_tag", lambda *a, **k: calls.append((a, k)))
+
+    def erroring_grade(t, ws):
+        raise GradingError("boom")
+
+    monkeypatch.setattr(runner, "grade", erroring_grade)
+    runner.run_suite(agents.null_agent, "x", tmp_path / "l.jsonl",
+                      tasks=load_tasks()[:1], traj_db=tmp_path / "traj.db")
+    assert calls == [], "a None (grading-error) verdict must never be written to the trajectory store"
+
+    # Positive control: with the guard removed from the picture (grade succeeds),
+    # the same call site DOES label -- proves the above assertion isn't vacuous
+    # (i.e. that label_tag is actually reachable/wired up in this test).
+    monkeypatch.setattr(runner, "grade", lambda t, ws: True)
+    runner.run_suite(agents.null_agent, "x", tmp_path / "l.jsonl",
+                      tasks=load_tasks()[:1], traj_db=tmp_path / "traj.db")
+    assert calls, "label_tag must be called for a non-errored (real passed=True/False) row"
+
+
+def test_compare_excludes_grading_errors_and_reports_count(tmp_path):
+    ledger = tmp_path / "l.jsonl"
+    base = [{"label": "a", "task": f"t{i}", "rep": 0, "passed": p, "suite_hash": "H"}
+             for i, p in enumerate([True, False, True])]
+    cand = [{"label": "b", "task": f"t{i}", "rep": 0, "passed": p, "suite_hash": "H"}
+             for i, p in enumerate([True, True, None])]
+    with open(ledger, "w") as f:
+        for r in base + cand:
+            f.write(json.dumps(r) + "\n")
+    r = compare.compare(compare.load(ledger, "a"), compare.load(ledger, "b"))
+    assert r["errored"] == 1
+    assert r["n"] == 2, "the errored pair must be excluded from n, not just counted"
 
 
 def test_grade_copies_hidden_data_subdirs(tmp_path):

@@ -49,6 +49,24 @@ def test_gate_rejects_different_suite_versions():
     assert not d.promote and "not comparable" in d.reasons[0]
 
 
+def test_gate_surfaces_errored_reason():
+    base = rows("a", [True] * 20 + [False] * 20)
+    cand = rows("b", [True] * 20 + [None] * 20)
+    d = gate.decide(base, cand)
+    assert any("grading-harness error" in r for r in d.reasons)
+    assert d.stats["errored"] == 20
+
+
+def test_gate_blocks_promotion_when_any_task_errored():
+    # Deliberate: a partially-errored comparison must not promote, even when
+    # every other criterion would pass on the remaining (non-errored) pairs --
+    # the evaluator was broken for some tasks, so the comparison isn't clean.
+    base = rows("a", [False] * 20 + [True] * 20 + [True] * 5)
+    cand = rows("b", [True] * 20 + [True] * 20 + [None] * 5)
+    d = gate.decide(base, cand)
+    assert not d.promote and any("grading-harness error" in r for r in d.reasons)
+
+
 def test_no_evaluator_never_promotes():
     assert gate.no_evaluator().promote is False
 

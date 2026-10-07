@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from .compare import compare
 
-DEFAULTS = {"min_pairs": 30, "alpha": 0.05, "max_regressions": 0, "min_gain": 0.0}
+DEFAULTS = {"min_pairs": 30, "alpha": 0.05, "max_regressions": 0, "min_gain": 0.0, "max_errored": 0}
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,14 @@ def decide(base_rows, cand_rows, **overrides) -> GateDecision:
         why.append(f"bootstrap CI lower bound {s['ci95'][0]:.3f} <= {cfg['min_gain']}")
     if s["base_only"] > cfg["max_regressions"]:
         why.append(f"{s['base_only']} regressions (> {cfg['max_regressions']} allowed)")
+    if s.get("errored", 0) > cfg["max_errored"]:
+        # Fail-closed by default (max_errored=0), consistent with every other
+        # criterion here: a comparison where the evaluator itself failed on
+        # some tasks is not a clean win, even if every other criterion below
+        # passes on the remaining (non-errored) pairs. Overridable, like the
+        # others, if a future caller has a considered reason to tolerate some.
+        why.append(f"{s['errored']} task(s) had a grading-harness error "
+                   f"(> {cfg['max_errored']} allowed), excluded from comparison")
     return GateDecision(not why, why or ["all criteria met"], s)
 
 
