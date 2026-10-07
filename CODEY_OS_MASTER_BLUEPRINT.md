@@ -2296,7 +2296,31 @@ entry points that still hit the same unguarded singletons.
   ".github/ workflows" claim.
 - *DoD:* a PR with a failing test is visibly red.
 
-**WP1.2 — Reconcile `codey-os-dev-v2`**
+**WP1.2 — Reconcile `codey-os-dev-v2`** — **DONE 2026-10-07.** Not a literal
+`git merge` (too much had diverged — census, blueprint, this session's own
+WP0.1-0.7 didn't exist on dev-v2, and dev-v2's `core/trajectory.py` changes
+directly conflicted with this session's earlier WP0.5 eval-leak fix). Instead:
+full diff review against the branch's merge-base, then manual re-implementation
+of all three real pieces on top of current `main` — full-fidelity episode
+recording (`core/trajectory.py`'s `_bounded`/`_budgeted`, replacing
+`_MAX_ARGS`/`_MAX_RESULT`, merged with WP0.5's `verified_training_episodes`/
+`verified_eval_episodes` split, which touches disjoint code in the same file),
+a new `core/export_hygiene.py` (secret-pattern scanning before fine-tune
+export, ported byte-identical), and the `bench/verify.py` fix (also closes
+most of WP1.5, see below). Rollback tag created first
+(`rollback/2026-10-07-pre-wp1.2-dev-v2-merge`). Branch deleted (local + remote)
+after code-reviewer confirmed every code/test file dev-v2 ever touched is
+reconciled — the only un-landed content is dev-v2's own stale planning docs
+and ledger edits, both superseded by current `main`. 10 findings from dev-v2's
+own ledger renumbered into `NEW-799`-`NEW-808` (that branch's `NEW-754`-`763`
+collided with numbers `main` has since reused). code-reviewer's full review
+(mandatory — this touches the learning data path) caught one real scoping gap
+before the ledger write-up: full-fidelity recording is `episodes`-table only;
+`teacher_traces` still truncates via the old `_trunc()`, and the new
+legacy-marker-skip convention in `finetune_prep.py` would silently
+misclassify current teacher-trace data as permanently-legacy if a future
+`curate_teacher()` reused it naively (`NEW-809`, not yet live since no such
+consumer exists).
 - *Objective:* recover the stranded S0 work (§17.4).
 - *Deps:* WP1.1 (so the merge is tested). *Repo:* Codey-OS.
 - *Scope correction:* **two commits, 11 files, 944 insertions** — including
@@ -2340,12 +2364,21 @@ entry points that still hit the same unguarded singletons.
 - *Tests:* scoring is deterministic on fixed input.
 - *DoD:* anyone can recompute the score and get the same number.
 
-**WP1.5 — `bench/verify.py` and silent-failure removal**
+**WP1.5 — `bench/verify.py` and silent-failure removal** — **PARTIALLY DONE
+2026-10-07 via WP1.2.** The `copy2`-over-`iterdir()` fix (the literal trigger
+of `NEW-791`/`NEW-799`) landed as part of WP1.2's dev-v2 reconciliation, with
+regression tests (`tests/test_bench_harness.py`). **Still open:** the broader
+`except Exception: return False` at `bench/verify.py:24-25` is unchanged —
+any other real error (a timeout, a permissions issue, an unrelated bug) still
+silently becomes a `False` verdict rather than surfacing. Removing that
+bare except and deciding what *should* happen on a genuine grading error
+(raise? a third `None`/error outcome distinct from pass/fail?) is still a
+real, undone decision.
 - *Objective:* the benchmark cannot silently report failure as the suite grows (§17.4).
-- *Deps:* WP1.2 (the fix is on dev-v2). *Repo:* Codey-OS — `bench/verify.py:17-24`.
-- *Intent:* fix `copy2`-over-`iterdir()`; remove `except Exception: return False`.
-- *Tests:* a multi-file `hidden/` dir verifies correctly; a real error raises.
-- *DoD:* no benchmark path swallows exceptions into a false verdict.
+- *Deps:* WP1.2 (the fix is on dev-v2) — **done**. *Repo:* Codey-OS — `bench/verify.py:17-24`.
+- *Intent:* fix `copy2`-over-`iterdir()` — **done**; remove `except Exception: return False` — **open**.
+- *Tests:* a multi-file `hidden/` dir verifies correctly — **done**; a real error raises — **open**.
+- *DoD:* no benchmark path swallows exceptions into a false verdict — **not yet met**.
 
 **WP1.6 — Audit the KV cost model**
 - *Objective:* resolve the possible ~4× memory overestimate (§2.3). Blocks §19 and

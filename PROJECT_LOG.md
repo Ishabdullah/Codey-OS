@@ -1,4 +1,84 @@
-## 2026-10-07 (later still) — P0 complete: WP0.5-WP0.7, closing out all 7 of P0's work packages. **START HERE for the next session.**
+## 2026-10-07 (P1 begins) — WP1.2: the stranded `codey-os-dev-v2` branch reconciled and deleted. **START HERE for the next session.**
+
+**What changed:** first item of P1 (measurement trustworthiness), per Ish's
+"continue" into P1 after P0 closed. `codey-os-dev-v2` was a cloud-orchestrator
+session's branch (2026-08-30/2026-10-01, "S0.1: full-fidelity trajectories,
+export hygiene, bench grade() fix") that never merged and had diverged
+enormously from `main` since (the whole census, blueprint, and this session's
+own WP0.1-0.7). Reconciled by manual re-implementation, not a literal `git
+merge` — too much had diverged, and dev-v2's `core/trajectory.py` changes
+directly conflicted with this session's own earlier WP0.5 eval-leak fix
+(`verified_episodes()` → `verified_training_episodes()`/`verified_eval_episodes()`).
+
+- **Full-fidelity episode recording.** `core/trajectory.py`'s
+  `instrument_run_agent`/`instrument_execute_tool` no longer truncate at
+  record time (`_MAX_ARGS=2000`/`_MAX_RESULT=1000` removed entirely) —
+  replaced by `_bounded`/`_budgeted`: a 1,000,000-char per-field cap and an
+  8,000,000-char per-episode budget, each breach replaced by an explicit
+  oversize marker rather than a silent mid-string cut. Merged cleanly with
+  WP0.5's query-side split (the two changes touch disjoint code in the same
+  file — the query accessors vs. the recording wrappers).
+- **New `core/export_hygiene.py`** — secret-pattern scanning before any
+  fine-tune export, ported byte-identical from dev-v2. "Drop beats redact":
+  an example containing a detected secret, a truncation marker, or a
+  duplicate is dropped whole, never edited. `core/finetune_prep.py`'s
+  `export_dataset()` now calls this unconditionally before writing anything;
+  `_write_jsonl()` writes atomically (`tempfile` + `os.replace`, cleaned up
+  on any exception) instead of a plain open-and-write. `curate_verified()`
+  skips any episode with a field ending in the legacy truncation marker
+  (pre-full-fidelity data, excluded rather than exported with a mid-field
+  artifact baked in).
+- **`bench/verify.py`'s `grade()` fixed** — the exact bug this session's own
+  `NEW-791` finding hit live during this session's own earlier orientation
+  work: `copy2` over `iterdir()` raised `IsADirectoryError` on any
+  subdirectory in a task's `hidden/` (e.g. a stray `__pycache__/`), silently
+  scored as a failure by the function's bare `except`. Now
+  `shutil.copytree(..., dirs_exist_ok=True, ignore=...)`. Two regression
+  tests added. **This closes most, not all, of WP1.5** — the broader
+  `except Exception: return False` at the end of `grade()` is unchanged and
+  still logged as open (any *other* real grading error still silently
+  becomes a false verdict).
+- **code-reviewer: full review (mandatory — this touches the learning data
+  path), APPROVED**, after independently re-running 177 tests, timing 9
+  adversarial inputs against the riskiest secret-detection regexes for
+  catastrophic backtracking (none found), and diffing `export_hygiene.py`
+  byte-for-byte against the dev-v2 source. **Caught one real gap before the
+  ledger write-up (`NEW-809`):** "full-fidelity recording" only applies to
+  the `episodes` table — `teacher_traces` still truncates via the old
+  `_trunc()`, and the new legacy-marker-skip convention would silently
+  misclassify *current* teacher-trace data as permanently-legacy if a future
+  `curate_teacher()` (proposed in `NEW-803`, not yet written) reused it
+  naively. Logged, not fixed — no such consumer exists yet.
+- **10 findings reconciled from dev-v2's own ledger, renumbered `NEW-799`
+  through `NEW-808`** (that branch's `NEW-754`..`763`, allocated when `main`
+  was at `NEW-753`, collided with numbers `main` has since reused for
+  unrelated findings — renumbered per that branch's own cited precedent,
+  `NEW-546..551` → `NEW-729..734`, confirmed real). Notably: `NEW-799` (the
+  bench fix, now DONE), `NEW-803` (teacher traces can never reach training
+  data — directly related to this session's own `NEW-796`), `NEW-800`
+  (`core/sessions.py` has its own weaker, diverged secret-redaction list,
+  should consume the new shared `SECRET_PATTERNS`), `NEW-801` (the live
+  agent loop truncates content the model sees in ways that don't match what
+  full-fidelity training data now records — a train/inference mismatch, not
+  a leak), `NEW-805` (an intermittent CCOS test flake, not reproduced this
+  round, not re-chased).
+- **Rollback:** tag `rollback/2026-10-07-pre-wp1.2-dev-v2-merge` created
+  before any of this round's edits, confirmed pointing at the prior commit.
+- **Branch deleted, local and remote**, after code-reviewer confirmed every
+  code/test file dev-v2 ever touched is reconciled onto `main` — only
+  dev-v2's own stale planning docs and ledger edits are un-landed, both
+  superseded by current `main`'s blueprint/ledgers.
+- **Tier (rule 7):** code-complete + code-reviewer approved (full review) +
+  test-verified (full `tests/` suite minus `tests/test_restoricon_core`:
+  1482 passed, 1 pre-existing skip). WP1.5 is explicitly **not** fully
+  closed by this round — see above.
+- **Where to begin next session:** WP1.3 (rollback + model/adapter registry
+  — the missing fourth element of CLAUDE.md rule 1) is next in P1's order.
+  Per Ish's own "continue" instruction being given once, not standing,
+  checking in again before WP1.3 rather than assuming continued "don't
+  stop" applies past this single work package.
+
+## 2026-10-07 (later still) — P0 complete: WP0.5-WP0.7, closing out all 7 of P0's work packages.
 
 **What changed:** the remaining three P0 items, continuing the same round
 as WP0.1-WP0.4 below. Commits `f3459b0` (WP0.5), `71c08ce` (WP0.6),

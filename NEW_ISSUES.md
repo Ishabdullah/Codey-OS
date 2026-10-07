@@ -20404,3 +20404,92 @@ inflated or discounted.
 - **Why not fixed in this round:** demos are manual, not automated — running one requires a human to deliberately invoke it, unlike the test-suite pollution (which happened silently on every `pytest` run). Lower urgency, but the census's original "no reachable writer" framing for `cap_metrics`/`reflections.jsonl` was never quite complete — these four scripts are themselves reachable writers, just not automated ones.
 - **Fix direction, not applied:** either give the demo scripts their own isolated/scratch tracker-and-reflection-engine construction (same shape as the test fixtures, applied explicitly rather than via autouse), or accept that running a demo script is understood to touch real state and document that expectation where the demos live.
 - **Cross-reference:** `ccos/demo_agent_orchestrator.py`, `demo_goal_engine.py`, `demo_improvement_loop.py`, `demo_skill_recombiner.py`, blueprint §21 (WP0.6), §15.4.
+
+## Reconciled 2026-10-07 from `codey-os-dev-v2` (WP1.2) — renumbered from that branch's NEW-754..763
+
+These 10 findings were allocated on `codey-os-dev-v2` (a cloud orchestrator
+session, 2026-10-01) while `main` was at `NEW-753`. `main` has since reused
+754-763 for unrelated findings, so these are renumbered here per that
+branch's own stated precedent ("if `main` allocates the same numbers before
+the merge, renumber these at merge time, never the `main` ones" — see
+`NEW-729`..`NEW-734` for the precedent this follows). Original numbers noted
+per entry. The dev-v2 branch itself is formally superseded by this
+reconciliation (WP1.2) — its code changes are merged into `main` (see
+`PROJECT_LOG.md`); these findings are what's left to track.
+
+### [NEW-799] (was dev-v2 NEW-754) Confirmed, FIXED in this round (WP1.2): `bench/verify.py`'s `grade()` scored every task as failed when `hidden/` held any subdirectory
+
+- **Status:** Confirmed and fixed. `grade()` copied each entry of `task.hidden` with `shutil.copy2`; a subdirectory (e.g. a stray `__pycache__/`, which is exactly how this session's own earlier orientation work tripped the same bug — see `NEW-791`) raised `IsADirectoryError`, swallowed by `grade()`'s bare `except Exception: return False`, scoring even the oracle agent 0/8.
+- **Fix (ported from dev-v2, applied to `main` this round):** `shutil.copytree(task.hidden, work, dirs_exist_ok=True, ignore=ignore_patterns("__pycache__", ".pytest_cache", "*.pyc"))`; hidden files still overwrite agent files of the same name. Two regression tests ported (`tests/test_bench_harness.py::test_grade_tolerates_junk_subdirs_in_hidden`, `test_grade_copies_hidden_data_subdirs`), confirmed passing against the fixed code.
+- **Cross-reference:** `NEW-791` (this session's own live encounter with the same bug class), blueprint §21 WP1.5 (whose literal target this was — WP1.5 can now close as "already fixed via WP1.2" rather than needing its own round).
+
+### [NEW-800] (was dev-v2 NEW-755) Confirmed, not fixed: `core/sessions.py` keeps its own, weaker secret-redaction list, diverged from `core/export_hygiene.py`'s
+
+- `core/sessions.py:19-36` redacts with `sk-[a-zA-Z0-9]{48}`, which misses modern `sk-proj-`/OpenRouter-style keys, plus an unquoted `password=\S+`. This now duplicates and diverges from the single canonical list in `core/export_hygiene.SECRET_PATTERNS` (ported to `main` this round, WP1.2).
+- **Fix direction (not applied):** `sessions.py` imports a `redact_secrets` helper built on the shared `SECRET_PATTERNS` list, keeping any session-specific legacy patterns as a superset; fails closed on a redaction error.
+- **Cross-reference:** `core/export_hygiene.py`, `core/sessions.py:19-36`.
+
+### [NEW-801] (was dev-v2 NEW-756) Confirmed, not fixed: the live agent loop silently truncates content the model sees, and training does not match inference
+
+- The model sees `last_tool_result[:2000]` (`core/agent.py:~2419`), `[:400]` (~2207), `[:300]` (~2348), `[:200]` (~2052); peer output is cut to 2000 chars in `core/peer_cli.py:~331-335`; `search_files` silently keeps 50 lines (`tools/shell_tools.py:~247`). `curate_verified` (now full-fidelity at record per WP1.2) exports the complete result in a training frame that doesn't match what the live model actually saw at inference time — a train/inference mismatch, not a leak.
+- About 20 further context-assembly cuts were catalogued by the dev-v2 session (history kept to the last 16 messages, summarizer, memory_v2 file blocks, layered_prompt budget, retrieval/skills budgets, recursive critique, orchestrator `prior_results[-3:]`, etc.) — not re-verified this round; treat the specific file:line list as dated to 2026-10-01 until re-confirmed.
+- **Fix direction (not applied):** a `CODEY_FULL_TOOL_RESULTS` flag (default OFF, fail-open, bench-gated) for full-or-paged tool results with a `read_result` tool; record exact transcripts under `CODEY_TRAJECTORY` so training uses what the model actually saw.
+- **Cross-reference:** `core/agent.py`, `core/peer_cli.py`, `tools/shell_tools.py`, `core/finetune_prep.py` (`curate_verified`).
+
+### [NEW-802] (was dev-v2 NEW-757) Confirmed + Suspected, not fixed: the fine-tune notebook silently truncates long examples and may use stale TRL argument names
+
+- Confirmed: the 4b notebook uses `max_seq_length=4096` (`core/finetune_prep.py:~586,~601`) and the legacy template uses 2048 (~425, ~532) — SFT silently truncates longer examples with no count/warning.
+- Suspected (per rule 12, not yet verified against a real wheel): the notebook pip-installs the latest TRL but passes `SFTConfig(max_seq_length=…)` and `SFTTrainer(tokenizer=…)`, which a newer TRL release may have renamed (`max_length`, `processing_class`) — would crash on Colab if so.
+- Confirmed (follow-up): the 4b notebook trains on all tokens, not only assistant turns. Suspected: reasoning content is dropped (`core/inference_hybrid.py:~604/~698` reads only `content`); the notebook's chat-template think-block handling is unverified.
+- **Fix direction (not applied):** a tokenizer-based length filter that drops long examples and prints the count, plus a `--ft-max-seq-len` parameter; verify the real TRL wheel's `SFTConfig`/`SFTTrainer` signatures before touching the arg names.
+- **Cross-reference:** `core/finetune_prep.py` (notebook generation), `core/inference_hybrid.py`.
+
+### [NEW-803] (was dev-v2 NEW-758) Confirmed, not fixed: verified teacher traces can never reach training data — same shape as `NEW-796`
+
+- `verified_teacher_traces()` has no consumer in `core/finetune_prep.py`; `label_teacher` has no production caller; `core/agent.py`'s `_record_teacher` discards the trace id it gets back. In real use, no teacher trace is ever verified or exportable, even though the recording/labeling plumbing exists.
+- **Directly related to `NEW-796`** (this session's own WP0.5 finding: `teacher_traces` has no `tag` column at all, so it couldn't be eval-partitioned even if it had a consumer). Both point at the same underlying fact: the teacher-trace channel is fully plumbed for recording and labeling but has zero path to actually becoming training data.
+- **Fix direction (not applied):** add a `curate_teacher` export path in `core/finetune_prep.py`; still needs a labeling hook (an external verifier for peer output) to produce any real examples.
+- **Cross-reference:** `NEW-796`, `core/trajectory.py` (`verified_teacher_traces`, `label_teacher`), `core/agent.py` (`_record_teacher`).
+
+### [NEW-804] (was dev-v2 NEW-759) Confirmed, not fixed: `--finetune` still includes unverified heuristic data despite the earlier `NEW-729` fix
+
+- `prepare_finetune_data` calls `curate_examples(days, min_quality)` (`core/finetune_prep.py:~830`) with `verified_only` defaulting to `False`, so heuristic `episodic_log` examples still reach export by default.
+- **Fix direction (not applied):** verified-only by default, with an explicit `--ft-include-heuristic` opt-in; align the CCOS fine-tune plugin (`ccos/plugins/coding/finetune/`) the same way.
+- **Cross-reference:** `NEW-729`, `core/finetune_prep.py:~830` (`prepare_finetune_data`).
+
+### [NEW-805] (was dev-v2 NEW-760) Suspected, intermittent, not fixed: `ccos/tests/test_multi_domain.py::test_orchestrator_multi_domain_deliberation_and_execution` sometimes fails under concurrent test runs
+
+- **Failures:** 2 of 2 runs (cloud, 2026-10-01) — once on an unmodified `73d2a2c` worktree, once on the dev-v2 tree, both times `No loaded plugin implements 'crm.get_customer'`.
+- **Passes:** 5 of 5 later runs, alone and as part of the full `ccos/tests` run, on the same tree.
+- **Correlation:** both failures happened while another full `pytest tests` run was executing concurrently on the same machine.
+- **Suspected cause (not verified):** shared state between concurrent test processes — e.g. plugin discovery reading/writing a shared path under `~/.codeyOS`.
+- **Not caused by dev-v2's own changes** — reproduced on unmodified `73d2a2c` too. Not re-verified this round (WP1.2); this device's own test-isolation work this session (WP0.6) touched adjacent CCOS singleton state but not plugin discovery specifically, so this may or may not still reproduce — flagging as still-open rather than assuming either way.
+- **Fix direction (not applied):** isolate the test's plugin/state directories (tmp `HOME` / `CODEY_STATE_DIR`) so it's deterministic under parallel or CI runs.
+- **Cross-reference:** `ccos/tests/test_multi_domain.py`, `NEW-791` (this session's own device-memory finding, a different but related "test isolation under this device's resource constraints" theme).
+
+### [NEW-806] Confirmed, not fixed: several modules budget against the configured `n_ctx`, not the effective one
+
+- `core/tokens.py:48`, `core/summarizer.py:176/198`, and `memory_v2.get_ctx_total` use `MODEL_CONFIG["n_ctx"]` (65536), but daemon/background tasks run at `min(n_ctx, 16384)` (`utils/config.py:137-138`, `core/loader_v2.py:1342`) — the usage bar and summarize threshold are wrong for daemon tasks. `prompts/layered_prompt.py:303`'s comment says "32 768" (stale, matches neither value).
+- Suspected companion: no in-turn check on how much `messages` grows, so an unadmittable request becomes `"[ERROR] Chat completions inference failed"`, which the loop likely returns as the final answer rather than handling gracefully.
+- **Cross-reference:** `core/tokens.py`, `core/summarizer.py`, `core/memory_v2.py` (`get_ctx_total`), `utils/config.py:137-138`, `core/loader_v2.py:1342`, `prompts/layered_prompt.py:303`.
+
+### [NEW-807] Confirmed/Suspected, not fixed: two bench-harness gaps found while scoping the trajectory-fidelity work
+
+- Suspected: `grade()` lets an agent-written `conftest.py`/`pytest.ini`/`pyproject.toml` in the workspace change how the hidden tests run — a workspace could alter its own grading behavior.
+- Confirmed: no bench task currently produces a tool result over 2000 chars, so a future gate for `CODEY_FULL_TOOL_RESULTS` (`NEW-801`) cannot measure anything until long-output tasks exist in the frozen suite.
+- **Cross-reference:** `bench/verify.py`, `bench/tasks/`, `NEW-801`.
+
+### [NEW-808] Confirmed, accepted trade-offs of `core/export_hygiene.py` (ported this round, WP1.2) — recorded, not defects
+
+- **Accepted false negatives**, documented in the module's own docstring: an all-lowercase-letters `mysql -p` password; a `{"token": "<letters only>"}` value; a YAML `api_key:` whose value is a single camelCase/PascalCase identifier.
+- **Accepted false positives**: test fixtures holding literal-looking passwords (e.g. `ccos/tests/test_device_bridge.py:50,131-133`) would cause an example containing that content to be dropped if ever exported — correct under the module's "drop beats redact" policy, not a bug.
+- **File permissions**: exported datasets are now written via `tempfile` + `os.replace` (ported this round), so the output file is mode 0600 instead of umask default — intentional, for possibly-private training data.
+- **Recording resource bounds**: 1,000,000 chars/field, 8,000,000 chars/episode (`core/trajectory.py`, ported this round). Not measured against real on-device growth rates yet — a future round should record DB growth under `CODEY_TRAJECTORY=1` before relying on these bounds in practice.
+- **Cross-reference:** `core/export_hygiene.py`, `core/trajectory.py`.
+
+### [NEW-809] Confirmed, not fixed: "full-fidelity recording" is scoped to the `episodes` table only, and the legacy-truncation-skip convention is a correctness trap for `teacher_traces` if reused naively
+
+- **Status:** Confirmed (WP1.2, 2026-10-07, found by code-reviewer). This round's full-fidelity recording (`_bounded`/`_budgeted`, `core/trajectory.py`) only touched `instrument_run_agent`/`instrument_execute_tool` — the `episodes` table. `record_teacher_trace()` is unchanged: it still calls `_trunc(task, 4000)`/`_trunc(output, 20000)`, appending `LEGACY_TRUNC_MARKER` on any long field, same as before this round. `core/trajectory.py`'s module docstring correctly scopes its "full fidelity" claim to episode fields, but is easy to misread as a blanket claim — confirmed this round's own `tests/test_trajectory.py::test_teacher_traces_flag_gated_and_verified_only` now asserts `rows[0][3].endswith("...[truncated]")` for a trace recorded **today**, after this round's work landed, which is the concrete proof the scoping is real and current.
+- **The actual trap (not yet live, since no `curate_teacher()` exists — `NEW-803`):** `core/finetune_prep.py::curate_verified()`'s new legacy-marker skip treats any field ending in `LEGACY_TRUNC_MARKER` as "pre-full-fidelity legacy data, exclude from training." For the `episodes` table that's correct (nothing _trunc-based_ is recorded there anymore). If a future `curate_teacher()` (`NEW-803`'s proposed fix direction) reused that same skip convention against `teacher_traces`, every long teacher trace recorded from now on would still hit `_trunc`, mint a trailing marker, and be permanently misclassified as "legacy," silently dropping valid, current data forever — not a one-time migration artifact like it is for episodes.
+- **Fix direction (not applied, no urgency yet since `curate_teacher` doesn't exist):** either extend `_bounded`/`_budgeted`-style full-fidelity recording to `teacher_traces` too, or make sure `curate_teacher()`, when written, treats `teacher_traces`' `LEGACY_TRUNC_MARKER` as "always truncated, not a legacy flag" rather than reusing the episodes-specific skip semantics verbatim.
+- **Cross-reference:** `NEW-803`, `core/trajectory.py` (`record_teacher_trace`), `core/finetune_prep.py` (`curate_verified`'s legacy-skip logic).
