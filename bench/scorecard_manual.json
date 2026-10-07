@@ -1,0 +1,18 @@
+[
+  {
+    "category": "brain_swap_independence",
+    "label": "6e: benchmark ledger population",
+    "points": 0,
+    "max_points": 3,
+    "citation": "CODEY_OS_MASTER_BLUEPRINT.md:2061",
+    "note": "bench/experiments.jsonl does not exist in the repo at all (confirmed via `git ls-files bench/` -- no .jsonl tracked under bench/). The blueprint's own A4 census line (mirrored at NEW_ISSUES.md:20161) and bench/power_analysis.md:32 both state the append-only results ledger is empty -- no bench result has ever been written. Scored 0/3 honestly; this cannot be an automated repo-state check because an empty/absent ledger is indistinguishable from 'never checked' without reading the prose record of what was actually run."
+  },
+  {
+    "category": "safety_honesty",
+    "label": "7d: confident-falsehood pattern since the last scoring run",
+    "points": 0,
+    "max_points": 2,
+    "citation": "NEW_ISSUES.md:20528",
+    "note": "NEW-815 (confirmed, not fixed, 2026-10-07): core/preferences.py's get_all() (:539-547) falls through to CATEGORIES[cat][\"default\"] for any never-observed category, and prompts/layered_prompt.py:165-167 emits those defaults under the header 'Always match these preferences when generating code' -- indistinguishable from a genuinely observed preference. Fires on a fresh install with zero history. This is the confident-falsehood shape (a fabricated-looking signal, not a decayed one) the manual check exists to catch. Not a clean bill of health; scored 0/2."
+  }
+]
