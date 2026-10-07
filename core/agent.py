@@ -760,7 +760,11 @@ def execute_tool(tool_dict):
                     pass  # linter unavailable — continue normally
 
         # Log successful actions to episodic memory (lightweight — just a string)
-        if (_is_write or _is_patch or name == "shell") and not result.startswith("[ERROR]"):
+        if (
+            (_is_write or _is_patch or name == "shell")
+            and not result.startswith("[ERROR]")
+            and not result.startswith("[BLOCKED]")
+        ):
             from core.memory_v2 import memory as _mem
 
             _mem.log_action(name, result[:100])
@@ -814,8 +818,13 @@ def is_error(result, tool_name):
     result_lower = result.lower()
     if "[cancelled]" in result_lower:
         return False
-    # All tools: treat [ERROR] prefix as an error
-    if result.startswith("[ERROR]"):
+    # All tools: treat [ERROR] prefix as an error. [BLOCKED] (WP2.1 slice 2,
+    # core.action_gateway's HIGH_IMPACT fail-closed refusal) is also an
+    # error here, not a success — without this, a refused command's
+    # "[BLOCKED] ..." string falls through every "not result.startswith
+    # ('[ERROR]')" success check below (display, episodic-memory logging)
+    # and gets recorded as if the command had actually run.
+    if result.startswith("[ERROR]") or result.startswith("[BLOCKED]"):
         return True
     # Shell-specific: detect Python tracebacks and command failures
     if tool_name == "shell":

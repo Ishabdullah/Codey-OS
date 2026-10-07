@@ -121,6 +121,92 @@ class TestActionGatewayClassification(unittest.TestCase):
             self.assertIn("ts", r)
             self.assertIn("authority", r)
 
+    def test_gate_exec_high_impact_refused_without_confirmation_path(self):
+        calls = []
+
+        def execute():
+            calls.append(1)
+            return "should never run"
+
+        decision = self.gateway.gate_exec(
+            authority=HIGH_IMPACT,
+            action="test.exec.high_impact",
+            command="rm -rf /tmp/scratch",
+            confirm_available=False,
+            execute=execute,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.outcome, OUTCOME_REFUSED)
+        self.assertEqual(calls, [], "execute() must NEVER be invoked on the fail-closed path")
+
+    def test_gate_exec_high_impact_allowed_with_confirmation_path(self):
+        calls = []
+
+        def execute():
+            calls.append(1)
+            return "ran"
+
+        decision = self.gateway.gate_exec(
+            authority=HIGH_IMPACT,
+            action="test.exec.high_impact",
+            command="rm -rf /tmp/scratch",
+            confirm_available=True,
+            execute=execute,
+        )
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.outcome, OUTCOME_ALLOWED)
+        self.assertEqual(calls, [1], "execute() must be invoked when a confirmation path exists")
+        self.assertEqual(decision.detail.get("result"), "ran")
+
+    def test_gate_exec_act_proceeds_without_confirmation_path(self):
+        calls = []
+
+        def execute():
+            calls.append(1)
+            return "copied"
+
+        decision = self.gateway.gate_exec(
+            authority=ACT,
+            action="test.exec.act",
+            command="cp a b",
+            confirm_available=False,
+            execute=execute,
+        )
+        self.assertTrue(decision.allowed, "ACT must never fail closed")
+        self.assertEqual(decision.outcome, OUTCOME_ALLOWED)
+        self.assertEqual(calls, [1])
+
+    def test_gate_exec_read_proceeds_without_confirmation_path(self):
+        decision = self.gateway.gate_exec(
+            authority=READ,
+            action="test.exec.read",
+            command="ls",
+            confirm_available=False,
+            execute=lambda: "file1\nfile2",
+        )
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.outcome, OUTCOME_ALLOWED)
+
+    def test_gate_exec_ledger_records_both_outcomes(self):
+        self.gateway.gate_exec(
+            authority=HIGH_IMPACT,
+            action="test.exec.refuse",
+            command="rm -rf /tmp/x",
+            confirm_available=False,
+            execute=lambda: "unreached",
+        )
+        self.gateway.gate_exec(
+            authority=ACT,
+            action="test.exec.allow",
+            command="cp a b",
+            confirm_available=False,
+            execute=lambda: "ok",
+        )
+        records = self._read_ledger()
+        self.assertEqual(len(records), 2, "each gate_exec call appends exactly one ledger line")
+        outcomes = {r["outcome"] for r in records}
+        self.assertEqual(outcomes, {OUTCOME_REFUSED, OUTCOME_ALLOWED})
+
     def test_failed_write_outside_workspace_is_audited_as_failed_not_refused(self):
         outside = Path(tempfile.mkdtemp()) / "CODEY.md"
         outside.write_text("existing", encoding="utf-8")

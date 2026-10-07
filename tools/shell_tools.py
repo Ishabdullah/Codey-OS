@@ -2,6 +2,14 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from core.action_gateway import (
+    ACT,
+    HIGH_IMPACT,
+    OUTCOME_FAILED,
+    OUTCOME_REFUSED,
+    READ,
+    get_action_gateway,
+)
 from utils.config import AGENT_CONFIG
 from utils.logger import confirm as ask_confirm
 from utils.logger import warning
@@ -151,6 +159,68 @@ def is_dangerous(command: str) -> bool:
     return False
 
 
+READ_COMMANDS = {
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "grep",
+    "find",
+    "wc",
+    "sort",
+    "uniq",
+    "pwd",
+    "which",
+    "env",
+    "printenv",
+    "date",
+    "whoami",
+    "diff",
+    "file",
+    "stat",
+    "du",
+    "df",
+    "tree",
+}
+
+READ_GIT_SUBCOMMANDS = {"status", "log", "diff", "show"}
+
+
+def classify_shell_command(command: str) -> str:
+    """Classify a shell command into one of the three gateway authority
+    classes (READ/ACT/HIGH_IMPACT), for use with ActionGateway.gate_exec().
+
+    Checked in this order, deliberately:
+      1. DANGEROUS_PATTERNS (the existing, narrower, irreversible/
+         security-relevant subset — NOT the broader DANGEROUS_COMMANDS
+         set used by is_dangerous()'s warn-and-confirm path) -> HIGH_IMPACT.
+         Checked first so a pattern match (e.g. "find X -delete") always
+         wins over a base-command read, even though `find` alone would
+         otherwise classify READ.
+      2. A read-only base command (or a read-only git subcommand) -> READ.
+      3. Everything else -> ACT.
+    """
+    cmd_lower = command.lower()
+    for pattern in DANGEROUS_PATTERNS:
+        if pattern in cmd_lower:
+            return HIGH_IMPACT
+
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+
+    if not parts:
+        return ACT
+
+    base = Path(parts[0]).name
+    if base == "git" and len(parts) > 1 and parts[1] in READ_GIT_SUBCOMMANDS:
+        return READ
+    if base in READ_COMMANDS:
+        return READ
+    return ACT
+
+
 def _parse_command(command: str) -> list:
     """Safely parse a shell command into arguments using shlex."""
     try:
@@ -182,36 +252,12 @@ def _validate_command(command: str) -> tuple:
     return True, "OK"
 
 
-def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
+def _execute_shell_command(command: str, timeout: int) -> str:
+    """Actually run `command` via subprocess and return its output as a
+    string. No confirmation, classification, or gating logic here — this
+    is the execution primitive `ActionGateway.gate_exec()` delegates to,
+    the same role `Filesystem.write()` plays for `gate_write()`.
     """
-    Execute a shell command safely. Uses shlex.split() instead of shell=True.
-
-    All commands go through the user confirmation path when confirm_shell=True.
-    Dangerous commands receive an explicit warning before confirmation.
-
-    Args:
-        command: The shell command to execute
-        yolo: Skip confirmation prompts
-        timeout: Command timeout in seconds (default: 30 minutes)
-
-    Returns:
-        Command output or error message
-    """
-    if not command or not command.strip():
-        return "[ERROR] Empty command"
-
-    should_confirm = False
-
-    if is_dangerous(command):
-        warning(f"Potentially dangerous command: `{command}`")
-        should_confirm = True
-    elif AGENT_CONFIG["confirm_shell"] and not yolo:
-        should_confirm = True
-
-    if should_confirm and not yolo:
-        if not ask_confirm(f"Run shell command: `{command}`?"):
-            return "[CANCELLED] User declined to run command."
-
     try:
         args = shlex.split(command)
         if not args:
@@ -235,6 +281,77 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
         return f"[ERROR] Command not found: {command.split()[0]}"
     except Exception as e:
         return f"[ERROR] {e}"
+
+
+def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
+    """
+    Execute a shell command safely. Uses shlex.split() instead of shell=True.
+
+    All commands go through the user confirmation path when confirm_shell=True.
+    Dangerous commands receive an explicit warning before confirmation.
+
+    Routed through core.action_gateway (WP2.1 slice 2): the command is
+    classified (READ/ACT/HIGH_IMPACT), and a HIGH_IMPACT command with no
+    confirmation path available (confirm_shell=False or yolo=True) fails
+    closed — refused and audited, never executed. Classification only
+    affects the audit label and the HIGH_IMPACT fail-closed rule; it does
+    NOT change the existing confirm-prompt behavior below for READ/ACT
+    commands.
+
+    Args:
+        command: The shell command to execute
+        yolo: Skip confirmation prompts
+        timeout: Command timeout in seconds (default: 30 minutes)
+
+    Returns:
+        Command output or error message
+    """
+    if not command or not command.strip():
+        return "[ERROR] Empty command"
+
+    authority = classify_shell_command(command)
+    # Both conditions matter here, not `not yolo` alone: TOOLS["shell"]'s
+    # lambda never forwards yolo (always False there), so confirm_shell is
+    # what's actually set to False in every "nobody's watching" context
+    # (main.py --yolo, fixmode, tdd, the daemon's own prior check). Using
+    # `not yolo` alone would make confirm_available=True (not fail-closed)
+    # in exactly those contexts — the opposite of the intended tightening.
+    confirm_available = (not yolo) and bool(AGENT_CONFIG.get("confirm_shell", True))
+
+    def _attempt() -> str:
+        # Existing confirm-prompt-then-execute logic, unchanged: the gate
+        # above decides *whether to attempt*, not how the attempt behaves
+        # once allowed.
+        should_confirm = False
+
+        if is_dangerous(command):
+            warning(f"Potentially dangerous command: `{command}`")
+            should_confirm = True
+        elif AGENT_CONFIG.get("confirm_shell", True) and not yolo:
+            should_confirm = True
+
+        if should_confirm and not yolo:
+            if not ask_confirm(f"Run shell command: `{command}`?"):
+                return "[CANCELLED] User declined to run command."
+
+        return _execute_shell_command(command, timeout)
+
+    decision = get_action_gateway().gate_exec(
+        authority=authority,
+        action="shell_tools.shell",
+        command=command,
+        confirm_available=confirm_available,
+        execute=_attempt,
+    )
+    if decision.outcome == OUTCOME_REFUSED:
+        return f"[BLOCKED] {decision.reason}"
+    if decision.outcome == OUTCOME_FAILED:
+        # Not reachable in practice today — _attempt()/_execute_shell_command()
+        # already catch every exception internally and return an "[ERROR] ..."
+        # string rather than raising — but handled explicitly rather than
+        # silently falling through to the ALLOWED-shaped return below.
+        return f"[ERROR] {decision.reason}"
+    return decision.detail.get("result", "(no output)")
 
 
 def search_files(pattern: str, path: str = ".") -> str:

@@ -44,7 +44,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from core.filesystem import Filesystem, FilesystemAccessError
 
@@ -220,6 +220,103 @@ class ActionGateway:
             authority=authority,
             action=action,
             path=path,
+            outcome=decision.outcome,
+            reason=decision.reason,
+        )
+        return decision
+
+    def gate_exec(
+        self,
+        *,
+        authority: str,
+        action: str,
+        command: str,
+        confirm_available: bool,
+        execute: Callable[[], str],
+    ) -> GatewayDecision:
+        """Mediate a shell-exec through an arbitrary `execute` thunk.
+
+        Mirrors `gate_write`'s shape: classify-trusted-not-rederived (the
+        caller's `authority` is trusted, not recomputed here), delegate the
+        actual execution to `execute()`, audit every outcome.
+
+        Args:
+            authority: one of READ/ACT/HIGH_IMPACT, as classified by the
+                caller (e.g. tools.shell_tools.classify_shell_command()).
+            action: short label for the audit record identifying the call
+                site (e.g. "shell_tools.shell").
+            command: the shell command string, recorded for audit only —
+                never parsed or re-executed here.
+            confirm_available: True iff a human confirmation path exists
+                in the caller's current context. See module docstring —
+                this is NOT "confirmation was obtained."
+            execute: zero-arg callable that performs the actual command
+                execution and returns its string result. Only invoked when
+                the policy decision allows the attempt; never invoked on
+                the HIGH_IMPACT fail-closed refusal path.
+        """
+        if authority not in AUTHORITY_CLASSES:
+            raise ValueError(f"Unknown authority class: {authority!r}")
+
+        if authority == HIGH_IMPACT and not confirm_available:
+            # Ish's decision (final): HIGH_IMPACT with no confirmation
+            # path fails closed — refuse and audit, never fall through.
+            # `execute` is never called on this branch.
+            decision = GatewayDecision(
+                authority=authority,
+                outcome=OUTCOME_REFUSED,
+                reason="HIGH_IMPACT command with no confirmation path available; "
+                "failing closed per policy (not attempted).",
+                detail={"action": action, "command": command},
+            )
+            self._audit(
+                authority=authority,
+                action=action,
+                command=command,
+                outcome=decision.outcome,
+                reason=decision.reason,
+            )
+            return decision
+
+        # READ is never confirm-gated; ACT proceeds regardless of
+        # confirm_available (confirmation, when available, is applied by
+        # the caller's own prompt logic before/within `execute` — this
+        # gateway only decides whether to attempt, not how the attempt
+        # behaves once allowed); HIGH_IMPACT only reaches this point when
+        # confirm_available is True.
+        try:
+            result = execute()
+        except Exception as e:
+            decision = GatewayDecision(
+                authority=authority,
+                outcome=OUTCOME_FAILED,
+                reason=str(e),
+                detail={"action": action, "command": command},
+            )
+            self._audit(
+                authority=authority,
+                action=action,
+                command=command,
+                outcome=decision.outcome,
+                reason=decision.reason,
+            )
+            return decision
+
+        decision = GatewayDecision(
+            authority=authority,
+            outcome=OUTCOME_ALLOWED,
+            reason="command executed",
+            detail={"action": action, "command": command, "result": result},
+        )
+        # The command's output is deliberately kept out of the audit
+        # ledger itself (only in `decision.detail`, in-process) — it can
+        # be arbitrarily large or contain secrets, and the ledger's job
+        # is recording that an action happened and how it was classified,
+        # not mirroring full command output to disk.
+        self._audit(
+            authority=authority,
+            action=action,
+            command=command,
             outcome=decision.outcome,
             reason=decision.reason,
         )
