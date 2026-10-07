@@ -1,4 +1,94 @@
-## 2026-10-07 (P1 begins) — WP1.2: the stranded `codey-os-dev-v2` branch reconciled and deleted. **START HERE for the next session.**
+## 2026-10-07 (P1 continues) — WP1.3: rollback + model/adapter registry, and a process correction mid-round. **START HERE for the next session.**
+
+**What changed:** CLAUDE.md rule 1's missing 4th element (gate, frozen
+suite, and ledger exist; rollback was "3-of-4 in code" per the census).
+Commit `234f0c6`. **Also: Ish caught that this round had silently
+dropped the hub-and-spoke pipeline's architect step** — the coordinator
+had been self-scoping and self-implementing every WP since P0, with only
+the code-reviewer gate intact. Corrected mid-task: this is the first WP
+this session routed through `project-architect` before `implementer`,
+and that correction is now the standing approach going forward, not a
+one-off.
+
+- **The gap:** `core/lora_import.py`'s `import_lora_adapter()` consulted
+  no gate at all before swapping a model into place; no registry
+  recorded what was adopted, when, under what gate decision, or how to
+  undo it.
+- **New `core/model_registry.py`** records every adoption ATTEMPT —
+  refused or adopted — via `core.state`'s shared SQLite store (new
+  `StateStore` methods mirroring its existing `checkpoints` block
+  exactly, not a new storage format). `import_lora_adapter()` gained
+  `gate_decision=None` (defaults to `bench.gate.no_evaluator()` — always
+  refuse) and a new `rollback_adoption(registry_id)` wiring the
+  *existing*, already-correct `rollback_to_backup()` — not
+  `core/checkpoint.py`'s `rollback()`, which only backs up `core/*.py`
+  files and does a disruptive git checkout, never captures a model file
+  at all. The blueprint's own citation of `checkpoint.py:184` was a
+  misclassification, corrected per rule 6 (`NEW-810`).
+- **project-architect's scoping caught two real DoD-violating bugs**
+  before any code review, in the coordinator's own first draft: (1)
+  `import_lora_adapter()` used to adopt a model even when
+  `create_backup_before_import()` failed — permanently unrollbackable;
+  (2) `prune_adoptions()` pruned purely by recency, which could delete
+  the only registry row pointing at the live model once enough newer
+  refused attempts accumulated. Both fixed before implementer even
+  started on the remaining work.
+- **Ish directly caught a design flaw mid-implementation**, in the first
+  draft of a new `--lora-force-adopt` CLI override flag (for adopting
+  without benchmark evidence): it fabricated a passing `gate_decision`,
+  which would have stored `gate_promote=1` for an operator override
+  exactly like a real gate pass — indistinguishable from real evidence
+  to anyone querying the registry. Fixed: a new, independent
+  `is_operator_override` column records the override alongside the
+  gate's own honest (refused) verdict, never overwriting it. Fail-closed
+  default (no override, no evidence → always refuse) is unchanged and
+  tested specifically to prove it.
+- **code-reviewer: two rounds**, the first CHANGES REQUESTED — found a
+  third instance of the same audit-completeness bug class
+  (`NEW-811`: a post-gate early return with no registry record), this
+  one in the `merge_on_device=True` branch, which also had zero test
+  coverage of any kind until this round. Fixed and re-reviewed:
+  APPROVED.
+- **29 tests, all passing**, verified across every implementation round
+  via a direct `sqlite3` query against the real on-device
+  `~/.codeyOS/state.db` — the `model_adoptions` table was never created
+  there, confirming zero writes to real device state throughout.
+- **Scoping, stated honestly rather than overclaimed:** this closes rule
+  1's rollback gap for the **model-swap path only**
+  (`core/lora_import.py`) — `ccos/core/capability_optimizer.py`'s
+  separate capability/plugin promotion path still backs up to
+  `data/versions/` with nothing reading it, still unrollbackable,
+  out of this WP's scope (`NEW-813`). `prune_adoptions()`/
+  `get_latest_adopted()` have zero production callers yet — dead code,
+  honestly disclosed, not a regression (`NEW-814`).
+- **Tier (rule 7):** code-complete + code-reviewer approved (2 rounds)
+  + test-verified. Not live-verified against a real model swap (no real
+  llama-server load attempted this round, consistent with rule 2 — every
+  test mocks the loader/resource-gate layer).
+- **Findings logged:** `NEW-810` (blueprint citation correction),
+  `NEW-811` (three audit-completeness gaps, fixed), `NEW-812` (table
+  creation at import time, mirrors an existing pattern, not changed),
+  `NEW-813` (scoping clarification), `NEW-814` (dead-code callers gap,
+  logged not fixed).
+- **Separately, in parallel this round:** Ish gave a long-term
+  architectural vision brief (persistent companion AI, human/device/
+  identity modeling, capability-based authority, controlled
+  self-extension) for integration into `CODEY_OS_MASTER_BLUEPRINT.md`.
+  Routed to `project-architect` as its own dispatch, running
+  concurrently with WP1.3's review — see that work's own entry (written
+  separately once it completes, to avoid a doc-write collision with this
+  entry). Ish was explicit that this is an **expansion**, not a
+  replacement: the existing self-improvement/learning architecture
+  (reflection, performance tracking, the gate, trajectory fidelity, the
+  registry this WP just built) must be preserved and continues to
+  coexist with the new human/device/identity learning dimensions, not be
+  subordinated by them.
+- **Where to begin next session:** WP1.4 (write the scorecard rubric
+  into the repo) is next in P1's order. Check whether the companion-AI
+  blueprint integration (parallel track) has landed and been committed
+  before starting new work on `CODEY_OS_MASTER_BLUEPRINT.md`.
+
+## 2026-10-07 (P1 begins) — WP1.2: the stranded `codey-os-dev-v2` branch reconciled and deleted.
 
 **What changed:** first item of P1 (measurement trustworthiness), per Ish's
 "continue" into P1 after P0 closed. `codey-os-dev-v2` was a cloud-orchestrator
