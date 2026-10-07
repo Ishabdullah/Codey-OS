@@ -2892,21 +2892,65 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway**
+**WP2.1 — Build the Action Gateway** — **SLICE 1 DONE 2026-10-07; full DoD
+not yet met (far from it — see residual scope below).** Code-reviewer-approved
+(`a5b93379043fcf32c`). Commit `021ecf9`.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
-- *Deps:* P0 (don't build a gateway around known-broken paths).
-- *Repo:* Codey-OS — new module; `core/agent.py:335-352`,
-  `ccos/core/plugin_manager.py:446`, `restoricon_core/` all route through it.
+- *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
+- *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
+  `ccos/core/plugin_manager.py:446`, `restoricon_core/` all route through it
+  — **not yet done, slice 1 touched neither of these.**
+- **Slice 1 scope (deliberately narrow, per project-architect's decision that
+  the full WP was too large for one dispatch):** defined all three authority
+  classes (`READ`/`ACT`/`HIGH_IMPACT`) now, per §16.9/§23.4.1 — taxonomy
+  decided up front since adding a class later means re-deciding every call
+  site. **Ish's decision (confirmed live this session, final, not
+  provisional):** `HIGH_IMPACT` with no confirmation path available fails
+  closed — refuses and audits, never falls through. `READ` is never
+  confirm-gated; `ACT` always proceeds (audited). The gateway classifies +
+  decides + audits, and delegates the actual write to the *existing*
+  `core/filesystem.py`'s `Filesystem.write()` rather than reimplementing
+  path-validation/snapshot logic — avoiding a 4th parallel mediation surface,
+  which was the explicit failure mode §23.4.1 warned against. Audit sink:
+  append-only JSONL at `CODEY_STATE_DIR/action_gateway_audit.jsonl`
+  (env-overridable), matching this repo's real state-directory convention.
+- **One real caller wired this round: `core/preferences.py`'s
+  `_sync_to_codeymd` (`NEW-817`, now fixed)** — classified `HIGH_IMPACT`,
+  gained a provenance marker, bare `except Exception: pass` replaced with two
+  distinct logged paths. **Live behavior change, stated plainly (rule 6/7):**
+  since this call site never has a confirmation path today, CODEY.md
+  Conventions mirroring is now a permanent no-op in production until a future
+  slice wires real confirmation — this was the implementer's classification
+  judgment (which authority class this call site is), not literally dictated
+  by Ish's HIGH_IMPACT-policy ruling itself.
 - *Intent:* shell exec, file write/patch/delete, git writes, outbound HTTP, DB
   writes, message/email sends, device actions — all pass one audited,
   policy-checked boundary. Capability manifest `permissions` / `resource_limits`
-  become **enforced**, not metadata.
+  become **enforced**, not metadata. **Slice 1 covers exactly one file-write
+  call site. A repo-wide grep for direct write primitives
+  (`write_text(`/`open(...,"w"`/`os.remove(`/`shutil.`/`.writelines(`) across
+  `core/`, `ccos/`, `tools/`, `restoricon_core/` (excluding tests) found
+  42 non-test files — slice 1 touched 1 of them. Shell exec, git writes,
+  outbound HTTP, DB writes, message/email sends, and device actions are
+  entirely untouched.** Sequencing the remaining slices (by call-site
+  category, roughly matching the *Intent* line's own list) is open work.
+- **Two findings logged, not fixed (`NEW-834` Low, `NEW-835` Low):** a
+  pre-existing user-authored CODEY.md line could be silently overwritten by
+  a future *allowed* sync (currently unreachable — fail-closed means this
+  path never reaches the overwrite today); the audit-write's `mkdir` call
+  sits outside its own `try/except`, could propagate uncaught to a future,
+  differently-wrapped caller.
 - *Tests:* every destructive primitive is unreachable except via the gateway (an
-  invariant test, like §15.4's dormancy assertion).
-- *Gate:* code-reviewer (mandatory — security + process control).
+  invariant test, like §15.4's dormancy assertion) — **met for the one call
+  site slice 1 covers; not yet true repo-wide.** 10/10 new tests pass, plus a
+  24-test regression check; code-reviewer additionally live-smoke-tested the
+  real production audit-ledger path (not just test fixtures).
+- *Gate:* code-reviewer (mandatory — security + process control) —
+  **APPROVED.**
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone.
+  split is gone. **Not yet met — 41 of 42 known write-primitive files remain
+  unmediated, plus every non-file-write category in the *Intent* line.**
 
 **WP2.2 — Worlds / Playground isolation**
 - *Objective:* developmental work can never address the live store (§9.3, directive §5).

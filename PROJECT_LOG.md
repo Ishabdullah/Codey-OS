@@ -1,4 +1,70 @@
-## 2026-10-07 (P1 continues) — WP1.5's residual closed: bench/verify.py no longer swallows real errors as False. **This closes out P1 — next unstarted item is P2 (WP2.1, the Action Gateway). START HERE for the next session.**
+## 2026-10-07 (P2 begins) — WP2.1 slice 1: the Action Gateway exists, with its first real call site wired (NEW-817 closed). Far from full DoD. **START HERE for the next session.**
+
+**What changed:** this is the first P2 item, and the first architecturally
+significant (not narrow-surgical) work this session. project-architect's
+scoping concluded the full WP was too large for one implementer dispatch
+and proposed slice 1: the gateway's taxonomy + one real caller, with the
+remaining ~41 write-primitive files and every non-file-write category
+(shell exec, git writes, HTTP, DB writes, messages, device actions)
+explicitly deferred as open, sequenced work — not implied closed.
+
+- **One real design decision needed Ish's sign-off before implementation,
+  surfaced via AskUserQuestion rather than guessed at:** when the
+  unattended daemon (which runs with no human present to confirm) attempts
+  a `HIGH_IMPACT` action (delete important data, spend money, change
+  security settings, modify Codey itself), should it fail closed + audit,
+  or fall through and allow it? **Ish's answer: fail closed + audit**
+  (the architect's own recommendation — a wrong silent fallthrough on the
+  highest-impact class is worse than an unnecessary refusal, and a refusal
+  is always reversible later). This is now the gateway's actual policy,
+  not a provisional default.
+- **New `core/action_gateway.py`:** three authority classes (`READ`/`ACT`/
+  `HIGH_IMPACT`) defined now per §16.9/§23.4.1, even though slice 1 only
+  enforces one call site — adding a class later would mean re-deciding
+  every call site already wired. The gateway classifies + decides + audits,
+  then delegates the actual write to the *existing* `core/filesystem.py`'s
+  `Filesystem.write()` — a deliberate choice to avoid building a 4th
+  parallel mediation surface on top of the three disjoint ones (coding-agent
+  tools, CCOS capabilities, `restoricon_core/`) the blueprint's §16.1
+  already documents. Audit sink: append-only JSONL. **The implementer
+  deviated from the task spec's suggested storage path** (`core/data/`,
+  which doesn't exist in this repo) **after verifying the actual
+  convention** — used `CODEY_STATE_DIR`, matching `core/checkpoint.py`/
+  telemetry/`core/trajectory.py` exactly, rather than following a stale
+  suggestion.
+- **First real caller: `core/preferences.py`'s `_sync_to_codeymd`, closing
+  `NEW-817`.** Previously wrote any preference ≥0.8 confidence directly
+  into the user's own `CODEY.md`, no provenance marker, bare
+  `except Exception: pass`. Now routed through the gateway as
+  `HIGH_IMPACT`, with a provenance marker and two distinct logged failure
+  paths instead of a silent swallow.
+- **Live behavior change, disclosed rather than buried (rule 6/7):** since
+  this call site never has a confirmation path today, CODEY.md Conventions
+  mirroring is now a permanent no-op in production until a future slice
+  wires real confirmation. Code-reviewer specifically flagged that this
+  particular classification (this call site *is* `HIGH_IMPACT`, vs. e.g.
+  `ACT`) was the implementer's judgment call, not literally dictated by
+  Ish's policy ruling — worth remembering if a future review revisits it.
+- **Code-reviewer (`a5b93379043fcf32c`) independently re-derived the
+  fail-closed logic, confirmed the `Filesystem` delegation by reading both
+  files' call chains, re-ran all tests (10/10 plus a 24-test regression
+  check), and additionally live-smoke-tested the real production audit-
+  ledger path** (every unit test only exercised the env-var-override
+  branch) — found it worked, and found two non-blocking Warnings: (A) the
+  permanent-no-op behavior change above, and (B) `_append_audit`'s `mkdir`
+  call sits outside its own `try/except`, could surface uncaught to a
+  future, differently-wrapped caller. **Verdict: APPROVED.** The reviewer's
+  own smoke test appended one harmless line to the real on-device audit
+  ledger during verification — removed before commit, not left as
+  production-state pollution from a review step.
+- **Two findings logged, not fixed (`NEW-834`, `NEW-835`):** both Low
+  severity, both already described above.
+- *Gate:* code-reviewer — **APPROVED.** *DoD:* **not met** — this is slice 1
+  of a multi-slice WP; 41 of 42 known write-primitive files remain
+  unmediated, plus every non-file-write category. Next slice(s) need their
+  own scoping round, sequenced by call-site category.
+
+## 2026-10-07 (P1 continues) — WP1.5's residual closed: bench/verify.py no longer swallows real errors as False. **This closes out P1.**
 
 **What changed:** `bench/verify.py`'s `grade()` had a bare
 `except Exception: return False` — any real harness-side failure (a
