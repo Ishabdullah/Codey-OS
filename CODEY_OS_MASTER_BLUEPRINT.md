@@ -2800,18 +2800,52 @@ CHANGES REQUESTED round (a self-contradicting instructional comment in
   this item's own DoD.
 
 **WP1.7a — Pin `install.sh`'s llama.cpp clone** *(Ish's decision 4b)* —
-**still open.** `install.sh:217` remains an unpinned `git clone --depth 1`
-as of 2026-10-07 — this item was not touched by WP1.7's dependency-list
-round.
+**DONE 2026-10-07.** Code-reviewer-approved (`a667a6ddd33119dae`), after one
+CHANGES REQUESTED round (a missing `--depth 1` on the existing-checkout
+fetch, live-reproduced hanging >2m33s against a shallow clone before the
+fix; re-tested at 42s after). Commit `598b81f`.
 - *Objective:* fix `NEW-757`'s root cause — the unpinned clone that caused this
   drift twice and left the OpenCL repo's preservation audit stale (`NEW-788`).
-- *Deps:* none. *Repo:* Codey-OS — `install.sh:219-220`.
-- *Intent:* pin `install_llama_cpp()`'s `git clone --depth 1` to **`4f540676`**
-  (current, verified to have `--load-mode` and to match the Termux package's flag
-  set). Patch forward-port is **not** part of this — deferred to WP3.4.
-- *Tests:* a fresh install resolves the pinned revision; the spawn contract from
-  `b5b805a` still works against it.
-- *Doc:* correct the OpenCL repo's preservation-audit premise (`NEW-788`).
+- *Deps:* none. *Repo:* Codey-OS — `install.sh`.
+- **Premise re-verified live on-device before fixing** (same caution
+  WP1.6/WP1.7 needed): `~/llama.cpp` HEAD was already
+  `4f5406761517648c23dbd60ea5ade37f77a316c9` — the pin costs nothing on
+  this device. The real fix needed was broader than "add a pin": the
+  early-return guard (when `build/bin/llama-server` already exists) was
+  silently skipping all clone/pull logic — invisible on any already-built
+  machine, this device included, which is the actual `NEW-757` drift path.
+- *Intent:* added `LLAMA_CPP_PIN="4f5406761517648c23dbd60ea5ade37f77a316c9"`.
+  Early-return guard now does a read-only HEAD check and warns on mismatch
+  without touching the tree. Existing-checkout branch checks
+  `git status --porcelain` first — clean+mismatched fetches+checks out the
+  pin, dirty tree only warns and builds from existing source, **never
+  auto-stashes** (this device's real uncommitted Vulkan CMakeLists.txt
+  patch exercises this exact path today). Fresh-clone path fetches the
+  pinned SHA directly (`git init` + `remote add` + `fetch --depth 1` +
+  `checkout`). Patch forward-port is **not** part of this — deferred to
+  WP3.4.
+- **Found, not resolved (flag for WP3.4):** the local Vulkan
+  `ggml/src/ggml-vulkan/CMakeLists.txt` patch exists only in the working
+  tree — captured in no committed file, no script, in either repo. Whether
+  it's load-bearing for the build or merely cosmetic is unresolved without
+  a real `cmake --build`, correctly out of this item's scope.
+- **Finding logged, not fixed (`NEW-831`, Confirmed):**
+  `docs/installation.md`'s manual-install walkthrough still clones llama.cpp
+  unpinned, silently reintroducing the same flag-drift bug for anyone
+  following it by hand. (`NEW-832`, Suspected, Low: the same doc's Step 3
+  may still name the retired Qwen2.5-Coder-7B — not independently
+  confirmed.)
+- *Tests:* a fresh install resolves the pinned revision — verified in a
+  scratch dir, both the fetch-by-SHA fresh-clone path and the
+  existing-checkout path against both clean-mismatched and dirty-tree
+  states, plus a read-only re-check against the real `~/llama.cpp`
+  confirming no drift warning and no state change. **Met.**
+- *Doc:* corrected the OpenCL repo's preservation-audit premise (`NEW-788`,
+  OpenCL-S24-Ultra commit `8bd7fa0`) — two sections claiming an unchanged
+  HEAD now note the real 2026-10-06 move, without over-claiming the
+  unverifiable "stashed and reapplied" mechanism for the Vulkan patch (the
+  implementer checked `b5b805a`'s own diff and found no such claim there;
+  wrote only what was independently live-verified instead). **DONE.**
 - *DoD:* `install.sh` produces a binary whose flag set matches what
   `core/loader_v2.py` emits, deterministically.
 - *Tests:* a clean-environment install check in CI if feasible.

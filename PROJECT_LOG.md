@@ -1,4 +1,63 @@
-## 2026-10-07 (P1 continues) — WP1.7: dependency/install.sh drift fixed in both directions, plus a NEW-824 doc-sync done inline so it didn't bloat the queue. **START HERE for the next session.**
+## 2026-10-07 (P1 continues) — WP1.7a: llama.cpp pin landed, closing NEW-757's root cause across two repos. **START HERE for the next session.**
+
+**What changed:** same re-verify-live-on-device caution as WP1.6/WP1.7 —
+`~/llama.cpp` HEAD was already `4f5406761517648c23dbd60ea5ade37f77a316c9`
+(confirmed via the built binary's own version string and flag set), so
+pinning `install.sh` to it costs nothing on this device. The real work
+was broader than "add a pin constant": `install_llama_cpp()`'s
+early-return guard (when `build/bin/llama-server` already exists) was
+silently skipping all clone/pull logic entirely — invisible on any
+already-built machine, this device included, and the actual `NEW-757`
+drift path the item exists to close.
+
+- **Fix (commit `598b81f`):** added `LLAMA_CPP_PIN`; the early-return
+  guard now does a read-only HEAD check and warns on mismatch without
+  touching the tree; the existing-checkout branch checks
+  `git status --porcelain` first — clean+mismatched fetches+checks out
+  the pin, dirty tree only warns and builds from existing source,
+  **never auto-stashes** (this device's real uncommitted Vulkan
+  `CMakeLists.txt` patch exercises exactly this path today, and a
+  scripted stash-checkout-pop on an unattended install is exactly the
+  kind of build-step automation that can leave a conflicted tree); the
+  fresh-clone path fetches the pinned SHA directly rather than cloning
+  HEAD.
+- **Code-reviewer caught a real bug on the first pass (CHANGES
+  REQUESTED), by live-reproducing the script's own commands rather than
+  re-reading the diff:** the existing-checkout fetch was missing
+  `--depth 1`, unlike its fresh-clone sibling three lines later. Against
+  a scratch shallow clone matching this device's actual `.git/shallow`
+  shape, the un-flagged command hung for 2m33s and grew to 301MB before
+  the reviewer killed it; the fresh-clone sibling (with the flag) did the
+  same fetch in ~20s/38MB. This matters for every future pin bump against
+  a shallow checkout — the normal case. Fixed, re-tested at 42s, re-approved.
+- **Cross-repo doc correction, done carefully (rule 5/6):** `NEW-788`
+  flagged OpenCL-S24-Ultra's `OPENCL_PERFORMANCE_ANALYSIS.md` for
+  claiming `~/llama.cpp`'s HEAD was unchanged throughout its audit. The
+  implementer drafted a correction, then caught — by actually checking
+  `git show --stat b5b805a` rather than trusting the architect's handoff
+  text — that the handoff's claim the Vulkan CMake patch was "stashed and
+  cleanly reapplied" during the rebuild wasn't verifiable anywhere; wrote
+  only what was independently confirmed live instead
+  (`git status --porcelain` still shows the file modified today).
+  Code-reviewer independently re-verified both correction notes against
+  the real repos and approved as-is, no changes needed. Commit `8bd7fa0`
+  in OpenCL-S24-Ultra.
+- **Found, not resolved — flagged for WP3.4:** whether the uncommitted
+  Vulkan CMake patch is load-bearing for the build or merely cosmetic
+  remains open; answering it needs a real `cmake --build`, correctly
+  excluded from this round's scope.
+- **Two findings logged, not fixed:** `NEW-831` (Confirmed) —
+  `docs/installation.md`'s manual-install walkthrough still clones
+  llama.cpp unpinned, silently reintroducing the exact flag-drift bug
+  this round fixed for the scripted path. `NEW-832` (Suspected, Low) —
+  the same doc may still name the retired Qwen2.5-Coder-7B, noticed in
+  passing, not independently confirmed.
+- *Gate:* code-reviewer — **APPROVED** (both repos) after one CHANGES
+  REQUESTED round. *DoD:* met — a fresh install resolves the pinned
+  revision, verified in a scratch dir across all branches plus a
+  read-only re-check against the real device.
+
+## 2026-10-07 (P1 continues) — WP1.7: dependency/install.sh drift fixed in both directions, plus a NEW-824 doc-sync done inline so it didn't bloat the queue.
 
 **What changed:** same re-verify-the-premise caution WP1.6 needed, applied
 again: project-architect found WP1.7's stated premise had partially

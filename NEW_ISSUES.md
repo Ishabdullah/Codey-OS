@@ -20639,3 +20639,17 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Not fixed this round** — same drift class as `NEW-826`, deferred alongside it rather than fixed piecemeal.
 - **Fix direction (not applied):** resolve as part of `NEW-826`'s eventual single-source-of-truth consolidation.
 - **Cross-reference:** `requirements.txt`, `install.sh:172-186`, `NEW-826`.
+
+### [NEW-831] Confirmed: `docs/installation.md`'s manual-install walkthrough clones llama.cpp unpinned, silently reintroducing the flag-drift bug `install.sh` just fixed
+
+- **Status:** Confirmed (WP1.7a, 2026-10-07, found by implementer `adca672eb07506cad`, corroborated by code-reviewer `a667a6ddd33119dae`). `docs/installation.md:34-41`'s "Build llama.cpp" step does a bare `git clone https://github.com/ggerganov/llama.cpp ~/llama.cpp` with no commit pin and no `--depth 1`/`git checkout <pin>` follow-up. As of this round, `install.sh`'s `install_llama_cpp()` pins to `4f5406761517648c23dbd60ea5ade37f77a316c9` (`LLAMA_CPP_PIN`) specifically because the Termux-packaged llama.cpp drifted (`--mmap`/`--no-mmap` → `--load-mode`, `NEW-754`/`NEW-757`/`NEW-758`) and `core/loader_v2.py` depends on that exact commit's flag set. Anyone following this doc verbatim today gets current upstream HEAD, not the verified commit — silently reintroducing the exact flag-drift bug this round fixed for the scripted path.
+- **Not fixed this round** — documentation-only, out of WP1.7a's code scope.
+- **Fix direction (not applied):** add a `git checkout 4f5406761517648c23dbd60ea5ade37f77a316c9` line (or equivalent) to Step 2, with a note that it must track `install.sh`'s `LLAMA_CPP_PIN` if that constant is ever bumped.
+- **Cross-reference:** `install.sh` (`LLAMA_CPP_PIN`, commit `598b81f`), `NEW-757`, `NEW-758`, `docs/installation.md:34-41`.
+
+### [NEW-832] Suspected, Low: `docs/installation.md`'s Step 3 still names the retired Qwen2.5-Coder-7B as the model to download
+
+- **Status:** Suspected, Low — noticed in passing by the implementer while working on `NEW-831`, not independently investigated. `docs/installation.md`'s Step 3 (~line 47) names "Primary model — Qwen2.5-Coder-7B" as the model to download. `install.sh`'s own header comment (lines 24-32) documents this model as retired as of the 2026-08-23 M1 migration to Qwen3.5-4B, with no code path left that loads it. Same stale-doc class as `NEW-831`, different line, not confirmed with a full read of the surrounding section.
+- **Not fixed this round** — documentation-only, not investigated beyond the initial sighting.
+- **Fix direction (not applied):** re-read the full section and update to Qwen3.5-4B if confirmed stale.
+- **Cross-reference:** `docs/installation.md` Step 3, `install.sh:24-32`, blueprint §6.2 (M1 migration).
