@@ -2196,7 +2196,7 @@ on.
 
 ### P1 — Make measurement trustworthy (S0)
 
-**WP1.1 — CI and test hygiene** *(cheapest high-value change in the blueprint)*
+**WP1.1 — CI and test hygiene** *(cheapest high-value change in the blueprint)* — **DONE 2026-10-07.** `.github/workflows/tests.yml` + `pytest.ini` (`norecursedirs = bench/tasks`, the 8 collection errors it was causing are gone) + root `conftest.py` (proxy-var clearing, NEW-756). code-reviewer APPROVED. Local baseline (can't fully verify here — see `NEW-791`): 1456 passed/1 skipped across everything except `tests/test_restoricon_core`, which OOM-crashes this specific device at ~81% through the full run; not caused by this change, logged as `NEW-791`, first real CI run should be watched for the same shape.
 - *Objective:* 2,854 existing tests actually run (§20.1).
 - *Deps:* none. *Repo:* Codey-OS — new `.github/workflows/`, `pytest.ini`, root
   `conftest.py`.
@@ -2220,7 +2220,7 @@ on.
 - *DoD:* `_MAX_RESULT` no longer truncates at record time; dev-v2 is merged or
   formally superseded and the branch deleted.
 
-**WP1.3a — Derive the gate's required sample size** *(Ish's decision 3; do before WP1.3)*
+**WP1.3a — Derive the gate's required sample size** *(Ish's decision 3; do before WP1.3)* — **DONE 2026-10-07.** `bench/power_analysis.py` + `.md`. No reviewer gate per this work package's own spec. **Honest result, not the hoped-for direction:** under every scenario tried, 30 pairs is under-powered, not conservative — the table ranges 57-182 required pairs depending on assumed discordance/effect size (no empirical estimate exists, `NEW-762`'s empty ledger). Working default pending a pilot: n=100 (~22-24h device time at this session's measured ~780-820s/task-rep), which is *more* device time than the old 30-pair/13h figure, not less — reported as derived, not shaded toward the old number.
 - *Objective:* replace the 30-pair/~13 h figure with a statistically derived `n`.
 - *Deps:* none — this is arithmetic, **zero device time**.
 - *Intent:* power analysis for the effect size the gate needs to detect. The 30-pair
@@ -2342,7 +2342,7 @@ on.
 - *Tests:* a patch can be reverted; protected paths refused.
 - *DoD:* every `patch_file` call is recoverable.
 
-**WP2.3a — Remove `ccos/` from sandbox `ALLOWED_DIRS`** *(Ish's decision 5)*
+**WP2.3a — Remove `ccos/` from sandbox `ALLOWED_DIRS`** *(Ish's decision 5)* — **DONE 2026-10-07.** `ccos/core/sandbox.py` entry removed; `ccos/tests/test_sandbox_path_validation.py`'s invariant test asserts on the resolved path (not source text), plus a behavioral test confirming a `ccos/` file access is now blocked. code-reviewer APPROVED (also swept `Sandbox(` callers repo-wide — none depend on `ccos/` being writable).
 - *Objective:* close the self-modification hole before it can ever matter.
 - *Deps:* none — **can land immediately**; the sandbox never runs today, so this
   costs nothing and carries no regression risk.

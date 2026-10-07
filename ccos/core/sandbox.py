@@ -20,9 +20,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-# Allowed directories for sandbox operations
+# Allowed directories for sandbox operations.
+#
+# ccos/ itself is deliberately NOT here (removed 2026-10-07, Ish's decision
+# 5 in CODEY_OS_MASTER_BLUEPRINT.md WP2.3a): a sandbox that can write to the
+# capability layer governing it is a self-modification hole. The sandbox
+# never runs today, so this costs nothing; self-modification is a
+# capability to grant deliberately later, behind the promotion gate with
+# working rollback (WP1.3), not one inherited from a config default written
+# before the gate existed. See ccos/tests/test_sandbox_path_validation.py.
 ALLOWED_DIRS = [
-    str(Path(__file__).parent.parent),  # ccos/ directory
     tempfile.gettempdir(),  # platform temp dir; on Termux this is $PREFIX/tmp,
     # not bare /tmp -- the sandbox's own tempfile.mkdtemp()-created working
     # dir (see Sandbox.__init__ below) must resolve inside this or every

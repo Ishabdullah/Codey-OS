@@ -48,18 +48,33 @@ def test_path_inside_allowed_dirs_still_runs():
         sandbox.cleanup()
 
 
-def test_path_inside_repo_allowed_dir_still_runs():
-    """A command referencing an absolute path under the `ccos/` allowed
-    dir (the ALLOWED_DIRS entry that isn't the platform temp dir) still
-    runs -- distinct from test_path_inside_allowed_dirs_still_runs, whose
+def test_ccos_dir_is_not_in_allowed_dirs():
+    """Invariant (WP2.3a, Ish's decision 5, 2026-10-07): ccos/ must never be
+    in ALLOWED_DIRS. A sandbox that can write to the capability layer
+    governing it is a self-modification hole; self-modification is a
+    capability to grant deliberately later, behind the promotion gate with
+    working rollback, not one a config default reopens silently. Asserts
+    on the resolved path, not source text, so a future refactor (e.g.
+    re-deriving the entry from __file__ under a different name) can't
+    silently reintroduce it."""
+    from ccos.core.sandbox import ALLOWED_DIRS
+
+    ccos_dir = str(Path(__file__).resolve().parent.parent)
+    resolved = [str(Path(d).resolve()) for d in ALLOWED_DIRS]
+    assert ccos_dir not in resolved, f"ccos/ must not be sandbox-writable: {resolved}"
+
+
+def test_path_inside_repo_ccos_dir_is_blocked():
+    """A command referencing an absolute path under `ccos/` is blocked --
+    distinct from test_path_inside_allowed_dirs_still_runs, whose
     self._tmp_dir path lands under tempfile.gettempdir() and so doesn't
-    exercise the ccos/ entry at all."""
+    exercise this boundary at all."""
     sandbox = Sandbox()
     try:
         repo_file = Path(__file__).resolve().parent.parent / "core" / "sandbox.py"
         result = sandbox.run_command(f"cat {repo_file}")
-        assert result.success, f"In-repo allowed path should still run: {result.stderr}"
-        assert "class Sandbox" in result.stdout
+        assert not result.success, "ccos/ path should be blocked post-WP2.3a"
+        assert "VIOLATION" in result.stderr
     finally:
         sandbox.cleanup()
 
@@ -82,7 +97,9 @@ if __name__ == "__main__":
     print("  [PASS] Path outside allowed dirs is blocked")
     test_path_inside_allowed_dirs_still_runs()
     print("  [PASS] Path inside allowed dirs still runs")
-    test_path_inside_repo_allowed_dir_still_runs()
-    print("  [PASS] Path inside ccos/ allowed dir still runs")
+    test_ccos_dir_is_not_in_allowed_dirs()
+    print("  [PASS] ccos/ is not in ALLOWED_DIRS")
+    test_path_inside_repo_ccos_dir_is_blocked()
+    print("  [PASS] Path inside ccos/ is blocked")
     test_preexisting_blocked_commands_still_blocked()
     print("  [PASS] Pre-existing BLOCKED_COMMANDS behavior untouched")
