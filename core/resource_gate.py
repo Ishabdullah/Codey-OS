@@ -979,6 +979,24 @@ class ModelArch:
     # NEW_ISSUES.md gets a separate entry for the dead "kv_type" config key
     # (out of scope for this sub-task — signal sourcing/estimation only).
     kv_bytes_per_element: int = 2
+    # Number of llama-server sequence slots recurrent_state_bytes's single-
+    # slot figure must be multiplied by at estimate time (see
+    # estimate_model_load_cost()). 1 (the default) means "conventional
+    # single-slot launch" — the same "unset/default means byte-for-byte
+    # unchanged" pattern n_attention_layers uses. Set explicitly only where
+    # the real launch command runs more than one slot; see QWEN35_4B_ARCH's
+    # own comment (NEW-205) for why that is true here specifically. MUST be
+    # revisited if core/loader_v2.py ever grows a `--parallel`/`-np`/`-G`
+    # flag (it would then set the server's real slot count directly instead
+    # of this falling out of the vendored binary's unset-`-np` default), if
+    # a llama.cpp bump changes that default away from 4, OR if speculative
+    # decoding is ever enabled for this model — that makes the vendored
+    # allocator's `n_rs_seq` term nonzero (`draft.n_max`), so the real
+    # recurrent-state multiplier becomes `n_seq_max * (1 + n_rs_seq)`, not
+    # the bare `n_seq_max` this field encodes today (see QWEN35_4B_ARCH's
+    # own comment for the confirmed-zero derivation this currently relies
+    # on).
+    n_seq_max: int = 1
 
 
 # The two retired models (CODEY_MASTER_PLAN.md §1.4, 2026-08-22). No entry
@@ -1033,25 +1051,47 @@ QWEN25_1_5B_ARCH = ModelArch(n_layers=28, n_kv_heads=2, head_dim=128)
 #     2-byte fp16 the KV cache uses. Do not assume this follows
 #     kv_bytes_per_element; it does not.
 #
-# So: ((4 - 1) * (4096 + 2 * 16 * 128) + 128 * 4096) * 4 * 24
-#   = 52,690,944 bytes (50.25MiB).
+# So, for ONE sequence slot: ((4 - 1) * (4096 + 2 * 16 * 128) + 128 * 4096)
+#   * 4 * 24 = 52,690,944 bytes (50.25MiB).
 #
 # This is now SOURCE-DERIVED BUT STILL NOT MEASURED. Reading the allocator
 # is stronger evidence than the formula it replaced, but M1-E keeps its
 # measurement task — real resident cost is what settles it.
 #
 # One caveat that is NOT obvious: llama.cpp allocates recurrent state PER
-# SEQUENCE SLOT (llama-memory-recurrent.cpp:100-101, n_rows =
-# max(1, n_seq_max)), so this figure is for a single slot — llama-server's
-# default. It scales with n_seq_max / --parallel: negligible at one slot,
-# not negligible at eight, and the concurrency work in §6.2 is about to
-# start setting that flag.
+# SEQUENCE SLOT (llama-memory-recurrent.cpp:100-101, n_rows = mem_size *
+# (1 + n_rs_seq), with mem_size = max(1, n_seq_max)), so the 52,690,944
+# figure above is for a single slot — NOT llama-server's actual default.
+# `n_rs_seq` (recurrent-state rollback snapshots, unrelated to slot count)
+# is confirmed 0 for this launch — common/common.cpp:1693 sets
+# cparams.n_rs_seq from common_params.speculative.need_n_rs_seq(), which
+# returns 0 unless a speculative-decoding draft type (MTP/EAGLE3/DFLASH/
+# DSPARK) is configured; the real launch command sets none of those — so
+# n_rows reduces to exactly mem_size = max(1, n_seq_max) here, matching the
+# formula this comment used to state outright. `NEW-205` (2026-10-07):
+# production launches (core/loader_v2.py's _spawn_locked() command list,
+# checked directly) never pass `--parallel`/`-np`/`-G`, so the vendored
+# tools/server/server.cpp's own unset-`-np` auto-default applies
+# (server.cpp: `if (params.n_parallel < 0) { params.n_parallel = 4; ... }`,
+# confirmed on-device against the vendored source) — the real launch runs
+# at n_seq_max=4, not 1. The single-slot figure above x 4 slots = the real
+# recurrent-state cost; see n_seq_max below and estimate_model_load_cost(),
+# which is where that x4 step is actually applied (kept as a separate,
+# clearly-named factor rather than folded into this constant's expression,
+# since this expression already has an unrelated (4-1) conv-kernel term and
+# a second unlabeled "4" here would be confusing). Revisit n_seq_max's
+# value if loader_v2.py ever adds that flag, on a llama.cpp bump, OR if
+# speculative decoding is ever enabled for this model — that would make
+# n_rs_seq nonzero (draft.n_max), so the real multiplier becomes
+# n_seq_max * (1 + n_rs_seq), not the bare n_seq_max this field encodes
+# today.
 QWEN35_4B_ARCH = ModelArch(
     n_layers=32,
     n_kv_heads=4,
     head_dim=256,
     n_attention_layers=8,
     recurrent_state_bytes=((4 - 1) * (4096 + 2 * 16 * 128) + 128 * 4096) * 4 * 24,
+    n_seq_max=4,
 )
 
 # Keyed by ModelSpec.model_id, NOT by the model's file path. This dict used
@@ -1329,7 +1369,16 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
         # ModelArch.recurrent_state_bytes. Kept as its own term rather than
         # folded into the KV or overhead terms so the KV number stays
         # directly auditable against CODEY_MASTER_PLAN.md §5.1's table.
-        recurrent_bytes = arch.recurrent_state_bytes
+        #
+        # NEW-205 (2026-10-07): llama.cpp allocates this state PER SEQUENCE
+        # SLOT, not once — recurrent_state_bytes is deliberately a single-
+        # slot figure (see QWEN35_4B_ARCH's own comment), so the real cost
+        # is that figure x the model's real launch-time slot count,
+        # arch.n_seq_max. Multiplied here, as its own clearly-named factor,
+        # rather than baked into recurrent_state_bytes's own constant
+        # expression (which already has an unrelated (4-1) conv-kernel term
+        # — a second unlabeled "4" there would be confusing).
+        recurrent_bytes = arch.recurrent_state_bytes * arch.n_seq_max
     else:
         warning(
             f"resource_gate: no known architecture for model {spec.model_id!r}; "
@@ -1516,12 +1565,16 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
 #   only a background-dispatched one is, per get_coder_background_n_ctx()):
 #     model=2,740,937,888 + kv=2,147,483,648 (32,768 bytes/token x 65536,
 #     the hybrid 8-attention-layer term, §5.1) + overhead=268,435,456 +
-#     recurrent=52,690,944 (context-independent SSM state, one sequence
-#     slot) = 5,209,547,936 bytes (4.8518GiB) — matches §5.1's table and
-#     M1-A's own pinned unit-test total for this model exactly.
+#     recurrent=210,763,776 (context-independent SSM state, the real 4
+#     sequence slots llama-server launches at — 52,690,944 x 4, `NEW-205`,
+#     2026-10-07 correction; the figures below were re-totaled from the
+#     original single-slot 52,690,944 to this value, not re-measured) =
+#     5,367,620,768 bytes (~4.9990GiB) — matches §5.1's table once that
+#     table is likewise corrected (flagged separately, out of scope here)
+#     and is within M1-A/M1-E's own measured RSS range for this model.
 #   Primary @ CODER_BACKGROUND_N_CTX=16384 (no interactive session):
 #     model=2,740,937,888 + kv=536,870,912 + overhead=268,435,456 +
-#     recurrent=52,690,944 = 3,598,935,200 bytes (3.3518GiB).
+#     recurrent=210,763,776 = 3,757,008,032 bytes (~3.4990GiB).
 #   Embed: UNCHANGED, same KNOWN, ACCEPTED UNDERCOUNT as every prior
 #     derivation in this section — 352,542,080 bytes (0.328GiB), a floor
 #     estimate (file size + DEFAULT_COMPUTE_OVERHEAD_BYTES only; the embed
@@ -1534,11 +1587,11 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
 #     prior revisit of this constant.
 #
 #   New raw sum, BACKGROUND primary + embed:
-#     3,598,935,200 + 352,542,080 = 3,951,477,280 bytes (~3.680GiB).
+#     3,757,008,032 + 352,542,080 = 4,109,550,112 bytes (~3.8273GiB).
 #   New raw sum, INTERACTIVE primary + embed (the larger of the two cases,
 #     per this constant's own established precedent of checking against
 #     whichever is bigger — see the sub-task-D-revisit block above):
-#     5,209,547,936 + 352,542,080 = 5,562,090,016 bytes (~5.1801GiB).
+#     5,367,620,768 + 352,542,080 = 5,720,162,848 bytes (~5.3273GiB).
 #
 # **This constant has a SECOND floor, independent of the concurrent raw
 # sum above, that this section's own prior revisits stated but never
@@ -1580,22 +1633,27 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
 #     difference on a similar device, does not flip the invariant back the
 #     wrong way (6.50GiB, an earlier candidate, cleared it by only ~6MiB —
 #     too thin to trust against sample-to-sample drift).
-#   - clears the interactive concurrent raw sum (5,562,090,016 bytes,
-#     ~5.1801GiB) by ~1.4GiB — which also retires the embed-RSS-undercount
-#     margin concern from the 5.20-vs-5.25GiB rounding question earlier
-#     revisits of this constant wrestled with: even a large future
-#     correction to the embed floor estimate has ample room here.
+#   - clears the interactive concurrent raw sum (5,720,162,848 bytes,
+#     ~5.3273GiB, `NEW-205`-corrected — see above) by ~1.673GiB — which
+#     also retires the embed-RSS-undercount margin concern from the
+#     5.20-vs-5.25GiB rounding question earlier revisits of this constant
+#     wrestled with: even a large future correction to the embed floor
+#     estimate has ample room here.
 #   - still correctly REFUSES both two-concurrent-primary cases (an
 #     unreachable state today per the structural check below, but the
 #     ceiling should not accidentally admit either shape of it):
-#     two INTERACTIVE primaries + embed = 2 x 5,209,547,936 + 352,542,080 =
-#     10,771,637,952 bytes (~10.03GiB), comfortably above 7.00GiB; two
-#     BACKGROUND primaries + embed = 2 x 3,598,935,200 + 352,542,080 =
-#     7,550,412,480 bytes (~7.033GiB) — refused, but only by 34,219,712
-#     bytes (~32.6MiB), NOT comfortably. If a genuine two-background-primary
-#     concurrent case is ever intentionally introduced (it is not today —
-#     see the structural check below), re-check this margin specifically;
-#     it is the tightest case this ceiling is asked to refuse.
+#     two INTERACTIVE primaries + embed = 2 x 5,367,620,768 + 352,542,080 =
+#     11,087,783,616 bytes (~10.3263GiB), comfortably above 7.00GiB; two
+#     BACKGROUND primaries + embed = 2 x 3,757,008,032 + 352,542,080 =
+#     7,866,558,144 bytes (~7.3263GiB) — refused, and now by a comfortable
+#     ~0.3263GiB (350,365,376 bytes) margin, NOT the ~32.6MiB sliver this
+#     derivation's pre-`NEW-205` numbers showed — the undercount this fix
+#     corrects happened to be in the direction that made this specific
+#     refusal margin look thinner than it really was. If a genuine
+#     two-background-primary concurrent case is ever intentionally
+#     introduced (it is not today — see the structural check below),
+#     re-check this margin specifically; it is the tightest case this
+#     ceiling is asked to refuse.
 #
 # One structural check this round confirmed, not merely assumed (rule 12):
 # core/loader_v2.py's LlamaServer/ModelLoader never register a second
@@ -1724,19 +1782,21 @@ MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(7.00 * (1024 ** 3))  # 7,516,192,768 byt
 # Target worst case, from §5.1's own table: primary alone (no embed — swap
 # assist gates ONE model's admission at a time, not the concurrent-budget
 # sum MAX_CONCURRENT_MODEL_BUDGET_BYTES above governs) at full interactive
-# n_ctx=65536: model+kv+overhead+recurrent = 5,209,547,936 bytes
-# (4.8518GiB), x REQUIRED_HEADROOM_FACTOR (1.25) = 6,511,934,920 bytes
-# (~6.065GiB required) — matches §5.1's table exactly.
+# n_ctx=65536: model+kv+overhead+recurrent = 5,367,620,768 bytes (~4.9990GiB,
+# `NEW-205`-corrected, 2026-10-07 — see this constant's own recurrent-term
+# comment above; this figure was re-totaled from the original
+# 5,209,547,936, not re-measured), x REQUIRED_HEADROOM_FACTOR (1.25) =
+# 6,709,525,960 bytes (~6.2487GiB required).
 #
 # New value: 6.50GiB (6,979,321,856 bytes). Chosen the same way sub-task F
 # chose 10.00GiB — a real, binding margin below the live-computed ceiling,
 # not exactly at it, and comfortably above the worst case this cap exists
 # to admit:
-#   - ~0.435GiB above the 6.065GiB required worst case (a real margin, not
-#     a knife's edge — comparable in spirit, though smaller in absolute
-#     terms, to the ~2.5GiB of slack the 131072/262144 rows of §5.1's table
-#     show between the admissible 65536 case and the next hard-reject
-#     tier).
+#   - ~0.2513GiB above the 6.2487GiB required worst case (a real margin,
+#     not a knife's edge, though thinner than the pre-`NEW-205` figure of
+#     ~0.435GiB this section originally showed — that original margin was
+#     computed against an undercounted worst case, not against a looser
+#     true requirement; the real margin was always this size).
 #   - ~0.6-0.7GiB below both live gated_swap_free reads above (~7.14-7.23GiB
 #     today) — a real ceiling that would actually bind if SwapFree drops
 #     further, not a number set so high it never does.
@@ -1745,43 +1805,48 @@ MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(7.00 * (1024 ** 3))  # 7,516,192,768 byt
 # qualitative change that didn't happen): 6.50GiB does NOT make the plain-
 # MemAvailable-only check binding again for the interactive worst case.**
 # hard_reject bounds any single model's cost at compute_device_ceiling_bytes()
-# (~6.49GiB per §5, itself close to the 65536 case's own 4.8518GiB raw
+# (~6.49GiB per §5, itself close to the 65536 case's own ~4.9990GiB raw
 # cost), and the largest possible `required` after REQUIRED_HEADROOM_FACTOR
-# for that same case is ~6.065GiB — below 6.50GiB regardless of live
+# for that same case is ~6.2487GiB — below 6.50GiB regardless of live
 # MemAvailable, including at MemAvailable=0. §4.3's original "this makes
 # the plain-MemAvailable check effectively non-binding" observation still
 # applies at 6.50GiB, in the same direction, just at a smaller magnitude
 # than 10.00GiB produced. This is accepted, not an oversight — the
-# alternative (a cap below 6.065GiB) would defeat swap-assist's entire
+# alternative (a cap below 6.2487GiB) would defeat swap-assist's entire
 # purpose for the one case §8 Q1 explicitly decided should be admissible at
 # this device's real headroom.
 #
 # **Also worth recording plainly: the live term, not this cap, is what
 # actually binds today.** Both live gated_swap_free reads above
-# (~7.14-7.23GiB) are only ~1.1-1.2GiB above the 6.065GiB requirement — if
-# SwapFree drops by roughly that much on a future session (well within the
-# ~3.46GiB swing observed between this session's read and the 2026-08-11
-# sub-task F session's 10.43GiB-vs-13.89GiB SwapFree), the interactive
-# 65536 worst case stops being admissible through swap assist regardless of
-# what this constant is set to — the formula's own min(max_swap_usage_bytes,
-# gated_swap_free) would clamp on the smaller, live-drifting operand, not
-# this cap. Re-verify this margin live before relying on it, same as every
-# other number in this section.
+# (~7.14-7.23GiB) are only ~0.89-0.98GiB above the 6.2487GiB requirement —
+# if SwapFree drops by roughly that much on a future session (well within
+# the ~3.46GiB swing observed between this session's read and the
+# 2026-08-11 sub-task F session's 10.43GiB-vs-13.89GiB SwapFree), the
+# interactive 65536 worst case stops being admissible through swap assist
+# regardless of what this constant is set to — the formula's own
+# min(max_swap_usage_bytes, gated_swap_free) would clamp on the smaller,
+# live-drifting operand, not this cap. Re-verify this margin live before
+# relying on it, same as every other number in this section.
 #
 # This cap silently couples to n_ctx — worth stating for whoever next
 # revisits §8 Q1's "65536" answer upward. Working backward from 6.50GiB:
 # max admissible cost via swap assist alone = 6,979,321,856 / 1.25
 # (REQUIRED_HEADROOM_FACTOR) = 5,583,457,484.8 bytes; subtracting the
 # fixed, n_ctx-independent terms (model 2,740,937,888 + overhead
-# 268,435,456 + recurrent 52,690,944 = 3,062,064,288) leaves a KV budget
-# of 2,521,393,196.8 bytes; at 32,768 bytes/token that's n_ctx ≈ 76,947 —
-# ~17.4% above today's 65536 default. THIS constant (via swap assist) is
-# what binds FIRST if n_ctx is ever raised past ~77k on this device —
+# 268,435,456 + recurrent 210,763,776 = 3,220,137,120) leaves a KV budget
+# of 2,363,320,364.8 bytes; at 32,768 bytes/token that's n_ctx ≈ 72,123 —
+# ~10.1% above today's 65536 default (`NEW-205`-corrected; this was
+# previously computed as ~76,947 / ~17.4% against the undercounted
+# recurrent term — the recurrent delta alone costs 158,072,832 / 32,768 =
+# 4,823.95 tokens of KV budget, so 76,947 - 4,824 = 72,123, matching the
+# figure above independently). THIS constant (via swap assist) is what
+# binds FIRST if n_ctx is ever raised past ~72k on this device —
 # compute_device_ceiling_bytes() (~6.4949GiB, no REQUIRED_HEADROOM_FACTOR
-# applied to hard_reject's raw-cost comparison, by the same arithmetic
-# good to ~n_ctx≈119,379) does not become the binding constraint until
-# well past that. Re-derive both before raising n_ctx, not just the one
-# that happens to be checked first.
+# applied to hard_reject's raw-cost comparison; fixed terms of
+# 3,220,137,120 leave a KV budget of 3,753,735,417 bytes, good to
+# ~n_ctx≈114,555 — 119,379 - 4,824, same delta, `NEW-205`-corrected) does
+# not become the binding constraint until well past that. Re-derive both
+# before raising n_ctx, not just the one that happens to be checked first.
 #
 # Real numbers, computed live via this project's own
 # estimate_model_load_cost() and compute_swap_assisted_headroom_bytes()

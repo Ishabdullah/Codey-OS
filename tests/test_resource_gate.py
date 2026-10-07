@@ -168,10 +168,12 @@ def test_qwen35_4b_hybrid_kv_uses_8_attention_layers_not_32():
 
 def test_qwen35_4b_total_cost_reconciles_with_master_plan_table():
     # Single assertion pinning the whole M1-A change against
-    # CODEY_MASTER_PLAN.md §5.1's published table (3.852GiB at n_ctx=32768):
-    # real on-disk file size + 8-layer KV + the 256MiB overhead constant +
-    # the source-derived SSM state. If any one of those four terms drifts,
-    # this fails and the plan's table is the thing to reconcile against.
+    # CODEY_MASTER_PLAN.md §5.1's published table (§5.1 itself still carries
+    # the pre-NEW-205 3.852GiB figure as of this fix — out of scope here,
+    # flagged separately): real on-disk file size + 8-layer KV + the 256MiB
+    # overhead constant + the source-derived SSM state. If any one of those
+    # four terms drifts, this fails and the plan's table is the thing to
+    # reconcile against.
     spec = rg.ModelSpec(model_id="primary", size_bytes=2_740_937_888, n_ctx=32768)
     cost = rg.estimate_model_load_cost(spec)
     assert cost.model_bytes == 2_740_937_888
@@ -181,14 +183,51 @@ def test_qwen35_4b_total_cost_reconciles_with_master_plan_table():
     # QWEN35_4B_ARCH's comment for the source lines. The group_count term
     # (2 * 16 * 128) and the 4-byte element size are both load-bearing: an
     # earlier version dropped the first and used 2 bytes, under-estimating
-    # by 26,935,296 bytes.
+    # by 26,935,296 bytes. NEW-205 (2026-10-07): the module multiplies the
+    # single-slot figure below by arch.n_seq_max (4 for QWEN35_4B_ARCH,
+    # the real llama-server launch-time slot count) before it reaches
+    # CostEstimate — see test_recurrent_state_bytes_scales_by_n_seq_max_new205.
     assert (
-        cost.recurrent_state_bytes
-        == ((4 - 1) * (4096 + 2 * 16 * 128) + 128 * 4096) * 4 * 24
+        ((4 - 1) * (4096 + 2 * 16 * 128) + 128 * 4096) * 4 * 24
         == 52_690_944
     )
-    assert cost.total_bytes == 4_135_806_112
-    assert abs(cost.total_bytes / (1024 ** 3) - 3.852) < 0.001
+    assert cost.recurrent_state_bytes == 52_690_944 * 4 == 210_763_776
+    assert cost.total_bytes == 4_293_878_944
+    assert abs(cost.total_bytes / (1024 ** 3) - 3.999) < 0.001
+
+
+def test_recurrent_state_bytes_scales_by_n_seq_max_new205():
+    # NEW-205 regression: llama.cpp allocates recurrent/SSM state PER
+    # SEQUENCE SLOT (llama-memory-recurrent.cpp's n_rows = mem_size * (1 +
+    # n_rs_seq), with mem_size = max(1, n_seq_max) and n_rs_seq defaulting
+    # to 0 — confirmed against the vendored source), and production
+    # llama-server launches run n_seq_max=4 (the vendored binary's
+    # unset-`-np` auto-default; core/loader_v2.py never overrides it with
+    # --parallel/-np/-G). QWEN35_4B_ARCH.recurrent_state_bytes is
+    # deliberately a single-slot figure — estimate_model_load_cost() must
+    # multiply it by arch.n_seq_max, not use it bare.
+    assert rg.QWEN35_4B_ARCH.n_seq_max == 4
+    assert rg.QWEN35_4B_ARCH.recurrent_state_bytes == 52_690_944
+    spec = rg.ModelSpec(model_id="primary", size_bytes=2_740_937_888, n_ctx=1)
+    cost = rg.estimate_model_load_cost(spec)
+    assert cost.recurrent_state_bytes == 52_690_944 * 4 == 210_763_776
+
+
+def test_primary_interactive_65536_total_new205_falsifiable_prediction():
+    # NEW-205's pre-registered falsifiable prediction (CODEY_OS_MASTER_
+    # BLUEPRINT.md WP1.6): the old single-slot total estimate for the
+    # primary model at full interactive n_ctx=65536 was 5,209,547,936
+    # bytes; correcting the recurrent term's slot-count undercount raises
+    # that by exactly 158,072,832 bytes (52,690,944 x 3, the three extra
+    # slots) to 5,367,620,768 bytes (~4.9990GiB) — a pure arithmetic check,
+    # no live model load required.
+    spec = rg.ModelSpec(model_id="primary", size_bytes=2_740_937_888, n_ctx=65536)
+    cost = rg.estimate_model_load_cost(spec)
+    old_total = 5_209_547_936
+    new_total = old_total + 158_072_832
+    assert new_total == 5_367_620_768
+    assert cost.total_bytes == new_total
+    assert abs(cost.total_bytes / (1024 ** 3) - 4.9990) < 0.001
 
 
 def test_estimate_model_load_cost_no_size_or_path_raises():
@@ -2277,9 +2316,11 @@ _EMBED_COST_BYTES = 352_542_080
 # M1-F (2026-08-24): real Qwen3.5-4B costs via estimate_model_load_cost()
 # against the real on-disk primary model file — see
 # core/resource_gate.py's MAX_CONCURRENT_MODEL_BUDGET_BYTES comment for the
-# full derivation these are copied from.
-_PRIMARY_INTERACTIVE_65536_COST_BYTES = 5_209_547_936  # n_ctx=65536, interactive
-_PRIMARY_BACKGROUND_16384_COST_BYTES = 3_598_935_200  # n_ctx=16384, background
+# full derivation these are copied from. NEW-205 (2026-10-07): both figures
+# below are re-totaled to include the recurrent-state term's real x4
+# slot-count multiplier (see core/resource_gate.py's own comment).
+_PRIMARY_INTERACTIVE_65536_COST_BYTES = 5_367_620_768  # n_ctx=65536, interactive
+_PRIMARY_BACKGROUND_16384_COST_BYTES = 3_757_008_032  # n_ctx=16384, background
 
 
 def test_max_concurrent_model_budget_bytes_value():
