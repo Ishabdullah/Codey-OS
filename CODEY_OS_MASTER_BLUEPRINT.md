@@ -9,6 +9,20 @@ are folded in below with `file:line` citations.
 It becomes the primary execution document only on Ish's explicit approval.
 Until then `CODEY_MASTER_PLAN.md` remains authoritative.
 
+**Update 2026-10-07 — long-term vision integrated (§23; new, additive).**
+Ish's statement of long-term direction (a persistent personal AI that lives on the
+device, develops a stable identity, and learns its human and environment over
+years) is now recorded as **§23**, with §1.7 as its pointer and §21's P6 given a
+dependency skeleton. **§23 is additive: it does not reorder P0–P5**, and per Ish's
+same-day clarification it does **not** supersede, demote or absorb the existing
+self-learning and controlled-self-improvement programme — §23.2.1 frames **seven
+coexisting learning systems**, of which learning-the-human is one. Seven items
+were promoted out of §23 into **P2 (WP2.1's authority classes)** and **P4
+(WP4.6–WP4.8)** because they modify work those phases are already doing. Sections
+touched: §1.2 (a rule-6 narrowing — the "no mechanism by which experience changes
+behavior" claim was overstated), §1.7, §5.2, §6.2, §8.4, §12.8, §15.1a, §16.9,
+§21 (P4/P5/P6), §22, §23. **No code was changed in this round.**
+
 **Source directive:** `CODEY_OS_OPUS_BLUEPRINT_DIRECTIVE.docx` (Downloads,
 2026-10-06, 45,662 bytes). Full extracted text archived at
 `docs/directives/OPUS_BLUEPRINT_DIRECTIVE.txt` (to be added).
@@ -69,13 +83,34 @@ fail-closed, and the resource gate's hard-won fixes are present and correct.
 **But the developmental architecture is not yet started, and the gap is different
 from what prior plans assumed.** Three findings define this blueprint:
 
-**1. There is currently no mechanism by which experience changes future behavior.**
+**1. Almost no mechanism exists by which experience changes future behavior.**
 Of five documented memory tiers, **one** reaches a prompt — and it silently stops
 at 50% context fill. Tier 2 stores an md5 hash, not content. Tier 3 is a dead
 parallel retrieval stack. RAG is wired end-to-end with **no corpus** and no
 ingestion path. Trajectories **truncate at record time**. Directive §14's first
 principle — *"experience is not learning until it measurably changes future
 behavior"* — is not yet satisfiable.
+
+> **Rule-6 narrowing (2026-10-07, §23 reading).** The original wording was
+> *"there is currently **no** mechanism"*, and that is overstated. **One live
+> observation→behaviour loop does exist** outside the five memory tiers:
+> `core/preferences.py`, written from `core/agent.py:1318` (user messages) and
+> `:2104,2122` (files the agent writes/reads), persisted through
+> `core/state.py`'s key-value store, and **read back into the live prompt** at
+> `prompts/layered_prompt.py:154-170` → `p.add("prefs", …, priority=1)` at
+> `:317` (draft) and `:516` (refine) — the same entry-point-reachable prompt
+> builder §15.1 traces for memory tier 1. It carries an explicit
+> confidence/observation count per entry (`preferences.py:415-452`) and
+> distinguishes explicit statements (`confidence=1.0`, `:410,520`) from implicit
+> file evidence (`confidence=0.3`, `:415`).
+> **What it is not:** a general experience→behaviour path. It is a **fixed
+> 11-category regex learner for code-style conventions**
+> (`preferences.py:239-251,256-314`) with two defects recorded in §15.1 — it
+> **renders unlearned defaults as if learned**, and a hardened belief
+> **silently discards an explicit correction**. So the finding stands in
+> substance (nothing general exists, and the one specific thing that does is
+> partly a confident falsehood in §5.4's sense); only the absolute "no
+> mechanism" claim is withdrawn.
 
 **2. The evaluator is contaminated, and the contamination is prescribed by the
 project's own documentation.** A verified three-hop path feeds the 8 frozen
@@ -151,6 +186,8 @@ fixed before there is anything to lose.
 - **P4** — make memory actually read back.
 - **P5** — cleanup, continuous and in parallel (directive §9), not deferred.
 - **P6** — S2–S6, **deliberately not detailed yet**; re-planned when P4 lands.
+  Since 2026-10-07 it also carries **five persistent-companion tracks (A–E) with
+  entry gates** — a dependency skeleton only, not work packages (§23, §21's P6).
 
 Eight decisions were raised for Ish; they are tabulated at the end of §21.
 **One is already resolved:** Restoricon is **manually started and not yet in full
@@ -160,7 +197,13 @@ stopped and restarted during development under a check-before-acting rule, and n
 zero-downtime migration machinery is needed. What does *not* relax: never writing
 to the live store from development work, and the two unauthenticated email paths,
 which stay the highest-severity findings regardless (`contacts` holds 249 real
-people). See §9.4. **Seven decisions remain open.**
+people). See §9.4.
+
+**Decision-register status (corrected 2026-10-07).** All eight of the originally
+raised decisions were resolved by Ish on 2026-10-06 **except** decision 8 (the
+escrow DR key), which remains open and carried over. **Four new decisions — 9–12 —
+were raised on 2026-10-07 by §23 and are open**; all four are product/privacy
+direction, not implementation. The register at the end of §21 is canonical.
 
 ### 1.6 Restoricon safety statement
 
@@ -171,6 +214,38 @@ than the schema implies** — 31 of 70 tables hold data, and every estimator and
 pricing table is empty — which means those subsystems are code-complete but
 **never exercised in production**, and any plan line calling them "done" is
 claiming code completion, not production validation (CLAUDE.md rule 7).
+
+### 1.7 The long-term destination (added 2026-10-07) — §23
+
+**Status: LONG-TERM VISION. Nothing in §23 is implemented, and §23 does not
+reorder P0–P5.** Ish stated the long-term objective on 2026-10-07: *"Codey-OS is
+a private, persistent personal AI that lives on the user's device, develops a
+stable individual identity, learns its human and its environment over years, and
+acts as both companion and autonomous assistant."* Coding, planning, research and
+automation become **capabilities of** that persistent system rather than the whole
+of it.
+
+Two things this does **not** mean, stated here because they are the easiest
+misreadings:
+
+1. **It does not supersede or demote the existing learning and
+   controlled-self-improvement programme** (§15, §17, P1's gate/rollback work,
+   `bench/gate.py`, `core/trajectory.py`, `core/model_registry.py`,
+   `ccos/core/reflection_engine.py`, `performance_tracker.py`, `goal_engine.py`,
+   `auto_improvement_loop.py`, `capability_optimizer.py`, `skill_recombiner.py`).
+   Ish's clarification of 2026-10-07 is explicit: that architecture is **a core
+   requirement and must be preserved**, and "learning" must **not** be reduced to
+   storing preferences or retrieving memories. §23.2 therefore frames **seven
+   coexisting learning systems**, of which learning-the-human is one — a taxonomy,
+   not a hierarchy.
+2. **It does not relax §21's ordering.** Every companion capability consumes
+   verified experience, a trustworthy evaluator, and a real action boundary — i.e.
+   P0–P4. The vision raises the value of that work; it does not jump the queue.
+
+§23 states the destination, maps each of its eleven commitments to what exists
+today with `file:line`, names the architectural decisions that must be made
+**before** P4 builds memory schema, and gives P6 a dependency skeleton. §21's P6
+remains deliberately un-work-packaged.
 
 ## 2. Verified current-state architecture and runtime flow
 
@@ -471,6 +546,7 @@ completeness. Detail and `file:line` citations in §2, §10, §12–§20.
 | Tool system (`tools/`) | IMPLEMENTED | but unsandboxed (§16.2) |
 | `bench/` harness + gate | PARTIAL | gate is sound; **leakage** (§17.1), ledger empty |
 | Memory tier 1 (working) | PARTIAL | silent 50% cliff (`agent.py:1641`) |
+| Preference learning (`core/preferences.py`) | PARTIAL | **added 2026-10-07** — a sixth, undocumented read-back path, not one of the five tiers. Live loop (`agent.py:1318,2104,2122` → `layered_prompt.py:317,516`) but **11 code-style categories only**, and it **renders unlearned defaults as learned** (§15.1a; fixes in P4 WP4.6–WP4.8) |
 | Memory tier 2 (project) | PARTIAL | **write-only; stores an md5 hash** |
 | RAG / `kb_semantic` | PARTIAL | wired end-to-end, **no corpus** (§15.2) |
 | Trajectory store | PARTIAL | **truncates** at record (`_MAX_RESULT=1000`) |
@@ -506,6 +582,7 @@ a library imported by two processes.
 | `agent_orchestrator` (+ `execute_plan`) | DORMANT — unreachable |
 | `planner`, `domain_router`, `lifecycle_manager`, `device_manager`, `ccos_memory` | DORMANT |
 | `telemetry_engine` (728 ln) | DORMANT — zero callers at all |
+| `project_engine` (709 ln) | DORMANT — **omitted from this table until 2026-10-07.** Zero callers; verified beyond a Python grep per §6.5 (no reference in `ccos/data/capabilities.json` or any `ccos/plugins/*/manifest.json`; the only referents repo-wide are itself, `ccos/demo_project_engine.py`, `ccos/tests/test_project_engine.py`, and planning docs). Relevant to §23: its `Goal → Project → Milestones → Tasks` model and "survive restarts" intent (`project_engine.py:1-13`) is the closest existing analog to the vision's long-horizon continuity. |
 | `reflection_engine`, `performance_tracker` | DORMANT |
 | `goal_engine`, `auto_improvement_loop`, `capability_optimizer`, `skill_recombiner` | DORMANT **by design** (§15.4) |
 
@@ -573,6 +650,11 @@ removal. **Nothing below has been deleted** — this is the proposal.
 - `core/embeddings` store path + `store_in_longterm` + `Memory.search()` → replaced by `tools/kb_semantic.py`
 - `Memory._summary` (tier 6) → replaced by `core/summarizer.py`
 - `core/recovery.py` (521 ln) → **no replacement**; decide keep-and-wire vs delete
+- **Scope limit added 2026-10-07 (§23.5.3 item 2):** only the two entries above
+  with a named replacement are deletion candidates among the dormant `ccos/`
+  modules. The other ~11 are §23 groundwork awaiting a gate — see P5's constraint
+  note. `ccos/core/project_engine.py` (709 ln, zero callers) is added to §5.2's
+  table but is **not** a deletion candidate for the same reason.
 - `resource_bus` generic half (`request_resource`/`release_lease`/`poll_queue`) → no replacement; delete
 - `checkpoint.rollback/list/prune` → **do not delete**; §17.2 needs rollback — wire these instead
 - `tools/shell_tools.py:38-83,162` `_validate_command` + 54-entry allowlist → §16.3 decision
@@ -772,6 +854,30 @@ authority tier:
 `MODEL_COMPARISON.md` (predates the current single-model decision),
 `docs/version-history.md`, and `docs/fine-tuning*.md` if S4 supersedes them.
 **Keep `CHANGELOG.md`** — stale but legitimately historical by nature.
+
+**Reasons sharpened 2026-10-07 while reading for §23** — these two are not merely
+stale, they contradict the verified architecture, so a reader following them is
+actively misled:
+
+| Document | Specific contradiction |
+|---|---|
+| `docs/importantdoc.md` (377 ln) | Its title and whole content are a prompting guide for **Qwen2.5-Coder-7B-Instruct** (`:1`, `## 1. Model Identity` at `:7`) — a model this project **does not deploy**. §2.3's full GGUF dump confirms the primary is `qwen35`, hybrid SSM/attention. Its §3 also *recommends changes to `utils/config.py`'s sampling parameters* for that other model (`:84`). **Archive with a reason stronger than "the name conveys nothing": it is a live instruction document for the wrong model.** |
+| `docs/architecture.md` (243 ln, 2026-07-29) | `## Three-Model Design` (`:3`) contradicts the current single-model architecture and §18's brain-abstraction direction, and its `## Memory System` / `## What Persists Between Sessions` sections predate §15.1's finding that one of five tiers reaches a prompt. Already flagged in §8.3 as DOCS-ONLY; §23 makes it worse, because it is the document a reader would consult to ask "where does the human model go?" **Either rewrite against §2 + §23 or mark superseded outright.** |
+
+**Also noted, archival *not* recommended:** `AGI_AUDIT_PLAN.md` (77 ln) is a
+completed, merged, dated plan whose own Status table reads Done for every phase,
+and CLAUDE.md rule 1 cites it by name. It has a competing *Phases* table, but it
+is the historical record of how rule 1 came to be. **Keep it, and add a one-line
+banner pointing at §21 + §23 as the live roadmap** — the same
+"one register, two documents" treatment proposed for `CODEY_MASTER_PLAN.md` below.
+`AGI_AUDIT_LOG.md` stays as the append-only companion ledger (and was already
+corrected by WP0.5).
+
+**Cross-repo, outside this blueprint's archive scope but worth recording:**
+`Private-Codey-Agent/docs/ANDROID_DIGITAL_ASSISTANT_IMPLEMENTATION_PLAN.md` is
+**accurate and honest** about that limb's background-engine state (§12.8) and is
+the right plan of record for its internals. §23 references it rather than
+duplicating it; it should not be absorbed into this blueprint.
 
 **`CODEY_MASTER_PLAN.md`.** Do **not** archive on approval of this blueprint. It
 holds §2's numbered rules and a large current-state record that CLAUDE.md
@@ -1288,6 +1394,61 @@ enforces RBAC. The app could not authenticate even if the ports were right.
 MISSING (no working transport, no auth); device-bridge capability **actively
 misleading** (mock presented as real); envelope schema IMPLEMENTED and sound.
 
+### 12.8 What this limb already has that §23 needs (added 2026-10-07)
+
+Read for §23 item 1 (persistent presence). Stated here so the companion section
+does not have to invent an Android plan, and so no one assumes capabilities that
+were verified **absent**. All from `Private-Codey-Agent` at HEAD `efe9a1c`.
+
+**Exists today (code-complete; not build-verified — no flutter/dart toolchain on
+this device, `NEW-795`):**
+- An **always-on foreground service** with on-device wake-word spotting —
+  `VoiceAssistantForegroundService.kt:1-30`, `foregroundServiceType="microphone"`
+  (`AndroidManifest.xml:92-95`), using sherpa-onnx `KeywordSpotter`. This is a
+  real instance of §23's "lightweight always-resident tier", and it is already
+  the architecture the vision asks for: a small local model listening, not a 2.7 GB
+  LLM resident.
+- `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (`AndroidManifest.xml:21`).
+- An **AccessibilityService** for screen read + UI automation
+  (`:154-165`, `AgentAccessibilityService.kt`) — the device-actuation surface.
+- **Assistant-role integration** — `AssistantInteractionService`,
+  `AssistantInteractionSessionService`, `AssistantPassthroughRecognitionService`
+  (`:102-133`).
+- A Shizuku provider (`:144-150`) for elevated device control.
+- Local persistence precedents: `lib/services/skill_memory_service.dart`
+  (`skills_memory.jsonl`), `chat_history_service.dart`, `task_history_logger.dart`,
+  `recovery_engine.dart`, `secure_secret_store.dart`.
+
+**Verified absent — do not assume these:**
+- **No boot persistence.** `RECEIVE_BOOT_COMPLETED` count in the manifest is
+  **0** (verified by direct count, not by eye). A reboot ends Codey's presence
+  until the user opens the app.
+- **No `WAKE_LOCK`.**
+- **No event-ingest surface at all for the things §23 item 1 names.**
+  `BIND_NOTIFICATION_LISTENER_SERVICE`, `READ_CALENDAR` and `READ_SMS` are all
+  **absent** (same direct count, 0). The app can *send* SMS (`SEND_SMS`, `:9`)
+  and read contacts (`:7`) but cannot observe notifications, calendar changes, or
+  inbound messages. **"Understand relevant changes occurring on the device" has
+  no mechanism today** — that is a new component (§23.4), not a wiring job.
+- A **declared-but-never-triggered background re-attach path.**
+  `BackgroundEngineReceiver` is declared at `AndroidManifest.xml:136-140` and the
+  class **does exist** (nested in `MainActivity.kt:407` — a Python/Kotlin-file
+  grep alone would have reported it missing, which is why it was traced to its
+  definition). But **nothing in the app ever broadcasts
+  `com.orailnoor.privateagent.REGISTER_BACKGROUND_CHANNELS`**, so the path is
+  dead. The repo's own `docs/ANDROID_DIGITAL_ASSISTANT_IMPLEMENTATION_PLAN.md`
+  (lines 16, 162, 600) already records this honestly and flags background-Flutter-
+  engine viability as unproven. **That document is the right plan of record for
+  this limb's internals; §23 should reference it, not duplicate it.**
+
+**Consequence for §23:** item 1's "lightweight always-resident tier" is ~60%
+present and the *actuation* surface is strong, while the *perception* surface is
+absent and persistence across reboot is absent. Adding permissions in the
+`READ` class above (notifications, calendar) is also precisely what makes §23
+item 10 (privacy) and item 7 (`READ` authority class) load-bearing rather than
+theoretical — so the Action Gateway's `READ` regime (WP2.1) should exist before
+those permissions are requested, not after.
+
 **Security boundary note:** directive §4 keeps this repo separate precisely
 because device actuation deserves a boundary. That boundary currently consists of
 a fail-open auth check and a veto on the wrong side of the call. Re-establishing
@@ -1527,6 +1688,52 @@ documented one is dead.
 asserts five working tiers **as present-tense fact**. It is wrong and should be
 corrected in place — it is the primary source of this misconception.
 
+#### 15.1a The sixth, undocumented read-back path — `core/preferences.py` (added 2026-10-07)
+
+Found while reading for §23. It is **not** one of the five tiers and was missed by
+the memory census because it lives outside `core/memory_v2.py` entirely.
+
+| Property | Evidence |
+|---|---|
+| Written (implicit) | `core/agent.py:2104,2122` → `learn_from_file()`; `confidence=0.3` (`preferences.py:415`) |
+| Written (explicit) | `core/agent.py:1318` → `learn_from_message()`; `confidence=1.0` (`:410`). `learn_from_correction()` also `1.0` (`:520`) — **no production caller** |
+| Persisted | `core/state.py` key-value store, key `user_preferences` (`preferences.py:324,336`) |
+| **Read back into a prompt** | **yes** — `prompts/layered_prompt.py:154-170`, added as the `prefs` layer at `:317` (draft) and `:516` (refine) |
+| Belief revision | real — EMA with observation counts; a differing value can overwrite (`preferences.py:430-447`) |
+| Scope | **fixed 11 categories**, all code-style conventions (`:239-251`); detection is 14 hand-written regexes (`:256-314`) |
+
+So the honest status is **PARTIAL and narrow**: a real
+observation→confidence→behaviour loop exists, for code-style conventions only. It
+is the single most useful existing anchor for §23's human-model work, and it has
+two defects that §23.5 promotes into P4 rather than leaving in the vision section:
+
+1. **Unlearned defaults are rendered as learned facts — live on a fresh install,
+   no observations required.** `get_all()` (`:539-547`) iterates **all**
+   `CATEGORIES` and calls `get()` (`:522-537`), which falls through to
+   `CATEGORIES[cat]["default"]` when nothing was learned. Six categories carry
+   non-`None` defaults (`:240-245`). `_get_preferences_block()` then emits them
+   under the header *"Always match these preferences when generating code"*
+   (`layered_prompt.py:165-167`), **indistinguishable from a genuinely observed
+   preference**. This is §5.4's third shape — confident falsehood — inside the
+   learning mechanism itself, and it is the most important finding in this
+   subsection because it needs zero history to fire.
+2. **A hardened belief silently discards an explicit correction.**
+   `_update_preference()` returns early when the stored confidence exceeds `0.7`
+   and the new value differs (`:442-444`) — and that branch is reached **before**
+   the new observation's own confidence is consulted, so a `confidence=1.0` user
+   statement is dropped exactly as an incidental `0.3` file observation would be.
+   Reachable: implicit evidence climbs `+0.06` per agreeing observation
+   (`:436`), so ~7 same-value file observations lock the category against the
+   user. Directly contradicts Ish's stated learning principle — *Observation →
+   Hypothesis → Evidence/Confidence → Behavior*, **not** Observation → Permanent
+   Belief — and his requirement that explicit feedback outrank implicit evidence.
+3. **Secondary:** confidence ≥ 0.8 writes the value into the user's `CODEY.md`
+   `# Conventions` section (`:450-452,454-509`), inside a bare `except Exception:
+   pass` (`:508-509`). An automated write to a user-authored file is a durable-
+   knowledge promotion with no provenance marker and no audit record — in §23's
+   terms, a hypothesis silently becoming durable knowledge in a file the human
+   owns. §16/WP2.1 territory once the Action Gateway exists.
+
 ### 15.2 RAG is wired end-to-end — and has no corpus
 
 `$CODEY_DIR/knowledge` **does not exist**; `kb_semantic.has_index()` returns
@@ -1638,10 +1845,21 @@ plannable in detail yet: every one of these consumes verified experience, and
 Stages A–C are what make experience verified. Sketched in §21, with the research
 uncertainties isolated in §22.
 
-**The headline:** the system currently has no mechanism by which experience changes
-future behavior. Directive §14's first principle — *"experience is not learning
-until it measurably changes future behavior"* — is not yet satisfiable, and
-Stages A and B exist to make it satisfiable before anything is built on top.
+**The headline:** the system currently has **no general** mechanism by which
+experience changes future behavior. Directive §14's first principle —
+*"experience is not learning until it measurably changes future behavior"* — is
+not yet satisfiable, and Stages A and B exist to make it satisfiable before
+anything is built on top.
+
+**Rule-6 narrowing, 2026-10-07 — same correction as §1.2's, applied here so the
+stronger claim is not left standing.** This paragraph originally read *"no
+mechanism."* **One narrow live loop does exist** — `core/preferences.py`, written
+from `core/agent.py:1318,2104,2122` and read back into the live prompt at
+`prompts/layered_prompt.py:317,516`. It is an 11-category code-style-convention
+learner with two real defects (unlearned defaults rendered as learned; explicit
+corrections discarded above confidence 0.7), fully documented in **§15.1a**, with
+fixes promoted into **P4 (WP4.6–WP4.8)**. It does not change the conclusion that
+no *general* experience→behaviour path exists, nor the ordering of Stages A–D.
 
 ## 16. Action Gateway / worlds / autonomy / safety
 
@@ -1746,6 +1964,22 @@ its own source.
    action — shell exec, file write/patch/delete, git writes, outbound HTTP,
    DB writes, message/email sends, device actions. All three surfaces in §16.1
    route through it. Capability manifests become *enforced* policy, not metadata.
+   **Design input added 2026-10-07 (§23 item 7):** the gateway must be built
+   with **three authority classes, not one** — `READ` (device state, messages,
+   notifications, calendars, files, sensors), `ACT` (send, modify, create,
+   execute), `HIGH_IMPACT` (delete important data, spend money, change security
+   settings, publish externally, modify Codey itself) — each with its own
+   authorization, confirmation and audit regime. `READ` is *mediated and audited
+   but not per-act confirmed*; the other two are not. This is an **extension of
+   WP2.1's scope, not a separate PolicyEngine** (§23.4). Two existing things it
+   builds on rather than inventing: the declaration slot already exists and is
+   validated-but-unenforced (`ccos/core/manifest_schema_v2.py:85,177-180,286-290`
+   — per-capability `permissions: [str]`), and the naming vocabulary precedent is
+   `restoricon_core/auth.py:76-214`'s `verb:object` permission set
+   (`read:leads`, `write:projects`, `sign:contracts`, `manage:users`), which
+   already separates read from write from high-impact in a different subsystem.
+   Deciding the class **taxonomy** is engineering; deciding the **ceiling per
+   class** is not, and stays human-gated (§22 item 7).
 2. **Fix §16.5's two latent defects and the fail-open auth** before any CCOS wiring.
 3. **Make the dormant validators live or delete them** — state which, with the
    equivalence argument (directive §9). Retarget
@@ -2582,6 +2816,48 @@ P3a (research track, open-ended)     P3b (engineering track, bounded)
   freshness/liveness guard `resource_gate.py:3977-3980` already specifies (§2.5).
   Aligns with the standing "dashboard = single control surface" direction.
 
+**Added 2026-10-07 — promoted into P4 from §23.5.1, not deferred to P6:**
+
+- **WP4.6 — Stop rendering unlearned preference defaults as learned facts.**
+  `PreferenceManager.get_all()` (`core/preferences.py:539-547`) iterates every
+  category and calls `get()` (`:522-537`), which falls back to
+  `CATEGORIES[cat]["default"]`; six categories have non-`None` defaults
+  (`:240-245`). `prompts/layered_prompt.py:165-167` then emits them under *"Always
+  match these preferences"*, indistinguishable from a genuinely observed
+  preference — **live on a fresh install with zero observations**. Same class as
+  tier 2 storing a hash instead of content, and §5.4's confident-falsehood shape.
+  *Tests:* with an empty store, the `prefs` layer is empty; a learned value and a
+  default are distinguishable at the boundary. *DoD:* nothing reaches the prompt as
+  a preference that was never observed.
+- **WP4.7 — Explicit feedback must outrank implicit evidence, and must reach a
+  caller.** `_update_preference()` returns early when stored confidence > 0.7 and
+  the new value differs (`core/preferences.py:442-444`), **before** consulting the
+  incoming observation's confidence — so an explicit `confidence=1.0` user
+  correction is discarded exactly as an incidental `0.3` file observation would
+  be, reachable after ~7 agreeing implicit observations (`:436`). Contradicts the
+  stated learning principle (observation → hypothesis → evidence → behaviour, not
+  → permanent belief). Also: `learn_from_correction()` (`:511-520`) has **no
+  production caller** — wire a real explicit-feedback channel ("that worked" /
+  "that's wrong" / "don't do that again"), which systems 1, 4, 6 and 11 all need
+  (§23.2.1). *Tests:* an explicit correction always overrides a hardened implicit
+  belief; an implicit observation never overrides a confirmed explicit one.
+- **WP4.8 — Provenance and confidence on every stored assertion, surfaced at the
+  boundary.** A constraint on WP4.1–WP4.4 rather than separate work: anything P4
+  writes to a memory store records *how it was learned* and *how strongly*, and
+  anything P4 renders into a prompt can distinguish hypothesis from confirmed fact.
+  §17.1 is the precedent for why retrofitting provenance later does not work.
+  Secondary: `preferences.py:450-452,454-509` writes high-confidence values into
+  the user's own `CODEY.md` inside a bare `except Exception: pass` — an
+  unprovenanced, unaudited write to a human-authored file; route it through
+  WP2.1's gateway once that exists.
+
+**Prerequisite decision, not a work package (§23.3.1).** Before P4 creates any
+memory schema, record the five-store boundary decision (identity / human model /
+relationship-autobiographical / ordinary knowledge / engineering-experience) and
+decisions 1–4 of §23.3.1. P4 is the phase that can foreclose it, and
+`ccos_memory.py`'s three-modules-one-DB-path-disjoint-schemas failure (§15.6) is
+the local evidence that shared stores go wrong here specifically.
+
 Each: deps P1; tests assert retrieved content reaches the prompt; DoD is
 **behavioural** — a stored fact demonstrably changes a later response.
 
@@ -2596,6 +2872,19 @@ first (cheap, zero-risk), then duplicate consolidation one pair per batch
 `ccos/core` vs `ccos/dormant` split (§7.2) **last**. Doc work (§8.4, **approved by
 Ish 2026-10-06**) lands with each batch, and the CLAUDE.md map-completeness test
 (§8.4 item 1) ships in P1 alongside CI.
+
+**Constraint added 2026-10-07 (§23.5.3 item 2) — do not delete §23's groundwork.**
+P5's dead-code deletion verdict (§6.2) stands **only** for the two dormant modules
+with a stated replacement: `ccos/core/planner.py` (→ `core/planner_v2.py`) and
+`ccos/core/telemetry_engine.py` (→ `telemetry/`). The remaining dormant `ccos/`
+modules — `device_manager`, `reflection_engine`, `performance_tracker`,
+`goal_engine`, `auto_improvement_loop`, `capability_optimizer`,
+`skill_recombiner`, `sandbox`, `project_engine`, `lifecycle_manager`,
+`agent_orchestrator` — are **§23 groundwork awaiting a gate**, not deletion
+candidates, and CLAUDE.md rule 1 explicitly authorises building the
+self-improvement four out. The `ccos/core` vs `ccos/dormant` split (§7.2) is still
+the right change; its README must record **awaiting-gate** separately from
+**superseded**, so a later batch cannot read "dormant" as "deletable."
 
 **WP5.1 — Split `restoricon_core/` into its own repo** *(Ish's decision 6; §3.5)*
 - *Objective:* give the production business system an independent release lifecycle,
@@ -2624,12 +2913,19 @@ Ish 2026-10-06**) lands with each batch, and the CLAUDE.md map-completeness test
 
 ---
 
-### P6 — Developmental stages S2–S6
+### P6 — Developmental stages S2–S6, and the persistent-companion tracks
 
 **Not plannable in detail yet, and saying so is the honest answer.** Every stage
 here consumes verified experience; P0–P4 are what make experience verified.
 Attempting detailed work packages now would reproduce the error this census
 exists to correct — planning from intent rather than from the system's actual state.
+
+**Deliberate limit on this section (added 2026-10-07).** What follows is a
+**dependency skeleton with entry gates — named tracks, not work packages.**
+Nothing below is implementer-ready, and that is intentional: if an item here
+could be handed to an implementer as written, it either belongs in P1/P2/P4 (in
+which case §23.5.1 has already promoted it) or it is too detailed for a phase
+whose inputs do not exist yet.
 
 | Stage | Gate to enter | Prereqs |
 |---|---|---|
@@ -2639,12 +2935,37 @@ exists to correct — planning from intent rather than from the system's actual 
 | S5 brain swap | model-independent assets demonstrably survive a swap | §18.3 complete |
 | S6 graduated autonomy | clean safety history + human-authorized ceilings | P2 complete; §16.9 human gates |
 
+#### P6 companion tracks (§23's destination, mapped onto the S-stages)
+
+Five tracks. They are **ordered by dependency, not by appeal**, and tracks C, D
+and E each have a gate that is a *demonstrated property of the running system*,
+not a completed task list. Each track's §23 item numbers are given so the intent
+is not re-derived from memory.
+
+| Track | Scope (§23 items) | Entry gate — must be demonstrated, not merely built | S-stage | Also blocked by |
+|---|---|---|---|---|
+| **A — Persistent presence** | 1 | §19.3 complete: readiness gating proven, embed-server lifecycle tracked, and **exactly one** model-load owner (§2.2 closed by WP3.2). Plus an event-ingest surface that exists at all (§12.8) | S2-adjacent | rule 2's RAM ceiling is unchanged; "always on" must mean a lightweight tier, never a resident 2.7 GB model |
+| **B — Human model** | 2, 6, 10 | P4 complete **and** §23.3.1's store-boundary decisions 1–4 recorded. The §23.5.1 prefs fixes landed, so the known failure mode is not inherited | S2 | Ish's privacy/deletion answers (§23.6 items 2–3) before any personal store is created |
+| **C — Identity & relationship continuity** | 4, 5, 7 (item 7's identity dimension) | WP1.3's gate+rollback **proven on a real promotion** (S4's own gate), plus a recorded identity-stability measure (§22 item 9). A trait that can change with no way to undo the change is exactly the hazard rule 1 exists to prevent | S4→S5 | track B (an identity shaped by an un-provenanced human model inherits its errors) |
+| **D — Self-extension & capability learning** | 8, 9 | **P2's Action Gateway complete** (§16.9: do not wire CCOS before the gateway exists) **and** WP1.3 rollback proven **and** `bench/` ledger non-empty with WP1.3a's derived `n` satisfied. `ccos/core/self_improve.py` stays `off`; `shadow` is the first step, `on` requires an approving `GateDecision` that production code can actually construct (§15.4) | S4 | the eight `ccos/` groundwork modules must not have been deleted by a P5 cleanup batch — see §23.5.3 item 2 |
+| **E — Proactive initiation** | 11 | A was-this-interruption-wanted feedback signal **captured and non-trivial in volume**, plus Ish's answer on whether proactive initiation is permitted at all (§23.6 item 1) | S6 | track B (an interruption policy is a learned human-model behaviour) |
+
+**Two standing constraints on all five tracks:**
+
+- **The seven learning systems stay distinguishable** (§23.2.1). No track may
+  merge the personal stores with the engineering/experience store, and no track
+  may weaken §17.1's provenance partitioning to make a feature easier.
+- **Operator overrides never look like evaluator passes** — `core/model_registry.py`'s
+  `is_operator_override` (`:65`) discipline extends to trait changes (track C) and
+  capability adoptions (track D), not just adapter adoptions.
+
 **Re-plan P6 in detail when P4 completes** — and update this blueprint's status
-(directive §11) rather than spawning a competing master plan.
+(directive §11) rather than spawning a competing master plan. At that point the
+tracks above get real work packages; until then they are a dependency map.
 
 ---
 
-### Decisions — ALL RESOLVED by Ish, 2026-10-06
+### Decisions — 1–7 resolved by Ish 2026-10-06; 8–12 OPEN
 
 | # | Decision | Ish's call |
 |---|---|---|
@@ -2657,6 +2978,10 @@ exists to correct — planning from intent rather than from the system's actual 
 | 6 | Should `restoricon_core/` split out? | **Split it into its own repo now.** Supersedes §3.3's recommendation — see §3.5 for the decision record and the sequencing constraint. |
 | 7 | Plaintext Cloudflare tunnel token | **Move to the existing age/keystore mechanism.** No rotation (no exposure evidence). WP0.7. |
 | 8 | Escrow DR key (`setup_dr_key.py --force`) | **Still open** — carried over from the admin-dashboard programme; not raised this round. Flagged, not forgotten. |
+| 9 | **Is proactive initiation permitted at all, and under what ceiling?** (§23 item 11) | **OPEN — raised 2026-10-07, §23.6 item 1.** Product + trust decision, not implementation. **No code should be written toward item 11 before this is answered**; §21's P6 track E is gated on it. |
+| 10 | **Deletion and ownership policy for personal stores** (§23 item 10) | **OPEN — raised 2026-10-07, §23.6 item 2.** What must "delete what Codey knows about me" do, given an append-only relationship store and an identity shaped by it? Determines the schema, so cheapest to answer **before P6 track C**, and it cannot be derived from the code. |
+| 11 | **May any external model ever see human-model or relationship data, and under whose authorization?** (§23 item 10) | **OPEN — raised 2026-10-07, §23.6 item 3.** The minimum-context projection mechanism is implementable; the *default* and the authorization path are policy. Relevant because a remote `CODEY_BACKEND` path already exists. |
+| 12 | **Confirm §23 is additive and P1–P4 keep priority** | **OPEN — raised 2026-10-07, §23.6 item 4.** This blueprint's reading of Ish's own framing, flagged for explicit confirmation because the whole roadmap's ordering rests on it. |
 
 **Two decisions went against the blueprint's recommendation (4a and 6). Both are
 recorded as Ish's calls and the roadmap below implements them**, with one
@@ -2712,3 +3037,334 @@ than assume answers.
 **Standing rule for this section:** nothing here is permitted to become a roadmap
 dependency dressed as an engineering task. If a work package turns out to rest on
 one of these, it stops and returns here for an explicit decision.
+
+**Added 2026-10-07 from §23's reading** (all LONG-TERM VISION horizon; none may
+become a dependency, per the standing rule):
+
+9. **Whether a stable identity and slow adaptation can coexist measurably.**
+   §23 item 4 asks for traits that are intentionally stable and traits that
+   evolve. Distinguishing legitimate slow adaptation from drift requires a
+   *measure* of identity stability, and no such measure exists in the literature
+   this project can rely on or in the repo. *Make measurable:* define the
+   stability metric and its acceptable drift band before any trait is allowed to
+   evolve — otherwise "evolving personality" and "regression" are
+   indistinguishable, which is §17.1's contamination problem one layer up.
+10. **Whether implicit behavioural evidence can be calibrated at all on a
+    single-user, low-volume stream.** §23 item 6 requires implicit evidence to
+    carry lower confidence than explicit feedback. `core/preferences.py`'s
+    `0.3` vs `1.0` (§15.1a) are **hand-chosen constants with no validation**, and
+    one user generates very few samples per category. *Make measurable:* record
+    predicted-vs-actual for every behaviour the human model changes, so the
+    numbers can eventually be fitted rather than asserted.
+11. **Whether proactive initiation is net-positive at all on this device.**
+    §23 item 11's own stated bar — "a useful companion, not a notification
+    generator with delusions of importance" — is an empirical claim about a
+    learned interruption policy, trained on a feedback signal
+    (was-this-interruption-wanted) that does not exist yet and may be too sparse
+    to learn from. *Make measurable:* the signal must be captured before any
+    proactive behaviour ships, not after.
+12. **Whether a human model's value survives the privacy constraint.** §23 item
+    10 restricts external models to the minimum context required. Whether a local
+    4B model can use a rich human model as effectively as a frontier model could
+    is unmeasured, and the answer determines how much the human model is worth
+    building.
+
+## 23. Long-term vision: the persistent personal AI
+
+### 23.1 Provenance, authority, and how to read every claim in this section
+
+**Source.** Ish's own statement of long-term direction, 2026-10-07, delivered as
+an 11-item architectural brief plus an evaluation question (the "North Star"), and
+a same-day clarification on the relationship between the companion vision and the
+existing self-improvement programme. Both are the decision of record. Where this
+section paraphrases, the eleven item headings are Ish's own.
+
+**Authority.** This section defines the **destination**. It does **not**
+reprioritise §21. P0 is complete, P1 is in progress, and every companion
+capability depends on P0–P4 having happened. §23 adds **one restructured P6
+skeleton** (§21's P6, which was already a placeholder) plus a small set of items
+**promoted into P2/P4** where they modify work those phases are already doing
+(§23.5). Nothing else in §21 moves.
+
+**Status tiers.** CLAUDE.md rule 7, extended for this section. Ish asked for this
+discipline by name: *"do not describe aspirational capabilities as though Codey
+already possesses them."* Every claim below carries exactly one of:
+
+| Tier | Meaning |
+|---|---|
+| **LIVE** | reachable from a real entry point and verified; `file:line` cited |
+| **PARTIAL** | reachable, but narrower or more defective than it reads |
+| **GROUNDWORK** | the code exists and is sound in shape but has no caller (DORMANT in §5's sense) — a head start, not a capability |
+| **PLANNED** | in §21's roadmap, not started |
+| **RESEARCH** | §22 — no committed answer, may not become a dependency |
+| **VISION** | not started, no committed timeline, no design beyond this section |
+
+A `GROUNDWORK` item is **not** a partial capability. §5.4's first failure shape —
+complete code with no caller — is exactly what this tier names, and the whole
+reason the census exists. Nine of the vision's eleven items depend on at least one
+`GROUNDWORK` module.
+
+### 23.2 The North Star, and the seven coexisting learning systems
+
+**The evaluation question** (Ish's words, to be applied to future work):
+
+> **"Does this help Codey understand its human, understand its environment,
+> understand itself, act effectively, or safely improve one of those abilities?"**
+
+This is an *evaluation* question, not a deletion criterion. Ish stated the limit
+explicitly: it does **not** mean unrelated infrastructure should be removed when
+it is necessary to support those objectives. CI, the resource gate, the Action
+Gateway, and the Restoricon firewall support all five clauses by being the thing
+that makes them safe or measurable.
+
+#### 23.2.1 Seven learning systems, coexisting — a taxonomy, not a hierarchy
+
+Ish's clarification of 2026-10-07 is the governing constraint on this whole
+section: *"The existing Codey-OS self-learning and controlled self-improvement
+architecture is a core requirement and must be preserved… Do not reduce 'learning'
+to merely storing user preferences or retrieving memories."* The companion vision
+is an **expansion** of Codey-OS, not a replacement for its learning capabilities.
+
+So this blueprint recognises **seven distinct learning systems that must coexist
+and reinforce one another while staying architecturally distinguishable.**
+Systems 3–6 are the *existing, already-planned* programme and are **not demoted,
+deprecated, or absorbed** by the companion work. Systems 1, 2 and 7 are the
+*additional* dimensions §23 introduces.
+
+| # | Learning system | What it learns from | Where it lives | Status |
+|---|---|---|---|---|
+| 1 | **The human** | explicit feedback, corrections, observed behaviour | §23.3's user-model store; `core/preferences.py` today | PARTIAL (narrow — §15.1a) |
+| 2 | **The device / environment** | measured performance, thermals, battery, model/backend outcomes | `core/resource_gate.py`, `telemetry/`, `ccos/core/device_manager.py` | PARTIAL + GROUNDWORK |
+| 3 | **Task outcomes** | verified trajectories, pass/fail, verifier grades | `core/trajectory.py`, `bench/` | PARTIAL (P1) |
+| 4 | **Better strategies** | reflection on what worked, retry/fix history | `ccos/core/reflection_engine.py`, `core/error_database.py` | GROUNDWORK |
+| 5 | **New capabilities** | identified gaps → generated, tested, gated capabilities | `ccos/core/skill_recombiner.py`, `capability_optimizer.py`, `sandbox.py` | GROUNDWORK (gated off by design, §15.4) |
+| 6 | **Its own performance** | per-capability metrics, weakness identification, candidate generation/evaluation, LoRA/adapter adoption, gate, rollback | `ccos/core/performance_tracker.py`, `goal_engine.py`, `auto_improvement_loop.py`, `bench/gate.py`, `core/model_registry.py`, `core/lora_import.py` | GROUNDWORK + PLANNED (P1 WP1.3) |
+| 7 | **Identity & relationship continuity** | accumulated interaction history over years | §23.3's identity + relationship stores | VISION |
+
+**Why they must stay architecturally distinguishable.** This is Ish's item 4 and
+it is also a safety property, not a tidiness preference. Three concrete reasons,
+each already demonstrated by a real finding in this blueprint:
+
+1. **Different revisability.** System 6's adoption decisions must be *undoable by
+   gate and rollback* (WP1.3, rule 1). System 7's autobiographical memory must be
+   **append-only** — you cannot "roll back" having had a conversation. Putting
+   them in one store means one of the two semantics is wrong.
+2. **Different contamination risks.** §17.1's leak happened because one accessor
+   conflated *training source* and *evaluation source*. A single store holding
+   "what the human prefers" and "what scored well on the benchmark" invites the
+   same class of error with no new mechanism required.
+3. **Different privacy classes.** System 1 and 7 hold a detailed model of one
+   person's life (item 10); systems 3–6 hold engineering telemetry. They need
+   different export rules, different deletion mechanisms, and different answers
+   to "may an external model see this?" One store cannot have two answers.
+
+**What "reinforce one another" means concretely, without merging:** system 1's
+confirmed preferences become *constraints* on system 4's strategy selection;
+system 2's measured performance becomes an *input* to system 6's candidate
+evaluation; system 3's verified outcomes are the *evidence base* system 6 gates
+on. Those are typed interfaces between stores, not shared tables.
+
+**Preserved objective, restated so no restructuring can lose it:** *Codey must be
+able to become measurably better through accumulated experience over time.* That
+is the point of P1's trajectory fidelity, clean evaluator, rubric and rollback —
+and §23 makes it harder, not easier, because a companion accumulates several kinds
+of experience at once and each needs its own evidence standard.
+
+### 23.3 Store boundaries — the decisions that must be made before P4
+
+**These are the corner-painting decisions.** P4 (WP4.1–WP4.4) is the phase that
+builds memory schema. If P4 builds one undifferentiated store, §23 becomes a
+rewrite rather than an extension. So the boundary decision must be **made before
+P4 starts** even though the stores themselves are built much later.
+
+Ish's requirement: *"Identity, personality, user model, autobiographical memory,
+and ordinary knowledge memory should NOT be the same database — determine the
+correct architectural boundaries."*
+
+**Proposed boundaries — five stores, distinguished by write semantics, revision
+policy, and privacy class, not by subject matter.** Status: VISION (no code).
+
+| Store | Holds | Write semantics | Revision policy | Privacy class |
+|---|---|---|---|---|
+| **Identity** | core identity, stable values, stable traits, communication tendencies, boundaries/policies, self-model | rare, deliberate, versioned | **gated** — a trait change is a promotion decision with a rollback point (§23.4 item 4) | never leaves the device |
+| **Human model** | preferences, routines, communication style, projects, goals, recurring problems, skills, habits, entities/relationships, workflows, apps, how-to-explain, when-to-intervene | observation-driven, high volume | **three-state** — observation / hypothesis / confirmed, each with confidence + provenance; **revisable by design** | never leaves the device; minimum-necessary projection for any external call |
+| **Relationship / autobiographical** | interaction history, advice given and whether it worked, corrections, commitments, milestones, decisions made together, Codey's own past mistakes and lessons | **append-only** | never rewritten; superseded by later entries | never leaves the device |
+| **Ordinary knowledge** | documents, code, facts, retrieved corpus | ingestion-driven | replaceable, re-indexable | ordinary project data |
+| **Engineering/experience** (already exists) | trajectories, bench results, capability metrics, adoption ledger | append-only + partitioned by provenance | §17.1's partition rules apply | not personal; exportable for fine-tuning **after** `core/export_hygiene.py` scanning |
+
+The fifth row is **not new** — it is `core/trajectory.py`, `bench/`,
+`core/model_registry.py` and `cap_metrics`, listed so the boundary is visible. The
+first three are the vision's additions, and the top two are the ones P4 could
+accidentally foreclose.
+
+#### 23.3.1 Decisions that must be made now (ordered by how expensive they get later)
+
+1. **Separate stores, or one store with typed partitions?** *Recommendation:
+   separate stores with typed interfaces.* The engineering store already
+   demonstrates why: `ccos_memory.py`'s declared schema is **absent from its own
+   DB**, and **three modules share one DB path with disjoint schemas** (§15.6) —
+   a shared-store failure that already happened here. **Decidable by this
+   blueprint; no Ish input needed.**
+2. **Does the human-model store carry provenance and confidence on every
+   assertion, from the first commit?** *Recommendation: yes, non-negotiable.*
+   Retrofitting provenance onto an existing store is what makes §17.1-class leaks
+   unfixable, and §15.1a shows the failure already present in miniature — the
+   current prefs path renders a never-observed default identically to a
+   seven-times-confirmed observation. **Decidable now.**
+3. **Is the relationship store append-only?** *Recommendation: yes.* It is the
+   only store whose contents are claims about history, and it is the audit trail
+   for everything the human model asserts. `restoricon_core`'s `audit_log` (783
+   rows, append-only semantics already treated as a compliance property, §9.4) is
+   the existing precedent. **Decidable now.**
+4. **May an identity trait change without a gate?** *Recommendation: no* — a
+   trait change goes through the same candidate/evidence/decision/rollback shape
+   as a model adoption, reusing WP1.3's mechanism rather than inventing a second
+   one. **Decidable now**; see §23.4 item 4.
+5. **What leaves the device, and under whose authority?** **Needs Ish** — this is
+   product/privacy policy, not implementation (§23.6).
+6. **Deletion and ownership.** What does "delete what Codey knows about me" mean
+   when the relationship store is append-only and the identity store was shaped by
+   it? **Needs Ish** (§23.6).
+
+### 23.4 The eleven commitments mapped to the verified current state
+
+One row per item of Ish's brief. **`Exists today`** is what is reachable now, with
+`file:line`; **`New or extension`** answers whether this is a genuinely new
+component or a change to already-planned work; **`Roadmap home`** says where it
+lands. This table is the answer to Ish's analysis questions 1, 2, 3, 4, 6 and 7.
+
+| # | Commitment | Exists today (evidence) | Tier | New or extension | Roadmap home |
+|---|---|---|---|---|---|
+| 1 | **Persistent companion** — logically persistent between interactions, event-driven, tiered models rather than a resident LLM | `core/daemon.py` is a real long-lived process with PID/socket and state surviving restarts (`core/state.py:1-11`); session auto-resume at `main.py:1735-1739`; **Android always-on foreground service with on-device wake-word** (§12.8). **Absent:** no boot persistence, no notification/calendar/SMS read surface (§12.8, counts verified 0); no event bus — `core/resource_bus.py`'s generic half is DORMANT (§19.2) and is a *resource* scheduler, not an event system; `ccos/core/lifecycle_manager.py` is GROUNDWORK | PARTIAL + GROUNDWORK | **Extension** for the daemon/lifecycle side; **new** for the event system and the device-perception surface | P6 track A; its *prerequisites* are §19.3 (readiness gating, embed-server PID, single load owner) and WP3.1 |
+| 2 | **Human model** — observation→hypothesis→evidence/confidence→behaviour, revisable | `core/preferences.py` is a live but **11-category code-style-only** loop with explicit-vs-implicit confidence, read back at `prompts/layered_prompt.py:317,516`; **two defects** — defaults rendered as learned, explicit corrections discarded above 0.7 (§15.1a) | PARTIAL (narrow) | **New store** (§23.3), but the **confidence/provenance mechanism is an extension** of `preferences.py` | Defect fixes → **promoted to P4** (§23.5); the store → P6 track B |
+| 3 | **Device & environment model** — empirically learn which models/backends/resources suit which task and conditions | Strongest existing foundation. `core/resource_gate.py` is LIVE (slot reservation `loader_v2.py:1450`, context budget at 3 sites); `telemetry/` is LIVE with 9 production callers and 250 run files (§20.4); `core/thermal.py` PARTIAL (daemon-only, no cooldown trigger); `core/sysmon.py`; `ccos/core/device_manager.py` (515 ln, explicitly a "body model", `:1-10`) is **DORMANT**; `ccos/core/performance_tracker.py` (328 ln, per-capability metrics + version history) **DORMANT**; `core/model_registry.py` is **brand new and LIVE-path** (per-adoption provenance) | PARTIAL + GROUNDWORK | **Extension**, almost entirely. The measurement substrate exists; what is missing is the *decision* loop that consumes it | **P3's BrainManager (WP3.1) is the natural home** — "backends declare where work actually ran" is already its contract; WP1.6's topology-aware cost model is the precondition |
+| 4 | **Persistent identity** — architecture, not a big system prompt | `prompts/layered_prompt.py:307-308,515` adds `identity` as a **required, never-evicted layer** — so the *slot* exists; its content is a **static** `prompts/system_prompt.py` (382 ln). No identity store, no autobiographical memory, no self-model, no trait versioning | PARTIAL (slot only) | **New**, but the **gate/rollback mechanism it needs already exists**: `core/model_registry.py`'s `model_adoptions` table (`:52-65`) and WP1.3's rollback are the right shape for a trait change | P6 track C, after P1's gate+rollback is proven |
+| 5 | **Relationship memory** — interaction history, advice outcomes, Codey's own mistakes | `core/trajectory.py` records episodes with verifier outcomes (full-fidelity since WP1.2) — but keyed to *tasks*, not to the relationship; `core/state.py`'s append-only episodic log; `tools/kb_scraper`/`core/summarizer.py` exist. **No relationship store; no advice-outcome link** | GROUNDWORK | **New store**; the append-only semantics and the provenance-partition discipline are **extensions** of §17.1's rules | P6 track C |
+| 6 | **Meaningful feedback & learning** — explicit outranks implicit; integrates with reflection, consolidation, performance tracking, evaluation, self-improvement | `preferences.py:410,520` already encode explicit=1.0 vs implicit=0.3 — **and `:442-444` then defeats it** (§15.1a). `learn_from_correction()` has **no production caller**. `ccos/core/reflection_engine.py` (261 ln) and `performance_tracker.py` (328 ln) are DORMANT; `cap_metrics`/`reflections.jsonl` were **quarantined in WP0.6** precisely because unsourced metrics must not drive decisions | PARTIAL + GROUNDWORK | **Extension.** The confidence model, the dormant reflection/tracking modules, and WP0.6's provenance rule are all the right machinery | Defect fixes → **P4**; the explicit-feedback capture channel → P4; wiring reflection/tracking → P6 track D, behind P2's gateway (§16.9 ordering) |
+| 7 | **Capability-based authority** — READ / ACT / HIGH-IMPACT, each with its own authorization, audit and confirmation regime | **No Action Gateway exists** (§16.1); three disjoint surfaces, one with no checks at all; the one safety validator **has never run**. The declaration slot exists and is validated-but-unenforced (`manifest_schema_v2.py:85,177-180,286-290`); the vocabulary precedent is `restoricon_core/auth.py:76-214`'s `verb:object` set; `restoricon_core/` is the one surface that is properly RBAC'd and audited | MISSING (gateway) + GROUNDWORK | **Extension of WP2.1, not a new PolicyEngine** — see §23.4.1 | **Promoted into WP2.1 as a design input** (§16.9 item 1, §23.5) |
+| 8 | **Self-extension** — need→design→implement→sandbox→review→policy→human approval→register→monitor→rollback | Every stage has a GROUNDWORK module and **the chain has never run**: `ccos/core/goal_engine.py` (644 ln), `skill_recombiner.py` (740 ln), `capability_optimizer.py` (497 ln), `sandbox.py` (349 ln — **never runs**; `ccos/` removed from its `ALLOWED_DIRS` in WP2.3a), `agent_orchestrator.py`'s `PLUGIN_TEST` step, `capability_registry.py`, `ccos/core/self_improve.py`'s three-state switch (`off`/`shadow`/`on`). The gate exists (`bench/gate.py:23-40`) and **no production code constructs an approving `GateDecision`** (§15.4) | GROUNDWORK (complete chain, zero callers) | **Extension — and the principle is already decided.** This is rule 1's promotion gate applied **one layer up**, to generated code instead of weights. `self_improve.py`'s `shadow` mode is already the "generate and sandbox-test but never deploy" state this loop needs | P6 track D; hard-gated on P1 (WP1.3 rollback) **and** P2 (gateway); `self_improve.py` stays `off` |
+| 9 | **Controlled self-improvement** — performance→weakness→candidate→evaluation→gate→adopt/reject→monitor→rollback; **operator overrides must never masquerade as evaluator passes** | **The override principle is already real code**, shipped this session: `core/model_registry.py`'s `model_adoptions.is_operator_override` column (`:65`), recorded per attempt (`:74-121`) with its own docstring stating that an override and a gate pass "one must not look like the other" (`:95`), surfaced as `operator_override` on read (`:142,158`), plus `mark_rolled_back()` (`:123`). `bench/gate.py` is conservative and fail-closed; the **ledger is still empty** (§17.2); `bench/power_analysis.py` (WP1.3a) found 30 pairs **under**-powered — 57–182 required, working default n=100 | PLANNED (P1, in progress) | **Extension — no new principle.** §23 adds only that the same `is_operator_override` discipline must extend to **trait changes (item 4) and capability adoptions (item 8)**, not just adapters | Already P1 WP1.3 (in review) + P6 tracks C/D inherit it |
+| 10 | **Privacy & local-first** — architectural, not an afterthought; minimum context to external services | Local-first is the real default: on-device GGUF inference, loopback-only Core API (:8770), `core/export_hygiene.py` scans secrets **before** fine-tune export (WP1.2), age-encrypted secrets at rest (`core/backup_secrets.py`, WP0.7), `RESTORICON_DB_PATH` firewall seam (§9.3). **Counter-evidence:** an OpenRouter/remote backend path exists (`CODEY_BACKEND`), and there is **no minimum-context projection mechanism** — nothing today bounds what a remote call sees | PARTIAL | **Extension** for storage/encryption/export; **new** for the minimum-context projection and for deletion/provenance over personal stores | Projection + deletion → P6 track B, but the **policy decision is needed early** (§23.6) |
+| 11 | **Proactive but not annoying** — learned, policy-controlled initiation | `ccos/core/goal_engine.py` is explicitly "proactive self-direction" (`:1-10`) and DORMANT; `ccos/core/project_engine.py` (709 ln, **zero callers**, §5.2) models long-horizon goals that "survive restarts"; `ccos/plugins/device/termux_api` exposes `device.job_scheduler` (`termux_api.py:93`); Android `POST_NOTIFICATIONS` is granted (`AndroidManifest.xml:14`). **Absent:** any interruption policy, any urgency model, and **any feedback signal recording whether an interruption was wanted** | GROUNDWORK | **New** — and gated on a signal that does not exist | P6 track E, **last**; the capture of the was-this-wanted signal is its precondition (§22 item 11) |
+
+#### 23.4.1 Item 7 decided: WP2.1 extended, not a separate PolicyEngine
+
+Ish's question 6 asks which responsibilities overlap and should be separated.
+This is the sharpest instance, and it is resolvable without escalation.
+
+**Decision: the vision's capability-based authority is WP2.1's Action Gateway
+extended with a third authority class and a distinct `READ` regime. It is not a
+new component sitting above the gateway.** Reasoning:
+
+- WP2.1 is already scoped as "one chokepoint for every irreversible action" and
+  already promises that manifest `permissions` become **enforced** rather than
+  metadata. The vision's `ACT` and `HIGH_IMPACT` classes are that scope, split.
+- The only genuinely new requirement is `READ`, which WP2.1 does not currently
+  cover because reads are not irreversible. Reads need **mediation and audit**
+  (who read the user's messages, when, why) but **not per-act confirmation** —
+  a different regime, inside the same chokepoint.
+- Building a second policy layer above the gateway would recreate §16.1's
+  three-disjoint-surfaces problem with better naming. The census's finding is
+  that this system's safety failures come from *multiple* surfaces, not from an
+  insufficiently abstract single one.
+
+**Naming reality check (CLAUDE.md rule 12).** Three component names in Ish's
+analysis questions **do not exist in this codebase under those names**, and
+saying so plainly is more useful than inventing them:
+
+| Name asked about | Status | Closest existing analog |
+|---|---|---|
+| **PolicyEngine** | does not exist | `restoricon_core/auth.py:76-214` (RBAC vocabulary, business-data scope only) + `ccos/core/manifest_schema_v2.py`'s unenforced `permissions` + `ccos/core/tool_router.py:23`'s `validate_tool_safety` (**never run**). The *planned* home is WP2.1. |
+| **DecisionEngine** | does not exist | `core/planner_v2.py` (production planner, LIVE via `daemon.py:889`), `ccos/core/domain_router.py` (DORMANT), `bench/gate.py` (the only real *decision gate*). No module decides "should I act at all" — that is the gateway's job once it exists. |
+| **ModelManager** | does not exist | `core/loader_v2.py` (the de-facto one, with a **second unmanaged owner**, §2.2) + `core/model_registry.py` (new, adoption provenance). The named future component is **BrainManager** (WP3.1), already in this blueprint. |
+| **Kernel** | does not exist as a module | `core/daemon.py` + `lib/service_manager.sh` are the de-facto kernel; `ccos/` is documented as the OS shell but **has no runtime** (§2.1). |
+| **ResourceManager** | exists under another name | `core/resource_gate.py` (LIVE) + `core/resource_bus.py` (half DORMANT). |
+| Memory / Agent Orchestrator / capability registry / reflection engine / performance tracker / goal engine / auto-improvement loop / sandbox | exist | `core/memory_v2.py` (PARTIAL), `ccos/core/agent_orchestrator.py` (DORMANT, 1193 ln), and the rest per §5.2 — **all GROUNDWORK except memory** |
+
+### 23.5 What to do now, what to defer, and what conflicts
+
+Ish's questions 5, 8 and 9.
+
+#### 23.5.1 Promote now — items that change work P2/P4 are *already* doing
+
+These are the highest-value output of this section, because each one is a decision
+that gets materially more expensive after the phase it belongs to ships. **They are
+added to existing work packages; they are not new phases.**
+
+| Promote | Into | Why now and not P6 |
+|---|---|---|
+| **The READ/ACT/HIGH_IMPACT authority classes** as a design input | **WP2.1** (§16.9 item 1, already edited) | WP2.1 is building the chokepoint and the enforcement point for `manifest permissions`. Adding a third class to a built gateway means re-deciding every call site. |
+| **Fix `preferences.py`'s defaults-rendered-as-learned** (`:539-547` + `:522-537` + `layered_prompt.py:165-167`) | **P4** | P4 is "make memory read back". A store that reports unobserved defaults as observed facts is the same class of defect as tier 2 storing a hash instead of content — and it is live today, on a fresh install, with zero history required. |
+| **Fix the explicit-correction lock-out** (`preferences.py:442-444`) | **P4** | Contradicts Ish's stated learning principle directly. Cheap now (a confidence comparison), and any human-model store built later will inherit the same EMA logic. |
+| **Carry provenance + confidence on every human-model assertion, and surface it in the prompt** | **P4** (as a constraint on WP4.1–WP4.4) | §23.3.1 decision 2. Retrofitting provenance is what makes contamination unfixable; §17.1 is the precedent. |
+| **Decide the five-store boundary** (§23.3.1 decisions 1–4) | **before P4 starts** | P4 is the phase that creates memory schema. One undifferentiated store turns §23 from an extension into a rewrite. |
+| **Capture the explicit-feedback channel** ("that worked" / "that's wrong" / "don't do that again") | **P4** | `learn_from_correction()` already exists with no caller (`preferences.py:511-520`). It is the cheapest real feedback signal in the system and systems 1, 4, 6 and 11 all need it. |
+| **Extend `is_operator_override` discipline to every adoption type**, not just adapters | **WP1.3**, if not already closed | The column exists (`model_registry.py:65`). Making it general while the table is new is nearly free. |
+
+#### 23.5.2 Deliberately deferred — and why the deferral is load-bearing
+
+| Deferred | Until | Reason |
+|---|---|---|
+| Identity store, trait versioning, autobiographical memory | P6 track C | Needs a working gate + rollback (WP1.3) and a stability measure (§22 item 9). Building an identity that can change with no way to undo the change is the self-improvement hazard rule 1 exists to prevent. |
+| Self-extension loop (item 8) | P6 track D | Hard-gated on P2's gateway and WP1.3's rollback. §16.9's ordering is explicit: **do not wire CCOS before the gateway exists** — connecting it activates §16.5's latent defects. |
+| Proactive initiation (item 11) | P6 track E, last | Requires a feedback signal that does not exist. Shipping proactivity before the signal means the interruption policy cannot be learned, only guessed. |
+| Android perception surface (notifications, calendar) | after WP2.1's `READ` regime | Requesting the permissions before the audit regime exists is the one sequencing error in this section that would be genuinely hard to walk back — see §12.8. |
+| Continuous background operation | after §19.3 | Readiness gating, embed-server PID tracking, and the single model-load owner (§2.2's top operational risk) are prerequisites. "Always on" over an unreliable lifecycle multiplies the failure, and rule 2's RAM ceiling is unchanged by ambition. |
+
+#### 23.5.3 Conflicts with existing plans (Ish's question 5)
+
+Checked deliberately; the result is that there are **fewer conflicts than
+expected**, because §21 is mostly prerequisites rather than commitments.
+
+1. **No roadmap conflict with P0–P5.** Every companion capability consumes P0–P4's
+   outputs. The vision raises their value.
+2. **One real tension: `core/` vs `ccos/` canonicality.** §15.3 and §6.1 resolve
+   *cognition* to `core/` and propose retiring or wiring the `ccos/` stack, with
+   §7.2 proposing a `ccos/core` vs `ccos/dormant` split. But §23 depends on
+   **eight** `ccos/` modules (device_manager, reflection_engine,
+   performance_tracker, goal_engine, auto_improvement_loop, capability_optimizer,
+   skill_recombiner, sandbox) plus `project_engine` and `lifecycle_manager`.
+   **Resolution:** `core/` remains canonical for cognition, and §6.2's "delete the
+   dormant one" verdict stands **only** for the two cases with a stated
+   replacement — `ccos/core/planner.py` (replaced by `core/planner_v2.py`) and
+   `ccos/core/telemetry_engine.py` (replaced by `telemetry/`). The other dormant
+   modules move to `ccos/dormant/` **marked as §23 groundwork awaiting a gate**,
+   not as deletion candidates. §7.2's split is the right change; its README must
+   record this distinction so a later cleanup batch does not delete the
+   groundwork.
+3. **`prompts/system_prompt.py` as the identity mechanism.** Item 4 says identity
+   must not be merely a large system prompt. The current identity *layer*
+   (`layered_prompt.py:307-308`) is correct architecture; the conflict is only
+   that its content is static. No plan line needs to change — but no future work
+   should "improve Codey's personality" by growing that file.
+4. **The remote-backend path vs local-first (item 10).** `CODEY_BACKEND`'s remote
+   option is legitimate for development and is not in conflict today, because
+   there is no personal store to leak. It becomes a conflict the moment the human
+   model exists without a minimum-context projection — which is why §23.6 asks
+   for the policy early.
+5. **`docs/architecture.md`'s "Three-Model Design" and `docs/importantdoc.md`**
+   contradict both the current single-model architecture and §18's brain
+   abstraction. Already covered by §8.4's archive plan; reasons sharpened in §8.4.
+
+### 23.6 What needs Ish, not a judgment call
+
+Per CLAUDE.md's escalation convention — product direction, not implementation.
+Everything else in §23 is decided within this blueprint's remit.
+
+1. **Is proactive initiation permitted at all, and under what ceiling?** Item 11
+   describes a Codey that interrupts. That is a product decision with a privacy
+   and trust dimension, and §22 item 7 already keeps autonomy ceilings
+   human-gated. No code should be written toward item 11 before this is answered.
+2. **The deletion and ownership policy for personal stores.** What must "delete
+   what Codey knows about me" actually do, given an append-only relationship
+   store and an identity shaped by it? This determines the schema, so it is
+   cheapest to answer before P6 track C and it cannot be derived from the code.
+3. **May any external model ever see human-model or relationship data, and under
+   whose authorization?** Item 10 says "minimum context required unless
+   explicitly authorized." The mechanism is implementable; the *default* and the
+   authorization path are policy.
+4. **Confirmation that §23 is additive and P1–P4 keep priority.** Stated as this
+   blueprint's reading of Ish's own framing, flagged for explicit confirmation
+   because the whole roadmap's ordering rests on it.
+5. **Carried over, unchanged:** decision 8 in §21's table (escrow DR key,
+   `setup_dr_key.py --force`) remains open and is not affected by §23.
