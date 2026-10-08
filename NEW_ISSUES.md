@@ -20798,3 +20798,34 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Not a code defect** — `core.recursive.recursive_infer()`'s behavior is pre-existing and unrelated to this slice; this is a documented gotcha for future test authors.
 - **Fix direction (not applicable — informational only):** any future test that forces/observes an ALLOWED gate decision on a peer-dispatch call site must also disable `RECURSIVE_CONFIG` or otherwise ensure `core.recursive.recursive_infer()`'s model calls are mocked.
 - **Cross-reference:** `core/recursive.py` (`recursive_infer`), `core/agent.py` (`RECURSIVE_CONFIG`), `NEW-842` (same incident class, WP2.1 slice 3), blueprint §21 WP2.1.
+
+
+## 2026-10-08 — WP2.1 slice 6: `NEW-848` corrected and closed; latent parked-execution semantics
+
+### [NEW-848] correction + resolution — no production caller found; dispatch now gated
+
+- **Rule-6 correction:** the original "Reachable from the blackboard escalation-resolution flow" claim was overstated. Repository-wide search found only the definition and tests of `execute_parked_escalation()`. `resolve_parked_escalation(action="approve_and_run")` only updates status; it never calls execution. The unguarded callable was confirmed, but current risk was **latent**, not an established live High-severity path. The operation still classifies HIGH_IMPACT if invoked.
+- **Status:** FIXED 2026-10-08 (`a9fcb14`), code-complete + code-reviewer-approved. The sole dispatch enters `gate_exec(HIGH_IMPACT, confirm_available=False)`; refusal is audited, returns `None` with a warning and leaves queue/session records unchanged. No real confirmation path is wired, so this callable cannot launch a peer today. Existing `escalate()` was left intact.
+- **Evidence:** implementer/reviewer/coordinator independently passed 37 scoped tests; real temporary SQLite and JSONL audit files, mocked peer dispatch. No live peer/model verification claimed. Full WP2.1 DoD remains open.
+- **Cross-reference:** `core/peer_cli.py:502`, `tests/test_escalation_review_queue.py`, blueprint §21 WP2.1 slice 6, newest `PROJECT_LOG.md` entry.
+
+### [NEW-852] Confirmed, Low, latent: parked escalation resolves even for a peer-error sentinel
+
+- **Status:** Confirmed by architect code trace, not fixed in slice 6. `PeerCLIManager.summarize_result()` returns a `[PEER_ERROR: ...]` sentinel unchanged, but `execute_parked_escalation()` then unconditionally requests `status="resolved"`. A future permitted dispatch returning such a sentinel would mark failure as completed.
+- **Reachability:** no production caller found; the slice-6 gate always refuses this callable today. This behavior is not a live incident.
+- **Fix direction:** check the existing `is_peer_error()` predicate before resolution when enabling execution; add an isolated regression that preserves the queued task on peer failure.
+- **Cross-reference:** `core/peer_cli.py` (`summarize_result`, `execute_parked_escalation`), blueprint §21 WP2.1. Address before wiring a confirmation path.
+
+### [NEW-853] Confirmed, Low, dormant API semantics: `approve_and_run` resolves without running
+
+- **Status:** Confirmed by architect code trace, not fixed in slice 6. `resolve_parked_escalation()` maps the action `"approve_and_run"` to status `"resolved"` and only calls `bb.resolve_escalation()`; it never invokes `execute_parked_escalation()`. The action name suggests execution the wrapper does not perform.
+- **Reachability:** no production caller of this wrapper found. Logged as a dormant naming/semantics hazard, not a live user failure. This is also why NEW-848's prior reachability inference was unsound.
+- **Fix direction:** clarify or remove the misleading alias in a separately scoped queue-API round. Any actual execution must pass the gateway and real confirmation; do not wire it merely to satisfy the name.
+- **Cross-reference:** `core/peer_cli.py:476`, `NEW-848` correction, blueprint §21 WP2.1.
+
+### [NEW-854] Confirmed, Low, latent: parked execution ignores resolution failure
+
+- **Status:** Confirmed by independent code-reviewer trace, not fixed in slice 6. `TaskBlackboard.resolve_escalation()` catches database errors and returns `False`. `execute_parked_escalation()` ignores its return value and returns the peer summary regardless, so future permitted execution could appear completed while its item remains pending.
+- **Reachability:** no production caller; dispatch fails closed today. No live database failure was induced or claimed.
+- **Fix direction:** handle a failed queue update explicitly outside the gateway's dispatch exception scope. Preserve the truthful allowed-dispatch audit while reporting bookkeeping failure separately; add an isolated regression before enabling this path.
+- **Cross-reference:** `core/peer_cli.py` (`execute_parked_escalation`), `ccos/core/task_blackboard.py:384` (`resolve_escalation`), blueprint §21 WP2.1.

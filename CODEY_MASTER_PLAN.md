@@ -737,6 +737,14 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 6, parked peer escalation (`NEW-848`), 2026-10-08**
+  (`a9fcb14`) — HIGH_IMPACT dispatch now refuses and audits when no
+  confirmation path exists, preserving the queue/session records.
+  Code-complete + code-reviewer-approved; 37 scoped tests use temporary
+  SQLite/audit files and mocked dispatch. No live peer/model test claimed.
+  Rule-6 correction: no production caller was found, so the former
+  live-reachability claim is withdrawn. Full gateway DoD remains open;
+  roadmap/status: `CODEY_OS_MASTER_BLUEPRINT.md` §21 WP2.1.
 - **B9.y, admin-portal user-management UX, 2026-10-01** (`bba5ba5`) — customer-login creation via the Add User modal (customer picker, links a login to `customers.id`) and an admin-triggered "Reset Password" action (reset, not reveal). Frontend-only — both backend primitives already existed and were correct. Round-1 code-reviewer caught a real, reproduced cross-record data leak (stale customer email surviving a role switch); fixed and independently re-verified round 2 with a differential test. 5 findings disclosed, not fixed (`NEW-741`..`NEW-745`). **NOT live-verified** — no session this round had browser/device access. B9 estimator sequence (B9.1 → B9.y) is now fully closed. See `PROJECT_LOG.md`'s 2026-10-01 entry and Appendix A's B9.y line for full detail.
 - **AGI audit Phases 1-4, merged 2026-09-30** (`ef5c86d`) — `bench/` frozen-benchmark harness, `core/trajectory.py` + pass-through wrappers on `core/agent.py` (`CODEY_TRAJECTORY`, default off), `ccos/core/self_improve.py` master switch (`CODEY_SELF_IMPROVE=off|shadow|on`, default off) gating the four self-improvement modules, honest optimizer scoring (fabricated `+5` bump removed), Qwen3.5-4B fine-tune notebook + verified-trajectory data path, fix-memory hint (`CODEY_USE_FIX_MEMORY`, default off), peer teacher-trace capture. Code-reviewer APPROVED (`core/agent.py` hooks, `ccos/core/self_improve.py` guards). All new behavior confirmed default-off and fail-open; no runtime import of the self-improvement modules. **NOT live-verified with the model** — on-device steps (`LIVE_TEST_QUEUE.md` [AGI-1]: trajectory smoke, bench baseline, fix-memory A/B via `bench.promote`, Colab notebook run, LoRA conversion check) are for Ish to run himself. See Appendix A's AGI-audit-workstream entry for the full merge disclosure (scope check, the on-device full-suite crash that blocked a literal complete run, and why it was ruled pre-existing/unrelated).
 - **Restoricon Core session persistence, 2026-09-02** — the web surfaces'
@@ -5258,6 +5266,18 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 >   unmerged work (above), so that claim is stale rather than wrong-at-time.
 
 **AGI audit workstream (2026-09-30):** tracked in `AGI_AUDIT_PLAN.md` (phases 1-4) and `AGI_AUDIT_LOG.md`. **Merged to `main` 2026-09-30** (`ef5c86d`, from branch `codey-os-agi` @ `6ea4230`) after a Phase-A verification gate: scope check clean (no touches to `restoricon_core/`, `core/resource_gate.py`, `core/loader_v2.py`, daemon-lifecycle files, or `install.sh`), business-safety check clean (all new hooks pass-through/fail-open with flags unset, `functools.wraps` preserved, no runtime import of the self-improvement modules), code-reviewer APPROVED. Phases 1-4 are **code-complete + sandbox/phone test-verified, NOT live-verified with the model**: a literal complete full-suite run could not be obtained on-device (blocked by a pre-existing, file-disjoint crash unrelated to this diff — see `PROJECT_LOG.md`'s 2026-09-30 merge entry for the full disclosure), but every test that did run (~93% of 2851 collected, all 5 scoped AGI test files 39/39, all 8 backup-secrets tests) passed clean once a known ambient-`HTTP_PROXY` false-alarm (`NEW-518` repeat) was ruled out. Live steps remain in `LIVE_TEST_QUEUE.md` [AGI-1], for Ish to run himself. Findings `NEW-729`..`NEW-734` (renumbered at merge time from the branch's original `NEW-546`..`NEW-551`, which collided with IDs `main` had independently allocated to unrelated RBAC findings after the branch was cut — no existing `main` ID was changed). Per rule 1 (as amended 2026-09-30) self-improvement is gated by `CODEY_SELF_IMPROVE` (default off) and the promotion gate; no capability-level evaluator exists yet, so the optimizer deploys nothing. All new env flags (`CODEY_TRAJECTORY`, `CODEY_SELF_IMPROVE`, `CODEY_USE_FIX_MEMORY`) remain unset in every launcher/config/`install.sh`. 4.2 was withdrawn as not-a-defect (rule 6). Rollback: `rollback/2026-09-30-pre-agi-merge` tag @ pre-merge `main` (`910e485`), in addition to `rollback/2026-09-30-pre-agi-audit-fixes` @ `91ee3c1`. **Branch cleanup, 2026-09-30 — COMPLETE, `main` is now the only branch.** `feat/termux-api-agent-tools` merged (`3216ac4`, present but inert — see Appendix A's branch-cleanup entry). `feat/estimator-phase3-schema` found to be a stale zombie — it was already merged into `main` and deleted once before, 2026-09-29, as `bb7a59d` (see this section's B9 entry above); the `origin` copy found during cleanup was a leftover pre-merge snapshot with no unmerged value, deleted rather than merged (`NEW-735`, resolved). 3 other fully-redundant branches also deleted. Both rollback tags (`rollback/2026-09-30-pre-agi-audit-fixes`, `rollback/2026-09-30-pre-agi-merge`) kept, preserving both rollback points.
+
+### Action Gateway status — 2026-10-08 (blueprint §21 WP2.1)
+
+- [x] **WP2.1 slice 6 / `NEW-848`** — parked-escalation dispatch gated
+  (`a9fcb14`); code-complete + code-reviewer-approved, 37 scoped tests.
+  No production caller found; live-reachability claim explicitly corrected.
+- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next scoped
+  candidate: `NEW-849` (`/peer` dispatch); `NEW-846` notes and the remaining
+  action categories are also pending. Plan from blueprint §21.
+- [ ] **Parked-execution semantics (`NEW-852`..`NEW-854`)** — latent
+  peer-error success labeling, misleading `approve_and_run` alias, and
+  ignored resolution failure. Address before allowing execution.
 
 ### Obsolescence audit — pass 1, 2026-09-02 (`U.38` steps 1/1b/2)
 

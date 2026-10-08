@@ -1,3 +1,72 @@
+## 2026-10-08 — WP2.1 slice 6: parked peer dispatch gated; `NEW-848` reachability corrected
+
+**Change (`a9fcb14`):** `core/peer_cli.py::execute_parked_escalation()`
+now routes only `mgr.call()` through the existing Action Gateway as
+`HIGH_IMPACT` with `confirm_available=False`. Refusal/failure warns and
+returns `None`; it never summarizes or resolves the queued task. Existing
+peer selection/fallback and `Optional[str]` contract remain intact.
+Summarization/resolution stay outside the gate's dispatch exception scope
+so a bookkeeping failure cannot rewrite an allowed dispatch audit as failed.
+
+**Behavior and rule-6 correction:** this callable is now a fail-closed
+no-op until a confirmation path exists. No production caller was found in
+repository-wide search; the earlier NEW-848 claim that it was reachable
+from the blackboard resolution flow is withdrawn. The unguarded operation
+was confirmed, but its present risk was latent. Existing human-confirmed
+`escalate()` is unchanged. New latent findings logged without expanding the
+fix: `NEW-852` (peer-error sentinel still resolves), `NEW-853`
+(`approve_and_run` only changes status), `NEW-854` (resolution failure's
+boolean is ignored). Full WP2.1 DoD remains open; `NEW-849` is the next
+scoped peer-dispatch candidate.
+
+**Pipeline:** `/root/project_architect` scoped; `/root/implementer` built
+and tested; `/root/code_reviewer` independently traced execution and
+**APPROVED**. Coordinator independently reran bounded regression/lint.
+Tests cover explicit/stored/default/fallback peer refusal, full queue and
+session preservation, missing record/no peers, forced-allowed mocked
+execution, dispatch failure and post-dispatch summary failure. All peer
+calls are mocked; SQLite and audit files are real temporary files. No
+live peer execution or local-model loading was performed or claimed.
+Status: **code-complete + code-reviewer-approved**, isolated integration
+evidence only. No dependency/setup change required.
+
+**Verbatim coordinator verification:**
+
+```text
+$ python -m pytest -q tests/test_escalation_review_queue.py tests/test_action_gateway.py ccos/tests/test_task_blackboard.py
+.....................................                                    [100%]
+37 passed in 1.63s
+
+$ ruff check tests/test_escalation_review_queue.py
+All checks passed!
+
+$ ruff check core/peer_cli.py tests/test_escalation_review_queue.py --select F,E9 --ignore F541
+All checks passed!
+
+$ ruff check core/peer_cli.py tests/test_escalation_review_queue.py --statistics
+19	UP006  	[*] non-pep585-annotation
+10	UP045  	[*] non-pep604-annotation-optional
+ 6	BLE001 	[ ] blind-except
+ 3	UP035  	[ ] deprecated-import
+ 2	F541   	[*] f-string-missing-placeholders
+ 1	RUF013 	[ ] implicit-optional
+ 1	EXE001 	[ ] shebang-not-executable
+ 1	PLW1510	[ ] subprocess-run-without-check
+Found 43 errors.
+[*] 31 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Implementer: `37 passed in 0.90s`; independent reviewer:
+`37 passed in 1.35s`. Full Ruff is not clean: the 43 core findings predate
+this change (baseline 44 including the now-fixed test import ordering).
+No type checker is installed/configured. Full suite was not rerun because
+of recorded device memory exhaustion (`NEW-791`); no full-suite-green
+claim. Pre-existing `.claude/agent-memory/` edits were preserved and not
+staged. The one-time `CODEX_HANDOFF.md` was consumed and deleted per its
+explicit instruction; the maintained ledgers now carry the result.
+
 ## 2026-10-07 (P2 continues) — WP2.1 slice 5: closed `NEW-843` — the second, separate peer-delegation dispatch path slice 4 couldn't reach — and found 3 more unguarded dispatch paths along the way. **START HERE for the next session.**
 
 **What changed:** project-architect evaluated two possible fix shapes for

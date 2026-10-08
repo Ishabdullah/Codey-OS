@@ -2902,14 +2902,15 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-5 DONE 2026-10-07; full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-6 DONE (1-5: 2026-10-07; 6: 2026-10-08); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
 `a8284e3c9c6e62395`, slice 5 `a98b1b33df2334aad` — 2 rounds, a false
 daemon-reachability claim in a code comment found and corrected). Commits
 `021ecf9` (slice 1), `e26e6e6` (slice 2), `00f149a` (slice 3), `c2712a0`
-(slice 4), `aa39770` (slice 5).
+(slice 4), `aa39770` (slice 5), `a9fcb14` (slice 6;
+reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
@@ -3078,28 +3079,51 @@ daemon-reachability claim in a code comment found and corrected). Commits
   alarming that then accomplishes nothing, worse than slices 1/2's quieter
   no-op disclosures.
 - **Three more findings logged, not fixed:** `NEW-848` (Confirmed, High) —
-  `core/peer_cli.py`'s `execute_parked_escalation()` is a *third* unguarded
-  peer-dispatch path with no confirmation anywhere in the function,
-  arguably a bigger gap than either slice 4 or 5 closed — strong slice-6
-  candidate. `NEW-849` (Low-Medium) — `main.py`'s `/peer` slash command is
+  `core/peer_cli.py`'s `execute_parked_escalation()` was a *third* unguarded
+  peer-dispatch callable, closed in slice 6 below. **Rule-6 correction
+  (2026-10-08):** the original "arguably a bigger gap" characterization
+  overstated current risk: no production caller was found. It is a latent
+  HIGH_IMPACT operation, not an established live dispatch path. `NEW-849` (Low-Medium) — `main.py`'s `/peer` slash command is
   a fourth unguarded dispatch, interactive-only. `NEW-850` (Low) — this
   path never calls `_record_teacher()`, invisible to trajectory capture
   (low priority, off by default). `NEW-851` (informational) — the same
   test-authoring gotcha as `NEW-842`: forcing an ALLOWED decision on this
   call site during testing can trigger a real model load via
   `core.recursive.recursive_infer()`, which bypasses the usual mock point.
+- **Slice 6 (2026-10-08, `execute_parked_escalation`, `NEW-848`,
+  `a9fcb14`):** the callable's sole peer dispatch now enters `gate_exec()`
+  as `HIGH_IMPACT` with `confirm_available=False`. Refusal or dispatch
+  failure warns and returns `None` without summarization or queue
+  resolution; the escalation and task records stay unchanged. Only
+  `mgr.call()` is inside the thunk, so later bookkeeping failure cannot
+  relabel a completed dispatch as failed in the gateway audit.
+  **Behavior:** this callable cannot launch a peer until a confirmation
+  path is wired. Existing human-confirmed `escalate()` is unchanged.
+  **Reachability correction:** repository-wide search found no production
+  caller; `resolve_parked_escalation(action="approve_and_run")` only updates
+  status. The earlier NEW-848 live-reachability claim is withdrawn.
+  **Evidence:** 37 scoped tests passed independently for implementer,
+  reviewer and coordinator, using real temporary SQLite and JSONL files
+  with peer dispatch mocked. Code-complete + code-reviewer-approved;
+  no live model/peer execution claimed. Full suite not rerun (`NEW-791`);
+  43 pre-existing core Ruff findings remain; no type checker installed.
+  **Latent findings, logged rather than fixed:** `NEW-852` (peer-error
+  sentinel still resolves the item if dispatch is ever permitted),
+  `NEW-853` (`approve_and_run` does not execute), `NEW-854` (resolution's
+  `False` result is ignored). Address before enabling this callable.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all five slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all six slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-5 cover 3 of 42 known
+  split is gone. **Not yet met — slices 1-6 cover 3 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
-  `tools/patch_tools.py`), the one shell-exec chokepoint, and both known
-  peer-delegation call sites (`tool_peer_delegate`, `run_agent()`'s
-  natural-language block); shell exec has two known gaps (`NEW-836`,
+  `tools/patch_tools.py`), the one shell-exec chokepoint, two peer-delegation
+  call sites (`tool_peer_delegate`, `run_agent()`'s natural-language block),
+  and the dormant parked-escalation callable; shell exec has two known gaps (`NEW-836`,
   daemon allowlist refusals; `NEW-837`, declined-confirmation audit
-  fidelity); peer-delegation now has three more known gaps (`NEW-848`
-  High, `NEW-849`, `NEW-850`). CCOS capability invocation (deliberately
+  fidelity); peer-delegation still has `NEW-849` (ungated `/peer`) and
+  `NEW-850` (missing teacher capture), plus latent parked-execution
+  semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
   deferred, low real traffic), git writes, outbound HTTP, DB writes,
   message/email sends, `note_save`/`note_forget` (`NEW-846`), and device
   actions remain entirely untouched.**
