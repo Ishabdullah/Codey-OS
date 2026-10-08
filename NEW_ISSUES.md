@@ -20925,3 +20925,31 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Distinction:** no-path/clean paths intentionally report current HEAD; the finding concerns failure of attempted mutations, not those intentional read-only cases.
 - **Fix direction:** preserve and inspect mutation outcomes, report failure honestly, and separately mediate checkpoint Git attempts. Coordinate with exact-scope finding NEW-860.
 - **Cross-reference:** `core/checkpoint.py::_create_git_commit`, `create_checkpoint`, `NEW-860`, blueprint §21 WP2.1 / master Appendix A.
+
+
+## 2026-10-08 — WP2.1 slice 11: checkpoint commit scope/outcomes resolved; recovery/identity findings
+
+### [NEW-860] resolution — checkpoint commit is scoped to triggering paths
+
+- **Status:** Fixed (`0dd1fa7`), code-complete + code-reviewer-approved. Nonempty checkpoint Git attempts use ACT mediation; scoped diff and `git commit ... -- <paths>` prevent unrelated staged entries from triggering/entering a commit. Tests use real temporary Git with absolute/relative triggering paths and retain unrelated staged/dirty entries. Clean scoped attempts intentionally reuse HEAD and audit the attempt, not proof of a new commit. No-path calls remain read-only without mutation audit.
+- **Evidence:** 16 new cases, implementer/reviewer/coordinator each passed 91 bounded tests under precollection state isolation; real temporary backups/SQLite integration. No live-project checkpoint, model, peer or live-store test claimed. NEW-17 remains resolved; broad manual commit behavior remains intentional.
+- **Cross-reference:** `core/checkpoint.py::_create_git_commit`, `tests/test_checkpoint_git_gateway.py`, blueprint §21 WP2.1 slice 11, master §4.2 / Appendix A.
+
+### [NEW-861] resolution — checked checkpoint Git failures return None
+
+- **Status:** Fixed (`0dd1fa7`), code-complete + code-reviewer-approved. Add, scoped diff, commit and final HEAD results are checked inside the checkpoint attempt. Failure is audited, warned and returns None without old-HEAD fallback after failed mutation. Clean/no-path HEAD reuse remains intentional. `create_checkpoint` preserves filesystem backups and records SQL NULL for a failed Git hash.
+- **Limits:** staging may remain after commit failure; a commit can exist after final hash lookup failure. A failed attempt does not mean no side effect, and no atomicity guarantee is made. Successful metadata is static; failed reasons may retain Git stderr. Best-effort audit availability and backup-copy error handling are unchanged. Backup/database writes, rollback and pruning remain outside this mediation.
+- **Cross-reference:** `core/checkpoint.py::_create_git_commit`, `create_checkpoint`, new temporary Git/SQLite tests, `NEW-860`, blueprint §21 WP2.1 slice 11.
+
+### [NEW-862] Confirmed: dormant checkpoint rollback can report success despite restoration/checkout errors
+
+- **Status:** Confirmed by architect/coordinator source trace; logged, not fixed. `rollback` logs copy errors and continues, ignores nonzero `git checkout` return status, logs checkout success, and can return True despite those failures. Repository-wide search found no production caller, so this is dormant callable behavior; no live rollback failure reproduced.
+- **Distinction:** NEW-810 already records detached-HEAD/destructive scope concerns; this finding covers misleading success reporting, not a model rollback integration.
+- **Fix direction:** architect-scope rollback outcome fidelity and mediation without claiming nonexistent live reachability.
+- **Cross-reference:** `core/checkpoint.py::rollback`, `NEW-810`, blueprint §21 WP2.1 residual scope / master Appendix A.
+
+### [NEW-863] Confirmed: whole-second checkpoint IDs permit backup overwrite before duplicate INSERT fails
+
+- **Status:** Confirmed mechanism by architect/coordinator source trace; logged, not fixed. `create_checkpoint` uses `str(int(time.time()))` as ID and directory name, makes the directory with `exist_ok=True`, copies backups, then inserts a unique primary-key row. Two creations in the same second can reuse/overwrite backup files before the second INSERT fails. No collision reproduced this round; do not read this as a measured occurrence rate.
+- **Fix direction:** separately scope unique checkpoint identity and collision-safe backup/record creation; preserve valid previous checkpoints.
+- **Cross-reference:** `core/checkpoint.py::create_checkpoint`, `_extend_state_schema`, `core/state.py` checkpoints schema, master Appendix A.

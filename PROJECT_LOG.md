@@ -1,3 +1,101 @@
+## 2026-10-08 — WP2.1 slice 11: scoped, checked checkpoint Git attempts (`NEW-860`/`NEW-861`)
+
+**Change (`0dd1fa7`):** `_create_git_commit` retains repository preflight
+and no-path HEAD reuse without mutation audit. Nonempty attempts lazily
+import the gateway (avoiding gateway → filesystem → checkpoint module
+cycle), use ACT / `checkpoint.create_git_commit` / static command
+`checkpoint local git commit attempt`, and remain automatic. Add return
+code, scoped diff (0 clean / 1 changes / other failure), scoped commit
+`-- <paths>`, and final HEAD lookup are checked. Failed/refused attempts
+warn and return None; mutation failure cannot silently fall back to old
+HEAD. Clean scoped/no-path HEAD reuse stays intentional. `NEW-860` and
+`NEW-861` resolved for this path.
+
+**Checkpoint behavior:** valid filesystem backups and checkpoint ID return
+behavior remain unchanged. `create_checkpoint` records the returned hash
+or SQL NULL; Git failure does not discard the backups. Failed attempts can
+leave staging, or a completed commit if its later HEAD lookup fails;
+there is no atomicity/rollback guarantee. Successful audit metadata omits
+reason text/path lists/content, failed reasons may contain Git stderr.
+Audit persistence remains best effort. Backup-copy exceptions still log
+and continue; this slice does not establish complete backup integrity.
+Backup/database writes, rollback, pruning and ID generation are unchanged
+and not newly mediated. Full WP2.1 DoD remains open; remaining Git
+mutations require architect scoping.
+
+**Pipeline:** architect → implementer → independent code-reviewer,
+**APPROVED**, coordinator checks and scoped code commit. Sixteen new cases
+exercise isolated real temporary Git, backups and SQLite: absolute and
+relative triggering paths, ancestry/content, unrelated staged/dirty
+exclusion, clean/no-path/non-repository/unborn cases, initial commit,
+invalid staging, missing identity, injected diff/final-HEAD failures,
+refusal and blocked audit parent. Integration verifies backup bytes and
+actual recorded hash/NULL. No Filesystem.write or live-project checkpoint.
+Git environment/configuration/templates/hooks/signing are isolated before
+init; bound CODE_DIR/CHECKPOINT_DIR and state accessor point to temporary
+paths before mutation. Config state is redirected before collection
+(`NEW-855`), no HOME override or live-store access. No model, peer or
+network/push test; real temporary integration, code-complete + reviewer-
+approved, no live model/peer/project verification claimed. No dependency
+or setup change. Full suite excluded (`NEW-791`); type checker unavailable.
+
+**Test expectation corrected:** first run compared raw index bytes for a
+clean scoped attempt. Required `git add` refreshes Git's cache metadata
+without changing staged entries. The corrected assertion compares
+`git ls-files --stage`; true no-path/refusal byte comparisons remain.
+No production change was made for this test correction. Literal excerpt
+(blank separator omitted):
+
+```text
+>       assert (r.repo / ".git/index").read_bytes() == index
+E       AssertionError: assert b'DIRC\x00\x0...\xe7\xb8\x88g' == b'DIRC\x00\x0...\x02k`~[/\xff'
+E         At index 171 diff: b'\x10' != b'#'
+
+FAILED tests/test_checkpoint_git_gateway.py::test_clean_trigger_does_not_commit_unrelated_index
+1 failed, 90 passed in 7.59s
+```
+
+**Out-of-scope findings:** `NEW-862` source-confirmed: rollback ignores
+checkout's nonzero status, logs success and can return True despite
+restore errors. No production caller found; dormant callable risk,
+not a demonstrated live failure. Existing NEW-810 already records its
+scope/detached-HEAD concern. `NEW-863` source-confirmed: whole-second IDs
+and unique SQLite key permit same-second backup directory reuse/overwrite
+before second INSERT fails. No collision reproduced; no fix bundled.
+
+**Verbatim coordinator verification:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice11-validate.py -q tests/test_checkpoint_git_gateway.py tests/test_git_commit_gateway.py tests/test_action_gateway.py tests/test_action_gateway_audit_failure.py tests/test_notes_gateway.py tests/test_main_peer_gateway.py
+........................................................................ [ 79%]
+...................                                                      [100%]
+91 passed in 7.28s
+
+$ ruff check tests/test_checkpoint_git_gateway.py
+All checks passed!
+
+$ ruff check core/checkpoint.py tests/test_checkpoint_git_gateway.py --select F,E9
+All checks passed!
+
+$ ruff check core/checkpoint.py tests/test_checkpoint_git_gateway.py --statistics
+7	PLW1510	[ ] subprocess-run-without-check
+5	BLE001 	[ ] blind-except
+5	UP006  	[*] non-pep585-annotation
+3	UP045  	[*] non-pep604-annotation-optional
+2	UP035  	[ ] deprecated-import
+2	RUF013 	[ ] implicit-optional
+1	EXE001 	[ ] shebang-not-executable
+Found 25 errors.
+[*] 8 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Implementer final: `91 passed in 7.44s`; reviewer independently:
+`91 passed in 7.25s`. New-file Ruff and focused F/E9 clean; full checkpoint
+Ruff 25 vs pre-edit 26 after consolidating a duplicate HEAD subprocess.
+Unrelated agent-memory edits preserved and left unstaged.
+
 ## 2026-10-08 — WP2.1 slice 10: local commit attempts enter ACT mediation
 
 **Change (`9c2d230`):** `git_commit` / `git_commit_paths` retain their

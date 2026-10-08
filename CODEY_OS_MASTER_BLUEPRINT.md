@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-10 DONE (1-5: 2026-10-07; 6-10: 2026-10-08); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-11 DONE (1-5: 2026-10-07; 6-11: 2026-10-08); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2914,6 +2914,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `179f67b` (slice 7;
 reviewed by `/root/code_reviewer`, APPROVED), `2acd8e6` (slice 8;
 reviewed by `/root/code_reviewer`, APPROVED), `51a48db` (slice 9;
 reviewed by `/root/code_reviewer`, APPROVED), `9c2d230` (slice 10;
+reviewed by `/root/code_reviewer`, APPROVED), `0dd1fa7` (slice 11;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3193,22 +3194,51 @@ reviewed by `/root/code_reviewer`, APPROVED).
   peer, network or live-store test. Code-complete + code-reviewer-approved;
   full suite excluded (`NEW-791`), 53 unchanged helper Ruff findings,
   type checker unavailable. No dependency/setup change.
-  **Still open:** checkpoint's independent commit path, push, branch
-  creation, checkout and merge. Logged `NEW-860` (checkpoint can include
-  unrelated pre-staged entries) and `NEW-861` (ignored add/commit failures
-  can return old HEAD), source-confirmed, not fixed or live-reproduced.
+  **Open at slice 10:** checkpoint's independent commit path, push,
+  branch creation, checkout and merge. Logged `NEW-860` (checkpoint can
+  include unrelated pre-staged entries) and `NEW-861` (ignored add/commit
+  failures can return old HEAD), source-confirmed then; checkpoint commit
+  mediation and those two findings are addressed by slice 11 below.
   NEW-17's scoped agent offer remains resolved; broad manual commits are
   intentionally preserved. Architect must scope remaining Git paths next.
+- **Slice 11 (2026-10-08, checkpoint Git attempt, `NEW-860`/`NEW-861`,
+  `0dd1fa7`):** nonempty `_create_git_commit` attempts use a runtime-imported
+  ACT gateway with their own static action/command metadata. Scoped diff
+  and commit prevent unrelated staged entries from triggering/entering
+  the commit. Add, diff, commit and final HEAD statuses are checked;
+  failed/refused attempts warn and return None rather than old HEAD.
+  No-path/non-repository preflight stays read-only without mutation audit;
+  clean scoped attempts intentionally reuse HEAD. Automatic backups and
+  SQLite rows remain: Git failure records NULL while retaining backups.
+  **Evidence:** 16 new cases, 91 bounded tests independently passed by
+  implementer/reviewer/coordinator. Real isolated temporary Git, absolute
+  triggering paths, backup bytes and SQLite rows; no project checkpoint,
+  Filesystem.write, model, peer, network or live-store test. Code-complete
+  + code-reviewer-approved. State redirected before collection (`NEW-855`);
+  isolated Git configuration/templates/hooks/signing. Initial test's raw
+  index byte comparison was narrowed to staged-entry preservation: git add
+  can refresh cache metadata. Full suite excluded (`NEW-791`), type checker
+  unavailable; 25 checkpoint Ruff findings vs 26 baseline after removal of
+  one duplicate HEAD subprocess call. New-file/focused lint clean.
+  **Limits:** staging or an actual commit can precede a later failed lookup;
+  this is not atomic. Successful audit metadata omits reasons/paths/content,
+  failure reasons may retain Git stderr; audit persistence is best effort.
+  Backup/database writes, rollback and pruning remain outside mediation.
+  Backup-copy errors still continue; no complete-backup-integrity claim.
+  Logged `NEW-862` (dormant rollback can report success after errors) and
+  `NEW-863` (epoch-second ID collision/backup overwrite), source-confirmed,
+  not reproduced or fixed. Remaining Git paths need architect scoping.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all ten slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all eleven slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-10 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-11 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
   block, and `handle_command()`'s `/peer` branch),
-  the dormant parked-escalation callable, and two local commit helpers;
+  the dormant parked-escalation callable, two local commit helpers, and
+  nonempty checkpoint Git attempts;
   the four-of-42 write-primitive count does not measure Git subprocess coverage.
   Shell exec has two known gaps (`NEW-836`,
   daemon allowlist refusals; `NEW-837`, declined-confirmation audit
@@ -3218,8 +3248,10 @@ reviewed by `/root/code_reviewer`, APPROVED).
   semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
   deferred, low real traffic), outbound HTTP, DB writes,
   message/email sends, and device actions remain entirely untouched. Git
-  coverage is partial: checkpoint commits (`NEW-860`, `NEW-861`), push,
-  branch creation, checkout and merge remain ungated.
+  coverage is partial: push, branch creation, checkout and merge remain
+  ungated, including checkpoint rollback's checkout. `NEW-860`/`NEW-861`
+  are fixed for scoped commit attempts; checkpoint backup/database writes,
+  rollback/pruning and `NEW-862`/`NEW-863` remain outside this coverage.
   Notes mediation is covered; `NEW-846` content trust and notes integrity/cache
   findings (`NEW-857`..`NEW-859`) remain open.**
 

@@ -737,14 +737,23 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 11, checkpoint Git attempts (`NEW-860`/`NEW-861`),
+  2026-10-08** (`0dd1fa7`) — scoped ACT attempts check add/diff/commit/HEAD,
+  exclude unrelated staged entries, and return None on failure. Backups
+  persist and SQLite records NULL for failed Git snapshots; clean/no-path
+  HEAD reuse remains intentional. 16 new cases, 91 bounded tests with
+  real temporary Git/backups/SQLite; code-complete + code-reviewer-approved.
+  No model/peer/live-project checkpoint claimed. Backup completeness and
+  rollback/pruning are not resolved; new `NEW-862`/`NEW-863` logged open.
 - **WP2.1 slice 10, local commit attempts, 2026-10-08** (`9c2d230`)
   — `git_commit` / `git_commit_paths` mediated as ACT; normal commits,
   original strings/staging behavior and existing human prompts preserved.
   Error sentinels audit failed; no-op allowed attempts do not imply a
   new commit. 19 new cases, 75 bounded tests using isolated real Git,
   code-complete + code-reviewer-approved; no model/peer/live-store test.
-  Checkpoint commits, push, branches, checkout and merge remain ungated;
-  source-confirmed checkpoint findings `NEW-860`, `NEW-861` logged open.
+  At slice 10, checkpoint commits and other Git mutations remained
+  ungated; checkpoint commit findings `NEW-860`, `NEW-861` are fixed by
+  slice 11 above. Push, branches, checkout and merge remain ungated.
 - **WP2.1 slice 9, audit-directory failure (`NEW-835`), 2026-10-08**
   (`51a48db`) — audit directory creation now shares the existing OSError
   handler, preserving policy/operation outcomes and notes write errors.
@@ -5320,14 +5329,19 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   reviewer-approved, 75 bounded tests with real temporary repositories.
   Both helper APIs mediated as ACT, existing confirmation preserved;
   allowed no-ops are attempts, staging can remain after failures.
+- [x] **WP2.1 slice 11 / checkpoint commit integrity (`NEW-860`, `NEW-861`)**
+  — `0dd1fa7`, reviewer-approved, 91 bounded tests using real temporary Git,
+  backups and SQLite. Scoped commit attempts checked/audited as ACT;
+  failed snapshots record NULL, valid backups retained. No atomicity claim.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
-  architect-scope remaining Git paths: independent checkpoint commits,
-  push, branch creation, checkout and merge. Preserve confirmation and
+  architect-scope push, branch creation, checkout and merge, including the
+  independent checkpoint rollback checkout. Preserve confirmation and
   distinguish external publishing from working-file changes.
   CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
-- [ ] **Checkpoint commit integrity (`NEW-860`, `NEW-861`)** — unrelated
-  pre-staged entries can enter checkpoint commits; ignored Git failures
-  can return old HEAD. Source-confirmed, not fixed or live-reproduced.
+- [ ] **Checkpoint recovery/identity (`NEW-862`, `NEW-863`)** — dormant
+  rollback can misreport success; epoch-second IDs can collide/overwrite
+  backups before INSERT fails. Source-confirmed, not reproduced or fixed.
+  Backup/database writes and pruning remain outside gateway coverage.
 - [ ] **Notes trust/integrity/cache (`NEW-846`, `NEW-857`..`NEW-859`)** —
   content trust unresolved; load-error/data-shape handling, suspected
   concurrent writes and stale draft cache logged without fixes.
