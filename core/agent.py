@@ -190,7 +190,22 @@ def tool_peer_delegate(peer: str, task: str) -> str:
 
     If the requested peer is disabled (e.g. claude), it warns and gracefully
     redirects to an enabled peer (e.g. antigravity or qwen).
+
+    WP2.1 slice 4: every actual dispatch to a peer CLI subprocess (the
+    primary branch below AND the disabled-peer fallback branch — both
+    launch core/peer_shell.py's `mgr.call()`, which appends the peer's
+    yolo/auto-approve flag unconditionally, core/peer_shell.py:260-261)
+    is routed through ActionGateway.gate_exec() as HIGH_IMPACT with
+    confirm_available=False. There is no confirmation UI for this call
+    site yet (unlike shell_tools.shell()'s pre-existing confirm_shell
+    prompt before slice 2's gateway existed), so this is a permanent
+    fail-closed no-op in production until a future slice wires one up.
+    `core/peer_cli.py::escalate()`'s own, separate, already-human-
+    confirmed flow (mgr.confirm()) is a different code path entirely
+    and is NOT affected by this gate.
     """
+    from core.action_gateway import (HIGH_IMPACT, OUTCOME_FAILED,
+                                     OUTCOME_REFUSED, get_action_gateway)
     from core.peer_cli import (PEER_REGISTRY, get_peer_cli_manager,
                                is_peer_enabled, resolve_peer_name)
 
@@ -203,6 +218,34 @@ def tool_peer_delegate(peer: str, task: str) -> str:
 
     mgr = get_peer_cli_manager()
 
+    def _gate_call(resolved_name: str, cli, dispatch_task: str, result_wrapper):
+        """Route one real `mgr.call()` dispatch through the gateway.
+        `result_wrapper` builds the final return string from mgr.call()'s
+        output once the dispatch has actually happened; never invoked on
+        the fail-closed refusal path."""
+
+        def _attempt() -> str:
+            output = mgr.call(cli, dispatch_task)
+            _record_teacher(resolved_name, dispatch_task, output)
+            return result_wrapper(output)
+
+        decision = get_action_gateway().gate_exec(
+            authority=HIGH_IMPACT,
+            action="peer_cli.tool_peer_delegate",
+            command=f"{resolved_name} :: {dispatch_task[:200]}",
+            confirm_available=False,
+            execute=_attempt,
+        )
+        if decision.outcome == OUTCOME_REFUSED:
+            return f"[BLOCKED] {decision.reason}"
+        if decision.outcome == OUTCOME_FAILED:
+            # Not reachable in practice today (mirrors shell_tools.shell()'s
+            # same comment) — mgr.call()/_record_teacher() aren't expected
+            # to raise — but handled explicitly rather than silently
+            # falling through to the ALLOWED-shaped return below.
+            return f"[ERROR] {decision.reason}"
+        return decision.detail.get("result", "")
+
     # Check if disabled
     if not is_peer_enabled(canonical):
         peer_obj = next((c for c in PEER_REGISTRY if c.name == canonical), None)
@@ -210,10 +253,15 @@ def tool_peer_delegate(peer: str, task: str) -> str:
         fallback_cli = mgr.select_cli(mgr.detect_task_type(task, []))
         if fallback_cli:
             warning(f"Peer '{canonical}' disabled ({reason}). Redirecting to {fallback_cli.name}...")
-            output = mgr.call(fallback_cli, task)
-            _record_teacher(fallback_cli.name, task, output)
-            summary = mgr.summarize_result(fallback_cli.name, output, task)
-            return f"[{canonical} was disabled: {reason}. Redirected to {fallback_cli.name}]\n\n{summary}"
+            return _gate_call(
+                fallback_cli.name,
+                fallback_cli,
+                task,
+                lambda output: (
+                    f"[{canonical} was disabled: {reason}. Redirected to {fallback_cli.name}]\n\n"
+                    f"{mgr.summarize_result(fallback_cli.name, output, task)}"
+                ),
+            )
         else:
             return f"[Peer error: {canonical} is disabled ({reason}) and no fallback peer is available]"
 
@@ -223,9 +271,12 @@ def tool_peer_delegate(peer: str, task: str) -> str:
     if not cli:
         return f"[Peer error: peer '{canonical}' is not installed on this system]"
 
-    output = mgr.call(cli, task)
-    _record_teacher(cli.name, task, output)
-    return mgr.summarize_result(cli.name, output, task)
+    return _gate_call(
+        cli.name,
+        cli,
+        task,
+        lambda output: mgr.summarize_result(cli.name, output, task),
+    )
 
 
 # CODEY_MASTER_PLAN.md 12.x Part C (originally nine) + B8.11 Part C (three

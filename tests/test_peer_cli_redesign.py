@@ -2,6 +2,7 @@
 Unit tests for Track A / Phase A2 Item 4.5: Peer-CLI Escalation Redesign.
 """
 
+import json
 from unittest.mock import patch
 
 from core.agent import _detect_peer_delegation, tool_peer_delegate
@@ -158,28 +159,145 @@ def test_detect_peer_delegation():
 
 
 def test_tool_peer_delegate_disabled_fallback():
-    """Verify tool_peer_delegate redirects disabled peers to an enabled peer."""
+    """WP2.1 slice 4: the disabled-peer fallback branch dispatches through
+    core/peer_shell.py's auto-approving subprocess launch just like the
+    primary branch, so it is gated the same way -- HIGH_IMPACT with no
+    confirmation path fails closed. The fallback peer's `call()` must
+    NEVER actually run."""
     with patch("core.peer_cli.PeerCLIManager.available") as mock_avail, \
          patch("core.peer_cli.PeerCLIManager.call", return_value="def hello(): pass") as mock_call:
         agy_cli = next(c for c in PEER_REGISTRY if c.name == "antigravity")
         mock_avail.return_value = [agy_cli]
 
         result = tool_peer_delegate("claude", "write hello function")
-        assert "disabled" in result.lower() or "redirected" in result.lower()
-        assert "antigravity" in result.lower()
-        assert "def hello(): pass" in result
+        assert result.startswith("[BLOCKED]")
+        mock_call.assert_not_called()
 
 
 def test_tool_peer_delegate_success():
-    """Verify tool_peer_delegate executes enabled peer and formats output."""
+    """WP2.1 slice 4: TOOLS['peer_delegate']'s direct dispatch is always
+    HIGH_IMPACT with no confirmation path available yet, so it fails
+    closed -- the peer's `call()` must NEVER actually run."""
     with patch("core.peer_cli.PeerCLIManager.available") as mock_avail, \
-         patch("core.peer_cli.PeerCLIManager.call", return_value="Success peer output"):
+         patch("core.peer_cli.PeerCLIManager.call", return_value="Success peer output") as mock_call:
         qwen_cli = next(c for c in PEER_REGISTRY if c.name == "qwen")
         mock_avail.return_value = [qwen_cli]
 
         result = tool_peer_delegate("qwen", "build script")
+        assert result.startswith("[BLOCKED]")
+        mock_call.assert_not_called()
+
+
+def test_tool_peer_delegate_gated_through_action_gateway():
+    """Invariant: tool_peer_delegate's real dispatch is unreachable except
+    via ActionGateway.gate_exec(), called as HIGH_IMPACT with
+    confirm_available=False (mirrors slices 1-3's own invariant-test
+    pattern, tests/test_action_gateway.py). The audit ledger must record
+    the refusal."""
+    import tempfile
+    from pathlib import Path
+
+    from core.action_gateway import HIGH_IMPACT, OUTCOME_REFUSED, ActionGateway
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audit_file = Path(tmpdir) / "audit.jsonl"
+        test_gateway = ActionGateway(audit_file=audit_file)
+
+        with patch("core.action_gateway.get_action_gateway", return_value=test_gateway), \
+             patch("core.peer_cli.PeerCLIManager.available") as mock_avail, \
+             patch("core.peer_cli.PeerCLIManager.call") as mock_call:
+            qwen_cli = next(c for c in PEER_REGISTRY if c.name == "qwen")
+            mock_avail.return_value = [qwen_cli]
+
+            result = tool_peer_delegate("qwen", "build script")
+
+        assert result.startswith("[BLOCKED]")
+        mock_call.assert_not_called()
+
+        records = [
+            json.loads(line)
+            for line in audit_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert len(records) == 1
+        assert records[0]["authority"] == HIGH_IMPACT
+        assert records[0]["outcome"] == OUTCOME_REFUSED
+        assert records[0]["action"] == "peer_cli.tool_peer_delegate"
+
+
+def test_tool_peer_delegate_dispatch_thunk_correct_when_allowed():
+    """WP2.1 slice 4's gate_exec() call wraps the real `mgr.call()` dispatch
+    in a thunk that is never exercised by the (now fail-closed-by-default)
+    production path or by the [BLOCKED] tests above. Force an ALLOWED
+    decision (as a future confirmation-UI slice would produce) to prove
+    the thunk/result_wrapper wiring itself -- cli selection, summarize_result
+    formatting, the disabled-peer-redirect message, and _record_teacher's
+    argument order -- is actually correct, not just unreached."""
+    import tempfile
+    from pathlib import Path
+
+    from core.action_gateway import ActionGateway, GatewayDecision, OUTCOME_ALLOWED
+
+    class _AllowAllGateway(ActionGateway):
+        def gate_exec(self, *, authority, action, command, confirm_available, execute):
+            result = execute()
+            return GatewayDecision(
+                authority=authority, outcome=OUTCOME_ALLOWED, reason="test-allow",
+                detail={"action": action, "command": command, "result": result},
+            )
+
+    allow_gateway = _AllowAllGateway(
+        audit_file=Path(tempfile.mkdtemp()) / "audit.jsonl"
+    )
+
+    # Success branch: peer enabled and installed.
+    with patch("core.action_gateway.get_action_gateway", return_value=allow_gateway), \
+         patch("core.agent._record_teacher") as mock_teacher, \
+         patch("core.peer_cli.PeerCLIManager.available") as mock_avail, \
+         patch("core.peer_cli.PeerCLIManager.call", return_value="Success peer output") as mock_call:
+        qwen_cli = next(c for c in PEER_REGISTRY if c.name == "qwen")
+        mock_avail.return_value = [qwen_cli]
+
+        result = tool_peer_delegate("qwen", "build script")
+
+        mock_call.assert_called_once_with(qwen_cli, "build script")
+        mock_teacher.assert_called_once_with("qwen", "build script", "Success peer output")
         assert "[Peer CLI — qwen]" in result
         assert "Success peer output" in result
+
+    # Disabled-peer fallback branch.
+    with patch("core.action_gateway.get_action_gateway", return_value=allow_gateway), \
+         patch("core.agent._record_teacher") as mock_teacher, \
+         patch("core.peer_cli.PeerCLIManager.available") as mock_avail, \
+         patch("core.peer_cli.PeerCLIManager.call", return_value="def hello(): pass") as mock_call:
+        agy_cli = next(c for c in PEER_REGISTRY if c.name == "antigravity")
+        mock_avail.return_value = [agy_cli]
+
+        result = tool_peer_delegate("claude", "write hello function")
+
+        mock_call.assert_called_once_with(agy_cli, "write hello function")
+        mock_teacher.assert_called_once_with("antigravity", "write hello function", "def hello(): pass")
+        assert "[claude was disabled:" in result
+        assert "Redirected to antigravity]" in result
+        assert "def hello(): pass" in result
+
+
+def test_tools_dict_peer_delegate_gated_and_arg_keys_normalized():
+    """Invariant: TOOLS['peer_delegate'] (the actual model-reachable tool,
+    not just the underlying function) is unreachable except via
+    ActionGateway.gate_exec(), and its arg-key normalization (peer_name/
+    name, prompt/command fallbacks) still works under the gate."""
+    from core.agent import TOOLS
+
+    with patch("core.peer_cli.PeerCLIManager.available") as mock_avail, \
+         patch("core.peer_cli.PeerCLIManager.call") as mock_call:
+        qwen_cli = next(c for c in PEER_REGISTRY if c.name == "qwen")
+        mock_avail.return_value = [qwen_cli]
+
+        result = TOOLS["peer_delegate"]({"peer_name": "qwen", "prompt": "build script"})
+
+        assert result.startswith("[BLOCKED]")
+        mock_call.assert_not_called()
 
 
 def test_tool_peer_delegate_unknown_peer():
