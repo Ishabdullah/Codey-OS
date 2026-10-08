@@ -131,7 +131,12 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
 
 
 def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optional[str]:
-    """Create a git commit for the checkpoint, staging only the triggering file(s)."""
+    """Commit only triggering paths through ACT mediation.
+
+    No-path calls only read HEAD without a mutation audit; scoped clean
+    attempts return the existing HEAD. Staging/commit/hash lookup are not
+    atomic: failure can leave staged changes or an already-created commit.
+    """
     try:
         # Check if we're in a git repo
         result = subprocess.run(
@@ -147,34 +152,49 @@ def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optiona
             )
             return result.stdout.strip() if result.returncode == 0 else None
 
-        # Stage only the file(s) that triggered this checkpoint
-        subprocess.run(
-            ["git", "add", "--"] + list(files_modified), cwd=CODE_DIR, capture_output=True
-        )
+        # Runtime import avoids the gateway -> Filesystem -> checkpoint cycle.
+        from core.action_gateway import ACT, get_action_gateway
 
-        # Check if there are changes to commit
-        result = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"], cwd=CODE_DIR, capture_output=True
-        )
-        if result.returncode == 0:
-            # No changes
+        def execute():
+            paths = list(files_modified)
+            result = subprocess.run(
+                ["git", "add", "--"] + paths, cwd=CODE_DIR, capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"git add failed: {result.stderr.strip()}")
+
+            result = subprocess.run(
+                ["git", "diff", "--cached", "--quiet", "--"] + paths,
+                cwd=CODE_DIR, capture_output=True, text=True,
+            )
+            if result.returncode not in (0, 1):
+                raise RuntimeError(f"git diff failed: {result.stderr.strip()}")
+            if result.returncode == 1:
+                result = subprocess.run(
+                    ["git", "commit", "-m", f"Codey checkpoint: {reason}", "--"] + paths,
+                    cwd=CODE_DIR, capture_output=True, text=True,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(f"git commit failed: {result.stderr.strip()}")
+
             result = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
             )
-            return result.stdout.strip() if result.returncode == 0 else None
+            if result.returncode != 0:
+                raise RuntimeError(f"git rev-parse HEAD failed: {result.stderr.strip()}")
+            return result.stdout.strip()
 
-        # Create commit
-        subprocess.run(
-            ["git", "commit", "-m", f"Codey checkpoint: {reason}"],
-            cwd=CODE_DIR,
-            capture_output=True,
+        decision = get_action_gateway().gate_exec(
+            authority=ACT,
+            action="checkpoint.create_git_commit",
+            command="checkpoint local git commit attempt",
+            confirm_available=False,
+            execute=execute,
         )
-
-        # Get commit hash
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
-        )
-        return result.stdout.strip() if result.returncode == 0 else None
+        if decision.allowed:
+            return decision.detail["result"]
+        warning(f"Checkpoint: git commit {decision.outcome}: {decision.reason}")
+        return None
 
     except Exception as e:
         warning(f"Checkpoint: git commit failed: {e}")
