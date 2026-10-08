@@ -9,6 +9,14 @@ Snapshots handled by Filesystem class.
 
 from pathlib import Path
 
+from core.action_gateway import (
+    ACT,
+    HIGH_IMPACT,
+    OUTCOME_FAILED,
+    OUTCOME_REFUSED,
+    get_action_gateway,
+)
+from core.checkpoint import is_core_file
 from core.filesystem import Filesystem, FilesystemAccessError, get_filesystem
 from utils.config import AGENT_CONFIG
 
@@ -77,6 +85,39 @@ _DECODE_EXTS = {
     ".ini",
     ".cfg",
 }
+
+def classify_write_action(path: str) -> str:
+    """Classify a write/append/patch action into an ActionGateway authority
+    class (WP2.1 slice 3, CODEY_OS_MASTER_BLUEPRINT.md §21).
+
+    - HIGH_IMPACT when the target is a Codey-OS core file (core/, tools/,
+      utils/, prompts/ — see core.checkpoint.is_core_file) — "modify
+      Codey itself" is the one HIGH_IMPACT category that clearly applies
+      to these tools.
+    - ACT otherwise (ordinary workspace file writes).
+
+    Deliberately does NOT promote WRITE_PROTECTED filenames (.gitignore,
+    README.md, etc.) to HIGH_IMPACT — that set already has its own
+    independent ask_confirm() gate BEFORE the function reaches the final
+    write call below; if the user declines there, the function returns
+    "[CANCELLED]" and never reaches the gateway at all. This is not an
+    oversight, it's two independent mechanisms that don't need to be
+    unified.
+
+    is_core_file() resolves the path via Path(...).resolve() and can
+    raise on a genuinely malformed path (e.g. embedded NUL). Falling back
+    to ACT on that failure, rather than letting it propagate, preserves
+    the tools' existing error shape (a clean "[ERROR] ..." string from
+    Filesystem's own validation) instead of a new unhandled exception —
+    the caller downstream still rejects the bad path, just later.
+    """
+    try:
+        if is_core_file(path):
+            return HIGH_IMPACT
+    except (TypeError, ValueError, OSError):
+        return ACT
+    return ACT
+
 
 # Global filesystem instance
 _fs: Filesystem = None
@@ -215,10 +256,41 @@ def tool_write_file(path: str, content: str) -> str:
     if p.suffix.lower() in _DECODE_EXTS:
         content = content.replace('\\"', '"')
 
-    try:
-        return _get_fs().write(path, content)
-    except FilesystemAccessError as e:
-        return f"[ERROR] {e}"
+    # Routed through core.action_gateway (WP2.1 slice 3): classified here,
+    # then gated. This call is deliberately last — every guard above
+    # (size/syntax/binary-type blocks, WRITE_PROTECTED confirm, regular
+    # confirm) runs first, so a "[CANCELLED]"/"[ERROR]" from one of those
+    # never reaches the gateway at all. Do not move this earlier — that
+    # would turn those returns into "[BLOCKED]" and break the
+    # WRITE_PROTECTED interaction above.
+    #
+    # confirm_available also counts allow_self_modification=True (the
+    # pre-existing, operator-granted --allow-self-mod/ALLOW_SELF_MOD=1
+    # permission, core/filesystem.py:113-119) as a confirmation path for
+    # HIGH_IMPACT (core-file) writes — Ish's decision, 2026-10-08. Without
+    # this, a daemon/--yolo run with confirm_write=False but
+    # allow_self_modification=True (two independently-documented,
+    # simultaneously-usable flags, main.py:34,60) would have its
+    # self-modification permission silently defeated by the gateway's
+    # fail-closed rule, even though allow_self_modification exists
+    # specifically to permit this.
+    authority = classify_write_action(path)
+    confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(
+        AGENT_CONFIG.get("allow_self_modification", False)
+    )
+    decision = get_action_gateway().gate_write(
+        authority=authority,
+        action="file_tools.write_file",
+        path=path,
+        content=content,
+        confirm_available=confirm_available,
+        filesystem=_get_fs(),
+    )
+    if decision.outcome == OUTCOME_REFUSED:
+        return f"[BLOCKED] {decision.reason}"
+    if decision.outcome == OUTCOME_FAILED:
+        return f"[ERROR] {decision.reason}"
+    return decision.detail.get("result", f"Written {path}")
 
 
 def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
@@ -243,6 +315,10 @@ def tool_append_file(path: str, content: str) -> str:
     """
     Append content to file.
 
+    Routed through core.action_gateway (WP2.1 slice 3) — this was the
+    first gating tool_append_file ever received; previously it had no
+    confirm/protected-name checks at all.
+
     Args:
         path: Path to file
         content: Content to append
@@ -250,10 +326,25 @@ def tool_append_file(path: str, content: str) -> str:
     Returns:
         Success message or error message
     """
-    try:
-        return _get_fs().append(path, content)
-    except FilesystemAccessError as e:
-        return f"[ERROR] {e}"
+    authority = classify_write_action(path)
+    # See tool_write_file's comment above on why allow_self_modification
+    # also counts as a confirmation path here.
+    confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(
+        AGENT_CONFIG.get("allow_self_modification", False)
+    )
+    decision = get_action_gateway().gate_append(
+        authority=authority,
+        action="file_tools.append_file",
+        path=path,
+        content=content,
+        confirm_available=confirm_available,
+        filesystem=_get_fs(),
+    )
+    if decision.outcome == OUTCOME_REFUSED:
+        return f"[BLOCKED] {decision.reason}"
+    if decision.outcome == OUTCOME_FAILED:
+        return f"[ERROR] {decision.reason}"
+    return decision.detail.get("result", f"Appended to {path}")
 
 
 def tool_list_dir(path: str = ".") -> str:

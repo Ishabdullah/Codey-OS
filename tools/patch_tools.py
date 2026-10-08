@@ -92,12 +92,36 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
 
     snapshot(str(p))
     try:
-        # Route through Filesystem layer for workspace boundary and safety enforcement
-        from core.filesystem import FilesystemAccessError, get_filesystem
+        # Route through Filesystem layer (workspace boundary + safety
+        # enforcement) via core.action_gateway (WP2.1 slice 3): classified
+        # here, then gated, same as tools.file_tools.tool_write_file.
+        from core.action_gateway import OUTCOME_FAILED, OUTCOME_REFUSED, get_action_gateway
+        from core.filesystem import get_filesystem
+        from tools.file_tools import classify_write_action
 
-        get_filesystem().write(str(p), new_content)
+        authority = classify_write_action(str(p))
+        # See tools.file_tools.tool_write_file's comment on why
+        # allow_self_modification also counts as a confirmation path for
+        # HIGH_IMPACT (core-file) writes here.
+        confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(
+            AGENT_CONFIG.get("allow_self_modification", False)
+        )
+        decision = get_action_gateway().gate_write(
+            authority=authority,
+            action="patch_tools.tool_patch_file",
+            path=str(p),
+            content=new_content,
+            confirm_available=confirm_available,
+            filesystem=get_filesystem(),
+        )
+        if decision.outcome == OUTCOME_REFUSED:
+            return f"[BLOCKED] {decision.reason}"
+        if decision.outcome == OUTCOME_FAILED:
+            return f"[ERROR] {decision.reason}"
+        # Keep patch_file's own diff-shaped success string on ALLOWED —
+        # unlike write_file/append_file, this function already builds a
+        # more useful message (char counts, not Filesystem.write()'s
+        # generic "Written {path}") than the gateway's delegated result.
         return f"Patched {path} ({len(old_str)} chars → {len(new_str)} chars)"
-    except FilesystemAccessError as e:
-        return f"[ERROR] {e}"
     except Exception as e:
         return f"[ERROR] Could not write {path}: {e}"

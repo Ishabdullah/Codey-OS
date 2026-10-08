@@ -207,6 +207,68 @@ class TestActionGatewayClassification(unittest.TestCase):
         outcomes = {r["outcome"] for r in records}
         self.assertEqual(outcomes, {OUTCOME_REFUSED, OUTCOME_ALLOWED})
 
+    # ── gate_append (WP2.1 slice 3) ──────────────────────────────────
+
+    def test_gate_append_high_impact_refused_without_confirmation_path(self):
+        target = Path(self.tmpdir) / "CODEY.md"
+        decision = self.gateway.gate_append(
+            authority=HIGH_IMPACT,
+            action="test.append.high_impact",
+            path=str(target),
+            content="hello",
+            confirm_available=False,
+            filesystem=self.fs,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.outcome, OUTCOME_REFUSED)
+        self.assertFalse(target.exists())
+
+    def test_gate_append_high_impact_allowed_with_confirmation_path(self):
+        target = Path(self.tmpdir) / "CODEY.md"
+        decision = self.gateway.gate_append(
+            authority=HIGH_IMPACT,
+            action="test.append.high_impact",
+            path=str(target),
+            content="hello",
+            confirm_available=True,
+            filesystem=self.fs,
+        )
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.outcome, OUTCOME_ALLOWED)
+        self.assertEqual(target.read_text(encoding="utf-8"), "hello")
+
+    def test_gate_append_act_never_fails_closed(self):
+        target = Path(self.tmpdir) / "notes.txt"
+        for confirm_available in (False, True):
+            decision = self.gateway.gate_append(
+                authority=ACT,
+                action="test.append.act",
+                path=str(target),
+                content="line\n",
+                confirm_available=confirm_available,
+                filesystem=self.fs,
+            )
+            self.assertTrue(
+                decision.allowed,
+                f"ACT must not fail closed (confirm_available={confirm_available})",
+            )
+
+    def test_gate_append_failed_outside_workspace_is_audited_as_failed(self):
+        outside = Path(tempfile.mkdtemp()) / "CODEY.md"
+        outside.write_text("existing", encoding="utf-8")
+        decision = self.gateway.gate_append(
+            authority=HIGH_IMPACT,
+            action="test.append.outside_workspace",
+            path=str(outside),
+            content="new",
+            confirm_available=True,
+            filesystem=self.fs,  # fs's workspace is self.tmpdir, not `outside`'s dir
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.outcome, OUTCOME_FAILED)
+        records = self._read_ledger()
+        self.assertEqual(records[-1]["outcome"], OUTCOME_FAILED)
+
     def test_failed_write_outside_workspace_is_audited_as_failed_not_refused(self):
         outside = Path(tempfile.mkdtemp()) / "CODEY.md"
         outside.write_text("existing", encoding="utf-8")

@@ -732,7 +732,14 @@ def execute_tool(tool_dict):
 
         # ── Post-write lint (replaces pre-write syntax check + post-write lint)
         # Single pass — the linter reads from disk (no extra content copy).
-        if (_is_write or _is_patch) and not result.startswith("[ERROR]"):
+        # "[BLOCKED]" (WP2.1 slice 3) means the write/patch was refused by
+        # the action gateway and never touched disk — lint that same as
+        # an "[ERROR]" skip, not as a successful write.
+        if (
+            (_is_write or _is_patch)
+            and not result.startswith("[ERROR]")
+            and not result.startswith("[BLOCKED]")
+        ):
             _lpath = args.get("path", "")
             if _lpath.endswith(".py"):
                 try:
@@ -1151,7 +1158,11 @@ def _auto_apply_peer_code(peer_output, context_message=""):
                 pass
         fpath = os.path.join(os.getcwd(), fname)
         result = tool_write_file(fpath, code.rstrip() + "\n")
-        if result.startswith("[ERROR]") or result.startswith("[CANCELLED]"):
+        if (
+            result.startswith("[ERROR]")
+            or result.startswith("[CANCELLED]")
+            or result.startswith("[BLOCKED]")
+        ):
             warning(f"Failed to write {fname} from peer: {result}")
             return False
         files_written.append(fname)

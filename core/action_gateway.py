@@ -193,7 +193,7 @@ class ActionGateway:
             filesystem = get_filesystem()
 
         try:
-            filesystem.write(path, content)
+            result = filesystem.write(path, content)
         except FilesystemAccessError as e:
             decision = GatewayDecision(
                 authority=authority,
@@ -214,7 +214,110 @@ class ActionGateway:
             authority=authority,
             outcome=OUTCOME_ALLOWED,
             reason="write succeeded",
-            detail={"action": action, "path": path},
+            # `result` (Filesystem.write()'s own success string, e.g.
+            # "Written foo.py") is carried in `detail` so callers that
+            # need to preserve the exact pre-gateway success string (as
+            # tools.file_tools.tool_write_file does) can read it back,
+            # mirroring gate_exec()'s detail["result"] convention.
+            detail={"action": action, "path": path, "result": result},
+        )
+        self._audit(
+            authority=authority,
+            action=action,
+            path=path,
+            outcome=decision.outcome,
+            reason=decision.reason,
+        )
+        return decision
+
+    def gate_append(
+        self,
+        *,
+        authority: str,
+        action: str,
+        path: str,
+        content: str,
+        confirm_available: bool,
+        filesystem: Optional[Filesystem] = None,
+    ) -> GatewayDecision:
+        """Mediate a file append through `Filesystem.append()`.
+
+        Mirrors `gate_write`'s shape exactly (classify-trusted-not-
+        rederived, delegate the real operation, audit every outcome) but
+        delegates to `Filesystem.append()` instead of `.write()` — the
+        two primitives differ (append is read-if-missing-else-open(mode=
+        "a")), so this is a separate method rather than a parameter on
+        `gate_write`.
+
+        Args:
+            authority: one of READ/ACT/HIGH_IMPACT (the caller's
+                classification is trusted, not re-derived here).
+            action: short label for the audit record (e.g.
+                "file_tools.append_file") identifying the call site.
+            path: path to append to, forwarded to Filesystem.append()
+                verbatim.
+            content: content to append.
+            confirm_available: True iff a human confirmation path exists
+                in the caller's current context. See module docstring —
+                this is NOT "confirmation was obtained."
+            filesystem: Filesystem instance to delegate the append to.
+                Defaults to core.filesystem.get_filesystem().
+        """
+        if authority not in AUTHORITY_CLASSES:
+            raise ValueError(f"Unknown authority class: {authority!r}")
+
+        if authority == HIGH_IMPACT and not confirm_available:
+            # Ish's decision (final): HIGH_IMPACT with no confirmation
+            # path fails closed — refuse and audit, never fall through.
+            decision = GatewayDecision(
+                authority=authority,
+                outcome=OUTCOME_REFUSED,
+                reason="HIGH_IMPACT action with no confirmation path available; "
+                "failing closed per policy (not attempted).",
+                detail={"action": action, "path": path},
+            )
+            self._audit(
+                authority=authority,
+                action=action,
+                path=path,
+                outcome=decision.outcome,
+                reason=decision.reason,
+            )
+            return decision
+
+        # READ is never confirm-gated; ACT proceeds regardless of
+        # confirm_available (confirmation, when available, is applied by
+        # the caller's UI layer before the action reaches here — this
+        # slice has no confirmation callback yet); HIGH_IMPACT only
+        # reaches this point when confirm_available is True.
+        if filesystem is None:
+            from core.filesystem import get_filesystem
+
+            filesystem = get_filesystem()
+
+        try:
+            result = filesystem.append(path, content)
+        except FilesystemAccessError as e:
+            decision = GatewayDecision(
+                authority=authority,
+                outcome=OUTCOME_FAILED,
+                reason=str(e),
+                detail={"action": action, "path": path},
+            )
+            self._audit(
+                authority=authority,
+                action=action,
+                path=path,
+                outcome=decision.outcome,
+                reason=decision.reason,
+            )
+            return decision
+
+        decision = GatewayDecision(
+            authority=authority,
+            outcome=OUTCOME_ALLOWED,
+            reason="append succeeded",
+            detail={"action": action, "path": path, "result": result},
         )
         self._audit(
             authority=authority,
