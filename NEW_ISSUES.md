@@ -20829,3 +20829,36 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Reachability:** no production caller; dispatch fails closed today. No live database failure was induced or claimed.
 - **Fix direction:** handle a failed queue update explicitly outside the gateway's dispatch exception scope. Preserve the truthful allowed-dispatch audit while reporting bookkeeping failure separately; add an isolated regression before enabling this path.
 - **Cross-reference:** `core/peer_cli.py` (`execute_parked_escalation`), `ccos/core/task_blackboard.py:384` (`resolve_escalation`), blueprint §21 WP2.1.
+
+
+## 2026-10-08 — WP2.1 slice 7: `NEW-849` closed, import and parsing findings
+
+### [NEW-849] resolution — `/peer` dispatch now gated
+
+- **Status:** FIXED (`179f67b`), code-complete + code-reviewer-approved. The real REPL calls `handle_command()`; all `/peer` selections converge on its sole dispatch, now mediated as HIGH_IMPACT with no confirmation path available. Refusal audits and preserves history; raised dispatch errors also preserve it. Only dispatch is inside the gate's execution boundary.
+- **Behavior change:** named, alias, auto-picked, fallback, empty-task and YOLO dispatch attempts now refuse until confirmation support exists. Listing still works; listing/help disclose blocked dispatch. Existing human-confirmed `escalate()` is unchanged.
+- **Evidence:** 20 new handler tests; independent reviewer/coordinator each passed 57 bounded tests under precollection state isolation. Real temporary JSONL audit, mocked peer dispatch; no actual peer/model execution claimed. Full WP2.1 DoD remains open.
+- **Cross-reference:** `main.py` (`handle_command`, `/peer` branch), `tests/test_main_peer_gateway.py`, blueprint §21 WP2.1 slice 7.
+
+### [NEW-855] Confirmed, Low, test-isolation hazard: main and gateway imports initialize core state before fixtures
+
+- **Status:** Confirmed by source trace; logged, production initialization not changed in slice 7. `main.py:9` imports `core.context`, which imports `core.memory_v2.memory = get_memory()`; `Memory` constructs `EpisodicMemory` (state singleton initialization) and `SymbolicMemory` (symbolic graph schema). Separately, `core.action_gateway` imports `core.filesystem`, which imports `core.checkpoint`; `_extend_state_schema()` runs at module level and writes through the current state singleton. Ordinary test collection reaches these before function fixtures can redirect them.
+- **Configuration:** `utils.config.CODEY_STATE_DIR` is a hard-coded `Path.home() / ".codeyOS"`; setting an environment variable with that name does not redirect it. Startup config paths/singleton must be isolated before importing these modules. The new handler tests instead privately load source with unused eager dependencies stubbed and restored; combined validation remaps config paths before collection.
+- **Rule-6 narrowing:** slice-6 temporary SQLite/audit evidence establishes its exercised queue/audit operations, not isolation of eager import-time core-state schema writes. No new live reproduction against the real database was performed; real peer/model execution remains absent. This is distinct from `NEW-812`'s model-registry entry point but shares its import-time schema pattern.
+- **Fix direction:** separately scope lazy initialization or a precollection test-state bootstrap. Do not treat a function fixture or `CODEY_STATE_DIR` environment override as sufficient.
+- **Cross-reference:** `main.py:9`, `core/context.py:11`, `core/memory_v2.py` (`EpisodicMemory`, `SymbolicMemory`, module singleton), `core/checkpoint.py:301`, `NEW-812`, blueprint §21 WP2.1/validation hygiene.
+
+### [NEW-856] Confirmed, Low: `/peer` prefix matching accepts unrelated command names
+
+- **Status:** Confirmed by source trace, not fixed in slice 7. `handle_command()` uses `low.startswith("/peer")`; input such as `/peering qwen task` therefore enters peer selection/dispatch handling even though its command token is not `/peer`.
+- **Current consequence:** the converged slice-7 gateway also refuses such dispatch attempts; parsing remains overbroad. No real peer dispatch was performed to reproduce it.
+- **Fix direction:** separately scope exact command-token matching and a parsing regression. Do not bundle a parsing rewrite into gateway mediation.
+- **Cross-reference:** `main.py` (`handle_command`, `/peer` branch), blueprint §21 WP2.1.
+
+### [NEW-845] additional scope note — same fallback attribution limitation in `/peer`
+
+- The slice-7 gateway records the resolved peer after disabled-peer fallback; the original requested peer is recoverable from the warning stream, not directly joined to the audit record. Same existing issue class; no duplicate finding allocated, no fix bundled.
+
+### [NEW-35] additional environment evidence — literal `/tmp` write failed
+
+- A coordinator scratch-runner write to `/tmp/codey-slice7-validate.py` returned `PermissionError: [Errno 13] Permission denied`; writing the identical runner under `tempfile.gettempdir()` succeeded at `/data/data/com.termux/files/usr/tmp/codey-slice7-validate.py`. This supports the existing Termux temporary-path concern. The camera's actual call path was not exercised, so its original Suspected status is not upgraded or closed.

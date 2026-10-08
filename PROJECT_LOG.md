@@ -1,3 +1,86 @@
+## 2026-10-08 — WP2.1 slice 7: `/peer` dispatch enters the gateway (`NEW-849`)
+
+**Change (`179f67b`):** `main.py::handle_command()` gates the single peer
+launch shared by named/aliased/automatic/fallback/empty-task selection as
+`HIGH_IMPACT`, `confirm_available=False`, action
+`peer_cli.handle_command_peer`. Refusal warns, dispatch exceptions report
+an error, and both return the original history untouched. Only
+`mgr.call()` enters the execution thunk; summary/history handling remains
+outside the gateway's dispatch exception scope.
+
+**Concrete behavior:** `/peer` listing remains available; dispatch now
+refuses in ordinary interactive and `--yolo` sessions until confirmation
+support is wired. A typed command expresses intent, but there was no
+existing confirmation UI to preserve; the architect applied the policy
+already used for human-typed natural-language delegation. Listing and
+`/help` text disclose blocked dispatch. Existing human-confirmed
+`escalate()` is untouched. Full WP2.1 DoD remains open; `NEW-846` notes are
+the next candidate for scoping.
+
+**Pipeline:** existing project-architect → implementer → independent
+code-reviewer, **APPROVED**, then coordinator verification. Tests privately
+load actual handler/gateway source with unused eager dependencies stubbed;
+module/package attributes and `sys.path` are restored. Peer calls are
+mocked, the audit is real temporary JSONL. Combined tests redirect state
+paths **before collection**, preventing schema initialization in live
+state. No HOME override, live peer, local model, or live Restoricon DB
+write was needed. No dependency/setup change.
+
+**Findings and rule-6 narrowing:** `NEW-855` records main's eager
+context/memory state initialization and gateway's eager checkpoint schema
+extension, which precede function-scoped fixtures. Earlier slice-6 claims
+of temporary SQLite/audit evidence describe the exercised operations;
+they did not prove import-time core-state writes were isolated. This round
+adds precollection isolation; no model-load or peer-execution claim is
+changed. `NEW-856` records `/peer` prefix overmatch; no parsing change
+bundled. Selected-peer-only fallback audit is existing `NEW-845`, also
+applicable here. A coordinator scratch-file write at literal `/tmp` failed
+with `PermissionError`; retry at `tempfile.gettempdir()` succeeded. This
+supports existing Termux-path finding `NEW-35`, whose camera-specific
+status remains Suspected.
+
+**Verbatim coordinator verification:** the temporary runner remaps every
+config `Path` under `CODEY_STATE_DIR` into a `TemporaryDirectory`, sets a
+temporary `RESTORICON_DB_PATH` and default audit path, then imports pytest.
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice7-validate.py -q tests/test_main_peer_gateway.py tests/test_action_gateway.py tests/test_escalation_review_queue.py ccos/tests/test_task_blackboard.py
+.........................................................                [100%]
+57 passed in 1.86s
+
+$ ruff check tests/test_main_peer_gateway.py
+All checks passed!
+
+$ ruff check main.py tests/test_main_peer_gateway.py --select F,E9 --ignore F541,F841
+All checks passed!
+
+$ ruff check main.py tests/test_main_peer_gateway.py --statistics
+16	BLE001 	[ ] blind-except
+ 6	S110   	[ ] try-except-pass
+ 5	F541   	[*] f-string-missing-placeholders
+ 4	I001   	[*] unsorted-imports
+ 3	RUF013 	[ ] implicit-optional
+ 1	PERF102	[ ] incorrect-dict-iterator
+ 1	PIE810 	[ ] multiple-starts-ends-with
+ 1	EXE001 	[ ] shebang-not-executable
+ 1	S112   	[ ] try-except-continue
+ 1	C401   	[ ] unnecessary-generator-set
+ 1	F841   	[ ] unused-variable
+Found 40 errors.
+[*] 9 fixable with the `--fix` option (7 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Implementer: 48 combined tests passed in 1.54s, followed by 20 new tests
+in 0.69s after fixture `sys.path` isolation. Reviewer independently:
+`20 passed in 0.28s`, `57 passed in 2.10s`; reproduced the six focused
+F-code findings against pre-change HEAD. Full Ruff still has 40 existing
+main findings. Type checker unavailable; full suite not rerun (`NEW-791`
+device memory exhaustion). **Code-complete + code-reviewer-approved;
+isolated integration evidence, not live peer/model verification.**
+Unrelated `.claude/agent-memory/` edits remain untouched and unstaged.
+
 ## 2026-10-08 — WP2.1 slice 6: parked peer dispatch gated; `NEW-848` reachability corrected
 
 **Change (`a9fcb14`):** `core/peer_cli.py::execute_parked_escalation()`

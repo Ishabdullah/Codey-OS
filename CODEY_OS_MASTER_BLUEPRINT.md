@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-6 DONE (1-5: 2026-10-07; 6: 2026-10-08); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-7 DONE (1-5: 2026-10-07; 6-7: 2026-10-08); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2910,6 +2910,7 @@ not yet met (far from it — see residual scope below).** Code-reviewer-approved
 daemon-reachability claim in a code comment found and corrected). Commits
 `021ecf9` (slice 1), `e26e6e6` (slice 2), `00f149a` (slice 3), `c2712a0`
 (slice 4), `aa39770` (slice 5), `a9fcb14` (slice 6;
+reviewed by `/root/code_reviewer`, APPROVED), `179f67b` (slice 7;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3111,18 +3112,37 @@ reviewed by `/root/code_reviewer`, APPROVED).
   sentinel still resolves the item if dispatch is ever permitted),
   `NEW-853` (`approve_and_run` does not execute), `NEW-854` (resolution's
   `False` result is ignored). Address before enabling this callable.
+- **Slice 7 (2026-10-08, `/peer`, `NEW-849`, `179f67b`):** all named,
+  aliased, automatic, fallback and empty-task peer selections converge on
+  one `HIGH_IMPACT` gate (`peer_cli.handle_command_peer`). No confirmation
+  UI exists for this handler; dispatch therefore refuses and audits,
+  including ordinary interactive and `--yolo` sessions. Listing/help now
+  disclose that limitation. Refusal/failure leaves conversation history
+  unchanged; only dispatch is in the gate's thunk, with later output and
+  history handling outside the dispatch audit boundary.
+  **Evidence:** coordinator/reviewer each passed 57 bounded tests with
+  state paths redirected before collection; 20 new tests privately load
+  the real handler/gateway with unrelated eager imports stubbed and
+  restored, including `sys.path`. Code-complete + code-reviewer-approved;
+  no live peer/model test claimed. Full suite not rerun (`NEW-791`),
+  main's 40 pre-existing Ruff findings remain; type checker unavailable.
+  **Logged, not fixed:** `NEW-855` (main/gateway imports initialize real
+  state schemas before fixtures), `NEW-856` (`/peer` prefix overmatch);
+  fallback audit limitation is the existing `NEW-845` class.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all six slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all seven slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-6 cover 3 of 42 known
+  split is gone. **Not yet met — slices 1-7 cover 3 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
-  `tools/patch_tools.py`), the one shell-exec chokepoint, two peer-delegation
-  call sites (`tool_peer_delegate`, `run_agent()`'s natural-language block),
+  `tools/patch_tools.py`), the one shell-exec chokepoint, three peer
+  dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
+  block, and `handle_command()`'s `/peer` branch),
   and the dormant parked-escalation callable; shell exec has two known gaps (`NEW-836`,
   daemon allowlist refusals; `NEW-837`, declined-confirmation audit
-  fidelity); peer-delegation still has `NEW-849` (ungated `/peer`) and
-  `NEW-850` (missing teacher capture), plus latent parked-execution
+  fidelity); `/peer` bypass `NEW-849` is closed, while `NEW-850`
+  (missing teacher capture) and `NEW-845` (fallback attribution) remain,
+  plus latent parked-execution
   semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
   deferred, low real traffic), git writes, outbound HTTP, DB writes,
   message/email sends, `note_save`/`note_forget` (`NEW-846`), and device

@@ -737,6 +737,13 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 7, `/peer` dispatch (`NEW-849`), 2026-10-08**
+  (`179f67b`) — the handler's single peer launch now refuses/audits without
+  confirmation support, including ordinary and YOLO sessions; history is
+  unchanged on refusal. Listing/help disclose blocked dispatch.
+  Code-complete + code-reviewer-approved, 57 bounded tests with startup
+  state isolation. No real peer/model execution claimed. Full gateway
+  DoD remains open; see blueprint §21 WP2.1 and `PROJECT_LOG.md`.
 - **WP2.1 slice 6, parked peer escalation (`NEW-848`), 2026-10-08**
   (`a9fcb14`) — HIGH_IMPACT dispatch now refuses and audits when no
   confirmation path exists, preserving the queue/session records.
@@ -5272,9 +5279,15 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 - [x] **WP2.1 slice 6 / `NEW-848`** — parked-escalation dispatch gated
   (`a9fcb14`); code-complete + code-reviewer-approved, 37 scoped tests.
   No production caller found; live-reachability claim explicitly corrected.
-- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next scoped
-  candidate: `NEW-849` (`/peer` dispatch); `NEW-846` notes and the remaining
-  action categories are also pending. Plan from blueprint §21.
+- [x] **WP2.1 slice 7 / `NEW-849`** — `/peer` dispatch gated (`179f67b`),
+  listing/help disclose blocked ordinary/YOLO dispatch; reviewer-approved,
+  57 bounded tests with state isolation, no real peer/model execution.
+- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next
+  candidate: `NEW-846` (notes); remaining action categories are pending.
+  Plan from blueprint §21.
+- [ ] **Import/command hygiene (`NEW-855`, `NEW-856`)** — eager main/gateway
+  import state writes need startup isolation; `/peer` prefix parsing
+  accepts unrelated command names. Logged, not fixed in slice 7.
 - [ ] **Parked-execution semantics (`NEW-852`..`NEW-854`)** — latent
   peer-error success labeling, misleading `approve_and_run` alias, and
   ignored resolution failure. Address before allowing execution.
