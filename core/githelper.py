@@ -54,27 +54,72 @@ def git_current_branch(path: str = None) -> str:
 # ── Commit ─────────────────────────────────────────────────────────────────────
 
 
-def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
-    path = path or os.getcwd()
+def _gate_local_commit(action, operation):
+    """Audit a local commit attempt, preserving strings and original errors.
 
-    if not is_git_repo(path):
-        return "[ERROR] Not a git repository."
+    An allowed no-op is not proof of a commit; staging can precede failure.
+    Git error text is retained in failed audit reasons.
+    """
+    from core.action_gateway import ACT, get_action_gateway
 
-    if add_all:
-        result = subprocess.run(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
-        if result.returncode != 0:
-            return f"[ERROR] git add failed: {result.stderr}"
+    result = None
+    original_error = None
 
-    status = git_status(path)
-    if status == "Nothing to commit.":
-        return "Nothing to commit — working tree clean."
+    def execute():
+        nonlocal result, original_error
+        try:
+            result = operation()
+        except Exception as exc:
+            # The gateway records failure instead of raising; keep the
+            # original exception so this adapter preserves caller behavior.
+            original_error = exc
+            raise
+        if result.startswith("[ERROR]"):
+            # Existing helpers report Git failures as strings. Raise only
+            # inside the gate to distinguish them from allowed attempts.
+            raise RuntimeError(result)
+        return result
 
-    result = subprocess.run(
-        ["git", "commit", "-m", message], capture_output=True, text=True, cwd=path
+    decision = get_action_gateway().gate_exec(
+        authority=ACT,
+        action=action,
+        command="local git commit attempt",
+        confirm_available=False,
+        execute=execute,
     )
-    if result.returncode == 0:
-        return result.stdout.strip()
-    return f"[ERROR] {result.stderr.strip()}"
+    if original_error is not None:
+        raise original_error
+    if result is not None:
+        return result
+    return f"[ERROR] Local git commit {decision.outcome}: {decision.reason}"
+
+
+def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
+    """Stage and commit locally through ACT mediation; clean no-ops are audited."""
+    def attempt():
+        nonlocal path
+        path = path or os.getcwd()
+
+        if not is_git_repo(path):
+            return "[ERROR] Not a git repository."
+
+        if add_all:
+            result = subprocess.run(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
+            if result.returncode != 0:
+                return f"[ERROR] git add failed: {result.stderr}"
+
+        status = git_status(path)
+        if status == "Nothing to commit.":
+            return "Nothing to commit — working tree clean."
+
+        result = subprocess.run(
+            ["git", "commit", "-m", message], capture_output=True, text=True, cwd=path
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return f"[ERROR] {result.stderr.strip()}"
+
+    return _gate_local_commit("githelper.git_commit", attempt)
 
 
 def git_status_paths(paths: List[str], path: str = None) -> str:
@@ -90,33 +135,37 @@ def git_status_paths(paths: List[str], path: str = None) -> str:
 
 
 def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
-    """Like git_commit(), but stages and commits ONLY the given paths --
-    never `git add -A`. Used when a caller wants to commit exactly the
-    file(s) touched this turn, not the whole working tree (see NEW-17
-    in NEW_ISSUES.md for why this matters).
+    """Stage and commit only the given paths through ACT mediation.
+
+    Clean/no-path attempts are audited without proving a commit happened.
+    Staging may remain after a failed commit (see NEW-17 for scoped paths).
     """
-    path = path or os.getcwd()
+    def attempt():
+        nonlocal path
+        path = path or os.getcwd()
 
-    if not is_git_repo(path):
-        return "[ERROR] Not a git repository."
+        if not is_git_repo(path):
+            return "[ERROR] Not a git repository."
 
-    if not paths:
-        return "Nothing to commit."
+        if not paths:
+            return "Nothing to commit."
 
-    result = subprocess.run(["git", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
-    if result.returncode != 0:
-        return f"[ERROR] git add failed: {result.stderr}"
+        result = subprocess.run(["git", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
+        if result.returncode != 0:
+            return f"[ERROR] git add failed: {result.stderr}"
 
-    status = git_status_paths(paths, path)
-    if status == "Nothing to commit.":
-        return "Nothing to commit — working tree clean."
+        status = git_status_paths(paths, path)
+        if status == "Nothing to commit.":
+            return "Nothing to commit — working tree clean."
 
-    result = subprocess.run(
-        ["git", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
-    )
-    if result.returncode == 0:
-        return result.stdout.strip()
-    return f"[ERROR] {result.stderr.strip()}"
+        result = subprocess.run(
+            ["git", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return f"[ERROR] {result.stderr.strip()}"
+
+    return _gate_local_commit("githelper.git_commit_paths", attempt)
 
 
 def git_push(path: str = None) -> str:
