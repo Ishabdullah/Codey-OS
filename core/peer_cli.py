@@ -502,6 +502,10 @@ def resolve_parked_escalation(
 def execute_parked_escalation(task_id: str, peer_name: Optional[str] = None) -> Optional[str]:
     """
     Execute a previously parked escalation item using the designated or preferred peer CLI.
+
+    Peer dispatch fails closed until a human confirmation UI exists for
+    this callable. Refusal or dispatch failure returns None and leaves
+    the parked item available for review.
     """
     try:
         from ccos.core.task_blackboard import get_task_blackboard
@@ -529,7 +533,22 @@ def execute_parked_escalation(task_id: str, peer_name: Optional[str] = None) -> 
             [record.get("error_summary", "")],
             record.get("files_touched", []),
         )
-        output = mgr.call(cli, prompt)
+        from core.action_gateway import HIGH_IMPACT, get_action_gateway
+
+        decision = get_action_gateway().gate_exec(
+            authority=HIGH_IMPACT,
+            action="peer_cli.execute_parked_escalation",
+            command=f"{cli.name} :: {record.get('goal', '')[:200]}",
+            confirm_available=False,
+            execute=lambda: mgr.call(cli, prompt),
+        )
+        if not decision.allowed:
+            warning(f"Parked escalation for {task_id} {decision.outcome}: {decision.reason}")
+            return None
+
+        # Only dispatch belongs inside the gate: subsequent bookkeeping
+        # failures must not misreport an executed peer action as failed.
+        output = decision.detail["result"]
         summary = mgr.summarize_result(cli.name, output, record.get("goal", ""))
         bb.resolve_escalation(
             task_id=task_id,
