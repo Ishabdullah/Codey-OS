@@ -1963,8 +1963,18 @@ plumbing at all; logged, not fixed, in this P0 round -- it's a dormant subsystem
 
 - Sandbox `ALLOWED_DIRS` includes `ccos/` itself — a self-modification hole.
   Needs an explicit rule-1 decision from Ish before the sandbox is ever activated.
-- `patch_file` has **no confirmation, no protected-name check, and no snapshot** —
-  yet `prompts/system_prompt.py` steers the model to it for all edits.
+- **Correction (2026-10-07, rule 6, WP2.1 slice 3):** the claim that `patch_file`
+  has no confirmation/no snapshot was checking the wrong definition. The LIVE
+  `tool_patch_file` — the one actually wired into `core/agent.py`'s `TOOLS`
+  dict, imported from `tools/patch_tools.py:14` — already has both an
+  `ask_confirm()` call and a `core.filehistory.snapshot()` call, pre-existing
+  and confirmed untouched by WP2.1. The original claim was describing a
+  separate, dead, zero-caller duplicate at `tools/file_tools.py:224-239`
+  (`NEW-840`), not the live path `prompts/system_prompt.py` actually steers
+  the model to. No protected-name check is still accurate for the live path
+  (WRITE_PROTECTED filenames get their own independent gate upstream, see
+  WP2.1 slice 3's `classify_write_action` — not the same thing as patch
+  having zero safety mechanisms).
 
 ### 16.9 Plan
 
@@ -2892,10 +2902,11 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-2 DONE 2026-10-07; full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-3 DONE 2026-10-07; full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
-(slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`). Commits `021ecf9`
-(slice 1), `e26e6e6` (slice 2).
+(slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
+`a33abaa846854bffe` — 2 rounds, a real regression found and fixed). Commits
+`021ecf9` (slice 1), `e26e6e6` (slice 2), `00f149a` (slice 3).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
@@ -2984,15 +2995,47 @@ not yet met (far from it — see residual scope below).** Code-reviewer-approved
   regression test, not just a one-shot manual run); code-reviewer separately
   ran the full suite under RAM monitoring (980 passed/1 pre-existing flaky
   unrelated to this diff/1 skipped).
+- **Slice 3 (the model's own write tools — `write_file`/`patch_file`/
+  `append_file`, rejected CCOS capability invocation as the candidate since
+  it has low real traffic and would double-classify an already-gated
+  re-entry):** new `classify_write_action()` (`HIGH_IMPACT` via
+  `core.checkpoint.is_core_file()`, else `ACT`). `tool_append_file` — which
+  previously had *zero* confirm/protected-name checks at all — got its first
+  gating. New `ActionGateway.gate_append()` mirrors `gate_write`'s shape.
+- **A real regression found via live reproduction and fixed same round
+  (`NEW-841`, Confirmed, High):** the fail-closed rule initially had no
+  knowledge of `Filesystem.allow_self_modification` (the pre-existing,
+  documented `--allow-self-mod`/`ALLOW_SELF_MOD=1` permission) and silently
+  broke it whenever combined with `--yolo`. **Ish's decision (confirmed
+  live):** `allow_self_modification` now also counts as a confirmation path
+  for `HIGH_IMPACT` core-file writes. This is the third occurrence this WP of
+  the same shape (after slices 1-2's logged Warnings) — a future slice should
+  enumerate every pre-existing permission path before shipping, not just the
+  new gate's own confirmation logic.
+- **Rule-6 correction to §16.8/WP2.4 (applied this round):** the blueprint's
+  claim that `patch_file` has no confirmation/snapshot was describing a dead,
+  zero-caller duplicate (`tools/file_tools.py:224-239`, `NEW-840`), not the
+  live `tool_patch_file` actually wired into production, which already had
+  both pre-existing and untouched by this slice.
+- **Three more findings logged, not fixed (`NEW-839` future-trigger,
+  `NEW-840` Low, `NEW-842` informational):** `skill_recombiner`'s generated
+  code could bypass a future capability-gate (dormant, not live); the dead
+  `tool_patch_file` duplicate should be deleted in a hygiene pass; exercising
+  a HIGH_IMPACT-allowed core-file write against the real repo (not a tempdir)
+  triggers a real git commit via the pre-existing checkpoint mechanism — a
+  documented gotcha for future test authors, not a bug.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, both slices.**
+  **APPROVED, all three slices** (slice 3 took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — 41 of 42 known write-primitive files remain
-  unmediated; shell exec is now mediated (slice 2) but with the two gaps
-  noted above (`NEW-836`, daemon allowlist refusals; `NEW-837`, declined-
-  confirmation audit fidelity); git writes, outbound HTTP, DB writes,
-  message/email sends, and device actions remain entirely untouched.**
+  split is gone. **Not yet met — slices 1-3 cover 3 of 42 known
+  write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
+  `tools/patch_tools.py`) plus the one shell-exec chokepoint; shell exec has
+  two known gaps (`NEW-836`, daemon allowlist refusals; `NEW-837`,
+  declined-confirmation audit fidelity); CCOS capability invocation
+  (deliberately deferred, low real traffic), git writes, outbound HTTP, DB
+  writes, message/email sends, and device actions remain entirely
+  untouched.**
 
 **WP2.2 — Worlds / Playground isolation**
 - *Objective:* developmental work can never address the live store (§9.3, directive §5).
@@ -3014,13 +3057,28 @@ not yet met (far from it — see residual scope below).** Code-reviewer-approved
 - *Tests:* the security suite exercises the path production uses.
 - *DoD:* no green test covers a function production never calls.
 
-**WP2.4 — Snapshot before patch**
+**WP2.4 — Snapshot before patch** — **largely already true; rescope needed.**
 - *Objective:* `patch_file` is undoable (§16.8).
-- *Deps:* WP2.1. *Repo:* Codey-OS — `tools/patch_tools.py`.
-- *Intent:* snapshot + protected-name check before applying. The system prompt
-  steers the model here for all edits, so this is a high-traffic path.
-- *Tests:* a patch can be reverted; protected paths refused.
-- *DoD:* every `patch_file` call is recoverable.
+- **Correction (2026-10-07, rule 6):** §16.8's premise this item was based on
+  was itself wrong for the LIVE `patch_file` (see §16.8's own correction) —
+  the live `tool_patch_file` (`tools/patch_tools.py:14`) already calls
+  `core.filehistory.snapshot()` before writing, pre-existing, confirmed by
+  WP2.1 slice 3's implementer and code-reviewer. What remains open, if
+  anything: whether `snapshot()`'s actual revert mechanism has ever been
+  exercised/tested end-to-end (not just called), and the dead duplicate at
+  `tools/file_tools.py:224-239` (`NEW-840`) still has none of this — delete
+  it rather than fix it, since it's unreachable.
+- *Deps:* WP2.1 — **slices 1-3 done**, `patch_file` is now also gated through
+  the Action Gateway. *Repo:* Codey-OS — `tools/patch_tools.py`.
+- *Intent:* verify the existing snapshot's revert path actually works
+  end-to-end (not assumed); delete `NEW-840`'s dead duplicate; the
+  protected-name question is already independently handled by WP2.1 slice 3's
+  `classify_write_action`/WRITE_PROTECTED gate, not something this item needs
+  to add separately.
+- *Tests:* a patch can be reverted via the existing `snapshot()` mechanism —
+  needs a real end-to-end test, not yet confirmed to exist.
+- *DoD:* every `patch_file` call is recoverable — **likely already true for
+  the live path; needs verification, not new mechanism.**
 
 **WP2.3a — Remove `ccos/` from sandbox `ALLOWED_DIRS`** *(Ish's decision 5)* — **DONE 2026-10-07.** `ccos/core/sandbox.py` entry removed; `ccos/tests/test_sandbox_path_validation.py`'s invariant test asserts on the resolved path (not source text), plus a behavioral test confirming a `ccos/` file access is now blocked. code-reviewer APPROVED (also swept `Sandbox(` callers repo-wide — none depend on `ccos/` being writable).
 - *Objective:* close the self-modification hole before it can ever matter.

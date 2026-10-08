@@ -1,4 +1,70 @@
-## 2026-10-07 (P2 continues) — WP2.1 slice 2: shell exec now mediated through the Action Gateway — the single most dangerous previously-unmediated surface. **START HERE for the next session.**
+## 2026-10-07 (P2 continues) — WP2.1 slice 3: the model's own write tools now gated, and a real near-miss caught via live reproduction before it shipped. **START HERE for the next session.**
+
+**What changed:** project-architect rejected CCOS capability invocation (the
+previously-suggested slice-3 candidate) after actually tracing its call
+graph — real production traffic is low, and gating `call_capability` for
+`coding.run_agent` would double-classify an action already classified one
+level down by slices 1-2. Picked instead: the model's own write tools —
+`write_file`, `patch_file`, `append_file` — the actual untrusted-input write
+path, since `prompts/system_prompt.py` steers the model to these for every
+edit.
+
+- **Fix (commit `00f149a`):** new `classify_write_action()` (`HIGH_IMPACT`
+  via `core.checkpoint.is_core_file()`, else `ACT`). `tool_append_file` —
+  which had *zero* confirm/protected-name checks of any kind before this
+  round — got its first gating ever. New `ActionGateway.gate_append()`
+  mirrors `gate_write`'s shape.
+- **A real regression, caught by code-reviewer via direct live reproduction
+  against this actual repo, not by re-reading the diff:** the fail-closed
+  rule had no knowledge of `Filesystem.allow_self_modification` — the
+  pre-existing, documented `--allow-self-mod`/`ALLOW_SELF_MOD=1` permission.
+  `--yolo` and `--allow-self-mod` are two independently documented,
+  simultaneously-usable flags; the first draft silently broke the second one
+  whenever combined with the first, with an error message that never
+  mentioned the flag supposedly permitting it. Surfaced to Ish via
+  `AskUserQuestion` rather than guessed at — **his decision:**
+  `allow_self_modification` now also counts as a confirmation path for
+  `HIGH_IMPACT` core-file writes. Fixed at all three call sites, re-approved.
+  Logged as `NEW-841` (Confirmed, High, fixed same round) — this is the
+  third occurrence this WP of the same shape (slices 1-2 had logged
+  Warnings for less severe versions of it); a standing recommendation is now
+  in code-reviewer's memory to check every pre-existing permission path, not
+  just the new gate's own prompt logic, before shipping a future slice.
+- **A self-inflicted incident, caught and cleanly resolved by the
+  implementer itself:** a first-draft test exercising the newly-allowed
+  self-mod path ran unmocked against this actual repo's real `core/`,
+  triggering `core/checkpoint.py`'s real self-modification mechanism — one
+  unwanted git commit on `main` and one real checkpoint backup. Caught via
+  the sandbox's own destructive-action classifier flagging a subsequent
+  cleanup command; verified the commit was single-file/single-parent/
+  unshared, cleanly reverted via `git reset --mixed`, then fixed the test
+  properly by mocking `core.filesystem.create_checkpoint` (correct
+  scope-narrowing — these are regression tests for the gateway's decision,
+  not the pre-existing checkpoint mechanism). Code-reviewer independently
+  verified the git history was clean before approving. Logged as `NEW-842`
+  (informational) so future test authors don't rediscover this the hard way.
+- **A rule-6 correction applied this round:** blueprint §16.8's claim that
+  `patch_file` has no confirmation/snapshot was checking the wrong
+  definition — the LIVE `tool_patch_file` already has both, pre-existing,
+  untouched by this slice. The claim was describing a separate, dead,
+  zero-caller duplicate (`tools/file_tools.py:224-239`, now logged as
+  `NEW-840`). WP2.4's own entry ("snapshot before patch") was rescoped
+  accordingly — it's largely already true for the live path, not undone
+  work.
+- **One more finding logged, not fixed (`NEW-839`, future-trigger):**
+  `ccos/core/skill_recombiner.py`'s generated code contains a literal
+  `pm.call_capability(...)` call that would bypass a future capability-layer
+  gate — dormant today, relevant only if the self-extension loop is ever
+  activated under rule 1's promotion gate.
+- *Gate:* code-reviewer — **APPROVED after 2 rounds** (round 1: CHANGES
+  REQUESTED on the self-mod regression; round 2: independently re-verified
+  the fix and the git-history cleanup). *DoD:* still far from met — slices
+  1-3 now cover 3 of 42 known write-primitive files plus the shell-exec
+  chokepoint; CCOS capability invocation, git writes, outbound HTTP, DB
+  writes, message/email sends, and device actions remain entirely
+  untouched.
+
+## 2026-10-07 (P2 continues) — WP2.1 slice 2: shell exec now mediated through the Action Gateway — the single most dangerous previously-unmediated surface.
 
 **What changed:** project-architect chose shell exec as slice 2 over CCOS
 capability invocation or more file-write sites, reasoning that arbitrary
