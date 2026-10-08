@@ -1,3 +1,75 @@
+## 2026-10-08 — WP2.1 slice 8: persistent notes audited as ACT (`NEW-846` mediation)
+
+**Change (`2acd8e6`):** `core/notes.py::_save` routes directory creation,
+JSON serialization and file persistence through `gate_exec` as ACT, using
+`notes.add_note` / `notes.remove_note` and static command `persist notes.json`.
+Save/delete remain available without confirmation. Successful audit records
+contain operation metadata, not note keys/values. Key/value normalization,
+indent-2 JSON, overwrite preserving other keys, return values and real
+`TOOLS` wrapper strings retain their behavior. Missing removal performs no
+write/audit; reads stay unaudited. Persistence exceptions are re-raised as
+the same object after the gateway completes its failed audit. This is not
+an atomic-write guarantee; tests inject failure before writing.
+
+**Pipeline:** project-architect → implementer → independent code-reviewer,
+**APPROVED**, then coordinator verification and scoped code commit. Eight
+new cases use real temporary notes/JSONL and direct agent TOOLS integration;
+no agent loop, local model or peer execution. Config state paths are remapped
+before pytest collection (`NEW-855`), with temporary Restoricon/default audit
+paths; no HOME override or live store writes. No dependency/setup change.
+Code-complete + code-reviewer-approved; isolated integration evidence,
+not live model/peer verification. Full WP2.1 DoD remains open.
+
+**Rule-6 correction / NEW-846 partial resolution:** gateway mediation is
+fixed; ACT auditing does not sanitize content or prevent persistent prompt
+injection. Earlier “every future system prompt” wording was too broad:
+notes enter newly built draft prompts (`layered_prompt.py:316`), not
+critique/refine prompts, and cached drafts may retain old notes. Earlier
+“reversible via note_forget” was too broad: forgetting cannot recover
+previous overwritten/deleted values; no note history exists.
+
+**Logged, not fixed:** `NEW-857` Confirmed by source: read/JSON failures
+become `{}`, allowing a later add to overwrite prior notes; non-object JSON
+is unchecked. `NEW-858` Suspected from source: concurrent read-modify-write
+has no locking/atomic replacement; no race reproduced. `NEW-859` Confirmed
+by source: draft cache validity ignores note content/mutations, TTL 120s.
+Notes mutations do not invalidate it; `task_executor` does at each daemon
+step. Stale drafts can persist within interactive sessions/current steps
+until TTL/file change/explicit invalidation; no model reproduction. Reviewer
+extends existing `NEW-835` to notes: audit-directory creation outside its
+handler can raise after successful persistence, or mask the original write
+exception before `_save` reaches its rethrow. No gateway fix bundled.
+
+**Verbatim coordinator verification:** temporary runner redirects config
+paths before imports, then runs only the bounded suite.
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice8-validate.py -q tests/test_notes_gateway.py tests/test_action_gateway.py tests/test_main_peer_gateway.py tests/test_escalation_review_queue.py
+........................................................                 [100%]
+56 passed in 1.65s
+
+$ ruff check tests/test_notes_gateway.py
+All checks passed!
+
+$ ruff check core/notes.py tests/test_notes_gateway.py --select F,E9
+All checks passed!
+
+$ ruff check core/notes.py tests/test_notes_gateway.py --statistics
+1	BLE001	[ ] blind-except
+1	UP045 	[*] non-pep604-annotation-optional
+Found 2 errors.
+[*] 1 fixable with the `--fix` option.
+
+$ git diff --check
+```
+
+Implementer rerun: `56 passed in 0.58s`; reviewer independently:
+`56 passed in 1.58s`. New-test Ruff clean; focused F/E9 clean.
+Full notes Ruff retains two pre-existing findings (baseline compared by
+implementer); agent's 44 findings unchanged. Type checker unavailable;
+full suite not rerun (`NEW-791`, device memory exhaustion). Unrelated
+`.claude/agent-memory/` edits remain untouched and unstaged.
+
 ## 2026-10-08 — WP2.1 slice 7: `/peer` dispatch enters the gateway (`NEW-849`)
 
 **Change (`179f67b`):** `main.py::handle_command()` gates the single peer

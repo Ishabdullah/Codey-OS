@@ -737,6 +737,14 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 8, persistent notes (`NEW-846`), 2026-10-08**
+  (`2acd8e6`) — shared ACT persistence gates save/delete; note operations
+  remain available and audited without contents in successful records.
+  Eight new cases; 56 bounded tests with startup state isolation,
+  code-complete + code-reviewer-approved. No model/peer execution claimed.
+  Mediation fixed; content trust remains open. Existing audit-mkdir debt
+  `NEW-835` can report failure after mutation or mask persistence errors.
+  Full gateway DoD and notes integrity/cache findings remain open.
 - **WP2.1 slice 7, `/peer` dispatch (`NEW-849`), 2026-10-08**
   (`179f67b`) — the handler's single peer launch now refuses/audits without
   confirmation support, including ordinary and YOLO sessions; history is
@@ -5282,9 +5290,16 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 - [x] **WP2.1 slice 7 / `NEW-849`** — `/peer` dispatch gated (`179f67b`),
   listing/help disclose blocked ordinary/YOLO dispatch; reviewer-approved,
   57 bounded tests with state isolation, no real peer/model execution.
-- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next
-  candidate: `NEW-846` (notes); remaining action categories are pending.
-  Plan from blueprint §21.
+- [x] **WP2.1 slice 8 / `NEW-846` mediation** — shared notes persistence
+  gated as ACT (`2acd8e6`); reviewer-approved, 56 bounded tests with state
+  isolation. Save/delete behavior remains available; no model test claimed.
+- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Architect
+  must scope the next action category from blueprint §21; CCOS, git,
+  outbound HTTP, DB writes, messages and device actions remain pending.
+- [ ] **Notes trust/integrity/cache (`NEW-846`, `NEW-857`..`NEW-859`)** —
+  content trust unresolved; load-error/data-shape handling, suspected
+  concurrent writes and stale draft cache logged without fixes. Existing
+  gateway audit-directory failure (`NEW-835`) also affects notes.
 - [ ] **Import/command hygiene (`NEW-855`, `NEW-856`)** — eager main/gateway
   import state writes need startup isolation; `/peer` prefix parsing
   accepts unrelated command names. Logged, not fixed in slice 7.

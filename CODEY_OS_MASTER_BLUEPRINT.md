@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-7 DONE (1-5: 2026-10-07; 6-7: 2026-10-08); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-8 DONE (1-5: 2026-10-07; 6-8: 2026-10-08); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2911,6 +2911,7 @@ daemon-reachability claim in a code comment found and corrected). Commits
 `021ecf9` (slice 1), `e26e6e6` (slice 2), `00f149a` (slice 3), `c2712a0`
 (slice 4), `aa39770` (slice 5), `a9fcb14` (slice 6;
 reviewed by `/root/code_reviewer`, APPROVED), `179f67b` (slice 7;
+reviewed by `/root/code_reviewer`, APPROVED), `2acd8e6` (slice 8;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3129,13 +3130,33 @@ reviewed by `/root/code_reviewer`, APPROVED).
   **Logged, not fixed:** `NEW-855` (main/gateway imports initialize real
   state schemas before fixtures), `NEW-856` (`/peer` prefix overmatch);
   fallback audit limitation is the existing `NEW-845` class.
+- **Slice 8 (2026-10-08, persistent notes, `NEW-846`, `2acd8e6`):**
+  shared `core/notes.py::_save` gates directory creation, JSON serialization
+  and persistence as ACT, with `notes.add_note` / `notes.remove_note` and
+  static command `persist notes.json`. Mutations remain available without
+  confirmation; successful audits omit keys/values. Normalization, return
+  values and real agent tool strings are preserved; missing removal does
+  no write/audit, reads stay unaudited. Original persistence exceptions
+  propagate after a completed failed audit; existing `NEW-835` audit-mkdir
+  failure can mask them or report failure after a successful mutation.
+  **Evidence:** eight new cases, 56 bounded tests independently passed by
+  implementer/reviewer/coordinator under precollection state isolation;
+  real temporary notes/audit and direct TOOLS integration, no model/peer
+  execution. Code-complete + code-reviewer-approved; full suite not rerun
+  (`NEW-791`), two unchanged notes Ruff findings, type checker unavailable.
+  **NEW-846 partially resolved:** mediation is fixed, content trust remains
+  open. ACT auditing does not sanitize adversarial notes or prevent prompt
+  injection. Notes enter newly built draft prompts, not every system
+  prompt; forgetting cannot restore overwritten/deleted values. Logged
+  `NEW-857` (load-error recovery/data shape), `NEW-858` (suspected concurrent
+  write risk), `NEW-859` (draft cache ignores note mutations), not fixed.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all seven slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all eight slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-7 cover 3 of 42 known
+  split is gone. **Not yet met — slices 1-8 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
-  `tools/patch_tools.py`), the one shell-exec chokepoint, three peer
+  `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
   block, and `handle_command()`'s `/peer` branch),
   and the dormant parked-escalation callable; shell exec has two known gaps (`NEW-836`,
@@ -3145,8 +3166,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
   plus latent parked-execution
   semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
   deferred, low real traffic), git writes, outbound HTTP, DB writes,
-  message/email sends, `note_save`/`note_forget` (`NEW-846`), and device
-  actions remain entirely untouched.**
+  message/email sends, and device actions remain entirely untouched.
+  Notes mediation is covered; `NEW-846` content trust and notes integrity/cache
+  findings (`NEW-857`..`NEW-859`) remain open.**
 
 **WP2.2 — Worlds / Playground isolation**
 - *Objective:* developmental work can never address the live store (§9.3, directive §5).

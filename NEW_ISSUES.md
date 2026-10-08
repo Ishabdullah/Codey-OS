@@ -20862,3 +20862,36 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 ### [NEW-35] additional environment evidence — literal `/tmp` write failed
 
 - A coordinator scratch-runner write to `/tmp/codey-slice7-validate.py` returned `PermissionError: [Errno 13] Permission denied`; writing the identical runner under `tempfile.gettempdir()` succeeded at `/data/data/com.termux/files/usr/tmp/codey-slice7-validate.py`. This supports the existing Termux temporary-path concern. The camera's actual call path was not exercised, so its original Suspected status is not upgraded or closed.
+
+
+## 2026-10-08 — WP2.1 slice 8: notes mediation; trust, integrity and cache remain open
+
+### [NEW-846] partial resolution and rule-6 correction — shared notes persistence now gated
+
+- **Status:** Mediation resolved (`2acd8e6`); content-trust risk remains open. `core/notes.py::_save` gates save/delete as ACT, without confirmation. Static operation metadata omits keys/values from successful audit records. Missing removal does not write/audit; reads and tool strings are preserved. Eight new cases and 56 bounded tests independently passed; real temporary files/audit, no model/peer execution claimed.
+- **Correction of original wording:** saved notes enter newly built draft prompts (`prompts/layered_prompt.py:316`), not every future system prompt; critique/refine omit this block and draft caching can retain prior notes. `note_forget` deletes a current key but cannot restore overwritten/deleted prior values; no note history exists. No `/remember` or `/forget` slash commands were found; production mutations use agent TOOLS wrappers.
+- **Residual risk:** ACT auditing does not sanitize adversarial note content or prevent prompt injection. No content-trust fix is claimed. Full gateway DoD remains open.
+- **Cross-reference:** `core/notes.py`, `core/agent.py` note wrappers, blueprint §21 WP2.1 slice 8, newest `PROJECT_LOG.md` entry.
+
+### [NEW-835] scope extension — notes also encounter audit-directory failure
+
+- **Status:** Existing finding, reviewer-confirmed source path applicability; not fixed. Gateway `_append_audit` creates its parent outside the OSError handler. On notes success this can raise after persistence, making the caller report failure despite mutation; on persistence failure it can mask the original exception before `_save` rethrows it. Exception-preservation evidence assumes the failed audit completes. No live audit-directory failure reproduced this round.
+- **Cross-reference:** `core/action_gateway.py::_append_audit`, `core/notes.py::_save`, original `NEW-835`.
+
+### [NEW-857] Confirmed: notes load failures become empty data, and non-object JSON is unchecked
+
+- **Status:** Confirmed by architect source trace; logged, not fixed. `core/notes.py::_load` returns `{}` after read/JSON errors; a subsequent add can overwrite previously persisted notes with only the new entry. Valid non-object JSON passes through unchecked and breaks dict-based mutation/read operations. No live corruption/recovery reproduction claimed.
+- **Fix direction:** distinguish absent data from failed loads, validate mapping shape, preserve original data on failed reads; scope separately from gateway mediation.
+- **Cross-reference:** `core/notes.py::_load`, `add_note`, `remove_note`, blueprint §21 WP2.1 residual scope / master Appendix A.
+
+### [NEW-858] Suspected: concurrent notes read-modify-write can lose updates or expose truncated JSON
+
+- **Status:** Suspected from source; logged, not fixed. Notes APIs read a mapping then overwrite notes.json with no lock or atomic replacement. Concurrent mutations may lose updates; readers may observe an incomplete write. No concurrent race reproduced, no atomicity claim from slice 8 tests.
+- **Fix direction:** architect-scope serialized mutations and atomic persistence with meaningful concurrent evidence.
+- **Cross-reference:** `core/notes.py::_load`, `_save`, `NEW-857`, master Appendix A.
+
+### [NEW-859] Confirmed: draft prompt cache does not account for notes mutations
+
+- **Status:** Confirmed by source trace; logged, not fixed. `prompts/layered_prompt.py` caches drafts with a 120-second TTL, but cache validity does not include notes content or mutation state. Notes mutations do not call `invalidate_prompt_cache`; `core/task_executor.py:356,360` does invalidate at the start of each daemon step. Notes changes can leave an already cached draft stale within interactive sessions/current steps until TTL expiry, file change or explicit invalidation. No model reproduction claimed.
+- **Fix direction:** scope note-aware cache validity/invalidation; avoid claiming all future prompts immediately include a changed note.
+- **Cross-reference:** `prompts/layered_prompt.py::_build_draft_prompt` inline cache validity, `invalidate_prompt_cache`, `core/task_executor.py:360`, draft notes block, `core/notes.py`, `NEW-846` correction, master Appendix A.
