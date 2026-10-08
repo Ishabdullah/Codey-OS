@@ -789,6 +789,7 @@ def print_diff(diff_output: str):
 
 
 def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[bool, list]:
+    """Handle slash commands; /peer dispatch fails closed pending confirmation UI."""
     cmd = user_input.strip()
     low = cmd.lower()
 
@@ -1447,6 +1448,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
             console.print("\nUsage: /peer <name> <task>  or  /peer <name>  (open interactive)")
             console.print("       /peer antigravity explain this function")
             console.print("       /peer qwen write a hello world in Python")
+            console.print("Dispatch is blocked until a peer confirmation UI is available (including YOLO).")
             return True, history
 
         # /peer <name> <task>  OR  /peer <task>  (auto-pick)
@@ -1481,8 +1483,27 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 return True, history
             info(f"Auto-selected: {cli.description}")
 
-        # Pass the raw task — no wrapping needed for direct /peer calls
-        output = mgr.call(cli, task)
+        from core.action_gateway import HIGH_IMPACT, OUTCOME_REFUSED, get_action_gateway
+
+        # Typed /peer expresses intent, but has no confirmation UI. Gate
+        # only dispatch so bookkeeping cannot change its audit outcome.
+        decision = get_action_gateway().gate_exec(
+            authority=HIGH_IMPACT,
+            action="peer_cli.handle_command_peer",
+            command=f"{cli.name} :: {task[:200]}",
+            confirm_available=False,
+            execute=lambda: mgr.call(cli, task),
+        )
+        if not decision.allowed:
+            message = f"Peer {cli.name} {decision.outcome}: {decision.reason}"
+            if decision.outcome == OUTCOME_REFUSED:
+                warning(message)
+            else:
+                error(message)
+            return True, history
+
+        # Pass the raw task — no wrapping needed for direct /peer calls.
+        output = decision.detail["result"]
         if mgr.is_peer_error(output):
             error(f"Peer {cli.name} failed: {output}")
         elif output and len(output.strip()) > 10:
@@ -1644,6 +1665,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
   /peer                  List available peer CLIs
   /peer <name> <task>    Call a specific CLI (antigravity/qwen)
   /peer <task>           Auto-pick best CLI for the task
+  Dispatch is blocked until a peer confirmation UI is available (including YOLO).
 
 [bold]CLI flags:[/bold]
   codeyOS "task"              One-shot
