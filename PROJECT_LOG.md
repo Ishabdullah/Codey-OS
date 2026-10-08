@@ -1,3 +1,89 @@
+## 2026-10-08 — WP2.1 slice 10: local commit attempts enter ACT mediation
+
+**Change (`9c2d230`):** `git_commit` / `git_commit_paths` retain their
+existing operation bodies inside thunks, routed through a private ACT
+adapter. Separate helper action labels, static command `local git commit
+attempt`, `confirm_available=False`. Local commits remain available;
+existing agent confirmation and main's manual/message-acceptance flows
+are unchanged. Git commands/order/signatures, scoped-path semantics,
+`add_all=False`, normal strings and raised operation exception identity
+are preserved. A returned `[ERROR]` sentinel raises only inside the gate
+wrapper to record failed, then the original string is returned. A policy
+double refusing before execution returns an error-prefixed string.
+
+**Outcome limits:** a clean/no-path call audits an allowed **attempt**, not
+proof of a new commit. Failed commit attempts may already have staged
+changes; no atomicity/rollback guarantee was added. Successful audit
+metadata contains no commit message, file content, stdout or path list;
+failed audit reasons retain Git error text and may contain sensitive text.
+Audit persistence remains best effort; directory blockers do not mask the
+commit result (`NEW-835`), but no durable event is claimed for that sink.
+Checkpoint's independent Git calls, push, branch creation, checkout and
+merge are untouched; this is partial Git coverage, full WP2.1 DoD open.
+
+**Pipeline:** architect → implementer → independent code-reviewer,
+**APPROVED**, coordinator bounded verification and scoped code commit.
+Nineteen new cases exercise real temporary Git repositories: commit
+ancestry/content, exclusion of unrelated dirty and already staged files,
+`add_all=False`, exact clean/no-path/non-repository strings, real invalid
+path and missing identity failures, retained staging, refusal snapshots,
+exception identity and blocked audit parent. Direct real agent offer
+(accept/decline) and privately loaded main explicit-message handler are
+exercised without running an agent loop or message generation. Private
+imports restore module/package attributes and `sys.path`.
+
+**Isolation:** fixtures clear inherited GIT_* and EMAIL before init,
+disable system/global config, templates, hooks and signing, set local test
+identity except for failure cases, and operate only in temporary repos.
+No HOME override, network/push command, project-repo mutation, model, peer
+or live-store test. Config state paths, Restoricon and default audit paths
+are redirected before collection (`NEW-855`). Real temporary Git
+integration; code-complete + code-reviewer-approved, no live model/peer
+verification claimed. No dependency/setup change. No full-suite run
+(`NEW-791`, device memory exhaustion); type checker unavailable.
+
+**Logged, not fixed:** `NEW-860` Confirmed by source: checkpoint stages
+triggering paths but commits the whole index, so unrelated pre-staged
+entries can be included. `NEW-861` Confirmed by source: checkpoint ignores
+add/commit return codes, then can return old HEAD after a failed commit.
+No live checkpoint failure/scope reproduction claimed. NEW-17 remains
+resolved for the agent's scoped offer; the intentionally broad manual
+commit behavior is preserved, not relabeled as a new bug. Remaining Git
+paths require separate architect scoping before changing their policy.
+
+**Verbatim coordinator verification:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice10-validate.py -q tests/test_git_commit_gateway.py tests/test_action_gateway.py tests/test_action_gateway_audit_failure.py tests/test_notes_gateway.py tests/test_main_peer_gateway.py
+........................................................................ [ 96%]
+...                                                                      [100%]
+75 passed in 11.79s
+
+$ ruff check tests/test_git_commit_gateway.py
+All checks passed!
+
+$ ruff check core/githelper.py tests/test_git_commit_gateway.py --select F,E9
+All checks passed!
+
+$ ruff check core/githelper.py tests/test_git_commit_gateway.py --statistics
+20	PLW1510	[ ] subprocess-run-without-check
+16	RUF013 	[ ] implicit-optional
+12	UP006  	[*] non-pep585-annotation
+ 2	BLE001 	[ ] blind-except
+ 1	UP035  	[ ] deprecated-import
+ 1	PIE810 	[ ] multiple-starts-ends-with
+ 1	S110   	[ ] try-except-pass
+Found 53 errors.
+[*] 12 fixable with the `--fix` option (17 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Implementer: `75 passed in 10.75s`; reviewer independently:
+`75 passed in 10.81s`. New-file Ruff/focused F,E9 clean; full helper Ruff
+matches the 53 findings captured before edits. Unrelated agent-memory
+changes preserved and unstaged.
+
 ## 2026-10-08 — WP2.1 slice 9: audit-directory failure preserves action outcomes (`NEW-835`)
 
 **Change (`51a48db`):** `_append_audit` moves audit-parent directory

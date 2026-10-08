@@ -20906,3 +20906,22 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Semantics:** audit filesystem failures are best effort and cannot alter the completed policy/operation outcome. Audit persistence is best effort; sink failures may leave no complete record. The tested directory blocker leaves no event; general write failures may leave partial bytes. Durable audit availability is not guaranteed by this fix. Healthy audit append behavior remains covered.
 - **Resolution boundary / rule-6 narrowing:** only filesystem OSErrors in sink preparation/append are resolved. Original prose also mentioned `ImportError` during audit-path resolution; that and JSON serialization/programming errors remain outside the handler. The old suggestion to broaden to `Exception` is not needed for mkdir's OSError subclasses and was not applied. Slice-8 notes audit-directory caveat is now closed for this filesystem failure class; notes content-trust/integrity/cache findings remain open.
 - **Cross-reference:** `core/action_gateway.py::_append_audit`, `tests/test_action_gateway_audit_failure.py`, `core/notes.py::_save`, blueprint §21 WP2.1 slice 9, master §4.2 / Appendix A.
+
+
+## 2026-10-08 — WP2.1 slice 10: local commits mediated; checkpoint coverage and integrity remain open
+
+- **Coverage:** `9c2d230` gates `core/githelper.py::git_commit` / `git_commit_paths` as ACT local commit attempts. Existing caller prompts and staging behavior persist; error strings audit failed, no-ops audit allowed attempts without proving a commit exists. Nineteen new cases; implementer/reviewer/coordinator each passed 75 bounded tests with real temporary Git and precollection state isolation. No model/peer/live-store test claimed. Checkpoint's independent commits, push, branches, checkout and merge remain ungated; full WP2.1 DoD stays open. Successful metadata is static; failure reasons retain Git error text.
+
+### [NEW-860] Confirmed: checkpoint commits can include unrelated pre-staged entries
+
+- **Status:** Confirmed by architect source trace; logged, not fixed. `core/checkpoint.py::_create_git_commit` stages `files_modified` using `git add -- <paths>`, then runs `git commit -m ...` without a path restriction. Other entries already staged in the index can enter that checkpoint commit. No live checkpoint scope reproduction claimed this round.
+- **Distinction:** NEW-17 resolved the agent's offered commit via `git_commit_paths`, whose scoped commit excludes unrelated staged files and is exercised in slice 10. Checkpoint is an independent implementation; NEW-17 is not reopened. Broad manual `git_commit(add_all=True)` remains intentional.
+- **Fix direction:** architect-scope checkpoint mediation and exact commit scope while preserving recovery behavior; do not silently disable automatic checkpoints.
+- **Cross-reference:** `core/checkpoint.py::_create_git_commit`, `core/agent.py::check_git_and_offer_commit`, `NEW-17`, blueprint §21 WP2.1 / master Appendix A.
+
+### [NEW-861] Confirmed: checkpoint ignores Git mutation failures and can return old HEAD
+
+- **Status:** Confirmed by architect source trace; logged, not fixed. `_create_git_commit` does not check `git add` or `git commit` return codes. It subsequently returns `git rev-parse HEAD` when that read succeeds, even if no new checkpoint commit was created. Existing HEAD can be recorded as the checkpoint hash after mutation failure. No live checkpoint failure reproduced this round.
+- **Distinction:** no-path/clean paths intentionally report current HEAD; the finding concerns failure of attempted mutations, not those intentional read-only cases.
+- **Fix direction:** preserve and inspect mutation outcomes, report failure honestly, and separately mediate checkpoint Git attempts. Coordinate with exact-scope finding NEW-860.
+- **Cross-reference:** `core/checkpoint.py::_create_git_commit`, `create_checkpoint`, `NEW-860`, blueprint §21 WP2.1 / master Appendix A.

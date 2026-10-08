@@ -737,6 +737,14 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 10, local commit attempts, 2026-10-08** (`9c2d230`)
+  — `git_commit` / `git_commit_paths` mediated as ACT; normal commits,
+  original strings/staging behavior and existing human prompts preserved.
+  Error sentinels audit failed; no-op allowed attempts do not imply a
+  new commit. 19 new cases, 75 bounded tests using isolated real Git,
+  code-complete + code-reviewer-approved; no model/peer/live-store test.
+  Checkpoint commits, push, branches, checkout and merge remain ungated;
+  source-confirmed checkpoint findings `NEW-860`, `NEW-861` logged open.
 - **WP2.1 slice 9, audit-directory failure (`NEW-835`), 2026-10-08**
   (`51a48db`) — audit directory creation now shares the existing OSError
   handler, preserving policy/operation outcomes and notes write errors.
@@ -5308,10 +5316,18 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   Sink OSErrors cannot replace action outcomes; audit persistence is best
   effort and failures may leave no complete record. The tested directory
   blocker leaves no event. Path resolution/serialization excluded.
+- [x] **WP2.1 slice 10 / local commit attempts** — `9c2d230`,
+  reviewer-approved, 75 bounded tests with real temporary repositories.
+  Both helper APIs mediated as ACT, existing confirmation preserved;
+  allowed no-ops are attempts, staging can remain after failures.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
-  architect-scope git mutations, preserving existing confirmation and
-  separating local commits/external publishing/working-file changes.
+  architect-scope remaining Git paths: independent checkpoint commits,
+  push, branch creation, checkout and merge. Preserve confirmation and
+  distinguish external publishing from working-file changes.
   CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
+- [ ] **Checkpoint commit integrity (`NEW-860`, `NEW-861`)** — unrelated
+  pre-staged entries can enter checkpoint commits; ignored Git failures
+  can return old HEAD. Source-confirmed, not fixed or live-reproduced.
 - [ ] **Notes trust/integrity/cache (`NEW-846`, `NEW-857`..`NEW-859`)** —
   content trust unresolved; load-error/data-shape handling, suspected
   concurrent writes and stale draft cache logged without fixes.

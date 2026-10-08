@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-9 DONE (1-5: 2026-10-07; 6-9: 2026-10-08); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-10 DONE (1-5: 2026-10-07; 6-10: 2026-10-08); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2913,6 +2913,7 @@ daemon-reachability claim in a code comment found and corrected). Commits
 reviewed by `/root/code_reviewer`, APPROVED), `179f67b` (slice 7;
 reviewed by `/root/code_reviewer`, APPROVED), `2acd8e6` (slice 8;
 reviewed by `/root/code_reviewer`, APPROVED), `51a48db` (slice 9;
+reviewed by `/root/code_reviewer`, APPROVED), `9c2d230` (slice 10;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3172,23 +3173,53 @@ reviewed by `/root/code_reviewer`, APPROVED).
   **Next:** architect-scope git mutation mediation, distinguishing local
   commits from external publishing and working-file changes; preserve
   existing confirmation and account for independent checkpoint commits.
+- **Slice 10 (2026-10-08, local commit attempts, `9c2d230`):**
+  `git_commit` / `git_commit_paths` retain existing commands, order,
+  signatures, returns and staging semantics through one private ACT
+  adapter. Static command `local git commit attempt`, separate helper
+  action labels; no new confirmation prompt. Existing agent offer and
+  main flows are unchanged. Git `[ERROR]` strings become failed audits
+  while returning the same string; raised operation exceptions retain
+  identity; refusal without execution returns an error-prefixed result.
+  Clean/no-path attempts audit allowed without proving a commit was made;
+  staging may survive commit failure. Successful audit metadata omits
+  messages/content/path lists; failure reasons retain Git error text.
+  **Evidence:** 19 new cases, 75 bounded tests independently passed by
+  implementer/reviewer/coordinator; real temporary Git content/ancestry,
+  unrelated staged-file exclusion, failure/refusal/index snapshots,
+  blocked audit parent, actual agent offer and private main handler.
+  Git configuration/environment/templates/hooks/signing isolated before
+  init; core state redirected before collection (`NEW-855`). No model,
+  peer, network or live-store test. Code-complete + code-reviewer-approved;
+  full suite excluded (`NEW-791`), 53 unchanged helper Ruff findings,
+  type checker unavailable. No dependency/setup change.
+  **Still open:** checkpoint's independent commit path, push, branch
+  creation, checkout and merge. Logged `NEW-860` (checkpoint can include
+  unrelated pre-staged entries) and `NEW-861` (ignored add/commit failures
+  can return old HEAD), source-confirmed, not fixed or live-reproduced.
+  NEW-17's scoped agent offer remains resolved; broad manual commits are
+  intentionally preserved. Architect must scope remaining Git paths next.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all nine slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all ten slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-9 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-10 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
   block, and `handle_command()`'s `/peer` branch),
-  and the dormant parked-escalation callable; shell exec has two known gaps (`NEW-836`,
+  the dormant parked-escalation callable, and two local commit helpers;
+  the four-of-42 write-primitive count does not measure Git subprocess coverage.
+  Shell exec has two known gaps (`NEW-836`,
   daemon allowlist refusals; `NEW-837`, declined-confirmation audit
   fidelity); `/peer` bypass `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
   plus latent parked-execution
   semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
-  deferred, low real traffic), git writes, outbound HTTP, DB writes,
-  message/email sends, and device actions remain entirely untouched.
+  deferred, low real traffic), outbound HTTP, DB writes,
+  message/email sends, and device actions remain entirely untouched. Git
+  coverage is partial: checkpoint commits (`NEW-860`, `NEW-861`), push,
+  branch creation, checkout and merge remain ungated.
   Notes mediation is covered; `NEW-846` content trust and notes integrity/cache
   findings (`NEW-857`..`NEW-859`) remain open.**
 
