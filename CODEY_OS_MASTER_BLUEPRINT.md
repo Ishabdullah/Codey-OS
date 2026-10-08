@@ -2902,12 +2902,14 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-4 DONE 2026-10-07; full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-5 DONE 2026-10-07; full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
-`a8284e3c9c6e62395`). Commits `021ecf9` (slice 1), `e26e6e6` (slice 2),
-`00f149a` (slice 3), `c2712a0` (slice 4).
+`a8284e3c9c6e62395`, slice 5 `a98b1b33df2334aad` — 2 rounds, a false
+daemon-reachability claim in a code comment found and corrected). Commits
+`021ecf9` (slice 1), `e26e6e6` (slice 2), `00f149a` (slice 3), `c2712a0`
+(slice 4), `aa39770` (slice 5).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
@@ -3056,21 +3058,50 @@ not yet met (far from it — see residual scope below).** Code-reviewer-approved
   branch's audit record names the resolved peer, not the originally
   requested one (forensically recoverable via a separate log stream, not
   auto-joined).
+- **Slice 5 (`run_agent()`'s natural-language peer-delegation dispatch,
+  closing `NEW-843`):** gated the single raw dispatch call inside
+  `_detect_peer_delegation()`'s block the same way as slice 4's
+  `tool_peer_delegate`, `HIGH_IMPACT`/`confirm_available=False`. **Real
+  finding, caught by code-reviewer and fixed same round:** the
+  implementation's own explanatory comment made a false claim —
+  "reachable from the daemon's unattended task queue" — when in fact this
+  entire block is wrapped in `if not _in_subtask:` and
+  `core/task_executor.py` calls `run_agent()` with `in_subtask=True`
+  explicitly, so the daemon's path **never reaches this block at all**; it
+  is interactive/CLI-only. Same false-comment-class as `NEW-625` — corrected
+  before commit, one-line fix, no logic change needed.
+- **A sharper disclosure of the same "HIGH_IMPACT silently makes a feature
+  a no-op" pattern, now rated Medium (`NEW-847`):** this path's
+  review-task privacy prompt ("share local files with the peer?") still
+  fires and reads file contents into the task payload *before* the
+  now-guaranteed-refused dispatch — a human consents to something
+  alarming that then accomplishes nothing, worse than slices 1/2's quieter
+  no-op disclosures.
+- **Three more findings logged, not fixed:** `NEW-848` (Confirmed, High) —
+  `core/peer_cli.py`'s `execute_parked_escalation()` is a *third* unguarded
+  peer-dispatch path with no confirmation anywhere in the function,
+  arguably a bigger gap than either slice 4 or 5 closed — strong slice-6
+  candidate. `NEW-849` (Low-Medium) — `main.py`'s `/peer` slash command is
+  a fourth unguarded dispatch, interactive-only. `NEW-850` (Low) — this
+  path never calls `_record_teacher()`, invisible to trajectory capture
+  (low priority, off by default). `NEW-851` (informational) — the same
+  test-authoring gotcha as `NEW-842`: forcing an ALLOWED decision on this
+  call site during testing can trigger a real model load via
+  `core.recursive.recursive_infer()`, which bypasses the usual mock point.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all four slices** (slice 3 took 2 rounds).
+  **APPROVED, all five slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-4 cover 3 of 42 known
+  split is gone. **Not yet met — slices 1-5 cover 3 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
-  `tools/patch_tools.py`), the one shell-exec chokepoint, and the model's
-  direct `peer_delegate` tool call; shell exec has two known gaps (`NEW-836`,
+  `tools/patch_tools.py`), the one shell-exec chokepoint, and both known
+  peer-delegation call sites (`tool_peer_delegate`, `run_agent()`'s
+  natural-language block); shell exec has two known gaps (`NEW-836`,
   daemon allowlist refusals; `NEW-837`, declined-confirmation audit
-  fidelity); peer-delegation has one known major gap (`NEW-843` — the
-  natural-language `run_agent()` path is a separate, ungated dispatch,
-  likely the more commonly-triggered of the two). CCOS capability invocation
-  (deliberately deferred, low real traffic), git writes, outbound HTTP, DB
-  writes, message/email sends, `note_save`/`note_forget` (a logged,
-  lower-severity gap — see the §21 roadmap for the finding), and device
+  fidelity); peer-delegation now has three more known gaps (`NEW-848`
+  High, `NEW-849`, `NEW-850`). CCOS capability invocation (deliberately
+  deferred, low real traffic), git writes, outbound HTTP, DB writes,
+  message/email sends, `note_save`/`note_forget` (`NEW-846`), and device
   actions remain entirely untouched.**
 
 **WP2.2 — Worlds / Playground isolation**

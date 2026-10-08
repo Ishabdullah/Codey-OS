@@ -1,4 +1,67 @@
-## 2026-10-07 (P2 continues) — WP2.1 slice 4: closed the biggest bypass of everything built so far — `peer_delegate` could route around the entire gateway. **START HERE for the next session.**
+## 2026-10-07 (P2 continues) — WP2.1 slice 5: closed `NEW-843` — the second, separate peer-delegation dispatch path slice 4 couldn't reach — and found 3 more unguarded dispatch paths along the way. **START HERE for the next session.**
+
+**What changed:** project-architect evaluated two possible fix shapes for
+`NEW-843` and rejected collapsing `run_agent()`'s natural-language
+peer-delegation block into `tool_peer_delegate()` — the block does
+substantial, legitimate enrichment (design-vs-implement detection,
+review-task file-content inclusion, multi-peer output splicing) and
+post-dispatch handling (`_auto_apply_peer_code`, design-doc save, recursive
+follow-ups) that `tool_peer_delegate` has no parameter for and must not
+lose. Chose instead to gate the one raw dispatch call site inline,
+mirroring slice 4's pattern exactly.
+
+- **Fix (commit `aa39770`):** the single `_mgr.call(_cli, _enriched_task)`
+  call inside the natural-language block now routes through the existing
+  `gate_exec()` as `HIGH_IMPACT`/`confirm_available=False`, same as slice
+  4's `tool_peer_delegate` gate.
+- **Code-reviewer caught a real factual error on the first pass (CHANGES
+  REQUESTED), the same false-comment class as `NEW-625`:** the
+  implementation's own comment claimed this path is "reachable from the
+  daemon's unattended task queue... `_in_subtask` defaulting to False" —
+  both halves wrong. The entire block is wrapped in `if not _in_subtask:`,
+  and `core/task_executor.py` calls `run_agent()` with `in_subtask=True`
+  *explicitly*, not as a default — so the daemon's path **never reaches
+  this block at all**; it's interactive/CLI-only. A trivial, purely
+  textual one-line fix (no logic change needed), corrected directly by the
+  coordinator rather than routed back through the implementer, re-verified
+  by code-reviewer in a quick round-2 recheck. **APPROVED.**
+- **A sharper version of the same disclosure pattern as slices 1/2,
+  logged as `NEW-847` (Confirmed, Medium, not the lower tier of the prior
+  two):** this path's `_priv_confirm` "share local files with the peer?"
+  prompt still fires and reads file contents into the task payload
+  *before* the now-guaranteed-refused dispatch — a human consents to
+  something alarming (local source leaving the device) that then
+  accomplishes nothing. Code-reviewer's explicit framing: worse than
+  slices 1/2's quieter no-op disclosures, because here the user actively
+  consents to a privacy-sensitive action for no result.
+- **Three more unguarded peer-dispatch paths found during scoping, logged
+  not fixed:** `NEW-848` (Confirmed, **High**) — `core/peer_cli.py`'s
+  `execute_parked_escalation()` has no confirmation guard anywhere in the
+  function (unlike `escalate()`, correctly left untouched both rounds
+  because it already has one) — architect's own assessment: "arguably a
+  wider gap than the one being closed this round." Strong slice-6
+  candidate. `NEW-849` (Low-Medium) — `main.py`'s `/peer` slash command,
+  interactive-only. `NEW-850` (Low) — this path never calls
+  `_record_teacher()`, invisible to trajectory capture (off by default,
+  low urgency).
+- **A second self-caught test-authoring incident, same class as `NEW-842`
+  (logged as `NEW-851`, informational):** forcing an `ALLOWED` decision on
+  this call site during test development caused `run_agent()` to recurse
+  into `core.recursive.recursive_infer()` — which bypasses the usual
+  `core.agent.infer` mock point and triggered a real `llama-server` model
+  load mid-test. Implementer caught it via `ps aux`, killed the specific
+  real PID (not a name-pattern kill), confirmed full unload via `free -h`,
+  then fixed the final test by disabling `RECURSIVE_CONFIG` (an existing
+  pattern already used elsewhere in the test suite).
+- *Gate:* code-reviewer — **APPROVED after 2 rounds** (round 1: CHANGES
+  REQUESTED on the false comment; round 2: quick recheck of the one-line
+  fix). *DoD:* still far from met — slices 1-5 now cover both known
+  peer-delegation call sites, but 3 more are logged open (`NEW-848`
+  High, `NEW-849`, `NEW-850`), plus everything else untouched since
+  slice 4 (CCOS, git writes, HTTP, DB writes, messages, `note_save`/
+  `note_forget`, device actions).
+
+## 2026-10-07 (P2 continues) — WP2.1 slice 4: closed the biggest bypass of everything built so far — `peer_delegate` could route around the entire gateway.
 
 **What changed:** project-architect was asked to scope slice 4 from a list of
 four candidates (git writes, outbound HTTP, `restoricon_core`'s remaining

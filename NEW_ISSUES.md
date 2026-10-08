@@ -20759,3 +20759,42 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Not fixed this round** — out of slice 4's scope; a good slice-5-or-later candidate alongside `NEW-843`.
 - **Fix direction (not applied):** classify as `ACT` (ordinary, reversible agent action) and route through the gateway for audit visibility at minimum; consider whether persistent-prompt-injection risk warrants content sanitization independent of the gateway's own authority-class mechanism.
 - **Cross-reference:** `core/agent.py:163-175`, `core/notes.py`, blueprint §21 WP2.1.
+
+### [NEW-847] Confirmed, Medium: `run_agent()`'s review-task privacy prompt now reads file contents into the task payload for a dispatch that's guaranteed to be refused — a live feature regression and a misleading privacy prompt, not merely "gated"
+
+- **Status:** Confirmed (WP2.1 slice 5, 2026-10-07, found by code-reviewer `a98b1b33df2334aad`). `run_agent()`'s `_priv_confirm` prompt (~`core/agent.py:1558-1573`, "Local source code will leave this device — share with the peer?") still fires and, if the human consents, reads file contents into `_enriched_task` — all *before* the now-gated dispatch below it, which is guaranteed to be refused (`HIGH_IMPACT` + `confirm_available=False` always fails closed today). The human is shown an alarming privacy consent prompt, agrees, and the whole thing is then silently thrown away by the gateway's refusal.
+- **Why rated higher than the analogous slices 1/2 disclosures:** code-reviewer's explicit framing — this is the third instance of the "`HIGH_IMPACT` classification silently turns a working feature into a permanent no-op" pattern, but the worst of the three because the user actively consents to something (sharing local source code externally) that then accomplishes nothing, rather than just a feature quietly stopping.
+- **Not fixed this round** — out of slice 5's narrow scope (gating the one dispatch call site only); fixing the UX dead-end requires either skipping the `_priv_confirm` prompt entirely while this path is a known no-op, or reordering logic so the prompt doesn't fire for a doomed dispatch — a product decision, not a mechanical gating fix.
+- **Fix direction (not applied):** short-circuit before `_priv_confirm` fires if the gateway would refuse anyway (requires exposing a "would this be refused" predicate without actually attempting the dispatch), or simply skip this review-task code path entirely until a real confirmation UI exists for the dispatch itself.
+- **Cross-reference:** `core/agent.py` (`run_agent()`'s `_priv_confirm` block and the slice 5 gate), `core/action_gateway.py` (`gate_exec`), blueprint §21 WP2.1.
+
+### [NEW-848] Confirmed, High: `core/peer_cli.py`'s `execute_parked_escalation()` is a third unguarded peer-dispatch path with no human confirmation anywhere in the function
+
+- **Status:** Confirmed (WP2.1 slice 5 scoping, 2026-10-07, found by project-architect while confirming slice 5's scope boundaries). `core/peer_cli.py:502-539`'s `execute_parked_escalation()` has its own independent, fully unguarded `mgr.call()` dispatch (`:532`). Unlike `escalate()` (`core/peer_cli.py:304-406`, correctly left untouched by slices 4-5 because `mgr.confirm()` at `:379` already gates it before dispatch), `execute_parked_escalation()` has **no equivalent confirmation guard anywhere in the function**. Reachable from the blackboard escalation-resolution flow.
+- **Why rated High:** architect's own assessment — "arguably a wider gap than the one being closed this round," i.e. a stronger candidate than either of the two paths slices 4-5 already fixed.
+- **Not fixed this round** — correctly out of slice 5's scope (a distinct call site). Strong candidate for WP2.1 slice 6.
+- **Fix direction (not applied):** apply the same `gate_exec(authority=HIGH_IMPACT, confirm_available=False, ...)` pattern slices 4-5 already established.
+- **Cross-reference:** `core/peer_cli.py:502-539` (`execute_parked_escalation`), `core/peer_cli.py:304-406` (`escalate`, correctly untouched), blueprint §21 WP2.1.
+
+### [NEW-849] Confirmed, Low-Medium: `main.py`'s `/peer` slash command is a fourth unguarded peer-dispatch path, interactive-only
+
+- **Status:** Confirmed (WP2.1 slice 5 scoping, 2026-10-07, found by project-architect). `main.py:1425-1493`'s `/peer` slash command has its own independent, unguarded `mgr.call()` dispatch (`:1485`). Lower urgency than `NEW-848` since it's interactive-CLI-only (a human directly typed the slash command, no daemon reachability) but still an ungated `HIGH_IMPACT`-class dispatch by the gateway's own classification criteria.
+- **Not fixed this round** — correctly out of slice 5's scope.
+- **Fix direction (not applied):** same `gate_exec()` pattern, lower priority than `NEW-848` given the interactive-only reachability.
+- **Cross-reference:** `main.py:1425-1493` (`/peer` slash command), blueprint §21 WP2.1.
+
+### [NEW-850] Confirmed, Low: `run_agent()`'s natural-language peer-delegation path never calls `_record_teacher()`, unlike `tool_peer_delegate`'s gated caller
+
+- **Status:** Confirmed (WP2.1 slice 5 scoping and implementation, 2026-10-07). `tool_peer_delegate`'s `_gate_call._attempt()` calls `_record_teacher(resolved_name, dispatch_task, output)` (slice 4) to capture teacher traces for AGI-audit trajectory work; the natural-language block's dispatch never calls `_record_teacher()` at all, so this path's peer outputs are invisible to `CODEY_TRAJECTORY=1` capture.
+- **Why low priority:** ties into the standing `NEW-761`/WP0.5 caution (do not enable `CODEY_TRAJECTORY=1` + run the bench yet) — not urgent since trajectory capture is gated off by default anyway.
+- **Not fixed this round** — out of slice 5's scope.
+- **Fix direction (not applied):** add an equivalent `_record_teacher()` call to this path's dispatch, if/when trajectory capture for peer delegation becomes a priority.
+- **Cross-reference:** `core/agent.py` (`run_agent()`'s slice 5 gate, `tool_peer_delegate`'s `_gate_call`), `NEW-761`, blueprint §21 WP1.2/WP0.5, §21 WP2.1.
+
+### [NEW-851] Confirmed, informational: forcing an ALLOWED gate decision on a peer-dispatch call site during test development can trigger a real, unmocked model load via `core.recursive.recursive_infer()`
+
+- **Status:** Confirmed (WP2.1 slice 5, 2026-10-07, self-caught by implementer `a535dda10a0aa01aa` during test authoring, same incident class as `NEW-842`). While writing a test that forces an `ALLOWED` decision on `run_agent()`'s newly-gated peer-delegation dispatch (to verify the dispatch thunk itself, mirroring slice 4's pattern), `run_agent()`'s subsequent recursion routed into `core.recursive.recursive_infer()` for a follow-up call — which does **not** go through the `core.agent.infer` mock point most tests patch, and triggered a real `llama-server` model load (`qwen3.5-4b-instruct`) during test iteration.
+- **Resolution:** implementer caught it via `ps aux`, killed the specific real PID (not a name-pattern kill, per rule 3), confirmed via `free -h`/`ps aux` it was fully unloaded, then fixed the test by disabling `RECURSIVE_CONFIG` (matching an existing pattern already used in `tests/test_agent_run_stats_telemetry.py`) so the final committed test never risks this.
+- **Not a code defect** — `core.recursive.recursive_infer()`'s behavior is pre-existing and unrelated to this slice; this is a documented gotcha for future test authors.
+- **Fix direction (not applicable — informational only):** any future test that forces/observes an ALLOWED gate decision on a peer-dispatch call site must also disable `RECURSIVE_CONFIG` or otherwise ensure `core.recursive.recursive_infer()`'s model calls are mocked.
+- **Cross-reference:** `core/recursive.py` (`recursive_infer`), `core/agent.py` (`RECURSIVE_CONFIG`), `NEW-842` (same incident class, WP2.1 slice 3), blueprint §21 WP2.1.
