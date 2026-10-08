@@ -310,3 +310,133 @@ def test_tool_peer_delegate_missing_args():
     """Verify tool_peer_delegate handles missing arguments."""
     result = tool_peer_delegate("", "")
     assert "[Peer delegate error:" in result
+
+
+# ── WP2.1 slice 5: run_agent()'s natural-language peer-delegation block ──
+#
+# A separate, previously-ungated dispatch call site (NEW-843) from
+# tool_peer_delegate above (slice 4) — triggered by typed natural language
+# ("ask qwen to X") rather than a model tool call, inside run_agent() itself.
+# Gated the same way: HIGH_IMPACT, confirm_available=False, always fails
+# closed today.
+
+
+def test_run_agent_natural_language_peer_delegation_gated_through_action_gateway():
+    """Invariant: run_agent()'s natural-language peer-delegation dispatch
+    (`_mgr.call()` inside the `_detect_peer_delegation()` block) is
+    unreachable except via ActionGateway.gate_exec(), called as HIGH_IMPACT
+    with confirm_available=False -- mirrors slice 4's own invariant test
+    (test_tool_peer_delegate_gated_through_action_gateway above). The real
+    peer `call()` must NEVER actually run, the gate's refusal must degrade
+    gracefully (fall back to local inference rather than crashing), and the
+    audit ledger entry must be distinguishable from slice 4's by action
+    name."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from core.action_gateway import HIGH_IMPACT, OUTCOME_REFUSED, ActionGateway
+    from core.agent import RECURSIVE_CONFIG, run_agent
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audit_file = Path(tmpdir) / "audit.jsonl"
+        test_gateway = ActionGateway(audit_file=audit_file)
+
+        def fake_infer(messages, **kwargs):
+            # Reached only via the graceful local-inference fallback once
+            # the gate refuses the peer dispatch.
+            return "Done — handled locally after peer dispatch was blocked."
+
+        with patch("core.action_gateway.get_action_gateway", return_value=test_gateway), \
+             patch("core.peer_cli.PeerCLIManager.available") as mock_avail, \
+             patch("core.peer_cli.PeerCLIManager.call") as mock_call, \
+             patch("core.agent.infer", fake_infer), \
+             patch("core.agent.check_git_and_offer_commit", lambda *a, **kw: None), \
+             patch.dict(RECURSIVE_CONFIG, {"enabled": False}):
+            qwen_cli = next(c for c in PEER_REGISTRY if c.name == "qwen")
+            mock_avail.return_value = [qwen_cli]
+
+            response, history = run_agent("ask qwen to list files", [])
+
+        # The gate fails closed -> the real peer subprocess dispatch never happens.
+        mock_call.assert_not_called()
+        # Degrades gracefully: falls through to local inference rather than
+        # crashing or hanging on the blocked peer dispatch.
+        assert response == "Done — handled locally after peer dispatch was blocked."
+
+        records = [
+            json.loads(line)
+            for line in audit_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert len(records) == 1
+        assert records[0]["authority"] == HIGH_IMPACT
+        assert records[0]["outcome"] == OUTCOME_REFUSED
+        # Distinct from slice 4's "peer_cli.tool_peer_delegate" so the two
+        # call sites are distinguishable in the audit log.
+        assert records[0]["action"] == "peer_cli.run_agent_detect_peer_delegation"
+
+
+def test_run_agent_natural_language_peer_delegation_dispatch_thunk_correct_when_allowed():
+    """The gate's fail-closed refusal (tested above) means the `_attempt()`
+    thunk that calls `_mgr.call(_cli, _enriched_task)` is never exercised by
+    today's actual production path. Force an ALLOWED decision (as a future
+    confirmation-UI slice would produce) to prove the thunk itself is wired
+    correctly -- in particular that it closes over `_enriched_task` (which
+    carries the OUTPUT FORMAT instructions) and not the bare `_peer_task` --
+    mirrors slice 4's test_tool_peer_delegate_dispatch_thunk_correct_when_allowed.
+
+    The mocked peer output deliberately contains no triple-backtick code
+    blocks and the task avoids design-verb wording, so neither
+    _auto_apply_peer_code nor the qwen_design.md save branch fires and
+    writes into the repo's cwd as a side effect."""
+    import tempfile
+    from pathlib import Path
+
+    from core.action_gateway import ActionGateway, GatewayDecision, OUTCOME_ALLOWED
+    from core.agent import RECURSIVE_CONFIG, run_agent
+
+    class _AllowAllGateway(ActionGateway):
+        def gate_exec(self, *, authority, action, command, confirm_available, execute):
+            result = execute()
+            return GatewayDecision(
+                authority=authority, outcome=OUTCOME_ALLOWED, reason="test-allow",
+                detail={"action": action, "command": command, "result": result},
+            )
+
+    allow_gateway = _AllowAllGateway(
+        audit_file=Path(tempfile.mkdtemp()) / "audit.jsonl"
+    )
+
+    def fake_infer(messages, **kwargs):
+        return "Done."
+
+    # RECURSIVE_CONFIG must be disabled here (unlike the REFUSED-path test
+    # above, where the "minimal"-breadth classification never reaches it):
+    # once the gate ALLOWS the dispatch and the peer output has no code
+    # blocks, run_agent() recurses with a different follow-up message
+    # whose breadth classification can route into core.recursive.recursive_infer,
+    # which calls the *real* model loader directly rather than through the
+    # core.agent.infer patched above — see live-verified trace in this
+    # slice's handoff (NEW-ledger candidate).
+    with patch("core.action_gateway.get_action_gateway", return_value=allow_gateway), \
+         patch("core.peer_cli.PeerCLIManager.available") as mock_avail, \
+         patch(
+             "core.peer_cli.PeerCLIManager.call",
+             return_value="Here is the plan in prose, no code blocks here.",
+         ) as mock_call, \
+         patch("core.agent.infer", fake_infer), \
+         patch("core.agent.check_git_and_offer_commit", lambda *a, **kw: None), \
+         patch.dict(RECURSIVE_CONFIG, {"enabled": False}):
+        qwen_cli = next(c for c in PEER_REGISTRY if c.name == "qwen")
+        mock_avail.return_value = [qwen_cli]
+
+        run_agent("ask qwen to list files", [])
+
+        mock_call.assert_called_once()
+        dispatched_cli, dispatched_task = mock_call.call_args[0]
+        assert dispatched_cli is qwen_cli
+        # Proves the thunk closed over `_enriched_task` (which carries the
+        # OUTPUT FORMAT instructions), not the bare `_peer_task`.
+        assert dispatched_task.startswith("Task: list files")
+        assert "OUTPUT FORMAT" in dispatched_task

@@ -1604,7 +1604,47 @@ def run_agent(
                         )
 
                 info(f"Delegating to {_cli.description}: {_peer_task[:80]}")
-                _output = _mgr.call(_cli, _enriched_task)
+                # WP2.1 slice 5: this mirrors tool_peer_delegate's gate
+                # (slice 4, see its docstring above). No confirmation UI
+                # exists for this call site either, so like that one this
+                # is a permanent fail-closed no-op in production until a
+                # future slice wires one up. Unlike tool_peer_delegate,
+                # this path is triggered by typed natural language
+                # ("ask agy to X") rather than a model tool call.
+                # NOT reachable from the daemon's unattended task queue:
+                # this whole "Explicit peer delegation" block is wrapped in
+                # `if not _in_subtask:` above, and core/task_executor.py
+                # calls run_agent() with in_subtask=True explicitly -- so
+                # the daemon's own path never reaches this block at all.
+                # Interactive/CLI use only (code-reviewer finding,
+                # 2026-10-08 — an earlier draft of this comment wrongly
+                # claimed daemon reachability and an "_in_subtask defaults
+                # to False" behavior that isn't how it's actually called).
+                from core.action_gateway import (HIGH_IMPACT, OUTCOME_FAILED,
+                                                 OUTCOME_REFUSED, get_action_gateway)
+
+                def _attempt() -> str:
+                    return _mgr.call(_cli, _enriched_task)
+
+                _decision = get_action_gateway().gate_exec(
+                    authority=HIGH_IMPACT,
+                    action="peer_cli.run_agent_detect_peer_delegation",
+                    command=f"{_cli.name} :: {_peer_task[:200]}",
+                    confirm_available=False,
+                    execute=_attempt,
+                )
+                if _decision.outcome in (OUTCOME_REFUSED, OUTCOME_FAILED):
+                    # REFUSED = never attempted (today's only reachable case,
+                    # HIGH_IMPACT fail-closed with confirm_available=False).
+                    # FAILED = _mgr.call() WAS invoked and raised — the
+                    # subprocess dispatch actually happened before erroring.
+                    # Both degrade the same way here (fall back to local
+                    # inference), but they are not the same thing — don't
+                    # read "blocked" below as "never ran" for the FAILED case.
+                    warning(f"Peer delegation to '{_peer_name}' blocked: {_decision.reason}")
+                    _output = f"[PEER_ERROR: blocked by gateway — {_decision.reason}]"
+                else:
+                    _output = _decision.detail.get("result", "")
                 if _mgr.is_peer_error(_output):
                     warning(f"Peer '{_peer_name}' unavailable — falling back to local inference.")
                     # Fall through to normal agent inference below
