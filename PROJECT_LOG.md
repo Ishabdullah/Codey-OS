@@ -1,4 +1,68 @@
-## 2026-10-07 (P2 continues) — WP2.1 slice 3: the model's own write tools now gated, and a real near-miss caught via live reproduction before it shipped. **START HERE for the next session.**
+## 2026-10-07 (P2 continues) — WP2.1 slice 4: closed the biggest bypass of everything built so far — `peer_delegate` could route around the entire gateway. **START HERE for the next session.**
+
+**What changed:** project-architect was asked to scope slice 4 from a list of
+four candidates (git writes, outbound HTTP, `restoricon_core`'s remaining
+surface, message/email sends) — and, after actually reading the code for
+each, rejected all four (none destructive/untrusted/ungated-and-live enough
+to justify the slot) in favor of something it found by enumerating the
+model's full TOOLS registry: `tool_peer_delegate`.
+
+- **The finding:** `tool_peer_delegate` launches a real subprocess of an
+  external, fully-autonomous coding CLI (`antigravity`/`qwen`) with an
+  *unconditional* auto-approve flag appended (`core/peer_shell.py:260-261`
+  — both registered peers carry one, applied regardless of context),
+  directly against the live filesystem, reachable from both interactive use
+  and the unattended daemon's background task queue. This was a complete,
+  trivially-reachable bypass of everything slices 1-3 built — the model
+  could route around the entire gateway by asking a peer to do the write or
+  shell command instead of doing it itself.
+- **Fix (commit `c2712a0`):** both real dispatch branches (the primary
+  enabled-peer call, and the disabled-peer fallback-redirect, which
+  launches the identical subprocess — gating only the primary branch would
+  have left the whole slice bypassable by naming a disabled peer) now route
+  through the existing `gate_exec()` (built in slice 2) as `HIGH_IMPACT`
+  with `confirm_available=False` — disclosed plainly as a permanent
+  fail-closed no-op in production until a confirmation UI exists for this
+  call site, same pattern as slice 1's CODEY.md-sync disclosure.
+  `core/peer_cli.py`'s `escalate()` — a separate, already-human-confirmed
+  path — is completely unaffected, independently confirmed by both the
+  implementer and code-reviewer reading it directly.
+- **A significant residual gap found and logged, not fixed (`NEW-843`,
+  Confirmed, High):** `run_agent()`'s natural-language peer-delegation path
+  (triggered by `_detect_peer_delegation()` — the "ask agy to fix the bug"
+  style input) is a *separate*, hand-duplicated reimplementation of the
+  same dispatch logic that does **not** call `tool_peer_delegate()` at all
+  — completely untouched by this slice, and, per code-reviewer's
+  assessment, likely the *more commonly-triggered* of the two paths. Strong
+  candidate for slice 5.
+- **Two more findings logged, not fixed:** `NEW-844` (Low) — the same
+  declined/failed-after-real-execution audit ambiguity slice 2 found in
+  `NEW-837`, now also present in this call site's `gate_exec` usage,
+  currently unreachable since `confirm_available=False` always
+  short-circuits first; `NEW-845` (Low) — the disabled-peer fallback
+  branch's audit record names the resolved peer, not the originally
+  requested one (forensically recoverable via a separate log stream, not
+  auto-joined). Also logged from the scoping round: `NEW-846` (Confirmed,
+  Low) — `note_save`/`note_forget` are the only remaining TOOLS-registry
+  entries left completely ungated, and are re-injected into every future
+  system prompt, a persistent-prompt-injection surface worth a future
+  slice.
+- **Blast radius wider than the model-facing tool alone, confirmed by both
+  implementer and code-reviewer:** `ccos/plugins/coding/peer_escalation/
+  peer_escalation.py`'s registered `peer_delegate` CCOS capability calls
+  `tool_peer_delegate` directly and is therefore also now a permanent
+  fail-closed no-op.
+- *Gate:* code-reviewer — **APPROVED**, after independently tracing both
+  gated branches, confirming `escalate()`'s isolation, and running a
+  broader regression sweep (286 tests) than the implementer's own 236 —
+  all green. *DoD:* still far from met — slices 1-4 now cover 3 of 42 known
+  write-primitive files, the shell-exec chokepoint, and the model's direct
+  `peer_delegate` call; CCOS capability invocation, git writes, outbound
+  HTTP, DB writes, message/email sends, `note_save`/`note_forget`, device
+  actions, and `run_agent()`'s separate peer-delegation path all remain
+  open.
+
+## 2026-10-07 (P2 continues) — WP2.1 slice 3: the model's own write tools now gated, and a real near-miss caught via live reproduction before it shipped.
 
 **What changed:** project-architect rejected CCOS capability invocation (the
 previously-suggested slice-3 candidate) after actually tracing its call
