@@ -102,10 +102,13 @@ def audit_path() -> Path:
 
 
 def _append_audit(record: Dict[str, Any], path: Optional[Path] = None) -> None:
+    """Prepare and append best-effort audit output; sink OSErrors cannot
+    change the operation result or policy decision.
+    """
     path = path or audit_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(record, default=str) + "\n"
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(line)
     except OSError:
