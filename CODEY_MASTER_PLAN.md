@@ -737,13 +737,23 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 9, audit-directory failure (`NEW-835`), 2026-10-08**
+  (`51a48db`) — audit directory creation now shares the existing OSError
+  handler, preserving policy/operation outcomes and notes write errors.
+  Deterministic pre-fix reproduction; 13 new cases, 69 bounded tests with
+  startup state isolation; code-complete + code-reviewer-approved.
+  No model/peer/live-store test claimed. Sink failures may leave no complete
+  audit record; the tested directory blocker leaves no event. Path
+  resolution/serialization failures are out of scope.
+  Full gateway DoD remains open; next category is git mutations.
 - **WP2.1 slice 8, persistent notes (`NEW-846`), 2026-10-08**
   (`2acd8e6`) — shared ACT persistence gates save/delete; note operations
   remain available and audited without contents in successful records.
   Eight new cases; 56 bounded tests with startup state isolation,
   code-complete + code-reviewer-approved. No model/peer execution claimed.
   Mediation fixed; content trust remains open. Existing audit-mkdir debt
-  `NEW-835` can report failure after mutation or mask persistence errors.
+  `NEW-835` could report failure after mutation or mask persistence errors;
+  its directory-creation OSError is fixed by slice 9 above.
   Full gateway DoD and notes integrity/cache findings remain open.
 - **WP2.1 slice 7, `/peer` dispatch (`NEW-849`), 2026-10-08**
   (`179f67b`) — the handler's single peer launch now refuses/audits without
@@ -5293,13 +5303,19 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 - [x] **WP2.1 slice 8 / `NEW-846` mediation** — shared notes persistence
   gated as ACT (`2acd8e6`); reviewer-approved, 56 bounded tests with state
   isolation. Save/delete behavior remains available; no model test claimed.
-- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Architect
-  must scope the next action category from blueprint §21; CCOS, git,
-  outbound HTTP, DB writes, messages and device actions remain pending.
+- [x] **WP2.1 slice 9 / `NEW-835` directory-creation failure** — fixed
+  (`51a48db`), reviewer-approved, 69 bounded tests with startup isolation.
+  Sink OSErrors cannot replace action outcomes; audit persistence is best
+  effort and failures may leave no complete record. The tested directory
+  blocker leaves no event. Path resolution/serialization excluded.
+- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
+  architect-scope git mutations, preserving existing confirmation and
+  separating local commits/external publishing/working-file changes.
+  CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
 - [ ] **Notes trust/integrity/cache (`NEW-846`, `NEW-857`..`NEW-859`)** —
   content trust unresolved; load-error/data-shape handling, suspected
-  concurrent writes and stale draft cache logged without fixes. Existing
-  gateway audit-directory failure (`NEW-835`) also affects notes.
+  concurrent writes and stale draft cache logged without fixes.
+  Gateway audit-directory OSError (`NEW-835`) is fixed by slice 9.
 - [ ] **Import/command hygiene (`NEW-855`, `NEW-856`)** — eager main/gateway
   import state writes need startup isolation; `/peer` prefix parsing
   accepts unrelated command names. Logged, not fixed in slice 7.

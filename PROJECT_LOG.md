@@ -1,3 +1,84 @@
+## 2026-10-08 — WP2.1 slice 9: audit-directory failure preserves action outcomes (`NEW-835`)
+
+**Change (`51a48db`):** `_append_audit` moves audit-parent directory
+creation into its existing `try/except OSError` for open/write. Preparing
+an unavailable sink now has the same best-effort semantics as appending
+an unavailable sink. No authority, confirmation, caller, path-selection,
+JSON formatting, dependency or setup change; no broader exception catch.
+An executed operation keeps its original result; a refusal stays refused;
+reads stay allowed; notes persistence failures retain the original
+exception object even when audit-directory creation fails. Audit persistence
+is best effort; sink failures may leave no complete record. The tested
+directory blocker leaves no event, while write failures may leave partial
+bytes. No successful durable audit is claimed for failed sinks.
+
+**Logical order:** architect chose this shared foundation before further
+mediation because all four gateway methods share the helper and slice 8
+exposed error masking after successful notes mutation. Git writes remain
+the next category to scope: local commits, publishing and working-file
+changes need separate classification; preserve existing human confirmation
+and account for checkpoint's independent commit path. Full WP2.1 DoD stays
+open; coverage still four of the original 42 write-primitive files.
+
+**Pipeline:** project-architect → implementer → independent code-reviewer,
+**APPROVED**, then coordinator checks and scoped code commit. Thirteen new
+cases use a real temporary regular file as the audit parent, exercising
+allowed/refused/failed exec, mocked write/append success/access failure,
+read, original open/write OSError suppression, real notes save/delete, and
+same-object original notes write failures with unchanged pre-write bytes.
+Healthy-sink append tests remain in the bounded suite. Config paths are
+redirected before collection (`NEW-855`), including temporary Restoricon
+and default audit paths; no HOME override, local model, peer, repository
+mutation or live-store access in tests. Isolated filesystem integration;
+code-complete + code-reviewer-approved, no live model/peer test claimed.
+
+**NEW-835 resolution is narrow:** filesystem OSErrors from preparation and
+append are suppressed; audit-path resolution/import and JSON serialization
+errors remain outside the handler. Earlier suggestion to broaden to
+`Exception` was unnecessary for mkdir failures and is not applied. Historical
+Suspected heading retained; deterministic reproduction now confirms the
+mkdir/result-fidelity case. No new out-of-scope findings reported.
+
+**Verbatim implementer pre-fix reproduction:** privately loaded HEAD's
+gateway source under isolated state paths, temporary blocker file and
+operation spy (no production calls).
+
+```text
+Pre-fix HEAD: operation executed once, then audit preparation raised FileExistsError
+Operation calls: ['operation executed']
+```
+
+**Verbatim coordinator verification:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice9-validate.py -q tests/test_action_gateway_audit_failure.py tests/test_action_gateway.py tests/test_notes_gateway.py tests/test_main_peer_gateway.py tests/test_escalation_review_queue.py
+.....................................................................    [100%]
+69 passed in 1.87s
+
+$ ruff check tests/test_action_gateway_audit_failure.py
+All checks passed!
+
+$ ruff check core/action_gateway.py tests/test_action_gateway_audit_failure.py --select F,E9
+All checks passed!
+
+$ ruff check core/action_gateway.py tests/test_action_gateway_audit_failure.py --statistics
+6	UP045 	[*] non-pep604-annotation-optional
+3	UP006 	[*] non-pep585-annotation
+2	UP035 	[-] deprecated-import
+1	BLE001	[ ] blind-except
+Found 12 errors.
+[*] 10 fixable with the `--fix` option.
+
+$ git diff --check
+```
+
+Implementer: `69 passed in 2.05s`; reviewer independently:
+`69 passed in 1.76s`. New-file Ruff and focused F/E9 clean; full gateway
+Ruff retains 12 baseline findings, captured before edit. `command -v mypy
+pyright ty` returned no output (exit 127), so no type checker run. Full suite
+excluded (`NEW-791`, device memory exhaustion). Unrelated agent-memory
+changes were preserved and left unstaged.
+
 ## 2026-10-08 — WP2.1 slice 8: persistent notes audited as ACT (`NEW-846` mediation)
 
 **Change (`2acd8e6`):** `core/notes.py::_save` routes directory creation,

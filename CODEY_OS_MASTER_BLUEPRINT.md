@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-8 DONE (1-5: 2026-10-07; 6-8: 2026-10-08); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-9 DONE (1-5: 2026-10-07; 6-9: 2026-10-08); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2912,6 +2912,7 @@ daemon-reachability claim in a code comment found and corrected). Commits
 (slice 4), `aa39770` (slice 5), `a9fcb14` (slice 6;
 reviewed by `/root/code_reviewer`, APPROVED), `179f67b` (slice 7;
 reviewed by `/root/code_reviewer`, APPROVED), `2acd8e6` (slice 8;
+reviewed by `/root/code_reviewer`, APPROVED), `51a48db` (slice 9;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3138,7 +3139,8 @@ reviewed by `/root/code_reviewer`, APPROVED).
   values and real agent tool strings are preserved; missing removal does
   no write/audit, reads stay unaudited. Original persistence exceptions
   propagate after a completed failed audit; existing `NEW-835` audit-mkdir
-  failure can mask them or report failure after a successful mutation.
+  failure can mask them or report failure after a successful mutation
+  (**directory-creation OSError fixed by slice 9 below**).
   **Evidence:** eight new cases, 56 bounded tests independently passed by
   implementer/reviewer/coordinator under precollection state isolation;
   real temporary notes/audit and direct TOOLS integration, no model/peer
@@ -3150,11 +3152,31 @@ reviewed by `/root/code_reviewer`, APPROVED).
   prompt; forgetting cannot restore overwritten/deleted values. Logged
   `NEW-857` (load-error recovery/data shape), `NEW-858` (suspected concurrent
   write risk), `NEW-859` (draft cache ignores note mutations), not fixed.
+- **Slice 9 (2026-10-08, audit-directory result fidelity, `NEW-835`,
+  `51a48db`):** foundation fix before adding another action category.
+  `_append_audit` directory creation now shares the existing OSError
+  handler with audit open/write. Sink filesystem failures no longer
+  replace an operation's result, mask notes' original persistence error,
+  or escape a refused/read decision. No authority or confirmation change.
+  **Evidence:** pre-fix private HEAD reproduction executed once then raised
+  `FileExistsError`; 13 new cases, 69 bounded tests independently passed
+  by implementer/reviewer/coordinator under precollection state isolation.
+  Real temporary blocker file and notes; filesystem delegates mocked.
+  Code-complete + code-reviewer-approved; no model/peer/live-store test.
+  Healthy audits remain append-only; sink failures may leave no complete
+  record. The tested directory blocker leaves no event; writes may leave
+  partial bytes. Audit persistence remains best effort.
+  OSError scope only: audit-path resolution/import and JSON serialization
+  errors remain outside the handler. Full suite excluded (`NEW-791`),
+  12 unchanged gateway Ruff findings; type checker unavailable.
+  **Next:** architect-scope git mutation mediation, distinguishing local
+  commits from external publishing and working-file changes; preserve
+  existing confirmation and account for independent checkpoint commits.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all eight slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all nine slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-8 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-9 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
