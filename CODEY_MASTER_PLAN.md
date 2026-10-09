@@ -737,6 +737,22 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 18, direct shell Git publishing classification, 2026-10-09**
+  (`d0125eb`) — direct git push/git-push and parsed global-prefix forms
+  HIGH_IMPACT, including dry-run/help variants. Unknown/malformed direct Git
+  prefixes/identifiable quote errors conservatively HIGH; terminal queries
+  and parsed non-push prior labels preserved. No config/alias/subprocess
+  lookup or argv rewriting. 108 new cases; implementer/reviewer/coordinator
+  each passed 242 focused tests, including real isolated local-bare-remote
+  approval/exact-ref and denial without spawning/ref effects. Code-complete
+  + code-reviewer-approved, no network/project publishing test claimed.
+  NEW-873 direct subset fixed; NEW-875 indirect/alias/script READ/ACT bypasses
+  and NEW-876 alternate publishing primitives remain source-confirmed/open.
+  NEW-874 execution-error fidelity unchanged. Initial one failure was a test
+  expecting env ACT when existing classifier is READ; corrected expectation
+  only, failure recorded. Next: remaining classification scope before errors,
+  then isolated-state/CCOS and remaining groups, reviewed commit/push per slice.
+
 - **WP2.1 slice 17, shell refusal accounting, 2026-10-09** (`919d9c4`)
   — existing human declines and all three daemon allowlist rejections now
   produce one refused audit without execution. HIGH_IMPACT prompts require
@@ -746,12 +762,14 @@ scoped to what it actually proved.
   Code-complete + code-reviewer-approved; no live model/peer/store action.
   NEW-836 and shell refusal/episodic portion of NEW-837 covered; broader
   failure/bookkeeping issues NEW-844/874 remain. Classification unchanged;
-  NEW-873 plain shell push is ACT and remains a publishing-policy bypass.
+  At slice 17, NEW-873 plain shell push remained ACT; direct forms are
+  HIGH_IMPACT in slice 18. Indirect/plumbing NEW-875/876 remain open.
   Fresh provisional census: 201 searched Python files, 1,384 candidates in
   122 files, including false positives; all candidate dispositions unresolved.
   See `docs/census-2026-10-09/WP2.1_remaining_scope.md`. Four-of-42 is not
   overall progress; 14 work groups plus closure are not a slice count.
-  Next: architect-scope shell classification, then sequential remaining groups.
+  At slice 17, classification was next; slice 18 covers direct publishing.
+  Remaining classification and subsequent groups continue sequentially.
 
 - **WP2.1 slice 16, independent checkpoint rollback, 2026-10-09**
   (`a094d1a`) — HIGH_IMPACT explicit callback approval precedes restore
@@ -5436,21 +5454,28 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   of `NEW-837`)** — `919d9c4`, reviewer-approved, 47 new cases / 112 focused
   tests. Existing human/daemon denials audit refused without execution;
   cancellation does not log shell success. Classifier/returncodes unchanged.
+- [x] **WP2.1 slice 18 / direct shell publishing (`NEW-873` subset)** —
+  `d0125eb`, reviewer-approved, 108 new cases / 242 focused tests. Direct
+  git push/git-push and recognized global prefixes HIGH_IMPACT; parser pure,
+  other labels/argv preserved. Real temporary file-only push/denial evidence.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
   positives; dynamic/non-Python/sibling coverage remains open. 14 work groups
-  plus closure, not 14 promised slices. Next shell classification (`NEW-873`),
+  plus closure, not 14 promised slices. Next remaining shell classification
+  (`NEW-875`, `NEW-876`; NEW-873 direct subset now covered),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
   boundaries and final closure. Preserve confirmation; distinguish publishing
   from working-file changes. Reviewed commit/push after each slice, continued
   without stopping (user instruction 2026-10-09).
-- [ ] **Shell classification/failure and peer bookkeeping (`NEW-873`,
-  `NEW-874`, `NEW-844`)** — ordinary shell git push is ACT despite helper
-  HIGH_IMPACT policy; subprocess nonzero/caught errors can audit allowed.
-  Both source-confirmed, no live push/failure reproduction claimed. Attempted
-  peer execution plus later bookkeeping failure remains distinct from refusal.
+- [ ] **Shell classification/failure and peer bookkeeping (`NEW-875`,
+  `NEW-876`, `NEW-874`, `NEW-844`)** — direct git push NEW-873 subset fixed;
+  env/find wrappers can remain READ, aliases/scripts/alternate Git publishing
+  ACT. Security/self-modification classification remains unresolved. Subprocess
+  nonzero/caught errors can audit allowed. Source-confirmed residuals, no live
+  bypass/publishing/failure exploit claimed. Attempted peer execution plus
+  later bookkeeping failure remains distinct from refusal.
 - [ ] **CCOS Git manifest/export alignment (`NEW-864`)** — source-confirmed
   16 declared capabilities versus one exported helper; standalone plugin
   test also imports missing names. Architect-scope registry/export/test

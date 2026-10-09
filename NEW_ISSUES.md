@@ -21069,3 +21069,24 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Status:** Source-confirmed by architect/coordinator; logged, not fixed. _execute_shell_command ignores subprocess returncode and returns stdout/stderr normally; timeout/missing-command/ordinary exceptions return ERROR strings inside the thunk. gate_exec therefore can audit allowed despite failure. Nonzero output without ERROR/BLOCKED prefix can also pass execute_tool's episodic-success filter. No live/project failure reproduction claimed.
 - **Fix direction:** separately scope truthful execution outcomes while preserving useful output and timeout/error compatibility; attempted failure can retain effects and must not be mislabeled refusal. Peer post-dispatch bookkeeping NEW-844 remains separate.
 - **Cross-reference:** tools/shell_tools.py::_execute_shell_command, shell; core/agent.py::execute_tool; core/action_gateway.py::gate_exec; blueprint §21 / remaining census.
+
+
+## 2026-10-09 — WP2.1 slice 18: direct push classified; indirect publishing remains
+
+### [NEW-873] scoped resolution — direct git push/git-push and global-option publishing forms
+
+- **Status:** Fixed for direct subset (`d0125eb`), code-complete + code-reviewer-approved. Exact effective push after recognized global-option arity, and git-push basename/path forms, now HIGH_IMPACT. All push arguments including dry-run/help require approval/path; absent path/YOLO refuses. Terminal queries/non-push prior labels retained; ambiguity conservatively HIGH, no argv/config lookup/rewrite.
+- **Evidence/limits:** 108 new cases; implementer/reviewer/coordinator each passed 242 focused tests with isolated file-only temporary bare-remote approval/exact ref and denial/no spawn/ref effects. No project/network publishing test. Indirect NEW-875 and alternate Git publishing NEW-876 remain; parser not a sandbox or general publishing guarantee. NEW-874 failures and best-effort raw-command audit unchanged.
+
+### [NEW-875] Confirmed: indirect shell execution can retain READ/ACT while performing high-impact operations
+
+- **Status:** Source-confirmed by architect/coordinator; logged, not fixed. env git push retains READ; find base remains READ for options capable of launching subprocesses, including -exec. Git alias/custom subcommands fall through ACT without resolution; arbitrary interpreters/scripts/wrappers can also act beyond their label. Shell security-setting and Codey self-modification classifications remain unresolved. Classification tests confirm retained labels; no actual indirect publication/security/self-modification exploit run.
+- **Correction/evidence:** initial slice18 test expected env ACT, but actual existing label READ (1 failed/241 passed); only test expectation corrected. This reinforces the gap rather than claiming wrapper protection. Known dangerous substring patterns still take precedence, but do not establish complete behavioral classification.
+- **Fix direction:** scope indirect execution and permission/sandbox contracts against settled HIGH_IMPACT policy, preserving justified ordinary ACT work and recording unknown reachability. Do not quietly exempt aliases/scripts or claim static basename parsing proves executable safety.
+- **Cross-reference:** tools/shell_tools.py::classify_shell_command/_execute_shell_command, tests/test_shell_git_publishing.py, remaining census/blueprint §21.
+
+### [NEW-876] Confirmed: alternate Git publishing primitives retain ACT outside direct push classification
+
+- **Status:** Source-confirmed by coordinator/implementer, logged, not fixed. Installed full Git2.56 git.1.gz documents git-send-pack as pushing objects and git-http-push as HTTP/DAV push. git send-pack, git-send-pack and git-http-push retain ACT in current classifier; direct push policy does not cover these alternatives. Tests confirm labels, not actual publishing or installed helper availability/transport success. No remote/network/project exploit reproduced.
+- **Fix direction:** next publishing classification scope must cover real lower-level publishing entry forms and distinguish known publishing from arbitrary/custom commands, without claiming aliases/wrappers solved by a few names.
+- **Cross-reference:** tools/shell_tools.py::classify_shell_command, installed /data/data/com.termux/files/usr/share/man/man1/git.1.gz, tests/test_shell_git_publishing.py, NEW-873/875, blueprint §21 and remaining census.

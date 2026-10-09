@@ -1,3 +1,121 @@
+## 2026-10-09 — WP2.1 slice 18: direct shell Git publishing classification
+
+**Previous slice published:** code `919d9c4`, records/census `ce1d1c2`.
+Actual publication output:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   639f18f..ce1d1c2  main -> main
+```
+
+**Change (`d0125eb`):** direct git push/git-push, path-qualified/quoted and
+parsed global-option forms now HIGH_IMPACT. Pure parser consumes documented
+option operands rather than searching all tokens for push; terminal queries
+stop. Unknown/malformed prefixes/identifiable quote errors conservatively HIGH;
+no claim invalid syntax publishes. Recognized non-push commands keep prior
+READ/ACT labels, including ACT for existing global-prefixed reads. Dangerous
+patterns retain precedence. No config/alias/I/O lookup or execution-argv
+rewriting. Gateway/prompt/daemon allowlist/returncode behavior unchanged.
+Ordinary publishing now blocks without a confirmation path/YOLO; available
+strict-True approval required once. Dry-run/help variants conservatively use
+publishing-family policy. This tightening is intentional; no new is_dangerous
+warning entry or duplicate prompt added.
+
+**Pipeline:** architect scopes → implementer tests → independent reviewer
+APPROVED → coordinator checks → exact two-file code commit. 108 new cases;
+implementer 242/5.70s, reviewer independently same eight files 242/7.35s,
+coordinator 242/5.93s. Real approved temporary local-bare-remote push verifies
+remote main equals source HEAD; no-path/YOLO/decline verifies no subprocess
+and absent remote refs. Mocked variants verify exact raw argv/timeout/output,
+agent TOOLS and unchanged daemon denial. Parser variants cover all documented
+option arities/flags, values named push, terminal queries, unknown/malformed
+inputs, direct reads/commits, other executables and residual labels. Inherited
+Git variables cleared, config/hooks/templates/signing isolated, file-only
+transport, temporary identities/roots; no HOME override. Precollection state
+Path redirection (NEW-855), copied RESTORICON/audit env. No model, peer, network,
+project remote publishing or live-store test. Code-complete + code-reviewer-
+approved, no live-project claim; no dependency/setup change. Full suite
+excluded NEW-791, no available type checker. Literal diff in commit and scratch
+/data/data/com.termux/files/usr/tmp/codey-slice18.diff (332 lines).
+
+**Corrected failed test:** initial expectation claimed env git push was ACT.
+Existing READ_COMMANDS includes env; preserving the correct old label is READ.
+Only test expectation changed, not production permissiveness. Actual initial
+command was the final eight-file command below; literal failure (trailing spaces
+trimmed to keep the documentation diff clean):
+
+```text
+__________ test_prior_labels_and_pattern_precedence[env git push-ACT] __________
+
+command = 'env git push', expected = 'ACT'
+
+    def test_prior_labels_and_pattern_precedence(command, expected):
+>       assert shell_tools.classify_shell_command(command) == expected
+E       AssertionError: assert 'READ' == 'ACT'
+E
+E         - ACT
+E         + READ
+
+tests/test_shell_git_publishing.py:77: AssertionError
+FAILED tests/test_shell_git_publishing.py::test_prior_labels_and_pattern_precedence[env git push-ACT]
+1 failed, 241 passed in 6.43s
+```
+
+**Residuals:** NEW-873 fixed for direct git push/git-push and global-prefix
+subset, not all publishing. NEW-875 source-confirmed indirect alias/custom/
+wrapper/script execution can remain READ/ACT: env git push and find -exec are
+READ. Security-setting/self-modification classification remains unresolved.
+NEW-876 source-confirmed alternate publishing: git send-pack/git-send-pack/
+git-http-push remain ACT. Installed full git.1.gz describes send-pack and HTTP
+push; no exploit/publication run through these alternatives. Tests preserve
+residual labels explicitly, not proof they are safe. NEW-874 execution failure
+audited allowed is unchanged. Raw commands remain in best-effort audit.
+
+**Installed artifact checks:** full local Git2.56 manual read, global option
+arity/query behavior checked. Coordinator actual harmless `git --version push`
+printed `git version 2.56.0` (exit 0). Actual `git -- version`,
+`git -cpush.default=current --version`, `git -C/tmp --version` each exited129
+with respective unknown-option diagnostics and full usage. These invalid
+forms classify conservatively; no false valid-publishing-syntax claim.
+Literal tool output retained in the session; these commands performed no push.
+
+**Literal coordinator final checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice18-validate.py -q tests/test_shell_git_publishing.py tests/test_shell_tools.py tests/test_shell_refusal_accounting.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_git_push_gateway.py tests/test_task_executor_telemetry.py
+........................................................................ [ 29%]
+........................................................................ [ 59%]
+........................................................................ [ 89%]
+..........................                                               [100%]
+242 passed in 5.93s
+
+$ ruff check tests/test_shell_git_publishing.py
+All checks passed!
+
+$ ruff check tools/shell_tools.py tests/test_shell_git_publishing.py --select F,E9
+All checks passed!
+
+$ ruff check tools/shell_tools.py --statistics
+3	BLE001 	blind-except
+2	PLW1510	subprocess-run-without-check
+1	SIM102 	collapsible-if
+1	SIM103 	needless-bool
+Found 7 errors.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Shell full lint seven versus captured seven baseline, not fully lint clean.
+Tracking updates independently reviewed before records commit/push. Remaining
+census stays provisional (14 work groups plus closure, unknown slice count).
+User continuous authorization retained: push slice18, then scope remaining
+classification NEW-875/876 before execution fidelity and the remaining groups;
+continue reviewed commits/push after each slice without stopping.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 17: shell refusal accounting and remaining-source census
 
 **Previous slice published:** rollback code `a094d1a`, records `639f18f`.

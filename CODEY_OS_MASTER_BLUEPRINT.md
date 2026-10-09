@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-17 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-17: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-18 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-18: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2921,6 +2921,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `4ac1a7f` (slice 14;
 reviewed by `/root/code_reviewer`, APPROVED), `24fecfd` (slice 15;
 reviewed by `/root/code_reviewer`, APPROVED), `a094d1a` (slice 16;
 reviewed by `/root/code_reviewer`, APPROVED), `919d9c4` (slice 17;
+reviewed by `/root/code_reviewer`, APPROVED), `d0125eb` (slice 18;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3403,11 +3404,38 @@ reviewed by `/root/code_reviewer`, APPROVED).
   shell classification → failure fidelity → isolation → CCOS/permissions/
   resources → device → business → notifications → HTTP → user files →
   backups → internal persistence → lifecycle/admin → promotion → closure.
+- **Slice 18 (2026-10-09, direct shell Git publishing, `d0125eb`):**
+  pure token-aware Git global-option parser identifies direct push; git-push
+  basename/path forms also HIGH_IMPACT. All push arguments including dry-run/
+  help require available strict-True approval; YOLO/non-confirming contexts
+  now block ordinary publishing. This is intentional tightening. Option values
+  named push are consumed; terminal queries stop parsing. Unknown/malformed
+  prefixes/identifiable quote errors conservatively HIGH, not claims they can
+  publish. Parsed non-push/other executable labels, dangerous-pattern priority,
+  execution argv, gateway/prompt/daemon rules and returncodes remain unchanged.
+  **Evidence:** 108 new cases; implementer 242/5.70s, reviewer 242/7.35s,
+  coordinator 242/5.93s. Real temporary file-only local-bare remote verifies
+  approving once publishes exact HEAD and refusal/decline/YOLO has no spawn/ref
+  effects; agent TOOLS/daemon integration. Git env/config/hooks/templates/signing
+  isolated, precollection state redirected. No model/peer/live store/network or
+  project publishing test. Code-complete + code-reviewer-approved. New-file/
+  focused lint pass; shell seven-finding baseline retained; full suite excluded
+  NEW-791/type checker unavailable, no dependency/setup change. Initial 1 failed/
+  241 passed: test expected env ACT, existing label READ; expectation corrected
+  only and actual failure preserved. Installed Git2.56 manual checked, actual
+  global--/attached short forms reject; terminal --version push prints version.
+  **Limits:** NEW-873 direct push subset fixed, not general publishing safety.
+  NEW-875 aliases/custom commands/env/find wrappers/scripts/security/self-
+  modification remains; NEW-876 send-pack/http-push alternatives remain ACT.
+  New residuals source-confirmed, no publishing exploit run. NEW-874 shell
+  failures unchanged. Parser not a sandbox; raw commands/audit best effort.
+  Next: scope remaining classifications, then truthful execution outcomes and
+  remaining dependency groups with reviewed commit/push after every slice.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all seventeen slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all eighteen slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-17 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-18 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3417,8 +3445,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
   and branch/ref checkout/merge plus independent checkpoint rollback;
   the four-of-42 write-primitive count does not measure Git subprocess coverage.
   Shell human/daemon refusal audit and cancellation success logging are fixed
-  by slice 17 (`NEW-836`, shell portion of `NEW-837`). Shell publishing-policy
-  bypass `NEW-873` and failed-execution audit `NEW-874` remain; `/peer` bypass
+  by slice 17 (`NEW-836`, shell portion of `NEW-837`). Direct push classification
+  NEW-873 subset is fixed by slice 18; indirect/alias/script NEW-875, alternate
+  publishing NEW-876 and failed-execution audit NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
   plus latent parked-execution
