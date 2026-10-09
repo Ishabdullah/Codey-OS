@@ -20953,3 +20953,16 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Status:** Confirmed mechanism by architect/coordinator source trace; logged, not fixed. `create_checkpoint` uses `str(int(time.time()))` as ID and directory name, makes the directory with `exist_ok=True`, copies backups, then inserts a unique primary-key row. Two creations in the same second can reuse/overwrite backup files before the second INSERT fails. No collision reproduced this round; do not read this as a measured occurrence rate.
 - **Fix direction:** separately scope unique checkpoint identity and collision-safe backup/record creation; preserve valid previous checkpoints.
 - **Cross-reference:** `core/checkpoint.py::create_checkpoint`, `_extend_state_schema`, `core/state.py` checkpoints schema, master Appendix A.
+
+
+## 2026-10-08 — WP2.1 slice 12: local branch creation mediated; CCOS alignment remains open
+
+- **Coverage:** `187f7a8` mediates `core/githelper.py::git_branch_create` as ACT after unchanged validation. Exact command/cwd, original result/error strings and subprocess exception identity persist. Invalid names produce no mutation audit; refused attempts do not execute Git. Seventeen new cases; implementer/reviewer/coordinator independently passed 100 bounded tests with real isolated temporary Git and `/git branch` handler integration. No model/peer/live-project/live-store test claimed. Successful metadata is static; failed reasons may retain Git error text. Full gateway DoD remains open: push, checkout, merge and independent checkpoint rollback still require scoping.
+
+### [NEW-864] Confirmed: CCOS Git manifest and standalone test reference helpers absent from adapter exports
+
+- **Status:** Confirmed by architect/coordinator source trace; logged, not fixed. `ccos/plugins/coding/git_integration/manifest.json` declares 16 capabilities; `git_integration.py` imports/exports only `is_git_repo` plus its own read-only self-test. The other 15 declared helper names are absent. PluginManager registers manifest declarations without matching export validation; invocation later looks up the implementation function and raises when no loaded plugin implements it. No runtime dispatcher failure reproduced.
+- **Related test defect:** standalone `test.py` imports absent adapter helpers including `git_branch_create`, `git_checkout` and `git_commit`. The import mismatch is source-confirmed; this script was not executed, so no reproduced ImportError is claimed. Adapter docstring/manifest description overstate its current wrapping.
+- **Reachability boundary:** `/git branch` directly calls the core helper; CCOS branch capability reachability is not established by manifest declaration alone. Slice 12 does not change the adapter, registry or test.
+- **Fix direction:** architect-scope manifest/export/test alignment after mutation policy coverage, before CCOS wiring (WP2.3). Avoid incidentally exposing ungated push/checkout/merge helpers while repairing declarations. Include callable-export validation in the registry review.
+- **Cross-reference:** `ccos/plugins/coding/git_integration/{manifest.json,git_integration.py,test.py}`, `ccos/core/plugin_manager.py` registration/invocation, blueprint §21 WP2.1 residual scope / master Appendix A.

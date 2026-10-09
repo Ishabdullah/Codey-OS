@@ -1,3 +1,73 @@
+## 2026-10-08 — WP2.1 slice 12: local branch creation mediated
+
+**Change (`187f7a8`):** `git_branch_create` validates exactly as before,
+then uses ACT / `githelper.git_branch_create` / static command
+`local git branch creation attempt`. It preserves checkout -b argv, cwd,
+normal result/error strings and original subprocess exception identity.
+Nonzero Git results audit failed; refused attempts do not run Git.
+Invalid names are rejected before gateway invocation/audit. Existing
+`/git branch` behavior remains available without a new confirmation UI.
+Successful metadata omits branch names; failed reasons may retain Git
+error text. Audit persistence remains best effort.
+
+**Pipeline:** architect → implementer → independent code-reviewer,
+**APPROVED**, coordinator checks and scoped code commit. Seventeen new
+cases exercise real isolated temporary Git: explicit path from another
+cwd, default path, current branch/ref/HEAD/history, staged entries and
+unstaged bytes, duplicate/nonrepo/Git-invalid failures, eight local name
+rejections, refusal, original exception identity, blocked audit parent
+and real `/git branch` handler integration with unrelated dependencies
+stubbed. Git environment/configuration/templates/hooks/signing isolated;
+config/state redirected before collection (`NEW-855`). No HOME override,
+model, peer, network/push, live-project mutation or live-store test.
+Code-complete + code-reviewer-approved; no live model/peer/project
+verification claimed. No dependency/setup change. Full suite excluded
+(`NEW-791`); type checker unavailable. Push, checkout, merge, checkpoint
+rollback, backup/database writes and pruning remain outside this slice.
+Full WP2.1 DoD remains open.
+
+**Out-of-scope finding:** `NEW-864`, source-confirmed: the CCOS Git
+manifest declares 16 capabilities but its adapter exports only
+`is_git_repo`; standalone plugin test imports missing names. The manager
+registers declarations without checking matching callable exports, and
+invocation resolves functions later. No runtime plugin import/dispatcher
+failure reproduced and no CCOS branch reachability established. Scope
+alignment separately after mutation coverage, before CCOS wiring.
+
+**Literal coordinator verification** (implementer: 100 passed in 10.31s;
+independent reviewer: 100 passed in 10.04s):
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice12-validate.py -q tests/test_git_branch_gateway.py tests/test_git_commit_gateway.py tests/test_checkpoint_git_gateway.py tests/test_action_gateway.py tests/test_action_gateway_audit_failure.py tests/test_main_peer_gateway.py
+........................................................................ [ 72%]
+............................                                             [100%]
+100 passed in 9.94s
+
+$ ruff check tests/test_git_branch_gateway.py
+All checks passed!
+
+$ ruff check core/githelper.py tests/test_git_branch_gateway.py --select F,E9
+All checks passed!
+
+$ ruff check core/githelper.py tests/test_git_branch_gateway.py --statistics
+20	PLW1510	[ ] subprocess-run-without-check
+16	RUF013 	[ ] implicit-optional
+12	UP006  	[*] non-pep585-annotation
+ 2	BLE001 	[ ] blind-except
+ 1	UP035  	[ ] deprecated-import
+ 1	PIE810 	[ ] multiple-starts-ends-with
+ 1	S110   	[ ] try-except-pass
+Found 53 errors.
+[*] 12 fixable with the `--fix` option (17 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+The 53 helper lint findings are unchanged baseline debt; new-file and
+focused checks pass. The bounded test set is not a full-suite claim.
+
+---
+
 ## 2026-10-08 — WP2.1 slice 11: scoped, checked checkpoint Git attempts (`NEW-860`/`NEW-861`)
 
 **Change (`0dd1fa7`):** `_create_git_commit` retains repository preflight

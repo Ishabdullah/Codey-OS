@@ -737,6 +737,15 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 12, local branch creation, 2026-10-08** (`187f7a8`)
+  — `git_branch_create` mediated as ACT after unchanged validation;
+  original strings, Git argv/cwd and exception identity preserved.
+  17 new cases, 100 bounded tests with real isolated temporary Git,
+  including `/git branch` handler integration; code-complete +
+  code-reviewer-approved. No model/peer/live-project test claimed.
+  Push, checkout and merge remain ungated. CCOS manifest/export mismatch
+  `NEW-864` is source-confirmed and logged separately, not repaired.
+
 - **WP2.1 slice 11, checkpoint Git attempts (`NEW-860`/`NEW-861`),
   2026-10-08** (`0dd1fa7`) — scoped ACT attempts check add/diff/commit/HEAD,
   exclude unrelated staged entries, and return None on failure. Backups
@@ -753,7 +762,8 @@ scoped to what it actually proved.
   code-complete + code-reviewer-approved; no model/peer/live-store test.
   At slice 10, checkpoint commits and other Git mutations remained
   ungated; checkpoint commit findings `NEW-860`, `NEW-861` are fixed by
-  slice 11 above. Push, branches, checkout and merge remain ungated.
+  slice 11 above. Branch creation is mediated by slice 12; push, checkout
+  and merge remain ungated.
 - **WP2.1 slice 9, audit-directory failure (`NEW-835`), 2026-10-08**
   (`51a48db`) — audit directory creation now shares the existing OSError
   handler, preserving policy/operation outcomes and notes write errors.
@@ -5333,11 +5343,20 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   — `0dd1fa7`, reviewer-approved, 91 bounded tests using real temporary Git,
   backups and SQLite. Scoped commit attempts checked/audited as ACT;
   failed snapshots record NULL, valid backups retained. No atomicity claim.
+- [x] **WP2.1 slice 12 / local branch creation** — `187f7a8`,
+  reviewer-approved, 100 bounded tests; ACT attempts preserve validation,
+  command/cwd, results and exceptions, with real temporary Git evidence.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
-  architect-scope push, branch creation, checkout and merge, including the
+  architect-scope push, checkout and merge, including the
   independent checkpoint rollback checkout. Preserve confirmation and
   distinguish external publishing from working-file changes.
   CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
+- [ ] **CCOS Git manifest/export alignment (`NEW-864`)** — source-confirmed
+  16 declared capabilities versus one exported helper; standalone plugin
+  test also imports missing names. Architect-scope registry/export/test
+  alignment after mutation policy coverage, before CCOS wiring (WP2.3).
+  No runtime dispatcher/import failure reproduced; do not expose ungated
+  helpers as an incidental repair.
 - [ ] **Checkpoint recovery/identity (`NEW-862`, `NEW-863`)** — dormant
   rollback can misreport success; epoch-second IDs can collide/overwrite
   backups before INSERT fails. Source-confirmed, not reproduced or fixed.
