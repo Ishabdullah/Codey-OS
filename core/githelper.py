@@ -293,13 +293,49 @@ def git_branch_create(name: str, path: str = None) -> str:
 
 
 def git_checkout(name: str, path: str = None) -> str:
-    """Switch to an existing branch."""
+    """Switch a branch/ref through ACT mediation, without checkout options.
+
+    A trailing path separator prevents filename-only targets from restoring
+    files. The exact '-' target still selects the previous branch.
+    """
+    if name.startswith("-") and name != "-":
+        return f"[ERROR] Checkout options are not supported: '{name}'"
+
+    from core.action_gateway import ACT, get_action_gateway
+
     path = path or os.getcwd()
-    result = subprocess.run(["git", "checkout", name], capture_output=True, text=True, cwd=path)
-    if result.returncode == 0:
-        msg = result.stderr.strip() or result.stdout.strip()
-        return msg or f"Switched to branch '{name}'."
-    return f"[ERROR] {result.stderr.strip()}"
+    output = None
+    original_error = None
+
+    def execute():
+        nonlocal output, original_error
+        try:
+            result = subprocess.run(
+                ["git", "checkout", name, "--"], capture_output=True, text=True, cwd=path
+            )
+        except Exception as exc:
+            # Record failed execution, then preserve the caller's original
+            # subprocess exception instead of replacing it with a decision.
+            original_error = exc
+            raise
+        if result.returncode == 0:
+            output = result.stderr.strip() or result.stdout.strip() or f"Switched to branch '{name}'."
+            return output
+        output = f"[ERROR] {result.stderr.strip()}"
+        raise RuntimeError(output)
+
+    decision = get_action_gateway().gate_exec(
+        authority=ACT,
+        action="githelper.git_checkout",
+        command="local git checkout attempt",
+        confirm_available=False,
+        execute=execute,
+    )
+    if original_error is not None:
+        raise original_error
+    if output is not None:
+        return output
+    return f"[ERROR] Local git checkout {decision.outcome}: {decision.reason}"
 
 
 def git_merge(branch: str, path: str = None) -> str:
