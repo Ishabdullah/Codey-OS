@@ -185,6 +185,74 @@ READ_COMMANDS = {
 
 READ_GIT_SUBCOMMANDS = {"status", "log", "diff", "show"}
 
+_GIT_GLOBAL_OPERANDS = {
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace",
+    "--config-env", "--attr-source",
+}
+_GIT_GLOBAL_FLAGS = {
+    "-p", "--paginate", "-P", "--no-pager", "--bare",
+    "--no-replace-objects", "--no-lazy-fetch", "--no-optional-locks",
+    "--no-advice", "--literal-pathspecs", "--glob-pathspecs",
+    "--noglob-pathspecs", "--icase-pathspecs",
+}
+_GIT_TERMINAL_QUERIES = {
+    "-v", "--version", "-h", "--help", "--exec-path",
+    "--html-path", "--man-path", "--info-path",
+}
+
+
+def _git_operation(arguments: list) -> tuple:
+    """Identify a direct Git operation/query/ambiguity without I/O.
+
+    This bounded parser follows installed Git's documented global arity,
+    not configuration, aliases, wrappers, or arbitrary executable behavior.
+    Terminal queries stop parsing; invalid/unknown prefixes are ambiguous,
+    not proof that publication will occur. Execution argv is never rewritten.
+    """
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in _GIT_TERMINAL_QUERIES:
+            return "query", None
+        if argument.startswith("--list-cmds="):
+            return ("query", None) if argument.split("=", 1)[1] else ("ambiguous", None)
+        if argument in _GIT_GLOBAL_FLAGS:
+            index += 1
+            continue
+        if argument in _GIT_GLOBAL_OPERANDS:
+            if index + 1 >= len(arguments):
+                return "ambiguous", None
+            if not arguments[index + 1] and argument != "-C":
+                return "ambiguous", None
+            index += 2
+            continue
+        option, separator, value = argument.partition("=")
+        if separator and option.startswith("--") and (
+            option in _GIT_GLOBAL_OPERANDS or option == "--exec-path"
+        ):
+            if not value:
+                return "ambiguous", None
+            index += 1
+            continue
+        if not argument or argument.startswith("-"):
+            return "ambiguous", None
+        return "operation", argument
+    return "query", None
+
+
+def _direct_git_after_quote_error(command: str) -> bool:
+    """Recognize an identifiable Git executable even if later quoting fails."""
+    lexer = shlex.shlex(command, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        executable = next(lexer, "")
+    except ValueError:
+        # An unclosed executable quote can still clearly start with git.
+        raw = command.split(maxsplit=1)
+        executable = raw[0].strip("\"'") if raw else ""
+    return Path(executable).name in ("git", "git-push")
+
 
 def classify_shell_command(command: str) -> str:
     """Classify a shell command into one of the three gateway authority
@@ -197,8 +265,12 @@ def classify_shell_command(command: str) -> str:
          Checked first so a pattern match (e.g. "find X -delete") always
          wins over a base-command read, even though `find` alone would
          otherwise classify READ.
-      2. A read-only base command (or a read-only git subcommand) -> READ.
-      3. Everything else -> ACT.
+      2. Direct git-push, effective git push, or ambiguous direct Git
+         prefixes/quoting -> HIGH_IMPACT. This covers git push/git-push
+         only; other publishing primitives, aliases, wrappers, and arbitrary
+         scripts are not resolved.
+      3. Previous read-only base/subcommand labels -> READ; all other
+         parsed non-publishing commands retain their previous ACT label.
     """
     cmd_lower = command.lower()
     for pattern in DANGEROUS_PATTERNS:
@@ -208,12 +280,20 @@ def classify_shell_command(command: str) -> str:
     try:
         parts = shlex.split(command)
     except ValueError:
+        if _direct_git_after_quote_error(command):
+            return HIGH_IMPACT
         parts = command.split()
 
     if not parts:
         return ACT
 
     base = Path(parts[0]).name
+    if base == "git-push":
+        return HIGH_IMPACT
+    if base == "git":
+        kind, operation = _git_operation(parts[1:])
+        if kind == "ambiguous" or operation == "push":
+            return HIGH_IMPACT
     if base == "git" and len(parts) > 1 and parts[1] in READ_GIT_SUBCOMMANDS:
         return READ
     if base in READ_COMMANDS:
