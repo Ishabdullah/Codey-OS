@@ -737,6 +737,21 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 19, lower-level direct Git publishing, 2026-10-09**
+  (`93be92c`) — send-pack/http-push operations and standalone/path/quoted
+  executables join push as HIGH_IMPACT; global parser/quote handling uses
+  those families. All variants including dry-run/help/stdin/deletion require
+  available explicit True approval. Other labels, prompts, argv, timeout,
+  output, gateway/daemon rules and returncodes unchanged. NEW-876 direct
+  families fixed; no general publishing/opaque-execution guarantee.
+  111 new cases; implementer/reviewer/coordinator each passed 353 focused
+  tests. New lower-level publishing mocked; only existing disposable file-only
+  push regression uses real Git. Code-complete + code-reviewer-approved,
+  no helper availability/transport/live publishing claim. NEW-875 indirect/
+  opaque/security/self-modification and NEW-874 failure fidelity remain open.
+  Next: unknown Git alias/custom disposition, wrappers/embedded execution,
+  security/destructive and target/opaque effects, then remaining WP2.1 groups.
+
 - **WP2.1 slice 18, direct shell Git publishing classification, 2026-10-09**
   (`d0125eb`) — direct git push/git-push and parsed global-prefix forms
   HIGH_IMPACT, including dry-run/help variants. Unknown/malformed direct Git
@@ -747,7 +762,8 @@ scoped to what it actually proved.
   approval/exact-ref and denial without spawning/ref effects. Code-complete
   + code-reviewer-approved, no network/project publishing test claimed.
   NEW-873 direct subset fixed; NEW-875 indirect/alias/script READ/ACT bypasses
-  and NEW-876 alternate publishing primitives remain source-confirmed/open.
+  remain source-confirmed/open; NEW-876 alternate direct families are fixed
+  by slice 19.
   NEW-874 execution-error fidelity unchanged. Initial one failure was a test
   expecting env ACT when existing classifier is READ; corrected expectation
   only, failure recorded. Next: remaining classification scope before errors,
@@ -5458,21 +5474,24 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   `d0125eb`, reviewer-approved, 108 new cases / 242 focused tests. Direct
   git push/git-push and recognized global prefixes HIGH_IMPACT; parser pure,
   other labels/argv preserved. Real temporary file-only push/denial evidence.
+- [x] **WP2.1 slice 19 / alternate direct Git publishing (`NEW-876`)** —
+  `93be92c`, reviewer-approved, 111 new cases / 353 focused tests. send-pack/
+  http-push and standalone forms HIGH_IMPACT; parser/argv/other policy unchanged.
+  New publication mocked, existing real temporary file-only push regression.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
   positives; dynamic/non-Python/sibling coverage remains open. 14 work groups
   plus closure, not 14 promised slices. Next remaining shell classification
-  (`NEW-875`, `NEW-876`; NEW-873 direct subset now covered),
+  (`NEW-875`; NEW-873/876 direct publishing families now covered),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
   boundaries and final closure. Preserve confirmation; distinguish publishing
   from working-file changes. Reviewed commit/push after each slice, continued
   without stopping (user instruction 2026-10-09).
 - [ ] **Shell classification/failure and peer bookkeeping (`NEW-875`,
-  `NEW-876`, `NEW-874`, `NEW-844`)** — direct git push NEW-873 subset fixed;
-  env/find wrappers can remain READ, aliases/scripts/alternate Git publishing
-  ACT. Security/self-modification classification remains unresolved. Subprocess
+  `NEW-874`, `NEW-844`)** — NEW-873/876 direct publishing families fixed;
+  env/find wrappers can remain READ, aliases/scripts/custom commands ACT. Security/self-modification classification remains unresolved. Subprocess
   nonzero/caught errors can audit allowed. Source-confirmed residuals, no live
   bypass/publishing/failure exploit claimed. Attempted peer execution plus
   later bookkeeping failure remains distinct from refusal.

@@ -33,7 +33,7 @@ all side effects nor overall WP2.1 progress.
 
 | Category | Current source evidence and remaining work |
 |---|---|
-| Shell | `tools/shell_tools.py::shell` is gated. Slice 17 covers human/daemon refusal accounting. Slice 18 covers direct `git push`/`git-push` and recognized global-prefix publishing as HIGH_IMPACT (NEW-873 subset). Indirect aliases/wrappers/scripts NEW-875 and alternate Git publishing NEW-876 remain READ/ACT. `_execute_shell_command` ignores return codes and returns caught failures normally (NEW-874). Arbitrary executable contents and command options need classification closure. |
+| Shell | `tools/shell_tools.py::shell` is gated. Slice 17 covers human/daemon refusal accounting. Slice 18 covers direct `git push`/`git-push` and recognized global-prefix publishing as HIGH_IMPACT (NEW-873 subset). Slice 19 covers send-pack/http-push and standalone forms (NEW-876). Indirect aliases/wrappers/scripts NEW-875 remain READ/ACT. `_execute_shell_command` ignores return codes and returns caught failures normally (NEW-874). Arbitrary executable contents and command options need classification closure. |
 | CCOS | `PluginManager.call_capability` has direct-handler, HTTP and in-process dispatch; `execute` directly invokes plugin functions. They have no gateway boundary. Callers include agent/daemon, CRM tools, planner/lifecycle, dashboard and API panels. Low traffic is not measured evidence or an exemption. |
 | Manifest enforcement | `permissions` and `resource_limits` are metadata. Dispatch must enforce both, including generated `pm.call_capability` calls. A gate inside that method covers generated calls to it; correct NEW-839's hypothetical framing when implemented. |
 | Device/messages | `TermuxAPI.execute`, extended `_run`, and DeviceBridge handlers can actuate devices without gateway mediation. SMS/calls/settings/downloads need operation classification. Missing default handlers do not cover real registered handlers. |
@@ -47,13 +47,13 @@ all side effects nor overall WP2.1 progress.
 | Self-improvement | Optimizer promotion and recombiner generation write executable artifacts. Gateway mediation must preserve the independent promotion gate and default-off operator switch. |
 | Imports/trust/cache | NEW-855 eager state initialization remains. Notes gateway coverage does not fix prompt trust or NEW-857/858/859 integrity/cache. NEW-844 is attempted execution followed by bookkeeping failure, not refusal. |
 
-## Remaining dependency order (updated after slice 18)
+## Remaining dependency order (updated after slice 19)
 
 These are **14 work groups plus closure**, not 14 promised slices. Each group
 must be split into bounded, architect-scoped slices before implementation.
 Exact remaining slice count is unknown and can grow with findings.
 
-1. Remaining shell classification and publishing-policy bypasses (NEW-875/876; direct push subset covered).
+1. Remaining shell classification and publishing-policy bypasses (NEW-875; direct push/send-pack/http-push families covered). Unknown Git operations → wrappers/embedded execution → security/destructive modes → Codey target writes → opaque-effect enforcement.
 2. Shell execution-error fidelity.
 3. Import/state isolation foundation.
 4. CCOS dispatch and permissions.

@@ -21090,3 +21090,13 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Status:** Source-confirmed by coordinator/implementer, logged, not fixed. Installed full Git2.56 git.1.gz documents git-send-pack as pushing objects and git-http-push as HTTP/DAV push. git send-pack, git-send-pack and git-http-push retain ACT in current classifier; direct push policy does not cover these alternatives. Tests confirm labels, not actual publishing or installed helper availability/transport success. No remote/network/project exploit reproduced.
 - **Fix direction:** next publishing classification scope must cover real lower-level publishing entry forms and distinguish known publishing from arbitrary/custom commands, without claiming aliases/wrappers solved by a few names.
 - **Cross-reference:** tools/shell_tools.py::classify_shell_command, installed /data/data/com.termux/files/usr/share/man/man1/git.1.gz, tests/test_shell_git_publishing.py, NEW-873/875, blueprint §21 and remaining census.
+
+
+## 2026-10-09 — WP2.1 slice 19: alternate direct Git publishing classified
+
+### [NEW-876] resolution — send-pack/http-push and standalone forms HIGH_IMPACT
+
+- **Status:** Fixed for documented direct families (`93be92c`), code-complete + code-reviewer-approved. Effective operations after existing global parser and standalone/path/quoted git-send-pack/git-http-push now HIGH_IMPACT, including dry-run/help/deletion/stdin variants. Identifiable malformed quotes also conservative HIGH. No-path/YOLO refuses; strict True approval once. Existing parser semantics, terminal queries, other labels, argv/output/timeout/prompts/gateway/daemon rules and returncodes unchanged.
+- **Evidence:** 111 new cases; implementer/reviewer/coordinator each passed 353 focused tests. New lower-level execution mocked, temporary audit/no subprocess on denial, exact approved argv/output/timeout, agent/daemon/OSError. Existing real temporary file-only push regression remains. Full installed manuals read for semantics; no installed-helper/transport/live publication claim.
+- **Limits:** indirect/custom/opaque/security/self-modification NEW-875 and failure-fidelity NEW-874 remain open. This resolves the named primitives, not all publishing or arbitrary executable effects. No model/peer/network/project remote/live-store test; audit persistence best effort, original commands retained.
+- **Cross-reference:** tools/shell_tools.py publishing sets/classify_shell_command, tests/test_shell_git_lower_publishing.py, blueprint §21 / master §4.2 and Appendix A; remaining census.

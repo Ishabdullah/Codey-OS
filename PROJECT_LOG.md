@@ -1,3 +1,84 @@
+## 2026-10-09 — WP2.1 slice 19: lower-level direct Git publishing families
+
+**Previous slice published:** code `d0125eb`, records `c8b6382`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   ce1d1c2..c8b6382  main -> main
+```
+
+**Change (`93be92c`):** direct Git publishing sets include push/send-pack/
+http-push and corresponding standalone executables. Existing pure parser and
+identifiable quote-error handling recognize all families; paths/quotes/globals
+and all args (dry-run/help/mirror/force/deletion/stdin) HIGH_IMPACT. No-path/
+YOLO blocks; available strict True approval once, cancellation/argv/timeout/
+stdout/stderr retained. Pattern precedence, terminal queries, ambiguous/other
+labels, gateway/prompt/daemon allowlist and returncodes unchanged. Three prior
+classification assertions for newly covered primitives change ACT to HIGH;
+other indirect residual expectations remain. No config/alias/discovery lookup.
+
+**Pipeline/evidence:** architect spec → implementer → independent reviewer
+APPROVED → coordinator final checks → exact three-file code commit. 111 new
+cases; implementer 353 in 7.34s, reviewer same nine files 353 in 8.06s,
+coordinator 353 in 6.20s. New tests mock all lower-level publishing, verify
+families/path/quotes/globals/value operands/query/ambiguity, strict approval,
+denial/no subprocess/exact single HIGH audit, original argv/output/timeout,
+actual TOOLS/daemon guard and blocked audit sink. Existing isolated file-only
+local-bare push test remains real; no lower-level transport test/claim. Full
+installed git-send-pack.1.gz/http-push.1.gz read by architect and coordinator:
+source-described remote object/ref updates and HTTP/DAV remote deletion,
+not proof helpers installed or transports work. Temporary state/audit/DB and
+precollection config redirection NEW-855, no HOME override. No model, peer,
+network, project remote or live-store test. Code-complete + code-reviewer-
+approved, not live publishing verified. No dependency/setup change.
+
+**Status/limits:** NEW-876 direct families fixed; NEW-875 unknown Git aliases/
+custom commands, wrappers/embedded exec, security/destructive/self-modification
+and opaque contents remain. NEW-874 outcome fidelity unchanged. No basename/
+command-table safety guarantee; raw commands/best-effort audit unchanged.
+Full suite excluded NEW-791, type checker unavailable. Shell full Ruff seven
+matches captured seven baseline, not fully lint clean. Implementer ran Ruff
+--fix on new/prior test files (clean final, exactly three necessary prior
+expectations changed); coordinator lint uses no fixing. Literal complete diff
+in commit and /data/data/com.termux/files/usr/tmp/codey-slice19.diff (223 lines).
+
+**Literal coordinator checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice19-validate.py -q tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py tests/test_shell_tools.py tests/test_shell_refusal_accounting.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_git_push_gateway.py tests/test_task_executor_telemetry.py
+........................................................................ [ 20%]
+........................................................................ [ 40%]
+........................................................................ [ 61%]
+........................................................................ [ 81%]
+.................................................................        [100%]
+353 passed in 6.20s
+
+$ ruff check tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py
+All checks passed!
+
+$ ruff check tools/shell_tools.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py --select F,E9
+All checks passed!
+
+$ ruff check tools/shell_tools.py --statistics
+3	BLE001 	blind-except
+2	PLW1510	subprocess-run-without-check
+1	SIM102 	collapsible-if
+1	SIM103 	needless-bool
+Found 7 errors.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Tracking records independently reviewed before records commit/push. Next scope
+unknown Git operations/static disposition, then wrappers/embedded execution,
+security/destructive modes, Codey target writes and opaque-effect enforcement,
+before NEW-874 and remaining WP2.1 groups. User continuous authorization remains:
+reviewed commit/push after every slice, brief update and continue without stopping.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 18: direct shell Git publishing classification
 
 **Previous slice published:** code `919d9c4`, records/census `ce1d1c2`.

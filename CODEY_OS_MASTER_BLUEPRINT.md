@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-18 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-18: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-19 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-19: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2922,6 +2922,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `24fecfd` (slice 15;
 reviewed by `/root/code_reviewer`, APPROVED), `a094d1a` (slice 16;
 reviewed by `/root/code_reviewer`, APPROVED), `919d9c4` (slice 17;
 reviewed by `/root/code_reviewer`, APPROVED), `d0125eb` (slice 18;
+reviewed by `/root/code_reviewer`, APPROVED), `93be92c` (slice 19;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3431,11 +3432,34 @@ reviewed by `/root/code_reviewer`, APPROVED).
   failures unchanged. Parser not a sandbox; raw commands/audit best effort.
   Next: scope remaining classifications, then truthful execution outcomes and
   remaining dependency groups with reviewed commit/push after every slice.
+- **Slice 19 (2026-10-09, lower-level direct publishing, `93be92c`):**
+  NEW-876 fixed for send-pack/http-push and git-send-pack/git-http-push forms,
+  including paths/quotes/globals/malformed identifiable quoting. They share
+  push's HIGH_IMPACT family policy for all args including dry-run/help/stdin/
+  deletion; no-path/YOLO now refuses. Strict-True approval once and existing
+  cancellation/output strings persist. Pattern precedence, terminal queries,
+  ambiguity/other labels, actual argv/timeout, gateway/prompt/daemon allowlist
+  and returncodes unchanged. Parser still pure, no alias/config/executable lookup.
+  **Evidence:** 111 new cases, implementer 353/7.34s, independent reviewer
+  353/8.06s, coordinator 353/6.20s; three prior residual assertions correctly
+  tighten ACT to HIGH. New lower-level execution mocked; existing isolated
+  file-only local-bare push regression remains real. Precollection state
+  isolation, temporary audits, strict consent/refusal/agent/daemon/OSError cases.
+  Full installed manuals read by architect/coordinator establish semantics,
+  not helper availability or working transports. No actual lower-level publish,
+  model/peer/network/project remote/live-store test. Code-complete + reviewer-
+  approved, new/changed-test/focused lint pass, shell seven baseline unchanged;
+  full suite excluded NEW-791/type checker unavailable, no dependency/setup change.
+  **Limits/next:** NEW-875 indirect/unknown/opaque execution/security/self-
+  modification and NEW-874 failures remain. Scope unknown Git operations, then
+  wrappers/embedded execution, security/destructive modes, Codey target writes
+  and enforceable opaque-effect disposition; do not claim closure by a bigger
+  name table. Then remaining dependency groups. Raw audit/best-effort unchanged.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all eighteen slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all nineteen slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-18 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-19 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3446,8 +3470,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
   the four-of-42 write-primitive count does not measure Git subprocess coverage.
   Shell human/daemon refusal audit and cancellation success logging are fixed
   by slice 17 (`NEW-836`, shell portion of `NEW-837`). Direct push classification
-  NEW-873 subset is fixed by slice 18; indirect/alias/script NEW-875, alternate
-  publishing NEW-876 and failed-execution audit NEW-874 remain. `/peer` bypass
+  NEW-873 subset is fixed by slice 18; NEW-876 alternate direct families fixed
+  by slice 19. Indirect/alias/script NEW-875 and failed-execution audit NEW-874
+  remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
   plus latent parked-execution
