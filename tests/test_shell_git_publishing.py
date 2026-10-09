@@ -71,7 +71,7 @@ def test_ambiguous_direct_git_is_conservatively_high(command):
 
 @pytest.mark.parametrize(
     ("command", "expected"),
-    [("git status", READ), ("git log", READ), ("git diff", READ), ("git show HEAD", READ), ("git commit -m message", ACT), ("git -C /repo commit", ACT), ("python3 -c 'print(1)'", ACT), ("env git push", READ), ("git custom-alias", ACT), ("git send-pack /remote", ACT), ("git-http-push /remote", ACT), ("git-send-pack /remote", ACT), ("find . -exec git push", READ), ("git --version push --force", HIGH_IMPACT), ("find . -delete", HIGH_IMPACT), ("python3 'unterminated", ACT)],
+    [("git status", READ), ("git log", READ), ("git diff", READ), ("git show HEAD", READ), ("git commit -m message", ACT), ("git -C /repo commit", ACT), ("python3 -c 'print(1)'", ACT), ("env git push", READ), ("git custom-alias", ACT), ("git send-pack /remote", HIGH_IMPACT), ("git-http-push /remote", HIGH_IMPACT), ("git-send-pack /remote", HIGH_IMPACT), ("find . -exec git push", READ), ("git --version push --force", HIGH_IMPACT), ("find . -delete", HIGH_IMPACT), ("python3 'unterminated", ACT)],
 )
 def test_prior_labels_and_pattern_precedence(command, expected):
     assert shell_tools.classify_shell_command(command) == expected
