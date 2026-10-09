@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-15 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-15: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-16 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-16: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2919,6 +2919,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `187f7a8` (slice 12;
 reviewed by `/root/code_reviewer`, APPROVED), `d288726` (slice 13;
 reviewed by `/root/code_reviewer`, APPROVED), `4ac1a7f` (slice 14;
 reviewed by `/root/code_reviewer`, APPROVED), `24fecfd` (slice 15;
+reviewed by `/root/code_reviewer`, APPROVED), `a094d1a` (slice 16;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3341,18 +3342,49 @@ reviewed by `/root/code_reviewer`, APPROVED).
   confirmed/open, unchanged. Next independent checkpoint rollback, then
   remaining-surface census/scoping; user authorized continuous sequential
   work with reviewed commits/push after each slice (2026-10-09).
+- **Slice 16 (2026-10-09, independent checkpoint rollback, `a094d1a`):**
+  one HIGH_IMPACT `checkpoint.rollback` / `checkpoint restore attempt` gate
+  requires a callable confirmation returning True before state/enumeration/
+  restore/Git/action-recording work. Default/decline/failure returns False;
+  refusal audit allowed. Known import-time writes remain separate (`NEW-855`).
+  Authorized preflight validates single-component ID, producer-scoped entire
+  backup enumeration, no symlinks/special files/.git/escaping destinations;
+  a present full hash must identify a real commit before copies. Checked
+  unforced detached full-repository checkout follows copies; missing row/null
+  hash remains file-only. Copy/mkdir/checkout/log errors audit failed and
+  return False, success follows log completion. `NEW-862` honesty and
+  `NEW-870` ordinary boundary validation resolved; no caller/CLI added.
+  **Evidence:** 52 new cases, implementer/reviewer/coordinator each passed
+  110 focused rollback/checkpoint/gateway tests. Real temporary Git/backups/
+  SQLite includes executable mode, approved full-repository detached restore,
+  denial without explicit work, path/hash guards and partial/failure effects.
+  State/Git config isolated, no project rollback/network/model/peer/live store.
+  Code-complete + reviewer-approved. Initial run 1 failed/107 passed exposed
+  recovery-order limit; architect explicitly retained order and required both
+  successful restricted integration and failing committed-source integration.
+  New-file/focused lint pass; checkpoint Ruff 26 vs 25 baseline. Full suite
+  excluded (`NEW-791`), type checker unavailable; no dependency/setup change.
+  **Limits:** callback providers trusted and must disclose broad scope.
+  `NEW-810` is not model rollback and broad detached recovery is retained.
+  `NEW-871` runtime-confirmed: restored older bytes over newer committed
+  source can make checkout refuse; False/failed with original HEAD and partial
+  bytes/no success record. `NEW-872` suspected hardlink alias containment;
+  runtime hardlink creation unavailable here, no device exploit claimed.
+  No completeness/identity, concurrent-replacement or atomicity guarantee.
+  Audit best effort; failed reasons can retain Git/path diagnostics.
+  Next: fresh census/scope and sequential work for remaining WP2.1 surfaces.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all fifteen slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all sixteen slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-15 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-16 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
   block, and `handle_command()`'s `/peer` branch),
   the dormant parked-escalation callable, two local commit helpers, and
   nonempty checkpoint Git attempts, local branch creation, confirmed push
-  and branch/ref checkout/merge;
+  and branch/ref checkout/merge plus independent checkpoint rollback;
   the four-of-42 write-primitive count does not measure Git subprocess coverage.
   Shell exec has two known gaps (`NEW-836`,
   daemon allowlist refusals; `NEW-837`, declined-confirmation audit
@@ -3361,11 +3393,14 @@ reviewed by `/root/code_reviewer`, APPROVED).
   plus latent parked-execution
   semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
   deferred, low real traffic), outbound HTTP, DB writes,
-  message/email sends, and device actions remain entirely untouched. Git
-  coverage is partial: checkpoint rollback's independent checkout remains
-  ungated; core branch/ref merge is now covered. `NEW-860`/`NEW-861`
-  are fixed for scoped commit attempts; checkpoint backup/database writes,
-  rollback/pruning and `NEW-862`/`NEW-863` remain outside this coverage.
+  message/email sends, and device actions remain entirely untouched. Known
+  helper/checkpoint Git mutation paths are mediated, including rollback.
+  This does not establish coverage of every other Git/process entry point. `NEW-860`/`NEW-861`
+  are fixed for scoped commit attempts; rollback gate/outcome fidelity
+  `NEW-862` is covered by slice 16. Checkpoint creation backup/database writes,
+  pruning, identity `NEW-863` and recovery limits `NEW-810`/`NEW-871`/`NEW-872`
+  remain open. The four-of-42 count does not credit partly mediated checkpoint
+  creation/pruning; a fresh remaining-surface census is next.
   CCOS Git manifest/export mismatch `NEW-864` awaits scoped alignment
   after mutation policy coverage and before CCOS wiring.
   Push parsing `NEW-865` and unused interactive-helper fallback `NEW-866`

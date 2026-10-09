@@ -1,3 +1,125 @@
+## 2026-10-09 — WP2.1 slice 16: confirmed checkpoint rollback and truthful failure
+
+**Prior slice published:** code `24fecfd`, records `98bfa9e`, approved
+independently; literal push output:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   01024b8..98bfa9e  main -> main
+```
+
+**Change (`a094d1a`):** rollback now uses one HIGH_IMPACT gate with a
+trusted explicit human callback; no callable/decline/nonboolean/input or
+callback failure returns False without state lookup, enumeration, copy, Git
+or episodic work. Refusal audit is permitted; module-import writes are the
+separate NEW-855 debt. Authorized attempts preflight safe checkpoint ID,
+complete producer-scoped enumeration, symlink/special-file/.git/path guards
+and any recorded full commit-object hash before copies. Missing row/null
+hash keeps file-only recovery. Checked unforced `git checkout --detach
+<hash> --` follows copies. Copy/mkdir/Git/log failures return False/audit
+failed; success is emitted only after action recording. Empty valid file-
+only backup can succeed with zero restored files and an action record.
+No production caller found; no new CLI/automatic recovery wiring.
+
+**Scope and limits:** callback must disclose that a recorded hash restores
+the whole versioned repository into detached HEAD; NEW-810 remains this
+broad manual recovery, not model rollback. No force or order change. Failed
+operations can leave restored bytes, Git effects or completed restore when
+logging fails. No transaction-wide recovery, atomicity, concurrent path-
+replacement protection or backup completeness/identity guarantee. Audit
+best effort; failure reasons can retain Git/path diagnostics. Creation/
+pruning/identity, NEW-855 imports and other WP2.1 surfaces remain open.
+
+**Pipeline:** architect scoped → implementer built → independent reviewer
+APPROVED → coordinator checked → exact two-file code commit. 52 new cases;
+implementer 110 in 25.45s, reviewer 110 in 28.78s, coordinator 110 in 25.97s.
+Real temporary Git/backups/SQLite/audit verifies denied calls without work,
+actual create-checkpoint then approved recovery (including executable mode,
+non-backup versioned files, detached hash), file-only compatibility, empty
+backups, IDs/symlinks/special files/escaping destinations/unexpected files,
+noncommit/missing/malformed hashes, enumeration/mkdir/copy/Git/lookup/log
+errors, partial effects and audit blocker. Git config/environment/templates/
+hooks/signing isolated; bound paths/state patched and config redirected
+before collection (`NEW-855`), no HOME override. No model, peer, network,
+project rollback or live-store test. Code-complete + reviewer-approved, no
+live-project recovery claimed. No setup/dependency change. Full suite
+excluded (`NEW-791`); type checker unavailable. Literal diff in `a094d1a`;
+temporary artifact /data/data/com.termux/files/usr/tmp/codey-slice16.diff.
+
+**Initial failure and explicit architecture decision:** original integration
+expected rollback of newer committed source to succeed. Actual result:
+
+```text
+>           assert checkpoint.rollback(checkpoint_id, confirm=lambda: True) is True
+E           AssertionError: assert False is True
+FAILED tests/test_checkpoint_rollback_gateway.py::test_create_checkpoint_and_full_repository_detached_restore
+1 failed, 107 passed in 25.60s
+```
+
+Actual failure audit reason:
+
+```text
+Rollback git checkout failed: error: Your local changes to the following files would be overwritten by checkout:
+	codeyOS
+	core/example.py
+Please commit your changes or stash them before you switch branches.
+Aborting
+```
+
+Copy-before-checkout makes the older backup bytes dirty against the newer
+index. Architect explicitly retained unforced ordering for bounded gateway/
+outcome fidelity; general recovery order requires a separate preservation
+policy for dirty/staged/untracked state. Final tests keep both a restricted
+successful case and the failing committed-source case: False/failed,
+unchanged HEAD, partial restored bytes, no success record. NEW-871 logs
+this runtime-confirmed limit; it was not hidden by changing one expectation.
+NEW-862 false success is resolved even when recovery cannot complete.
+
+NEW-870 records scoped path/operand guards, fixed after review. NEW-872
+records suspected hardlink aliases: source lacks nlink rejection and local
+shutil.copy2 calls copyfile, which opens an existing destination in wb mode.
+Python os.link was absent; implementer reported ln Permission denied, so
+no disposable hardlink or runtime Termux exploit was established. No
+hardlink fix bundled; guards are not a universal containment guarantee.
+
+**Literal coordinator final checks** (same five files independently run by
+implementer/reviewer):
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice16-validate.py -q tests/test_checkpoint_rollback_gateway.py tests/test_checkpoint_git_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py
+........................................................................ [ 65%]
+......................................                                   [100%]
+110 passed in 25.97s
+
+$ ruff check tests/test_checkpoint_rollback_gateway.py
+All checks passed!
+
+$ ruff check core/checkpoint.py tests/test_checkpoint_rollback_gateway.py --select F,E9
+All checks passed!
+
+$ ruff check core/checkpoint.py --statistics
+8	PLW1510	[ ] subprocess-run-without-check
+5	UP006  	[*] non-pep585-annotation
+4	UP045  	[*] non-pep604-annotation-optional
+3	BLE001 	[ ] blind-except
+3	UP035  	[-] deprecated-import
+2	RUF013 	[ ] implicit-optional
+1	EXE001 	[ ] shebang-not-executable
+Found 26 errors.
+[*] 10 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Checkpoint lint 26 vs captured baseline 25: removed broad catches, additional
+manually checked subprocess and requested Callable/Optional annotations.
+New-file/focused checks pass; no fully-lint-clean/full-suite claim. Records
+get independent review then commit/push; next is fresh remaining WP2.1
+census/scoping and continued sequential implementation without stopping.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 15: branch/ref merge mediated; continuous execution authorized
 
 **User instruction:** finish merge, then independent checkpoint rollback,

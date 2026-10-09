@@ -737,6 +737,20 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 16, independent checkpoint rollback, 2026-10-09**
+  (`a094d1a`) — HIGH_IMPACT explicit callback approval precedes restore
+  enumeration/state/Git/log work. ID/path/symlink/producer-scope/commit-object
+  preflight; copy/checkout/log errors return False and audit failed, success
+  only after recording. `NEW-862` outcome fidelity and `NEW-870` ordinary
+  path/operand boundaries resolved. 52 new cases, implementer/reviewer/
+  coordinator each passed 110 focused tests using real temporary Git,
+  backups/SQLite. Code-complete + code-reviewer-approved, no project rollback.
+  Dormant callable; no production caller/CLI added. Broad detached full-repo
+  recovery `NEW-810` retained; `NEW-871` runtime-confirmed copy-before-checkout
+  limitation and `NEW-872` suspected hardlink alias risk remain open.
+  Backup completeness/identity, concurrent replacement and atomicity unproven.
+  Next: fresh remaining-surface census and sequential implementation/push.
+
 - **WP2.1 slice 15, branch/ref merge, 2026-10-09** (`24fecfd`)
   — ACT attempts reject raw options except previous-branch `-`, use
   `git merge -- <ref>`, preserve main's conflict workflow and Git strings/
@@ -745,7 +759,8 @@ scoped to what it actually proved.
   reviewer 73-test merge/gateway subset. Real temporary Git, code-complete
   + code-reviewer-approved. `NEW-868` resolved; `NEW-869` substring conflict
   heuristic logged source-confirmed/open. No project merge/model/peer test.
-  Next: independent checkpoint rollback, then census/scope remaining WP2.1
+  At slice 15, rollback was next; slice 16 covers its gate/outcome fidelity.
+  Next: census/scope remaining WP2.1
   surfaces; user authorized sequential completion and push after each slice.
 
 - **WP2.1 slice 14, branch/ref checkout, 2026-10-09** (`4ac1a7f`)
@@ -5396,9 +5411,13 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   reviewer-approved; 31 new cases, 197 bounded tests, reviewer 73-test subset.
   ACT attempts retain conflict flow and honestly audit nonzero results failed;
   raw merge options rejected. Conflict state can remain after failed attempts.
+- [x] **WP2.1 slice 16 / checkpoint rollback (`NEW-862`, `NEW-870`)**
+  — `a094d1a`, reviewer-approved, 52 new cases / 110 focused tests.
+  HIGH_IMPACT confirmation and preflight; honest failure despite possible
+  partial effects. Full-repository detached scope and recovery limits remain.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
-  architect-scope independent checkpoint rollback, then census and implement
-  remaining mutation surfaces sequentially (user instruction 2026-10-09).
+  census and implement remaining mutation surfaces sequentially, with reviewed
+  commits/push each slice (user instruction 2026-10-09).
   Preserve confirmation and
   distinguish external publishing from working-file changes.
   CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
@@ -5408,10 +5427,13 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   alignment after mutation policy coverage, before CCOS wiring (WP2.3).
   No runtime dispatcher/import failure reproduced; do not expose ungated
   helpers as an incidental repair.
-- [ ] **Checkpoint recovery/identity (`NEW-862`, `NEW-863`)** — dormant
-  rollback can misreport success; epoch-second IDs can collide/overwrite
-  backups before INSERT fails. Source-confirmed, not reproduced or fixed.
-  Backup/database writes and pruning remain outside gateway coverage.
+- [ ] **Checkpoint recovery/identity (`NEW-810`, `NEW-863`, `NEW-871`,
+  `NEW-872`)** — broad detached recovery retained; copy-before-checkout can
+  refuse older committed-source recovery after restoring bytes (reproduced
+  only temporary Git). Hardlink alias containment suspected, not reproduced
+  on this device. Epoch-second backup/row collision remains source-confirmed.
+  `NEW-862` false success fixed by slice 16; no atomic/full-recovery guarantee.
+  Creation backups/database writes and pruning remain outside coverage.
 - [ ] **Notes trust/integrity/cache (`NEW-846`, `NEW-857`..`NEW-859`)** —
   content trust unresolved; load-error/data-shape handling, suspected
   concurrent writes and stale draft cache logged without fixes.

@@ -21015,3 +21015,32 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Boundary:** main subsequently calls `detect_conflicts`; the diagnostic classification can still enter its conflict branch without actual unmerged entries. Slice 15 preserves this historical workflow; gateway correctly audits all nonzero exits failed regardless of label.
 - **Fix direction:** separately scope conflict classification using actual Git state while preserving useful error output and valid resolution flow.
 - **Cross-reference:** `core/githelper.py::git_merge`, `main.py::handle_command` merge branch, master Appendix A.
+
+
+## 2026-10-09 — WP2.1 slice 16: confirmed rollback, honest outcomes and recovery limits
+
+### [NEW-862] resolution — no successful rollback claim after copy/checkout/log errors
+
+- **Status:** Fixed (`a094d1a`), code-complete + code-reviewer-approved. Whole rollback is HIGH_IMPACT with actual callback approval; explicit operations occur only inside authorized thunk. Preflight before writes, checked copy/mkdir/checkout and action logging; failures return False/audit failed, success follows completed logging. Default/declined calls return False/refused without restoration work.
+- **Evidence:** 52 new cases; implementer/reviewer/coordinator each passed 110 focused tests using real temporary Git/backups/SQLite/audit. Partial copy, nonzero checkout, subprocess/lookup/log errors and complete success covered. No production caller/project rollback/model/peer/live-store test claimed.
+- **Limits:** False can follow partial/completed filesystem/Git effects; no atomicity or guaranteed recovery. Broad detached scope NEW-810 retained; NEW-871 copy-before-checkout limitation open. Creation/pruning/identity NEW-863 and import-time NEW-855 remain separate.
+
+### [NEW-870] Confirmed and fixed: rollback accepted unrestricted checkpoint paths, symlinks and raw database checkout operands
+
+- **Status:** Original source mechanism confirmed by architect/coordinator; scoped guards fixed (`a094d1a`), code-complete + code-reviewer-approved. Previously checkpoint ID was joined without single-component validation, backup/destination symlinks followed and DB hash passed as a raw Git operand. No original live exploit reproduced.
+- **Resolution/evidence:** authorized preflight validates ID and complete producer-scoped file list, rejects symlinks/special files/.git/escaping destinations, validates full 40/64 hex commit object before copies, uses checked explicit detach argv. Real temporary boundary tests prove rejection before copying. Confirmation precedes all explicit rollback work.
+- **Limits:** concurrent path replacement, backup integrity/identity and possible hardlink aliases are not covered. NEW-872 applicability remains suspected; no universal containment claim.
+- **Cross-reference:** `core/checkpoint.py::_rollback_files`, `rollback`, `tests/test_checkpoint_rollback_gateway.py`, blueprint §21 slice 16 / master Appendix A.
+
+### [NEW-871] Confirmed: copy-before-checkout can prevent rollback to older committed source despite partial restoration
+
+- **Status:** Runtime-confirmed in isolated temporary Git; logged, not fixed. Copies of older backups over newer committed source differ from the current index, so unforced detached checkout can refuse as local changes would be overwritten. Initial integration failed 1/107; final regression asserts False/failed audit, unchanged HEAD, restored backup bytes and no success record. No live-project rollback failure claimed.
+- **Architecture decision:** retain historical copy-before-checkout/unforced order in slice 16, which mediates and reports outcomes rather than inventing a policy that discards dirty/staged/untracked state. Restricted success case remains independently tested; general older-checkpoint recovery is not proven.
+- **Fix direction:** separately scope recovery ordering and preservation/rollback semantics; do not add force or hide partial effects.
+- **Cross-reference:** `core/checkpoint.py::rollback`, `test_newer_committed_backup_file_can_block_checked_checkout`, NEW-810/862, master Appendix A.
+
+### [NEW-872] Suspected: existing hardlink aliases can escape rollback destination containment by sharing an inode
+
+- **Status:** Conditional mechanism source-confirmed; runtime/device applicability suspected, not fixed. Preflight rejects symlinks/escaping paths but does not reject destination link counts greater than one. Local stdlib source shows copy2 calls copyfile and opens existing destination wb, so an existing alias could share modified bytes outside the intended source path. No hardlink was created for reproduction: Python os.link absent, implementer ln attempt Permission denied. No Termux exploit or frequency claimed.
+- **Fix direction:** scope safe replacement/alias handling with platform-supported evidence; preserve restoration metadata and partial-failure honesty. Do not treat symlink checks as protection against every inode alias.
+- **Cross-reference:** `core/checkpoint.py::_rollback_files`, copy2 in rollback, NEW-870 boundary limits, master Appendix A.
