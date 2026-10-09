@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from core.git_execution import run_git
+from core.git_execution import local_commit_runner, run_git
 from core.state import get_state_store
 from utils.config import CHECKPOINT_DIR, CODE_DIR
 from utils.logger import info, success, warning
@@ -134,13 +134,16 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
 def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optional[str]:
     """Commit only triggering paths through ACT mediation.
 
-    No-path calls only read HEAD without a mutation audit; scoped clean
-    attempts return the existing HEAD. Staging/commit/hash lookup are not
+    All calls share an isolated ambient child environment; repository/global
+    config and helpers remain unbounded. No-path calls read HEAD without a
+    mutation audit; scoped clean attempts return the existing HEAD.
+    Staging/commit/hash lookup are not
     atomic: failure can leave staged changes or an already-created commit.
     """
     try:
+        runner = local_commit_runner()
         # Check if we're in a git repo
-        result = run_git(
+        result = runner(
             ["git", "rev-parse", "--git-dir"], cwd=CODE_DIR, capture_output=True, text=True
         )
         if result.returncode != 0:
@@ -148,7 +151,7 @@ def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optiona
 
         if not files_modified:
             # Nothing specific to stage — no-op, just report current HEAD.
-            result = run_git(
+            result = runner(
                 ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
             )
             return result.stdout.strip() if result.returncode == 0 else None
@@ -158,27 +161,27 @@ def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optiona
 
         def execute():
             paths = list(files_modified)
-            result = run_git(
+            result = runner(
                 ["git", "add", "--"] + paths, cwd=CODE_DIR, capture_output=True, text=True
             )
             if result.returncode != 0:
                 raise RuntimeError(f"git add failed: {result.stderr.strip()}")
 
-            result = run_git(
+            result = runner(
                 ["git", "diff", "--cached", "--quiet", "--"] + paths,
                 cwd=CODE_DIR, capture_output=True, text=True,
             )
             if result.returncode not in (0, 1):
                 raise RuntimeError(f"git diff failed: {result.stderr.strip()}")
             if result.returncode == 1:
-                result = run_git(
+                result = runner(
                     ["git", "commit", "-m", f"Codey checkpoint: {reason}", "--"] + paths,
                     cwd=CODE_DIR, capture_output=True, text=True,
                 )
                 if result.returncode != 0:
                     raise RuntimeError(f"git commit failed: {result.stderr.strip()}")
 
-            result = run_git(
+            result = runner(
                 ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
             )
             if result.returncode != 0:

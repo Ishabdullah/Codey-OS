@@ -28,6 +28,18 @@ def checkpoint_repo(tmp_path, monkeypatch, request):
     empty = tmp_path / "empty-config"
     empty.mkdir()
     monkeypatch.setenv("GIT_TEMPLATE_DIR", str(empty))
+    child_home = tmp_path / "child-home"
+    child_xdg = tmp_path / "child-xdg"
+    child_home.mkdir()
+    child_xdg.mkdir()
+    original_environment = git_execution._local_commit_environment
+
+    def child_environment():
+        environment = original_environment()
+        environment.update(HOME=str(child_home), XDG_CONFIG_HOME=str(child_xdg))
+        return environment
+
+    monkeypatch.setattr(git_execution, "_local_commit_environment", child_environment)
     repo = tmp_path / "repo"
     repo.mkdir()
 

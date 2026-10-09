@@ -10,21 +10,29 @@ import re
 from pathlib import Path
 from typing import List
 
-from core.git_execution import run_git
+from core.git_execution import local_commit_runner, run_git
 
 # ── Basic repo queries ─────────────────────────────────────────────────────────
 
 
-def is_git_repo(path: str = None) -> bool:
+def _is_git_repo(path, runner):
     path = path or os.getcwd()
-    result = run_git(["git", "rev-parse", "--git-dir"], capture_output=True, cwd=path)
+    result = runner(["git", "rev-parse", "--git-dir"], capture_output=True, cwd=path)
     return result.returncode == 0
 
 
-def git_status(path: str = None) -> str:
+def is_git_repo(path: str = None) -> bool:
+    return _is_git_repo(path, run_git)
+
+
+def _git_status(path, runner):
     path = path or os.getcwd()
-    result = run_git(["git", "status", "--short"], capture_output=True, text=True, cwd=path)
+    result = runner(["git", "status", "--short"], capture_output=True, text=True, cwd=path)
     return result.stdout.strip() or "Nothing to commit."
+
+
+def git_status(path: str = None) -> str:
+    return _git_status(path, run_git)
 
 
 def git_diff_stat(path: str = None) -> str:
@@ -96,24 +104,29 @@ def _gate_local_commit(action, operation):
 
 
 def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
-    """Stage and commit locally through ACT mediation; clean no-ops are audited."""
+    """Stage/commit through ACT with an isolated ambient child environment.
+
+    Repository/global config and helpers remain unbounded. Clean no-op attempts
+    are audited.
+    """
     def attempt():
         nonlocal path
         path = path or os.getcwd()
+        runner = local_commit_runner()
 
-        if not is_git_repo(path):
+        if not _is_git_repo(path, runner):
             return "[ERROR] Not a git repository."
 
         if add_all:
-            result = run_git(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
+            result = runner(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
             if result.returncode != 0:
                 return f"[ERROR] git add failed: {result.stderr}"
 
-        status = git_status(path)
+        status = _git_status(path, runner)
         if status == "Nothing to commit.":
             return "Nothing to commit — working tree clean."
 
-        result = run_git(
+        result = runner(
             ["git", "commit", "-m", message], capture_output=True, text=True, cwd=path
         )
         if result.returncode == 0:
@@ -123,43 +136,47 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
     return _gate_local_commit("githelper.git_commit", attempt)
 
 
-def git_status_paths(paths: List[str], path: str = None) -> str:
-    """Like git_status(), but scoped to specific paths only."""
+def _git_status_paths(paths, path, runner):
     path = path or os.getcwd()
-    result = run_git(
+    result = runner(
         ["git", "status", "--short", "--"] + list(paths),
-        capture_output=True,
-        text=True,
-        cwd=path,
+        capture_output=True, text=True, cwd=path,
     )
     return result.stdout.strip() or "Nothing to commit."
+
+
+def git_status_paths(paths: List[str], path: str = None) -> str:
+    """Like git_status(), but scoped to specific paths only."""
+    return _git_status_paths(paths, path, run_git)
 
 
 def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
     """Stage and commit only the given paths through ACT mediation.
 
-    Clean/no-path attempts are audited without proving a commit happened.
+    Uses one isolated ambient child environment; repository/global config and
+    helpers remain unbounded. Clean/no-path attempts audit without proving a commit.
     Staging may remain after a failed commit (see NEW-17 for scoped paths).
     """
     def attempt():
         nonlocal path
         path = path or os.getcwd()
+        runner = local_commit_runner()
 
-        if not is_git_repo(path):
+        if not _is_git_repo(path, runner):
             return "[ERROR] Not a git repository."
 
         if not paths:
             return "Nothing to commit."
 
-        result = run_git(["git", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
+        result = runner(["git", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
         if result.returncode != 0:
             return f"[ERROR] git add failed: {result.stderr}"
 
-        status = git_status_paths(paths, path)
+        status = _git_status_paths(paths, path, runner)
         if status == "Nothing to commit.":
             return "Nothing to commit — working tree clean."
 
-        result = run_git(
+        result = runner(
             ["git", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
         )
         if result.returncode == 0:
