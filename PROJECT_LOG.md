@@ -1,3 +1,109 @@
+## 2026-10-09 — WP2.1 slice 13: Git push requires explicit human confirmation
+
+**Change (`d288726`):** Git push publishes repository data and is now
+HIGH_IMPACT. `git_push(path=None, *, confirm=None)` uses static
+`githelper.git_push` / `git push attempt` metadata; no callback means
+no confirmation path and audited refusal without subprocess execution.
+The optional HIGH_IMPACT callback added to `gate_exec` runs once and
+requires explicit True. Decline audits refused; EOF/KeyboardInterrupt
+or callback Exception audit confirmation unavailable/interrupted with
+static reasons, never execute. SystemExit propagates. Callback-free
+Boolean behavior, READ/ACT and file gates remain unchanged; existing
+callers are not globally retrofitted with actual confirmation. The
+callback is a trusted in-process UI contract, not an authorization token.
+
+**CLI behavior:** previous `/git push` had no prompt. It now offers one
+explicit publish prompt accepting y/yes only, provided `not yolo`,
+CODEY_DAEMON_MODE/CODEY_NON_INTERACTIVE are not 1, and stdin is a TTY.
+TTY-check errors refuse. Direct callback-free, YOLO/headless/daemon
+calls refuse. Original Git argv/cwd, successful stdout/default string,
+Git error strings and subprocess exception identity persist. Nonzero Git
+status audits failed. Successful metadata omits output/paths; failed
+reasons may retain Git stderr. Audit sink OSErrors remain best effort.
+Command help and docs/commands.md describe the confirmation requirement.
+
+**Pipeline:** architect scoped → implementer built/tested → independent
+code-reviewer APPROVED → coordinator independently verified and committed
+six exact files. 36 new cases, 136 bounded tests. Real isolated temporary
+working/bare repositories demonstrate denial leaves remote refs absent,
+then explicit approval publishes the exact local HEAD. Real Git without a
+configured destination returns the original failure string/audit. Gateway
+and main tests cover approvals/declines, truthy non-bool rejection, EOF,
+interrupt, callback error, SystemExit, READ/ACT/default compatibility,
+flags/TTY errors, preserved history, exact argv/results, original exception
+identity and blocked audit sink. Main integration stubs unrelated eager
+model dependencies; no model loop executes. Git environment/configuration,
+templates/hooks/signing isolated before initialization. Config state is
+redirected before collection (`NEW-855`); no HOME override. No network,
+credentials, project remote, model, peer or live-store test. Code-complete
++ code-reviewer-approved; no live external publishing verified. No setup
+or dependency change. Full suite excluded (`NEW-791`); type checker
+unavailable (`command -v mypy pyright ty` returned no output, exit 127).
+
+**Implementation refinements:** first bounded run passed 133 tests in
+11.33s. Coordinator source read found stale gateway comments, corrected
+before review; approval was narrowed to `is True` with an extra test, and
+main blocked-audit success/failure coverage added. Final implementer run
+passed 136 in 10.95s, independent reviewer 136 in 10.91s. No failing test
+run was reported. Complete literal diff is in commit `d288726`; temporary
+implementation artifact: /data/data/com.termux/files/usr/tmp/codey-slice13.diff.
+
+**Out-of-scope findings:** `NEW-865` source-confirmed: push handling uses
+startswith("push") and ignores its parsed arg, so unrelated push-prefixed
+subcommands enter this handler and supplied push flags are not forwarded.
+Parsing is unchanged; the new confirmation still protects this path.
+`NEW-866` source-confirmed: peer interactive helper returns True when
+stdin.isatty raises. Repo-wide Python search found definition/tests only,
+no production caller; latent helper behavior, not a live bypass. It is
+not reused by push. Neither finding was runtime-reproduced or fixed.
+NEW-864 plugin mismatch, checkout, merge and independent checkpoint
+rollback remain open; full WP2.1 DoD remains unmet.
+
+**Literal coordinator verification:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice13-validate.py -q tests/test_action_gateway_confirmation.py tests/test_git_push_gateway.py tests/test_git_branch_gateway.py tests/test_git_commit_gateway.py tests/test_checkpoint_git_gateway.py tests/test_action_gateway.py tests/test_action_gateway_audit_failure.py tests/test_main_peer_gateway.py
+........................................................................ [ 52%]
+................................................................         [100%]
+136 passed in 10.72s
+
+$ ruff check tests/test_action_gateway_confirmation.py tests/test_git_push_gateway.py
+All checks passed!
+
+$ ruff check core/action_gateway.py core/githelper.py tests/test_action_gateway_confirmation.py tests/test_git_push_gateway.py --select F,E9
+All checks passed!
+
+$ ruff check core/action_gateway.py core/githelper.py main.py --statistics
+21	BLE001 	[ ] blind-except
+20	PLW1510	[ ] subprocess-run-without-check
+19	RUF013 	[ ] implicit-optional
+15	UP006  	[*] non-pep585-annotation
+ 7	UP045  	[*] non-pep604-annotation-optional
+ 7	S110   	[ ] try-except-pass
+ 5	F541   	[*] f-string-missing-placeholders
+ 4	I001   	[*] unsorted-imports
+ 3	UP035  	[-] deprecated-import
+ 2	PIE810 	[ ] multiple-starts-ends-with
+ 1	PERF102	[ ] incorrect-dict-iterator
+ 1	EXE001 	[ ] shebang-not-executable
+ 1	S112   	[ ] try-except-continue
+ 1	C401   	[ ] unnecessary-generator-set
+ 1	F841   	[ ] unused-variable
+Found 108 errors.
+[*] 32 fixable with the `--fix` option (24 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Combined production lint is 108 vs 105 baseline: the requested Optional
+annotation adds UP045 and two documented Exception catches add BLE001.
+Main's focused F/E9 check retains five F541 and one F841 (six baseline
+errors); new-file and gateway/helper focused checks pass. No full-suite
+or fully lint-clean claim is made. Unrelated agent-memory edits remain
+unstaged and uncommitted.
+
+---
+
 ## 2026-10-08 — WP2.1 slice 12: local branch creation mediated
 
 **Change (`187f7a8`):** `git_branch_create` validates exactly as before,

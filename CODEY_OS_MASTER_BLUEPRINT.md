@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-12 DONE (1-5: 2026-10-07; 6-12: 2026-10-08); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-13 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2916,6 +2916,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `51a48db` (slice 9;
 reviewed by `/root/code_reviewer`, APPROVED), `9c2d230` (slice 10;
 reviewed by `/root/code_reviewer`, APPROVED), `0dd1fa7` (slice 11;
 reviewed by `/root/code_reviewer`, APPROVED), `187f7a8` (slice 12;
+reviewed by `/root/code_reviewer`, APPROVED), `d288726` (slice 13;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3252,17 +3253,48 @@ reviewed by `/root/code_reviewer`, APPROVED).
   records 16 manifest declarations versus one exported helper, and stale
   standalone test imports. Source-confirmed only; no runtime failure
   reproduced, no plugin repair or new CCOS reachability claimed.
+- **Slice 13 (2026-10-09, confirmed Git push, `d288726`):**
+  `git_push(path=None, *, confirm=None)` is HIGH_IMPACT with static
+  `githelper.git_push` / `git push attempt` metadata. Callback-free calls
+  refuse without invoking Git. Optional HIGH_IMPACT `gate_exec` callbacks
+  require explicit True, invoked once; decline, EOF/KeyboardInterrupt and
+  callback Exception audit refused with honest static reasons. SystemExit
+  propagates without executing. Existing callback-free Boolean contracts,
+  READ/ACT and file gates are unchanged; this is not a global confirmation
+  retrofit. Subprocess argv/cwd, original Git strings and exception identity
+  persist, nonzero status audits failed. Failed reasons can retain Git stderr.
+  `/git push` now prompts once in ordinary interactive sessions only;
+  YOLO, daemon/noninteractive flags, non-TTY stdin and TTY-check errors
+  supply no callback and refuse. Help/command reference updated.
+  **Evidence:** 36 new cases, 136 bounded tests independently passed by
+  implementer/reviewer/coordinator. One actual isolated temporary local bare
+  remote receives exactly the approved HEAD; denial leaves refs absent.
+  Real no-destination Git failure, callback outcomes, strict bool approval,
+  exact argv/results, exception identity, main history and blocked audit
+  sink outcomes covered. Git config/environment/templates/hooks/signing
+  isolated before init; state redirected before collection (`NEW-855`).
+  No network, credentials, project remote, model, peer or live-store test.
+  Code-complete + code-reviewer-approved, no live external publishing claim.
+  Full suite excluded (`NEW-791`), type checker unavailable; new-file/focused
+  checks pass. Combined production Ruff is 108 vs 105 baseline: one Optional
+  annotation and two documented broad Exception catches added; main's six
+  F541/F841 findings are unchanged. No dependency/setup change.
+  **Limits:** audit persistence remains best effort; callback providers are
+  trusted in-process, not capability tokens. Checkout, merge and independent
+  checkpoint rollback remain untouched. `NEW-865` push prefix/ignored args
+  and `NEW-866` unused peer helper's TTY-error True fallback are source-only
+  open findings. Plugin export mismatch `NEW-864` remains open.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all twelve slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all thirteen slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-12 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-13 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
   block, and `handle_command()`'s `/peer` branch),
   the dormant parked-escalation callable, two local commit helpers, and
-  nonempty checkpoint Git attempts and local branch creation;
+  nonempty checkpoint Git attempts, local branch creation and confirmed push;
   the four-of-42 write-primitive count does not measure Git subprocess coverage.
   Shell exec has two known gaps (`NEW-836`,
   daemon allowlist refusals; `NEW-837`, declined-confirmation audit
@@ -3272,12 +3304,15 @@ reviewed by `/root/code_reviewer`, APPROVED).
   semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
   deferred, low real traffic), outbound HTTP, DB writes,
   message/email sends, and device actions remain entirely untouched. Git
-  coverage is partial: push, checkout and merge remain
+  coverage is partial: checkout and merge remain
   ungated, including checkpoint rollback's checkout. `NEW-860`/`NEW-861`
   are fixed for scoped commit attempts; checkpoint backup/database writes,
   rollback/pruning and `NEW-862`/`NEW-863` remain outside this coverage.
   CCOS Git manifest/export mismatch `NEW-864` awaits scoped alignment
   after mutation policy coverage and before CCOS wiring.
+  Push parsing `NEW-865` and unused interactive-helper fallback `NEW-866`
+  are not fixed; optional confirmation has not been applied to shell paths
+  (`NEW-837`) or other callback-free gateways.
   Notes mediation is covered; `NEW-846` content trust and notes integrity/cache
   findings (`NEW-857`..`NEW-859`) remain open.**
 

@@ -20966,3 +20966,22 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Reachability boundary:** `/git branch` directly calls the core helper; CCOS branch capability reachability is not established by manifest declaration alone. Slice 12 does not change the adapter, registry or test.
 - **Fix direction:** architect-scope manifest/export/test alignment after mutation policy coverage, before CCOS wiring (WP2.3). Avoid incidentally exposing ungated push/checkout/merge helpers while repairing declarations. Include callable-export validation in the registry review.
 - **Cross-reference:** `ccos/plugins/coding/git_integration/{manifest.json,git_integration.py,test.py}`, `ccos/core/plugin_manager.py` registration/invocation, blueprint §21 WP2.1 residual scope / master Appendix A.
+
+
+## 2026-10-09 — WP2.1 slice 13: confirmed HIGH_IMPACT Git push
+
+- **Coverage:** `d288726` mediates `git_push` as HIGH_IMPACT with optional explicit human callback approval. Callback-free calls refuse; main prompts once only in eligible non-YOLO interactive sessions, absent daemon/noninteractive flags. Decline/interruption/callback failures audit refused; exact Git argv/cwd/results/error strings and exception identity persist. New `gate_exec` callback requires True, leaves existing callback-free/READ/ACT/file contracts unchanged. 36 new cases, 136 bounded tests independently passed; real temporary local bare-remote push and no-destination Git failure. No network/project publication, model/peer/live-store test claimed. Full WP2.1 DoD remains open; checkout, merge and checkpoint rollback remain ungated. Audit persistence is best effort; Git failure reasons may retain stderr. Callback providers are trusted in-process.
+
+### [NEW-865] Confirmed: CLI push matches arbitrary push-prefixed subcommands and ignores supplied arguments
+
+- **Status:** Confirmed by architect/coordinator source trace; logged, not fixed. `main.handle_command` uses `sub_low.startswith("push")`, so `/git pushlater` reaches push handling. The parsed argument is not forwarded: `/git push <args>` still invokes bare `git push`, whose destination/options come from Git configuration. No runtime parsing reproduction claimed.
+- **Boundary:** slice 13 leaves parsing unchanged; this handler now requires explicit interactive approval and refuses in unavailable contexts. The finding is not an unaudited publishing bypass after mediation. `NEW-856` covers the separate `/peer` prefix issue.
+- **Fix direction:** separately scope exact command matching and supported argument semantics without broadening Git publishing authority.
+- **Cross-reference:** `main.py::handle_command` Git push branch, `core/githelper.py::git_push`, master Appendix A / blueprint §21 WP2.1.
+
+### [NEW-866] Confirmed: unused peer interactive helper treats TTY-check errors as interactive
+
+- **Status:** Confirmed by coordinator source trace; logged, not fixed. `core/peer_cli.py::is_interactive_environment` returns False for existing daemon/noninteractive flags, but catches an Exception from `sys.stdin.isatty()` and returns True. Unknown stdin state is thereby labeled interactive. Repo-wide Python search found only its definition and tests, no production caller; dormant callable behavior, not a demonstrated live approval/publishing bypass. No runtime error reproduction claimed.
+- **Boundary:** slice 13 does not reuse this helper; new push availability treats TTY-check errors as unavailable and refuses. No peer helper change or peer execution bundled.
+- **Fix direction:** review fail-closed environment detection before reusing the helper; independently establish production reachability if it is wired later.
+- **Cross-reference:** `core/peer_cli.py::is_interactive_environment`, `tests/test_escalation_review_queue.py`, master Appendix A.

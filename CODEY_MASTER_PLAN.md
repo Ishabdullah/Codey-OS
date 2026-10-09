@@ -737,13 +737,25 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 13, confirmed Git push, 2026-10-09** (`d288726`)
+  — push is HIGH_IMPACT and requires a human callback's explicit True.
+  Ordinary interactive `/git push` prompts once; direct callback-free,
+  YOLO/headless/daemon and failed-TTY-check calls refuse without Git.
+  Optional gateway confirmation leaves existing callback-free/READ/ACT
+  contracts intact. 36 new cases, 136 bounded tests; real temporary local
+  bare remote, code-complete + code-reviewer-approved. No network/project
+  publication or live-model verification claimed. Checkout, merge and
+  independent checkpoint rollback remain ungated. Source-only parsing and
+  dormant environment-helper findings `NEW-865`/`NEW-866` logged open.
+
 - **WP2.1 slice 12, local branch creation, 2026-10-08** (`187f7a8`)
   — `git_branch_create` mediated as ACT after unchanged validation;
   original strings, Git argv/cwd and exception identity preserved.
   17 new cases, 100 bounded tests with real isolated temporary Git,
   including `/git branch` handler integration; code-complete +
   code-reviewer-approved. No model/peer/live-project test claimed.
-  Push, checkout and merge remain ungated. CCOS manifest/export mismatch
+  At slice 12, push, checkout and merge remained ungated; push is now
+  mediated by slice 13 above. CCOS manifest/export mismatch
   `NEW-864` is source-confirmed and logged separately, not repaired.
 
 - **WP2.1 slice 11, checkpoint Git attempts (`NEW-860`/`NEW-861`),
@@ -763,7 +775,7 @@ scoped to what it actually proved.
   At slice 10, checkpoint commits and other Git mutations remained
   ungated; checkpoint commit findings `NEW-860`, `NEW-861` are fixed by
   slice 11 above. Branch creation is mediated by slice 12; push, checkout
-  and merge remain ungated.
+  and merge were still ungated at slice 12; push is mediated by slice 13.
 - **WP2.1 slice 9, audit-directory failure (`NEW-835`), 2026-10-08**
   (`51a48db`) — audit directory creation now shares the existing OSError
   handler, preserving policy/operation outcomes and notes write errors.
@@ -5346,8 +5358,12 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 - [x] **WP2.1 slice 12 / local branch creation** — `187f7a8`,
   reviewer-approved, 100 bounded tests; ACT attempts preserve validation,
   command/cwd, results and exceptions, with real temporary Git evidence.
+- [x] **WP2.1 slice 13 / confirmed Git push** — `d288726`,
+  reviewer-approved, 136 bounded tests / 36 new cases. HIGH_IMPACT callback
+  approval required; callback-free/YOLO/headless calls refuse. Local temporary
+  bare-remote evidence; no network/project publishing claimed.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
-  architect-scope push, checkout and merge, including the
+  architect-scope checkout and merge, including the
   independent checkpoint rollback checkout. Preserve confirmation and
   distinguish external publishing from working-file changes.
   CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
@@ -5365,6 +5381,11 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   content trust unresolved; load-error/data-shape handling, suspected
   concurrent writes and stale draft cache logged without fixes.
   Gateway audit-directory OSError (`NEW-835`) is fixed by slice 9.
+- [ ] **Push parsing / latent environment detection (`NEW-865`, `NEW-866`)**
+  — push prefix matching accepts unrelated subcommands and ignores args;
+  unused peer interactive helper returns True on TTY-check errors.
+  Source-confirmed only; not fixed. New push path remains confirmation-gated
+  and uses its own fail-closed TTY check. Scope separately.
 - [ ] **Import/command hygiene (`NEW-855`, `NEW-856`)** — eager main/gateway
   import state writes need startup isolation; `/peer` prefix parsing
   accepts unrelated command names. Logged, not fixed in slice 7.
