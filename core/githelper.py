@@ -207,7 +207,11 @@ def git_branches(path: str = None) -> str:
 
 
 def git_branch_create(name: str, path: str = None) -> str:
-    """Create a new branch and switch to it immediately."""
+    """Create and switch to a local branch through ACT mediation.
+
+    Existing name validation precedes the gate; invalid names do not
+    produce mutation audits. Git failure text is retained in audit reasons.
+    """
     path = path or os.getcwd()
     # Validate name (no spaces, no special chars, no leading dashes)
     if re.search(r"[\s~^:?*\[\\\]@{]", name):
@@ -217,12 +221,41 @@ def git_branch_create(name: str, path: str = None) -> str:
     if not name or name in (".", ".."):
         return f"[ERROR] Invalid branch name: '{name}'"
 
-    result = subprocess.run(
-        ["git", "checkout", "-b", name], capture_output=True, text=True, cwd=path
+    from core.action_gateway import ACT, get_action_gateway
+
+    output = None
+    original_error = None
+
+    def execute():
+        nonlocal output, original_error
+        try:
+            result = subprocess.run(
+                ["git", "checkout", "-b", name], capture_output=True, text=True, cwd=path
+            )
+        except Exception as exc:
+            # The gateway records failure instead of raising; preserve
+            # the original subprocess exception for this helper's caller.
+            original_error = exc
+            raise
+        if result.returncode == 0:
+            output = f"Created and switched to branch '{name}'."
+            return output
+        output = f"[ERROR] {result.stderr.strip()}"
+        # Preserve the helper's error string while recording failed execution.
+        raise RuntimeError(output)
+
+    decision = get_action_gateway().gate_exec(
+        authority=ACT,
+        action="githelper.git_branch_create",
+        command="local git branch creation attempt",
+        confirm_available=False,
+        execute=execute,
     )
-    if result.returncode == 0:
-        return f"Created and switched to branch '{name}'."
-    return f"[ERROR] {result.stderr.strip()}"
+    if original_error is not None:
+        raise original_error
+    if output is not None:
+        return output
+    return f"[ERROR] Local git branch creation {decision.outcome}: {decision.reason}"
 
 
 def git_checkout(name: str, path: str = None) -> str:
