@@ -53,7 +53,7 @@ def test_additional_executables_with_malformed_quotes(executable, form):
 
 @pytest.mark.parametrize(
     ("command", "expected"),
-    [("git status", READ), ("git commit -m message", ACT), ("git -C /repo status", ACT), ("git custom-alias", ACT), ("env git send-pack", READ), ("find . -exec git http-push", READ), ("python3 arbitrary.py", ACT), ("git --version send-pack push --force", HIGH_IMPACT), ("git --unknown http-push", HIGH_IMPACT)],
+    [("git status", READ), ("git commit -m message", ACT), ("git -C /repo status", ACT), ("git custom-alias", HIGH_IMPACT), ("env git send-pack", READ), ("find . -exec git http-push", READ), ("python3 arbitrary.py", ACT), ("git --version send-pack push --force", HIGH_IMPACT), ("git --unknown http-push", HIGH_IMPACT)],
 )
 def test_unchanged_labels_patterns_and_ambiguity(command, expected):
     assert shell_tools.classify_shell_command(command) == expected

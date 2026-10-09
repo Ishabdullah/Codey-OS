@@ -185,8 +185,7 @@ READ_COMMANDS = {
 
 READ_GIT_SUBCOMMANDS = {"status", "log", "diff", "show"}
 
-_GIT_PUBLISHING_OPERATIONS = {"push", "send-pack", "http-push"}
-_GIT_PUBLISHING_EXECUTABLES = {"git-push", "git-send-pack", "git-http-push"}
+_GIT_SUPPORTED_OPERATIONS = {"status", "log", "diff", "show", "commit"}
 
 _GIT_GLOBAL_OPERANDS = {
     "-C", "-c", "--git-dir", "--work-tree", "--namespace",
@@ -254,7 +253,8 @@ def _direct_git_after_quote_error(command: str) -> bool:
         # An unclosed executable quote can still clearly start with git.
         raw = command.split(maxsplit=1)
         executable = raw[0].strip("\"'") if raw else ""
-    return Path(executable).name == "git" or Path(executable).name in _GIT_PUBLISHING_EXECUTABLES
+    base = Path(executable).name
+    return base == "git" or base.startswith("git-")
 
 
 def classify_shell_command(command: str) -> str:
@@ -268,12 +268,14 @@ def classify_shell_command(command: str) -> str:
          Checked first so a pattern match (e.g. "find X -delete") always
          wins over a base-command read, even though `find` alone would
          otherwise classify READ.
-      2. Direct push/send-pack/http-push operations or standalone Git
-         publishing executables, and ambiguous direct Git prefixes/quoting
-         -> HIGH_IMPACT. Aliases, wrappers, and arbitrary scripts remain
-         unresolved; no configuration or executable discovery is performed.
-      3. Previous read-only base/subcommand labels -> READ; all other
-         parsed non-publishing commands retain their previous ACT label.
+      2. Direct Git operations outside the five reviewed names, every
+         git-* executable, and ambiguous direct Git prefixes/quoting
+         -> HIGH_IMPACT. This is conservative restriction, not proof of
+         danger. No configuration or executable discovery is performed.
+      3. The five reviewed operations retain previous READ/ACT labels;
+         terminal queries and other executables retain their old labels.
+         Options/configuration of reviewed operations, wrappers, and
+         arbitrary scripts still require separate assessment.
     """
     cmd_lower = command.lower()
     for pattern in DANGEROUS_PATTERNS:
@@ -291,11 +293,11 @@ def classify_shell_command(command: str) -> str:
         return ACT
 
     base = Path(parts[0]).name
-    if base in _GIT_PUBLISHING_EXECUTABLES:
+    if base.startswith("git-"):
         return HIGH_IMPACT
     if base == "git":
         kind, operation = _git_operation(parts[1:])
-        if kind == "ambiguous" or operation in _GIT_PUBLISHING_OPERATIONS:
+        if kind == "ambiguous" or (kind == "operation" and operation not in _GIT_SUPPORTED_OPERATIONS):
             return HIGH_IMPACT
     if base == "git" and len(parts) > 1 and parts[1] in READ_GIT_SUBCOMMANDS:
         return READ
