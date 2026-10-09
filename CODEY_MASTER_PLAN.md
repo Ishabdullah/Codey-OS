@@ -737,6 +737,21 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 21, all direct shell Git authorization, 2026-10-09**
+  (`11a71fe`) — every direct git/git-* invocation HIGH_IMPACT, including
+  status/log/diff/show/commit and terminal/help/query forms. Uncontrolled
+  configuration/hooks/helpers prevent a safe operation-name exemption;
+  unused operation parser/tables removed, argv/config unchanged. Headless/
+  YOLO shell Git introspection and unconfirmed commits now refuse; daemon
+  allowlisted Git queries reach one HIGH refusal. 79 new cases / 567 focused
+  tests passed by all roles, new execution mocked; reviewer-approved, no live
+  helper/publication claim. NEW-875 direct-shell boundary covered, wrappers/
+  targets/opaque effects remain. NEW-877 dedicated Git helper/checkpoint
+  inherited execution effects source-confirmed/open; nominal ACT mediation
+  does not bound helper effects. NEW-874 failure fidelity unchanged. Next
+  wrappers/embedded execution, targeted helper contract, remaining classification
+  and WP2.1 groups. Full gateway DoD remains open.
+
 - **WP2.1 slice 20, unknown Git operations, 2026-10-09**
   (`959a5bc`) — effective Git operations outside status/log/diff/show/commit
   and every direct git-* executable HIGH_IMPACT, including identifiable
@@ -5497,13 +5512,17 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   outside five compatibility names and direct git-* executables HIGH_IMPACT;
   pure classification, previous five/query labels and execution preserved.
   Conservative restriction includes unreviewed standard Git operations.
+- [x] **WP2.1 slice 21 / all direct shell Git (`NEW-875` subset)** —
+  `11a71fe`, reviewer-approved, 79 new cases / 567 focused tests. All direct
+  git/git-* including reads/help HIGH; obsolete parser removed. Intentional
+  headless shell Git restriction, dedicated helper effects NEW-877 still open.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
   positives; dynamic/non-Python/sibling coverage remains open. 14 work groups
   plus closure, not 14 promised slices. Next remaining shell classification
-  (`NEW-875`; direct publishing and unknown Git operation subsets covered;
-  retained-five options/config/hooks next),
+  (`NEW-875`; all direct shell Git covered; wrappers/embedded execution next,
+  dedicated helper execution contract `NEW-877` queued),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
   boundaries and final closure. Preserve confirmation; distinguish publishing
@@ -5511,12 +5530,18 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   without stopping (user instruction 2026-10-09).
 - [ ] **Shell classification/failure and peer bookkeeping (`NEW-875`,
   `NEW-874`, `NEW-844`)** — NEW-873/876 direct publishing families fixed;
-  unknown Git operations now HIGH; retained-five options/config/hooks, env/find
-  wrappers and scripts retain unresolved READ/ACT effects. Security/self-
+  all direct shell Git HIGH; env/find wrappers and scripts retain unresolved
+  READ/ACT effects. Dedicated Git helpers/checkpoints NEW-877 remain. Security/self-
   modification classification remains unresolved. Subprocess
   nonzero/caught errors can audit allowed. Source-confirmed residuals, no live
   bypass/publishing/failure exploit claimed. Attempted peer execution plus
   later bookkeeping failure remains distinct from refusal.
+- [ ] **Dedicated Git execution contract (`NEW-877`)** — source-confirmed:
+  githelper queries/ACT mutations and checkpoint commit/query subprocesses
+  inherit repository/user configuration and environment. Hooks/helpers can
+  introduce unbounded effects; nominal local classification is insufficient.
+  No exploit reproduced. Scope constrained execution preserving useful automatic
+  checkpoint commits, or appropriate authorization; do not trust config by name.
 - [ ] **CCOS Git manifest/export alignment (`NEW-864`)** — source-confirmed
   16 declared capabilities versus one exported helper; standalone plugin
   test also imports missing names. Architect-scope registry/export/test

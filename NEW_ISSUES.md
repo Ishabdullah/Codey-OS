@@ -21110,3 +21110,20 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Evidence:** 135 new cases; implementer 488/7.71s, reviewer 488/6.76s, coordinator 488/8.14s. No-path/YOLO/strict-consent/refusal audit, exact approved argv/output/timeout, agent/daemon and audit failure tested. All new execution mocked; existing isolated file-only push regression real. No actual alias/helper/publishing exploit claimed.
 - **Still open:** retained-five options/config/hooks, wrappers/embedded execution, security/self-modification targets and opaque effects. Retained labels are compatibility, not guaranteed safety. NEW-875 remains open, NEW-874 unchanged; no full WP2.1 completion or live-store/model/peer/network test.
 - **Next:** scope retained-five hazardous effects, then wrappers/targets/opaque disposition. Cross-reference shell classifier, tests/test_shell_git_supported_operations.py, blueprint §21, master §4.2/Appendix A and remaining census.
+
+
+## 2026-10-09 — WP2.1 slice 21: direct shell Git and dedicated helper effects
+
+### [NEW-875] partial resolution — all direct shell Git requires confirmation
+
+- **Status:** All direct git/git-* HIGH (`11a71fe`), including formerly retained reads/commit and terminal/help forms; code-complete + code-reviewer-approved. Configuration/hooks/helpers are unbounded by an operation name. No argv/config rewriting; obsolete parser removed. Headless/YOLO Git introspection/commits refuse; daemon allowlisted reads reach one HIGH refusal.
+- **Evidence:** 79 new cases; implementer 567/5.00s, reviewer 567/4.62s, coordinator 567/4.61s. New execution mocked, existing temporary file-only push regression real. Full installed git-help manual supports helper/viewer semantics; no runtime alias/helper/pager/browser or publication exploit test. Refusal ordering/strict consent/exact execution/audit failure/agent and daemon integration tested.
+- **Open:** NEW-875 wrappers/embedded exec, security/self-modification and opaque executable contents. NEW-874 failure accounting unchanged. Dedicated Git/checkpoint configuration/helper effects separately NEW-877. No general process/Git/WP2.1 closure.
+
+### [NEW-877] HIGH — dedicated Git helper/checkpoint nominal mediation does not constrain configured execution
+
+- **Certainty/status:** Source-confirmed, open, not fixed in slice 21. No exploit or live helper effect reproduced.
+- **Evidence:** core/githelper.py query functions and ACT commit/branch/checkout/merge subprocesses inherit environment and repository/user configuration; core/checkpoint.py::_create_git_commit queries precede nominal ACT add/diff/commit mediation with the same inherited execution contract. Installed Git security semantics allow arbitrary config/hooks commands. Architect and coordinator read source; coordinator also fully read git-help.1.gz viewer shell-eval semantics. A local-operation authority label does not constrain secondary effects.
+- **Reachability:** main.py Git queries/mutations; core/agent.py:1084 git_commit_paths; core/filesystem.py:73 checkpoint creation before self-modification. CCOS Git adapter currently only exports is_git_repo; missing mutation exports NEW-864 are not claimed active callers.
+- **Fix direction:** architect-scope a constrained execution contract preserving useful automatic checkpoint commits while bounding helpers/hooks/configured effects, or require appropriate authorization for unbounded effects. Do not silently disable recovery or declare inherited config trusted. Direct shell Git authorization does not solve these separate subprocess boundaries.
+- **Cross-reference:** core/githelper.py:23/84/97/137/295/341, core/checkpoint.py:134/189, NEW-875, blueprint §21, master §4.2/Appendix A and remaining census. Security/effects debt separate from operand/failure correctness established by earlier slices.

@@ -1,3 +1,87 @@
+## 2026-10-09 — WP2.1 slice 21: explicit approval for all direct shell Git
+
+**Previous slice published:** code `959a5bc`, records `43171ed`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   2ff66f8..43171ed  main -> main
+```
+
+**Change (`11a71fe`):** all direct git/git-* HIGH, including former five retained
+operations, bare invocation/version/help/query/global/malformed forms. Obsolete
+operation parser/tables removed (no external Python references). Config/hooks/
+helpers can introduce opaque effects; operation/terminal exemptions insufficient.
+Full installed git-help.1.gz read by architect/coordinator: help invokes viewers,
+including configured shell-evaluated commands. No actual viewer/helper/alias test.
+Args/config unchanged; other executable labels, API/prompt/output/timeout/gateway
+unchanged. Headless/YOLO shell Git reads and commits intentionally refuse before
+warning/prompt/spawn. Daemon allowlisted Git reads now reach shell HIGH refusal
+with one audit. Approval strict True once forwards exact argv/output/timeout.
+
+**Pipeline/evidence:** architect → implementer → independent reviewer APPROVED
+→ coordinator checks → exact six-file code commit. 79 new cases; implementer
+567/5.00s, reviewer 567/4.62s, coordinator 567/4.61s on same eleven-file suite.
+Prior Git READ/ACT/query expectations explicitly tighten HIGH and names updated;
+non-Git residual cases retained. New execution mocked; existing isolated temporary
+file-only push regression remains real. Precollection config Path/DB/audit isolation
+NEW-855, no HOME override. No model/peer/network/project publishing/live-store
+mutation test. No dependency/setup change. Full 365-line literal diff retained at
+/data/data/com.termux/files/usr/tmp/codey-slice21.diff. Implementer test Ruff --fix;
+coordinator no fixing. New/prior Git test and focused lint clean; seven shell
+baseline and unchanged-import test_shell_tools.py I001 disclosed. Full suite
+excluded NEW-791, type checker unavailable. Code-complete + reviewer-approved,
+not live helper/publishing verified; no additional live verification required.
+
+**Findings/next:** NEW-875 direct shell boundary covered, wrappers/embedded exec,
+security/self-modification and opaque executable contents remain. NEW-874 unchanged.
+NEW-877 source-confirmed inherited effects in dedicated Git queries/ACT mutations
+and checkpoint commit/query boundaries; helpers untouched, no exploit reproduced.
+Main/agent/filesystem callers traced; missing CCOS mutation exports NEW-864 not
+claimed active. Scope constrained helper contract preserving automatic checkpoints
+separately. Next wrappers/embedded execution, helper contract, then remaining
+classification and WP2.1 groups. Continuous user authorization renewed: reviewed
+commit/push after each slice and continue without stopping. Raw-command/best-effort
+audit unchanged. Tracking records independently reviewed before records commit.
+
+**Literal coordinator checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice21-validate.py -q tests/test_shell_git_all_direct.py tests/test_shell_git_supported_operations.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py tests/test_shell_tools.py tests/test_shell_refusal_accounting.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_git_push_gateway.py tests/test_task_executor_telemetry.py
+........................................................................ [ 12%]
+........................................................................ [ 25%]
+........................................................................ [ 38%]
+........................................................................ [ 50%]
+........................................................................ [ 63%]
+........................................................................ [ 76%]
+........................................................................ [ 88%]
+...............................................................          [100%]
+567 passed in 4.61s
+
+$ ruff check tests/test_shell_git_all_direct.py tests/test_shell_git_supported_operations.py tests/test_shell_git_publishing.py tests/test_shell_git_lower_publishing.py
+All checks passed!
+
+$ ruff check tools/shell_tools.py tests/test_shell_git_all_direct.py tests/test_shell_git_supported_operations.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py tests/test_shell_tools.py --select F,E9
+All checks passed!
+
+$ ruff check tools/shell_tools.py --statistics
+3	BLE001 	blind-except
+2	PLW1510	subprocess-run-without-check
+1	SIM102 	collapsible-if
+1	SIM103 	needless-bool
+Found 7 errors.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+$ ruff check tests/test_shell_tools.py --statistics
+1	I001	[*] unsorted-imports
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+
+$ git diff --check
+```
+
+---
+
 ## 2026-10-09 — WP2.1 slice 20: unknown Git operations require explicit approval
 
 **Previous slice published:** code `93be92c`, records `2ff66f8`. Actual push:

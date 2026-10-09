@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-20 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-20: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-21 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-21: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2924,6 +2924,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `919d9c4` (slice 17;
 reviewed by `/root/code_reviewer`, APPROVED), `d0125eb` (slice 18;
 reviewed by `/root/code_reviewer`, APPROVED), `93be92c` (slice 19;
 reviewed by `/root/code_reviewer`, APPROVED), `959a5bc` (slice 20;
+reviewed by `/root/code_reviewer`, APPROVED), `11a71fe` (slice 21;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3477,11 +3478,33 @@ reviewed by `/root/code_reviewer`, APPROVED).
   Their retained labels are compatibility, not a blanket safety exemption.
   NEW-874 failure fidelity remains open. Next retained-five hazardous effects,
   then wrappers/targets/opaque disposition and remaining dependency groups.
+- **Slice 21 (2026-10-09, all direct shell Git, `11a71fe`):**
+  Every direct git/git-* invocation HIGH, including retained-five operations,
+  empty/version/help/query/global forms and identifiable malformed quoting.
+  Git config/hooks/helpers have opaque effects; terminal/help viewers can also
+  invoke shell-evaluated configured programs. No operation-name exemption can
+  bound that inherited execution contract. Unused parser/tables removed; no
+  other executable label, actual argv/config/timeout/output/prompt/gateway change.
+  **Compatibility:** headless/YOLO Git reads and commits now refuse before
+  warning/prompt/spawn. Allowlisted daemon status/log/diff/show delegates to
+  shell YOLO and reaches one HIGH refusal audit. Explicit True approves once.
+  **Evidence:** 79 new cases, implementer 567/5.00s, reviewer 567/4.62s,
+  coordinator 567/4.61s. New execution mocked; existing isolated file-only
+  push regression real. Full git-help manual read by architect/coordinator;
+  no live helper/alias/pager/browser/network/model/peer/live-store test. New/prior
+  Git test and focused lint pass; shell seven baseline, test_shell_tools.py
+  unchanged-import I001 baseline disclosed. Full suite excluded NEW-791,
+  type checker unavailable. Code-complete + code-reviewer-approved only.
+  **Limits/next:** NEW-875 wrappers/targets/opaque effects remain; NEW-874
+  unchanged. NEW-877 source-confirmed dedicated Git/checkpoint inherited
+  config/helper execution remains open; no exploit reproduced. Scope constrained
+  helper contract preserving automatic checkpoints separately. Next wrappers/
+  embedded execution, then helper contract and remaining classification/groups.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all twenty slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all twenty-one slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-20 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-21 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3494,7 +3517,8 @@ reviewed by `/root/code_reviewer`, APPROVED).
   by slice 17 (`NEW-836`, shell portion of `NEW-837`). Direct push classification
   NEW-873 subset is fixed by slice 18; NEW-876 alternate direct families fixed
   by slice 19; unknown Git operation subset NEW-875 fixed by slice 20.
-  Retained-five options/config/hooks, wrappers/scripts/opaque effects NEW-875
+  Slice 21 covers all direct shell Git, including retained-five/query forms.
+  Wrappers/scripts/opaque effects NEW-875, dedicated helper effects NEW-877
   and failed-execution audit NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
