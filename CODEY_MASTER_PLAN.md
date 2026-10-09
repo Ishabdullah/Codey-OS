@@ -737,6 +737,20 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 20, unknown Git operations, 2026-10-09**
+  (`959a5bc`) — effective Git operations outside status/log/diff/show/commit
+  and every direct git-* executable HIGH_IMPACT, including identifiable
+  malformed quoting. Parser queries and the five operations retain previous
+  labels; no discovery/config/alias execution in classification. Unreviewed
+  standard operations (add/branch/checkout/merge/fetch/config/rev-parse) also
+  require explicit approval on the shell surface; dedicated helpers unchanged.
+  135 new cases / 488 focused tests passed by all three roles. New execution
+  mocked; code-complete + code-reviewer-approved, no live alias/publication
+  claim. NEW-875 unknown-operation subset covered, not closed: retained-five
+  options/config/hooks, wrappers, target effects and opaque execution remain.
+  NEW-874 failure fidelity unchanged. Next: retained-five hazardous effects,
+  then wrappers/security/self-modification/opaque closure and remaining groups.
+
 - **WP2.1 slice 19, lower-level direct Git publishing, 2026-10-09**
   (`93be92c`) — send-pack/http-push operations and standalone/path/quoted
   executables join push as HIGH_IMPACT; global parser/quote handling uses
@@ -5478,12 +5492,18 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   `93be92c`, reviewer-approved, 111 new cases / 353 focused tests. send-pack/
   http-push and standalone forms HIGH_IMPACT; parser/argv/other policy unchanged.
   New publication mocked, existing real temporary file-only push regression.
+- [x] **WP2.1 slice 20 / unknown Git operations (`NEW-875` subset)** —
+  `959a5bc`, reviewer-approved, 135 new cases / 488 focused tests. All operations
+  outside five compatibility names and direct git-* executables HIGH_IMPACT;
+  pure classification, previous five/query labels and execution preserved.
+  Conservative restriction includes unreviewed standard Git operations.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
   positives; dynamic/non-Python/sibling coverage remains open. 14 work groups
   plus closure, not 14 promised slices. Next remaining shell classification
-  (`NEW-875`; NEW-873/876 direct publishing families now covered),
+  (`NEW-875`; direct publishing and unknown Git operation subsets covered;
+  retained-five options/config/hooks next),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
   boundaries and final closure. Preserve confirmation; distinguish publishing
@@ -5491,7 +5511,9 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   without stopping (user instruction 2026-10-09).
 - [ ] **Shell classification/failure and peer bookkeeping (`NEW-875`,
   `NEW-874`, `NEW-844`)** — NEW-873/876 direct publishing families fixed;
-  env/find wrappers can remain READ, aliases/scripts/custom commands ACT. Security/self-modification classification remains unresolved. Subprocess
+  unknown Git operations now HIGH; retained-five options/config/hooks, env/find
+  wrappers and scripts retain unresolved READ/ACT effects. Security/self-
+  modification classification remains unresolved. Subprocess
   nonzero/caught errors can audit allowed. Source-confirmed residuals, no live
   bypass/publishing/failure exploit claimed. Attempted peer execution plus
   later bookkeeping failure remains distinct from refusal.

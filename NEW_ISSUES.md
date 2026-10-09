@@ -21100,3 +21100,13 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Evidence:** 111 new cases; implementer/reviewer/coordinator each passed 353 focused tests. New lower-level execution mocked, temporary audit/no subprocess on denial, exact approved argv/output/timeout, agent/daemon/OSError. Existing real temporary file-only push regression remains. Full installed manuals read for semantics; no installed-helper/transport/live publication claim.
 - **Limits:** indirect/custom/opaque/security/self-modification NEW-875 and failure-fidelity NEW-874 remain open. This resolves the named primitives, not all publishing or arbitrary executable effects. No model/peer/network/project remote/live-store test; audit persistence best effort, original commands retained.
 - **Cross-reference:** tools/shell_tools.py publishing sets/classify_shell_command, tests/test_shell_git_lower_publishing.py, blueprint §21 / master §4.2 and Appendix A; remaining census.
+
+
+## 2026-10-09 — WP2.1 slice 20: unknown Git operation disposition
+
+### [NEW-875] partial resolution — unknown operations and git-* executables HIGH_IMPACT
+
+- **Status:** Unknown effective Git operations and direct git-* executable names conservatively HIGH (`959a5bc`), code-complete + code-reviewer-approved. Five retained operations status/log/diff/show/commit keep prior labels; queries unchanged. Unreviewed standard operations also require explicit approval on the shell surface; dedicated helpers unchanged. No discovery/config/alias execution during classification.
+- **Evidence:** 135 new cases; implementer 488/7.71s, reviewer 488/6.76s, coordinator 488/8.14s. No-path/YOLO/strict-consent/refusal audit, exact approved argv/output/timeout, agent/daemon and audit failure tested. All new execution mocked; existing isolated file-only push regression real. No actual alias/helper/publishing exploit claimed.
+- **Still open:** retained-five options/config/hooks, wrappers/embedded execution, security/self-modification targets and opaque effects. Retained labels are compatibility, not guaranteed safety. NEW-875 remains open, NEW-874 unchanged; no full WP2.1 completion or live-store/model/peer/network test.
+- **Next:** scope retained-five hazardous effects, then wrappers/targets/opaque disposition. Cross-reference shell classifier, tests/test_shell_git_supported_operations.py, blueprint §21, master §4.2/Appendix A and remaining census.

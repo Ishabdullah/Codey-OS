@@ -1,3 +1,80 @@
+## 2026-10-09 — WP2.1 slice 20: unknown Git operations require explicit approval
+
+**Previous slice published:** code `93be92c`, records `2ff66f8`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   c8b6382..2ff66f8  main -> main
+```
+
+**Change (`959a5bc`):** pure supported-operation set status/log/diff/show/commit.
+Every other parsed operation and every git-* executable basename HIGH_IMPACT,
+including identifiable malformed quotes. Queries unchanged; five prior labels
+preserved (four direct READ, commit ACT, global-prefixed forms ACT). Publishing
+and ambiguity remain HIGH. No I/O/discovery/config/alias evaluation. This also
+conservatively restricts add/branch/checkout/merge/fetch/config/rev-parse on the
+shell surface; dedicated helper policies unchanged. No argv/prompt/warning/
+output/timeout/gateway/daemon-allowlist/returncode change. Two custom-alias test
+expectations tighten ACT to HIGH. New tests cover names/globals/operand separation,
+queries/pattern precedence, pure classifier, strict approval/refusal ordering,
+single audit, agent/daemon and audit-sink failure.
+
+**Pipeline/evidence:** completed architect spec → completed implementer →
+independent reviewer APPROVED → coordinator checks and exact four-file code
+commit. 135 new cases; implementer 488/7.71s, reviewer 488/6.76s, coordinator
+488/8.14s on same ten-file suite. All new execution mocked; only existing
+isolated temporary file-only push regression real. No live alias/helper/remote
+publication/model/peer/network/project mutation/live-store test. Startup config
+Path/DB/audit redirected before collection (NEW-855), no HOME override. Full
+literal 255-line diff retained at /data/data/com.termux/files/usr/tmp/codey-slice20.diff.
+No dependency/setup change. Implementer Ruff --fix on tests; coordinator no fixing.
+New/changed-test and focused lint clean; seven shell findings unchanged baseline.
+Full suite excluded NEW-791, type checker unavailable. Code-complete + reviewer-
+approved, not live alias/publishing verified.
+
+**Status/next:** NEW-875 unknown-operation subset covered; issue remains open
+for retained-five options/config/hooks, wrappers/embedded exec, security/self-
+modification and opaque effects. Five retained names are compatibility, not
+safe-effects proof. NEW-874 unchanged. Next scope retained-five hazardous effects,
+then wrappers/targets/opaque closure and remaining dependency groups. Continue
+reviewed commit/push after each slice under original and renewed user instruction.
+
+**Literal coordinator checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice20-validate.py -q tests/test_shell_git_supported_operations.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py tests/test_shell_tools.py tests/test_shell_refusal_accounting.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_git_push_gateway.py tests/test_task_executor_telemetry.py
+........................................................................ [ 14%]
+........................................................................ [ 29%]
+........................................................................ [ 44%]
+........................................................................ [ 59%]
+........................................................................ [ 73%]
+........................................................................ [ 88%]
+........................................................                 [100%]
+488 passed in 8.14s
+
+$ ruff check tests/test_shell_git_supported_operations.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py
+All checks passed!
+
+$ ruff check tools/shell_tools.py tests/test_shell_git_supported_operations.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py --select F,E9
+All checks passed!
+
+$ ruff check tools/shell_tools.py --statistics
+3	BLE001 	blind-except
+2	PLW1510	subprocess-run-without-check
+1	SIM102 	collapsible-if
+1	SIM103 	needless-bool
+Found 7 errors.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Tracking records independently reviewed before their commit/push. No new issue ID;
+NEW-877 remains unallocated. Raw-command/best-effort audit behavior unchanged.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 19: lower-level direct Git publishing families
 
 **Previous slice published:** code `d0125eb`, records `c8b6382`. Actual push:
