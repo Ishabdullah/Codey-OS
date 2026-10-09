@@ -11,16 +11,17 @@ Supports rollback to any checkpoint.
 """
 
 import json
+import re
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from core.state import get_state_store
 from utils.config import CHECKPOINT_DIR, CODE_DIR
-from utils.logger import error, info, success, warning
+from utils.logger import info, success, warning
 
 # Checkpoint directory
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
@@ -201,54 +202,126 @@ def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optiona
         return None
 
 
-def rollback(checkpoint_id: str) -> bool:
-    """
-    Rollback to a checkpoint.
-
-    Args:
-        checkpoint_id: Checkpoint ID to rollback to
-
-    Returns:
-        True if rollback successful
-    """
+def _rollback_files(checkpoint_id: str):
+    """Validate the complete producer-scoped backup set before any writes."""
+    if (
+        not isinstance(checkpoint_id, str)
+        or not checkpoint_id
+        or checkpoint_id in (".", "..")
+        or any(character in checkpoint_id for character in ("/", "\\", "\0"))
+        or Path(checkpoint_id).is_absolute()
+    ):
+        raise ValueError("Invalid checkpoint ID")
     backup_dir = CHECKPOINT_DIR / checkpoint_id
+    if CHECKPOINT_DIR.is_symlink() or backup_dir.is_symlink() or not backup_dir.is_dir():
+        raise ValueError("Checkpoint directory missing or unsafe")
+    backup_dir.resolve().relative_to(CHECKPOINT_DIR.resolve())
+    if CODE_DIR.is_symlink() or not CODE_DIR.is_dir():
+        raise ValueError("Restore root missing or unsafe")
+    code_root = CODE_DIR.resolve()
+    files = []
+    pending = [backup_dir]
+    entries = []
+    while pending:
+        for entry in sorted(pending.pop().iterdir()):
+            if entry.is_symlink():
+                raise ValueError("Checkpoint contains a symlink")
+            entries.append(entry)
+            if entry.is_dir():
+                pending.append(entry)
+    for backup_file in sorted(entries):
+        relative = backup_file.relative_to(backup_dir)
+        if ".git" in relative.parts:
+            raise ValueError("Checkpoint cannot restore Git metadata")
+        if backup_file.is_symlink():
+            raise ValueError("Checkpoint contains a symlink")
+        if backup_file.is_dir():
+            if relative.parts[0] not in ("core", "tools", "utils", "prompts"):
+                raise ValueError("Checkpoint directory outside supported restore scope")
+            continue
+        if not backup_file.is_file():
+            raise ValueError("Checkpoint contains a nonregular file")
+        backup_file.resolve().relative_to(backup_dir.resolve())
+        relative = backup_file.relative_to(backup_dir)
+        producer_file = (
+            len(relative.parts) > 1
+            and relative.parts[0] in ("core", "tools", "utils", "prompts")
+            and relative.suffix == ".py"
+        ) or relative.as_posix() in ("main.py", "codey", "codeyOS")
+        if not producer_file:
+            raise ValueError("Checkpoint file outside supported restore scope")
+        destination = CODE_DIR / relative
+        destination.resolve().relative_to(code_root)
+        current = CODE_DIR
+        for component in relative.parts:
+            current = current / component
+            if current.is_symlink():
+                raise ValueError("Restore destination contains a symlink")
+            if current.exists():
+                if current == destination:
+                    if not current.is_file():
+                        raise ValueError("Restore destination is not a regular file")
+                elif not current.is_dir():
+                    raise ValueError("Restore destination ancestor is not a directory")
+        files.append((backup_file, destination))
+    return files
 
-    if not backup_dir.exists():
-        error(f"Rollback: checkpoint '{checkpoint_id}' not found")
+
+def rollback(checkpoint_id: str, *, confirm: Optional[Callable[[], bool]] = None) -> bool:
+    """Restore an authorized checkpoint; default/no approval performs no work.
+
+    The trusted confirmation callback must disclose that a saved commit
+    restores the full versioned repository and detaches HEAD, not models.
+    Preflight restricts backup destinations but cannot prove completeness
+    or identity, prevent concurrent path replacement, or make restoration
+    atomic. Copied backup bytes can make an older-commit checkout refuse
+    because they differ from the current index; no force is applied. Failed
+    attempts may retain partial file/Git effects.
+    """
+    # Runtime import avoids the gateway -> Filesystem -> checkpoint cycle.
+    from core.action_gateway import HIGH_IMPACT, get_action_gateway
+
+    def execute():
+        files = _rollback_files(checkpoint_id)
+        state = get_state_store()
+        checkpoint_data = state.get_checkpoint(checkpoint_id)
+        git_hash = checkpoint_data.get("git_commit_hash") if checkpoint_data else None
+        if git_hash is not None:
+            if not isinstance(git_hash, str) or re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", git_hash) is None:
+                raise ValueError("Checkpoint commit ID is malformed")
+            result = subprocess.run(
+                ["git", "cat-file", "-t", git_hash], cwd=CODE_DIR, capture_output=True, text=True
+            )
+            if result.returncode != 0 or result.stdout.strip() != "commit":
+                raise ValueError("Checkpoint commit ID is not an existing commit object")
+
+        for backup_file, destination in files:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(backup_file, destination)
+
+        if git_hash is not None:
+            result = subprocess.run(
+                ["git", "checkout", "--detach", git_hash, "--"],
+                cwd=CODE_DIR, capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"Rollback git checkout failed: {result.stderr.strip()}")
+
+        state.log_action("rollback", f"Restored from checkpoint {checkpoint_id}")
+        return f"restored {len(files)} files"
+
+    decision = get_action_gateway().gate_exec(
+        authority=HIGH_IMPACT,
+        action="checkpoint.rollback",
+        command="checkpoint restore attempt",
+        confirm_available=callable(confirm),
+        confirm=confirm,
+        execute=execute,
+    )
+    if not decision.allowed:
+        warning(f"Rollback {decision.outcome}: {decision.reason}")
         return False
-
-    info(f"Rollback: restoring from '{checkpoint_id}'")
-
-    # Restore files from backup
-    restored = 0
-    for backup_file in backup_dir.rglob("*"):
-        if backup_file.is_file():
-            try:
-                rel_path = backup_file.relative_to(backup_dir)
-                dest = CODE_DIR / rel_path
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(backup_file, dest)
-                restored += 1
-            except Exception as e:
-                error(f"Rollback: could not restore {backup_file}: {e}")
-
-    # Try to git checkout the commit
-    state = get_state_store()
-    checkpoint_data = state.get_checkpoint(checkpoint_id)
-
-    if checkpoint_data and checkpoint_data.get("git_commit_hash"):
-        git_hash = checkpoint_data["git_commit_hash"]
-        try:
-            subprocess.run(["git", "checkout", git_hash], cwd=CODE_DIR, capture_output=True)
-            info(f"Rollback: checked out git commit {git_hash[:8]}")
-        except Exception as e:
-            warning(f"Rollback: git checkout failed: {e}")
-
-    success(f"Rollback: restored {restored} files from checkpoint '{checkpoint_id}'")
-
-    # Log in episodic memory
-    state.log_action("rollback", f"Restored from checkpoint {checkpoint_id}")
-
+    success(f"Rollback: {decision.detail['result']} from checkpoint '{checkpoint_id}'")
     return True
 
 
