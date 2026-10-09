@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-22 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-22: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-23 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-23: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2926,6 +2926,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `93be92c` (slice 19;
 reviewed by `/root/code_reviewer`, APPROVED), `959a5bc` (slice 20;
 reviewed by `/root/code_reviewer`, APPROVED), `11a71fe` (slice 21;
 reviewed by `/root/code_reviewer`, APPROVED), `49358e0` (slice 22;
+reviewed by `/root/code_reviewer`, APPROVED), `ed1e148` (slice 23;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3524,11 +3525,36 @@ reviewed by `/root/code_reviewer`, APPROVED).
   option-shaped starting path can become expression, no exploit reproduced.
   Next bounded search_files mediation/operand handling, then NEW-877 constrained
   Git helper contract, remaining classification/groups. NEW-874 unchanged.
+- **Slice 23 (2026-10-09, constrained search_files READ, `ed1e148`):**
+  NEW-878 fixed: no find subprocess. Literal lstat/scandir basename search
+  inside one READ gate_exec; static metadata excludes query/path/results. All
+  validation/FS operations inside mediation, stable normalized errors raise
+  for failed audits/ERROR output, partial results discarded. Allowed returns
+  joined matches or (no matches); audit sink best effort unchanged. No prompts.
+  Match root/files/dirs/links/hidden entries case-sensitively; relative/default
+  ./ and absolute display retained. Fifty nonblank display lines, traversal
+  continues after cap for error/deadline fidelity. No intentional dir-symlink
+  following incl starting trailing slash. Python fnmatchcase backslash/locale
+  differences and cooperative monotonic 15-second deadline are compatibility
+  changes; cannot interrupt blocked syscalls. Unrestricted requested read scope,
+  no containment/snapshot/concurrent replacement guarantee.
+  **Evidence:** 44 new cases, implementer 740/4.34s, reviewer 740/4.33s,
+  coordinator 740/4.36s. Real disposable trees/hidden names/literal option paths/
+  markers/symlinks/broken/loops/root links/cap/late errors/deadline/iterator closure,
+  gateway order/privacy, audit failure and real agent mappings; subprocess sentinel.
+  No new failures/skips. New/focused lint clean; shell baseline improves 7→6
+  (find subprocess PLW1510 removed), other debt retained. Precollection isolation,
+  no model/peer/network/live-store/project mutation test. Code-complete + reviewer-
+  approved and temporary filesystem mechanics verified; no live service claim.
+  Full suite excluded NEW-791/type checker unavailable. No dependency change.
+  **Next:** NEW-877 dedicated Git contract preserving automatic checkpoint
+  commits; broader NEW-875 classification and NEW-874 outcome fidelity remain.
+  Generic shell find HIGH unchanged. Full WP2.1 DoD not met.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all twenty-two slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all twenty-three slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-22 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-23 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3543,8 +3569,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
   by slice 19; unknown Git operation subset NEW-875 fixed by slice 20.
   Slice 21 covers all direct shell Git, including retained-five/query forms.
   Slice 22 covers direct find/xargs/argument-bearing env; bare parsed env READ.
-  Broader wrappers/scripts/opaque effects NEW-875, dedicated search_files NEW-878,
-  dedicated Git helper effects NEW-877 and failed-execution NEW-874 remain. `/peer` bypass
+  Slice 23 fixes dedicated search_files NEW-878 with in-process READ mediation.
+  Broader wrappers/scripts/opaque effects NEW-875, dedicated Git helper effects
+  NEW-877 and failed-execution NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
   plus latent parked-execution

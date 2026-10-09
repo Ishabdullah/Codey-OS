@@ -1,3 +1,88 @@
+## 2026-10-09 — WP2.1 slice 23: constrained file search with truthful READ outcomes
+
+**Previous slice published:** code `49358e0`, records `9ed9fbb`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   c4dfe12..9ed9fbb  main -> main
+```
+
+**Change (`ed1e148`):** search_files no longer invokes find. One READ gate_exec
+contains validation and literal lstat/scandir basename recursion with fnmatchcase,
+static metadata and no helper/PATH/config discovery. Roots/files/dirs/symlinks/
+hidden names match, relative/default ./ and absolute display retained. No intentional
+directory-link traversal including starting link trailing slash. Fifty nonblank
+output lines; traversal continues after cap so late failures/deadlines audit failed
+and discard partial output. Stable error reasons omit arbitrary exception/query/
+path data. Successful result/no-match audited once, unexpected refusal BLOCKED,
+audit sink OSError preserves operation result. Agent mapping/API unchanged.
+
+**Compatibility:** Python basename glob escaping/locale behavior differs from
+GNU find; backslashes literal, locale classes unsupported. Fifteen-second monotonic
+deadline cooperative, cannot interrupt blocked filesystem syscalls. Diagnostics
+become errors instead of matches. Requested read scope remains unrestricted;
+no snapshot/containment/concurrent replacement guarantee. Generic shell find HIGH
+unchanged. No dependency/setup change, only shell_tools and new test file changed.
+
+**Pipeline/evidence:** architect → implementer → independent reviewer APPROVED
+→ coordinator checks → exact two-file code commit. 44 new cases; implementer
+740/4.34s, reviewer 740/4.33s, coordinator 740/4.36s same thirteen-file suite.
+Real disposable trees/hidden/case/glob/backslash/option-like paths/unchanged markers,
+root files/links/trailing links/broken links/loops, cap+late error/timeout/iterator
+closure, normalized failure/privacy/order/sink, real TOOLS and execute_tool mapping
+with dependencies mocked. All new search mechanics use real temporary filesystem;
+subprocess sentinel ensures no utility invocation. No failures/skips. Precollection
+config Path/DB/audit isolation NEW-855, no HOME override. Existing file-only temporary
+Git push regression remains real. No model/peer/network/project publishing/live-store
+or live-service test. Full literal 378-line diff retained at
+/data/data/com.termux/files/usr/tmp/codey-slice23.diff. New/focused lint clean;
+full shell baseline improves seven to six after subprocess PLW1510 removal.
+Other baseline debt retained; full suite excluded NEW-791/type checker unavailable.
+Code-complete + reviewer-approved, temporary filesystem mechanics verified;
+no additional live verification required.
+
+**Status/next:** NEW-878 fixed for tool boundary, NEW-875/874/877 remain open.
+Next dedicated Git execution contract preserving useful automatic checkpoint
+commits, then remaining classification/groups. No new issue ID. Tracking docs
+independently reviewed before records commit/push. Continuous authorization retained.
+
+**Literal coordinator checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice23-validate.py -q tests/test_search_files_gateway.py tests/test_shell_wrapper_boundaries.py tests/test_shell_git_all_direct.py tests/test_shell_git_supported_operations.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py tests/test_shell_tools.py tests/test_shell_refusal_accounting.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_git_push_gateway.py tests/test_task_executor_telemetry.py
+........................................................................ [  9%]
+........................................................................ [ 19%]
+........................................................................ [ 29%]
+........................................................................ [ 38%]
+........................................................................ [ 48%]
+........................................................................ [ 58%]
+........................................................................ [ 68%]
+........................................................................ [ 77%]
+........................................................................ [ 87%]
+........................................................................ [ 97%]
+....................                                                     [100%]
+740 passed in 4.36s
+
+$ ruff check tests/test_search_files_gateway.py
+All checks passed!
+
+$ ruff check tools/shell_tools.py tests/test_search_files_gateway.py --select F,E9,I
+All checks passed!
+
+$ ruff check tools/shell_tools.py --statistics
+3	BLE001 	blind-except
+1	SIM102 	collapsible-if
+1	SIM103 	needless-bool
+1	PLW1510	subprocess-run-without-check
+Found 6 errors.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+---
+
 ## 2026-10-09 — WP2.1 slice 22: shell wrapper authority
 
 **Previous slice published:** code `11a71fe`, records `c4dfe12`. Actual push:
