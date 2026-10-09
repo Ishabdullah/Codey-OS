@@ -28,10 +28,12 @@ Authority classes
 
 `confirm_available` is supplied by the caller and means "a human
 confirmation path exists in this context" (e.g. an interactive session),
-NOT "confirmation was actually obtained" — this slice has no confirmation
-callback/UI wiring yet, so `confirm_available=True` only unblocks the
-HIGH_IMPACT fail-closed rule; it does not itself constitute consent.
-Wiring a real confirmation prompt is later WP2.1 work.
+NOT "confirmation was actually obtained". Callback-free calls and file
+gates retain the existing Boolean convention: `confirm_available=True`
+only unblocks the HIGH_IMPACT fail-closed rule and does not itself
+constitute consent. gate_exec optionally accepts a human confirmation
+callback for HIGH_IMPACT and requires its explicit True approval before
+execution; callback decline or failure refuses without attempting it.
 
 The gateway's job is classification + policy decision + audit — NOT
 reimplementing file-write mechanics. Actual file writes are delegated to
@@ -339,6 +341,7 @@ class ActionGateway:
         command: str,
         confirm_available: bool,
         execute: Callable[[], str],
+        confirm: Optional[Callable[[], bool]] = None,
     ) -> GatewayDecision:
         """Mediate a shell-exec through an arbitrary `execute` thunk.
 
@@ -360,6 +363,9 @@ class ActionGateway:
                 execution and returns its string result. Only invoked when
                 the policy decision allows the attempt; never invoked on
                 the HIGH_IMPACT fail-closed refusal path.
+            confirm: optional human confirmation callback, called once only
+                for HIGH_IMPACT with an available path. Decline or callback
+                failure refuses without executing; READ/ACT ignore it.
         """
         if authority not in AUTHORITY_CLASSES:
             raise ValueError(f"Unknown authority class: {authority!r}")
@@ -384,12 +390,37 @@ class ActionGateway:
             )
             return decision
 
-        # READ is never confirm-gated; ACT proceeds regardless of
-        # confirm_available (confirmation, when available, is applied by
-        # the caller's own prompt logic before/within `execute` — this
-        # gateway only decides whether to attempt, not how the attempt
-        # behaves once allowed); HIGH_IMPACT only reaches this point when
-        # confirm_available is True.
+        if authority == HIGH_IMPACT and confirm is not None:
+            try:
+                approved = confirm() is True
+            except (EOFError, KeyboardInterrupt):
+                # An interrupted/unavailable human prompt is not approval.
+                reason = "Human confirmation unavailable or interrupted; command not attempted."
+            except Exception:
+                # Callback failures cannot grant authority; omit exception
+                # text because it may contain prompt input or other secrets.
+                reason = "Human confirmation unavailable due to callback failure; command not attempted."
+            else:
+                reason = None if approved else "Human confirmation declined; command not attempted."
+            if reason is not None:
+                decision = GatewayDecision(
+                    authority=authority,
+                    outcome=OUTCOME_REFUSED,
+                    reason=reason,
+                    detail={"action": action, "command": command},
+                )
+                self._audit(
+                    authority=authority,
+                    action=action,
+                    command=command,
+                    outcome=decision.outcome,
+                    reason=decision.reason,
+                )
+                return decision
+
+        # READ/ACT ignore the optional callback. HIGH_IMPACT reaches
+        # execution only with an available path and, when supplied, an
+        # approving callback. Callback-free Boolean behavior is unchanged.
         try:
             result = execute()
         except Exception as e:

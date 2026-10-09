@@ -106,7 +106,7 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 | `/git commit` | Generate an AI commit message from diff — you approve before commit |
 | `/git commit "msg"` | Commit with an exact message |
 | `/git diff` | Show the current diff |
-| `/git push` | Push to remote |
+| `/git push` | Publish commits to the configured remote after explicit interactive y/yes approval; blocked in YOLO or headless contexts |
 | `/git conflicts` | List all conflicted files |
 
 ### Code Quality

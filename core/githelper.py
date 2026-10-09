@@ -168,12 +168,46 @@ def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
     return _gate_local_commit("githelper.git_commit_paths", attempt)
 
 
-def git_push(path: str = None) -> str:
+def git_push(path: str = None, *, confirm=None) -> str:
+    """Publish through HIGH_IMPACT mediation with explicit human approval.
+
+    No callback means no confirmation path and no Git execution. Git
+    error strings and subprocess exception identity are preserved.
+    """
+    from core.action_gateway import HIGH_IMPACT, get_action_gateway
+
     path = path or os.getcwd()
-    result = subprocess.run(["git", "push"], capture_output=True, text=True, cwd=path)
-    if result.returncode == 0:
-        return result.stdout.strip() or "Pushed successfully."
-    return f"[ERROR] {result.stderr.strip()}"
+    output = None
+    original_error = None
+
+    def execute():
+        nonlocal output, original_error
+        try:
+            result = subprocess.run(["git", "push"], capture_output=True, text=True, cwd=path)
+        except Exception as exc:
+            # Audit execution failure, then restore the caller's original
+            # subprocess exception instead of replacing it with a decision.
+            original_error = exc
+            raise
+        if result.returncode == 0:
+            output = result.stdout.strip() or "Pushed successfully."
+            return output
+        output = f"[ERROR] {result.stderr.strip()}"
+        raise RuntimeError(output)
+
+    decision = get_action_gateway().gate_exec(
+        authority=HIGH_IMPACT,
+        action="githelper.git_push",
+        command="git push attempt",
+        confirm_available=confirm is not None,
+        confirm=confirm,
+        execute=execute,
+    )
+    if original_error is not None:
+        raise original_error
+    if output is not None:
+        return output
+    return f"[ERROR] Git push {decision.outcome}: {decision.reason}"
 
 
 # ── Branch management (Phase 3.1) ─────────────────────────────────────────────

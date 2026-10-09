@@ -1017,7 +1017,24 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 success(result)
 
         elif sub_low.startswith("push"):
-            result = git_push()
+            confirm = None
+            if (
+                not yolo
+                and os.getenv("CODEY_DAEMON_MODE") != "1"
+                and os.getenv("CODEY_NON_INTERACTIVE") != "1"
+            ):
+                try:
+                    interactive = sys.stdin.isatty()
+                except Exception:
+                    # Unknown stdin state cannot provide human approval.
+                    interactive = False
+                if interactive:
+                    def confirm():
+                        answer = input(
+                            "Publish this repository's commits to its configured remote? [y/N]: "
+                        )
+                        return answer.strip().lower() in ("y", "yes")
+            result = git_push(confirm=confirm)
             success(result) if not result.startswith("[ERROR]") else error(result)
 
         elif sub_low == "conflicts":
@@ -1624,7 +1641,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 [bold]Git:[/bold]
   /git                   Show git status
   /git <message>         Stage all and commit
-  /git push              Push to remote
+  /git push              Publish to remote after interactive approval (blocked in YOLO/headless)
   /git log               Show recent commits
 
 [bold]Project:[/bold]
