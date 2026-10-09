@@ -21044,3 +21044,28 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Status:** Conditional mechanism source-confirmed; runtime/device applicability suspected, not fixed. Preflight rejects symlinks/escaping paths but does not reject destination link counts greater than one. Local stdlib source shows copy2 calls copyfile and opens existing destination wb, so an existing alias could share modified bytes outside the intended source path. No hardlink was created for reproduction: Python os.link absent, implementer ln attempt Permission denied. No Termux exploit or frequency claimed.
 - **Fix direction:** scope safe replacement/alias handling with platform-supported evidence; preserve restoration metadata and partial-failure honesty. Do not treat symlink checks as protection against every inode alias.
 - **Cross-reference:** `core/checkpoint.py::_rollback_files`, copy2 in rollback, NEW-870 boundary limits, master Appendix A.
+
+
+## 2026-10-09 — WP2.1 slice 17: shell refusal accounting and provisional remaining census
+
+### [NEW-836] resolution — daemon's three existing allowlist refusals now audited
+
+- **Status:** Fixed (`919d9c4`), code-complete + code-reviewer-approved. Python/pip form, prohibited flag and unsupported prefix branches now use refuse_exec with existing classification/static reasons, retain exact public strings/warnings, and never call shell. Accepted commands delegate once, no duplicate audit. Temporary tests verify exact one-record/no-execution behavior for each guard.
+- **Boundary:** allowlist and command classification unchanged; NEW-873 publishing classification remains. Best-effort sink failure can still leave no durable trace; no live daemon/model action claimed.
+
+### [NEW-837] scoped resolution — shell human refusals and cancelled episodic-success recording
+
+- **Status:** Shell refusal/episodic portion fixed (`919d9c4`), code-complete + code-reviewer-approved. READ/ACT prompt rejections use explicit refused audit before execution; HIGH_IMPACT uses actual strict True gateway callback once. Cancellation string unchanged, no execution; unavailable/failed prompt blocks with static reason. execute_tool skips cancelled shell success recording; is_error behavior unchanged.
+- **Evidence/limits:** 47 new cases; implementer/reviewer/coordinator each passed 112 focused tests, real harmless temporary pwd and mocked hazardous execution. Broader attempted-error/peer-bookkeeping semantics NEW-844 and subprocess-error fidelity NEW-874 remain open; this is not all gateway outcome closure. Raw commands remain in audits, persistence best effort, no live model/peer/network/store/project test.
+
+### [NEW-873] Confirmed: plain shell git push is ACT and bypasses dedicated Git publishing confirmation policy
+
+- **Status:** Source-confirmed by architect/coordinator; logged, not fixed. classify_shell_command("git push") falls through to ACT; with confirm_shell=False or yolo=True, ordinary shell can execute without prompting. Dedicated git_push is HIGH_IMPACT and requires explicit callback approval. Force-pattern variants can classify HIGH_IMPACT, but ordinary external publishing does not. No live push or project publication reproduction claimed.
+- **Fix direction:** scope shell operation classification and Git argument forms against settled publishing/security/self-modification policy; preserve ordinary working-file ACT behavior. Arbitrary executable contents remain unresolved, not automatically covered.
+- **Cross-reference:** tools/shell_tools.py::classify_shell_command, shell; core/githelper.py::git_push; blueprint §21, docs/census-2026-10-09/WP2.1_remaining_scope.md.
+
+### [NEW-874] Confirmed: shell nonzero exits and caught execution errors can audit allowed
+
+- **Status:** Source-confirmed by architect/coordinator; logged, not fixed. _execute_shell_command ignores subprocess returncode and returns stdout/stderr normally; timeout/missing-command/ordinary exceptions return ERROR strings inside the thunk. gate_exec therefore can audit allowed despite failure. Nonzero output without ERROR/BLOCKED prefix can also pass execute_tool's episodic-success filter. No live/project failure reproduction claimed.
+- **Fix direction:** separately scope truthful execution outcomes while preserving useful output and timeout/error compatibility; attempted failure can retain effects and must not be mislabeled refusal. Peer post-dispatch bookkeeping NEW-844 remains separate.
+- **Cross-reference:** tools/shell_tools.py::_execute_shell_command, shell; core/agent.py::execute_tool; core/action_gateway.py::gate_exec; blueprint §21 / remaining census.

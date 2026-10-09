@@ -737,6 +737,22 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 17, shell refusal accounting, 2026-10-09** (`919d9c4`)
+  — existing human declines and all three daemon allowlist rejections now
+  produce one refused audit without execution. HIGH_IMPACT prompts require
+  explicit True once; READ/ACT UI choices remain. Cancelled shell results
+  skip episodic success recording. 47 new cases; implementer/reviewer/
+  coordinator each passed 112 focused tests, including real temporary pwd.
+  Code-complete + code-reviewer-approved; no live model/peer/store action.
+  NEW-836 and shell refusal/episodic portion of NEW-837 covered; broader
+  failure/bookkeeping issues NEW-844/874 remain. Classification unchanged;
+  NEW-873 plain shell push is ACT and remains a publishing-policy bypass.
+  Fresh provisional census: 201 searched Python files, 1,384 candidates in
+  122 files, including false positives; all candidate dispositions unresolved.
+  See `docs/census-2026-10-09/WP2.1_remaining_scope.md`. Four-of-42 is not
+  overall progress; 14 work groups plus closure are not a slice count.
+  Next: architect-scope shell classification, then sequential remaining groups.
+
 - **WP2.1 slice 16, independent checkpoint rollback, 2026-10-09**
   (`a094d1a`) — HIGH_IMPACT explicit callback approval precedes restore
   enumeration/state/Git/log work. ID/path/symlink/producer-scope/commit-object
@@ -749,7 +765,8 @@ scoped to what it actually proved.
   recovery `NEW-810` retained; `NEW-871` runtime-confirmed copy-before-checkout
   limitation and `NEW-872` suspected hardlink alias risk remain open.
   Backup completeness/identity, concurrent replacement and atomicity unproven.
-  Next: fresh remaining-surface census and sequential implementation/push.
+  At slice 16, remaining-surface census was next; slice 17 records it above
+  and covers shell refusal accounting. Sequential implementation/push continues.
 
 - **WP2.1 slice 15, branch/ref merge, 2026-10-09** (`24fecfd`)
   — ACT attempts reject raw options except previous-branch `-`, use
@@ -5372,7 +5389,7 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 
 **AGI audit workstream (2026-09-30):** tracked in `AGI_AUDIT_PLAN.md` (phases 1-4) and `AGI_AUDIT_LOG.md`. **Merged to `main` 2026-09-30** (`ef5c86d`, from branch `codey-os-agi` @ `6ea4230`) after a Phase-A verification gate: scope check clean (no touches to `restoricon_core/`, `core/resource_gate.py`, `core/loader_v2.py`, daemon-lifecycle files, or `install.sh`), business-safety check clean (all new hooks pass-through/fail-open with flags unset, `functools.wraps` preserved, no runtime import of the self-improvement modules), code-reviewer APPROVED. Phases 1-4 are **code-complete + sandbox/phone test-verified, NOT live-verified with the model**: a literal complete full-suite run could not be obtained on-device (blocked by a pre-existing, file-disjoint crash unrelated to this diff — see `PROJECT_LOG.md`'s 2026-09-30 merge entry for the full disclosure), but every test that did run (~93% of 2851 collected, all 5 scoped AGI test files 39/39, all 8 backup-secrets tests) passed clean once a known ambient-`HTTP_PROXY` false-alarm (`NEW-518` repeat) was ruled out. Live steps remain in `LIVE_TEST_QUEUE.md` [AGI-1], for Ish to run himself. Findings `NEW-729`..`NEW-734` (renumbered at merge time from the branch's original `NEW-546`..`NEW-551`, which collided with IDs `main` had independently allocated to unrelated RBAC findings after the branch was cut — no existing `main` ID was changed). Per rule 1 (as amended 2026-09-30) self-improvement is gated by `CODEY_SELF_IMPROVE` (default off) and the promotion gate; no capability-level evaluator exists yet, so the optimizer deploys nothing. All new env flags (`CODEY_TRAJECTORY`, `CODEY_SELF_IMPROVE`, `CODEY_USE_FIX_MEMORY`) remain unset in every launcher/config/`install.sh`. 4.2 was withdrawn as not-a-defect (rule 6). Rollback: `rollback/2026-09-30-pre-agi-merge` tag @ pre-merge `main` (`910e485`), in addition to `rollback/2026-09-30-pre-agi-audit-fixes` @ `91ee3c1`. **Branch cleanup, 2026-09-30 — COMPLETE, `main` is now the only branch.** `feat/termux-api-agent-tools` merged (`3216ac4`, present but inert — see Appendix A's branch-cleanup entry). `feat/estimator-phase3-schema` found to be a stale zombie — it was already merged into `main` and deleted once before, 2026-09-29, as `bb7a59d` (see this section's B9 entry above); the `origin` copy found during cleanup was a leftover pre-merge snapshot with no unmerged value, deleted rather than merged (`NEW-735`, resolved). 3 other fully-redundant branches also deleted. Both rollback tags (`rollback/2026-09-30-pre-agi-audit-fixes`, `rollback/2026-09-30-pre-agi-merge`) kept, preserving both rollback points.
 
-### Action Gateway status — 2026-10-08 (blueprint §21 WP2.1)
+### Action Gateway status — 2026-10-09 (blueprint §21 WP2.1)
 
 - [x] **WP2.1 slice 6 / `NEW-848`** — parked-escalation dispatch gated
   (`a9fcb14`); code-complete + code-reviewer-approved, 37 scoped tests.
@@ -5415,12 +5432,25 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   — `a094d1a`, reviewer-approved, 52 new cases / 110 focused tests.
   HIGH_IMPACT confirmation and preflight; honest failure despite possible
   partial effects. Full-repository detached scope and recovery limits remain.
-- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
-  census and implement remaining mutation surfaces sequentially, with reviewed
-  commits/push each slice (user instruction 2026-10-09).
-  Preserve confirmation and
-  distinguish external publishing from working-file changes.
-  CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
+- [x] **WP2.1 slice 17 / shell refusal accounting (`NEW-836`, shell portion
+  of `NEW-837`)** — `919d9c4`, reviewer-approved, 47 new cases / 112 focused
+  tests. Existing human/daemon denials audit refused without execution;
+  cancellation does not log shell success. Classifier/returncodes unchanged.
+- [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
+  source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
+  201 searched files, 1,384 unresolved candidates in 122 files, including false
+  positives; dynamic/non-Python/sibling coverage remains open. 14 work groups
+  plus closure, not 14 promised slices. Next shell classification (`NEW-873`),
+  execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
+  device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
+  boundaries and final closure. Preserve confirmation; distinguish publishing
+  from working-file changes. Reviewed commit/push after each slice, continued
+  without stopping (user instruction 2026-10-09).
+- [ ] **Shell classification/failure and peer bookkeeping (`NEW-873`,
+  `NEW-874`, `NEW-844`)** — ordinary shell git push is ACT despite helper
+  HIGH_IMPACT policy; subprocess nonzero/caught errors can audit allowed.
+  Both source-confirmed, no live push/failure reproduction claimed. Attempted
+  peer execution plus later bookkeeping failure remains distinct from refusal.
 - [ ] **CCOS Git manifest/export alignment (`NEW-864`)** — source-confirmed
   16 declared capabilities versus one exported helper; standalone plugin
   test also imports missing names. Architect-scope registry/export/test

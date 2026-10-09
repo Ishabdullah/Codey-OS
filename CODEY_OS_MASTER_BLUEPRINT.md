@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-16 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-16: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-17 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-17: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2920,6 +2920,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `d288726` (slice 13;
 reviewed by `/root/code_reviewer`, APPROVED), `4ac1a7f` (slice 14;
 reviewed by `/root/code_reviewer`, APPROVED), `24fecfd` (slice 15;
 reviewed by `/root/code_reviewer`, APPROVED), `a094d1a` (slice 16;
+reviewed by `/root/code_reviewer`, APPROVED), `919d9c4` (slice 17;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3373,11 +3374,40 @@ reviewed by `/root/code_reviewer`, APPROVED).
   No completeness/identity, concurrent-replacement or atomicity guarantee.
   Audit best effort; failed reasons can retain Git/path diagnostics.
   Next: fresh census/scope and sequential work for remaining WP2.1 surfaces.
+- **Slice 17 (2026-10-09, shell refusal accounting, `919d9c4`):**
+  `refuse_exec` audits a caller's existing UI/policy rejection without a thunk;
+  READ/ACT policy itself is unchanged. HIGH_IMPACT uses actual strict-True
+  callback approval once; absent path refuses before warning/prompt/execution.
+  READ/ACT retain existing warning/prompt choices before mediation; declined
+  prompts keep CANCELLED, unavailable/failed prompts block with static reasons.
+  All three daemon allowlist refusals retain original warnings/public strings,
+  add one refused audit and never call shell; accepted commands delegate once.
+  Cancelled shell results skip episodic success, is_error behavior unchanged.
+  **Evidence:** 47 new cases; implementer 112/3.53s, reviewer 112/2.87s,
+  coordinator 112/2.04s. Precollection state isolation; real harmless temporary
+  pwd, mocked hazardous execution. New-file/focused lint pass; four production
+  Ruff 81 vs 81 baseline, agent existing F841. Full suite excluded NEW-791,
+  type checker unavailable, no dependency/setup change or live model/peer/
+  network/store/project mutation. Code-complete + code-reviewer-approved.
+  **Limits:** NEW-836 and shell refusal/episodic portion of NEW-837 covered;
+  attempted execution/peer bookkeeping NEW-844 and subprocess failure NEW-874
+  remain. Raw shell commands remain in audit; sink persistence best effort.
+  Classification unchanged: NEW-873 ordinary shell git push is ACT and can
+  bypass dedicated helper publishing approval. Both new findings source-only.
+  **Remaining census:** `docs/census-2026-10-09/WP2.1_remaining_scope.md`
+  with searched/candidate TSVs; 201 non-test Python files, 1,384 candidates in
+  122 files/zero parse failures, including false positives. All candidate
+  dispositions remain unresolved; dynamic/non-Python/sibling reachability is
+  open. Coordinated baseline 639f18f, scanner retained no source hashes/script.
+  14 work groups plus final closure, not a remaining-slice promise. Next:
+  shell classification → failure fidelity → isolation → CCOS/permissions/
+  resources → device → business → notifications → HTTP → user files →
+  backups → internal persistence → lifecycle/admin → promotion → closure.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all sixteen slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all seventeen slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-16 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-17 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3386,13 +3416,15 @@ reviewed by `/root/code_reviewer`, APPROVED).
   nonempty checkpoint Git attempts, local branch creation, confirmed push
   and branch/ref checkout/merge plus independent checkpoint rollback;
   the four-of-42 write-primitive count does not measure Git subprocess coverage.
-  Shell exec has two known gaps (`NEW-836`,
-  daemon allowlist refusals; `NEW-837`, declined-confirmation audit
-  fidelity); `/peer` bypass `NEW-849` is closed, while `NEW-850`
+  Shell human/daemon refusal audit and cancellation success logging are fixed
+  by slice 17 (`NEW-836`, shell portion of `NEW-837`). Shell publishing-policy
+  bypass `NEW-873` and failed-execution audit `NEW-874` remain; `/peer` bypass
+  `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
   plus latent parked-execution
-  semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
-  deferred, low real traffic), outbound HTTP, DB writes,
+  semantics (`NEW-852`..`NEW-854`) and NEW-844 bookkeeping failure. CCOS has
+  actual agent/daemon/CRM/API callers; low traffic is unmeasured, not an
+  exemption. Capability invocation, outbound HTTP, DB writes,
   message/email sends, and device actions remain entirely untouched. Known
   helper/checkpoint Git mutation paths are mediated, including rollback.
   This does not establish coverage of every other Git/process entry point. `NEW-860`/`NEW-861`
@@ -3400,12 +3432,13 @@ reviewed by `/root/code_reviewer`, APPROVED).
   `NEW-862` is covered by slice 16. Checkpoint creation backup/database writes,
   pruning, identity `NEW-863` and recovery limits `NEW-810`/`NEW-871`/`NEW-872`
   remain open. The four-of-42 count does not credit partly mediated checkpoint
-  creation/pruning; a fresh remaining-surface census is next.
+  creation/pruning. Fresh provisional census records 201 searched files and
+  1,384 unresolved candidates; no full side-effect coverage is implied.
   CCOS Git manifest/export mismatch `NEW-864` awaits scoped alignment
   after mutation policy coverage and before CCOS wiring.
   Push parsing `NEW-865` and unused interactive-helper fallback `NEW-866`
-  are not fixed; optional confirmation has not been applied to shell paths
-  (`NEW-837`) or other callback-free gateways. Merge conflict substring
+  are not fixed; shell HIGH_IMPACT now uses an actual confirmation callback
+  (slice 17). Other callback-free gateways still need closure. Merge conflict substring
   classification `NEW-869` is also open.
   Notes mediation is covered; `NEW-846` content trust and notes integrity/cache
   findings (`NEW-857`..`NEW-859`) remain open.**

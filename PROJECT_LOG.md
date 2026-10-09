@@ -1,3 +1,107 @@
+## 2026-10-09 — WP2.1 slice 17: shell refusal accounting and remaining-source census
+
+**Previous slice published:** rollback code `a094d1a`, records `639f18f`.
+Literal actual push (publication is separate from isolated tests):
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   98bfa9e..639f18f  main -> main
+```
+
+**Change (`919d9c4`):** gateway refuse_exec records existing caller/UI rejection
+without an execution thunk; validates authority, emits exec-shaped refused audit
+and preserves best-effort sink behavior. Shell HIGH_IMPACT uses strict True
+callback approval once; no path still refuses before warning/prompt/execution.
+READ/ACT keep existing prompts/warnings before gating, decline returns exact
+CANCELLED and audit refused, unavailable/interrupted/ordinary prompt failure
+blocks with static reasons without exception text. Dangerous ACT still prompts
+with confirm_shell=False/yolo=False; YOLO skips. Daemon's three existing guard
+rejections retain exact warnings/public BLOCKED strings and add one refusal;
+accepted commands delegate once. Cancelled shell results no longer record
+successful episodic actions; is_error cancellation behavior stays unchanged.
+Classification/subprocess outcomes/peer semantics are deliberately separate.
+
+**Pipeline:** architect source census/spec → implementer built/tested → reviewer
+APPROVED → coordinator checked → exact five-file code commit. 47 new cases;
+implementer 112 in 3.53s, reviewer independently same 112 in 2.87s, coordinator
+112 in 2.04s. Initial implementer 107 in 2.56s before added explicit prompt/gate
+ordering and independently isolated YOLO checks. Real harmless pwd in temporary
+cwd; hazardous execution mocked. Temporary JSONL verifies exact single audit
+fields, strict approval, decline, prompt failures/secrets, blocked audit sink,
+all daemon refusals/accepted delegation and episodic cancelled/approved behavior.
+Config state Paths redirected before collection (NEW-855), RESTORICON copy and
+audit temp env, no HOME override. No model, peer, network, live-store or project
+mutation. Code-complete + code-reviewer-approved, no live operation claim.
+No dependency/setup change. Full suite excluded NEW-791; command -v mypy pyright
+ty produced no output/exit 127, so no available type checker. Complete literal
+diff in commit; scratch artifact /data/data/com.termux/files/usr/tmp/codey-slice17.diff.
+
+**Findings/status:** NEW-836 and shell refusal/episodic portion of NEW-837
+covered; broader attempted-error/bookkeeping issues NEW-844/874 remain. NEW-873
+plain shell git push is ACT despite dedicated helper HIGH_IMPACT policy;
+NEW-874 subprocess returncode ignored and caught errors can audit allowed.
+Both confirmed from source only, no live publishing or project failure
+reproduction claimed. Audit retains original raw commands, persistence remains
+best effort. No general classification/completion guarantee.
+
+**Provisional remaining census:** permanent Markdown plus searched_files.tsv
+and candidate_calls.tsv in docs/census-2026-10-09. Architect scanned 201 non-test
+Python files, zero parse failures, 1,384 candidate calls in 122 files. Coordinator
+compared all matching paths in the selected roots: 201 files, no missing path
+or candidate outside searched list. False positives retained; every candidate
+TSV row unresolved. This is file-list scope evidence, not destructive-action
+counts, runtime closure or exemptions. Coordinated baseline 639f18f before slice
+17; scanner did not retain HEAD/file hashes or standalone script, so no pinned/
+reproducible scan claim. Original expressions in temporary JSON supporting
+artifact. Shell/JS/native/sibling/dynamic/generated executable coverage remains
+open. Existing 4-of-42 write-file counter is not overall progress. 14 remaining
+work groups plus closure require further bounded slices, exact count unknown.
+CCOS has real dispatch callers; low traffic is unmeasured, not an exemption.
+
+**Literal coordinator checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice17-validate.py -q tests/test_shell_refusal_accounting.py tests/test_shell_tools.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_task_executor_telemetry.py
+........................................................................ [ 64%]
+........................................                                 [100%]
+112 passed in 2.04s
+
+$ ruff check tests/test_shell_refusal_accounting.py
+All checks passed!
+
+$ ruff check core/action_gateway.py tools/shell_tools.py core/task_executor.py tests/test_shell_refusal_accounting.py --select F,E9
+All checks passed!
+
+$ ruff check core/action_gateway.py core/agent.py core/task_executor.py tools/shell_tools.py --statistics
+23	BLE001 	[ ] blind-except
+18	UP045  	[*] non-pep604-annotation-optional
+11	UP006  	[*] non-pep585-annotation
+ 9	S110   	[ ] try-except-pass
+ 7	I001   	[*] unsorted-imports
+ 4	UP035  	[-] deprecated-import
+ 2	PIE810 	[ ] multiple-starts-ends-with
+ 2	PLW1510	[ ] subprocess-run-without-check
+ 1	SIM102 	[ ] collapsible-if
+ 1	SIM103 	[ ] needless-bool
+ 1	UP024  	[*] os-error-alias
+ 1	EXE001 	[ ] shebang-not-executable
+ 1	F841   	[ ] unused-variable
+Found 81 errors.
+[*] 38 fixable with the `--fix` option (4 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Production Ruff 81 vs baseline 81: one prompt Exception catch added, one
+collapsible-if removed. Agent retains unused duration F841; new/focused checks
+pass, no fully-lint-clean claim. All maintained records/artifacts get independent
+review before records commit. User continuous authorization retained: push this
+slice, then architect-scope shell classification and continue sequentially with
+brief updates, reviewed commit/push after every slice, without stopping.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 16: confirmed checkpoint rollback and truthful failure
 
 **Prior slice published:** code `24fecfd`, records `98bfa9e`, approved
