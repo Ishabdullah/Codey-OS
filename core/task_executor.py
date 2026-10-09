@@ -486,7 +486,14 @@ class TaskExecutor:
         Anything else is blocked with a clear message so the model knows
         to restructure its approach rather than silently failing.
         """
-        from tools.shell_tools import shell
+        from core.action_gateway import get_action_gateway
+        from tools.shell_tools import classify_shell_command, shell
+
+        def refuse(reason):
+            get_action_gateway().refuse_exec(
+                authority=classify_shell_command(command),
+                action="task_executor.daemon_shell", command=command, reason=reason,
+            )
 
         cmd = command.strip()
 
@@ -497,6 +504,7 @@ class TaskExecutor:
             # Validate Python/pip commands more strictly
             if not any(cmd.startswith(p) for p in _PYTHON_ALLOWED_PATTERNS):
                 warning(f"Daemon: blocked Python/pip command: {cmd[:80]}")
+                refuse("Daemon Python/pip command pattern is not permitted.")
                 return (
                     f"[BLOCKED] Daemon mode will not run '{cmd[:60]}'. "
                     "Only 'python script.py' and 'pip install package' are allowed."
@@ -505,9 +513,11 @@ class TaskExecutor:
             for flag in _DANGEROUS_FLAGS:
                 if flag in cmd:
                     warning(f"Daemon: blocked dangerous flag '{flag}' in: {cmd[:80]}")
+                    refuse("Daemon Python/pip command contains a prohibited flag.")
                     return f"[BLOCKED] Flag '{flag}' is not allowed in daemon mode."
         elif not any(cmd.startswith(p) for p in _DAEMON_ALLOWED_PREFIXES):
             warning(f"Daemon: blocked shell command: {cmd[:80]}")
+            refuse("Daemon command prefix is not permitted without explicit authorization.")
             return (
                 f"[BLOCKED] Daemon mode will not run '{cmd[:60]}' without "
                 "explicit authorization. Add the command prefix to "

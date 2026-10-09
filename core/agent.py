@@ -822,6 +822,7 @@ def execute_tool(tool_dict):
             (_is_write or _is_patch or name == "shell")
             and not result.startswith("[ERROR]")
             and not result.startswith("[BLOCKED]")
+            and not (name == "shell" and result.startswith("[CANCELLED]"))
         ):
             from core.memory_v2 import memory as _mem
 

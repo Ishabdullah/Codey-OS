@@ -333,6 +333,28 @@ class ActionGateway:
         )
         return decision
 
+    def refuse_exec(
+        self, *, authority: str, action: str, command: str, reason: str
+    ) -> GatewayDecision:
+        """Record the caller's existing UI/policy rejection without executing.
+
+        This does not impose a new refusal policy on READ or ACT; the caller
+        has already rejected the attempt. Audit sink OSErrors remain best effort.
+        """
+        if authority not in AUTHORITY_CLASSES:
+            raise ValueError(f"Unknown authority class: {authority!r}")
+        decision = GatewayDecision(
+            authority=authority,
+            outcome=OUTCOME_REFUSED,
+            reason=reason,
+            detail={"action": action, "command": command},
+        )
+        self._audit(
+            authority=authority, action=action, command=command,
+            outcome=decision.outcome, reason=decision.reason,
+        )
+        return decision
+
     def gate_exec(
         self,
         *,

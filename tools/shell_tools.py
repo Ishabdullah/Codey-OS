@@ -296,7 +296,8 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
     closed — refused and audited, never executed. Classification only
     affects the audit label and the HIGH_IMPACT fail-closed rule; it does
     NOT change the existing confirm-prompt behavior below for READ/ACT
-    commands.
+    commands. Prompt declines are audited as refused; unavailable or
+    interrupted prompts block without exposing exception text.
 
     Args:
         command: The shell command to execute
@@ -318,36 +319,55 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
     # in exactly those contexts — the opposite of the intended tightening.
     confirm_available = (not yolo) and bool(AGENT_CONFIG.get("confirm_shell", True))
 
-    def _attempt() -> str:
-        # Existing confirm-prompt-then-execute logic, unchanged: the gate
-        # above decides *whether to attempt*, not how the attempt behaves
-        # once allowed.
-        should_confirm = False
-
-        if is_dangerous(command):
+    gateway = get_action_gateway()
+    confirm = None
+    if authority == HIGH_IMPACT:
+        if confirm_available:
+            def confirm():
+                if is_dangerous(command):
+                    warning(f"Potentially dangerous command: `{command}`")
+                return ask_confirm(f"Run shell command: `{command}`?")
+    else:
+        # Preserve READ/ACT UI choices before mediation, so cancellation is
+        # recorded as refusal rather than a successfully executed command.
+        dangerous = is_dangerous(command)
+        if dangerous:
             warning(f"Potentially dangerous command: `{command}`")
-            should_confirm = True
-        elif AGENT_CONFIG.get("confirm_shell", True) and not yolo:
-            should_confirm = True
+        if (dangerous or AGENT_CONFIG.get("confirm_shell", True)) and not yolo:
+            try:
+                approved = ask_confirm(f"Run shell command: `{command}`?") is True
+            except (EOFError, KeyboardInterrupt):
+                # Missing/interrupted human input cannot authorize execution.
+                reason = "Human confirmation unavailable or interrupted; command not attempted."
+            except Exception:
+                # Fail closed without persisting arbitrary prompt exception text.
+                reason = "Human confirmation unavailable due to callback failure; command not attempted."
+            else:
+                reason = None if approved else "Human confirmation declined; command not attempted."
+            if reason is not None:
+                gateway.refuse_exec(
+                    authority=authority, action="shell_tools.shell",
+                    command=command, reason=reason,
+                )
+                if reason == "Human confirmation declined; command not attempted.":
+                    return "[CANCELLED] User declined to run command."
+                return f"[BLOCKED] {reason}"
 
-        if should_confirm and not yolo:
-            if not ask_confirm(f"Run shell command: `{command}`?"):
-                return "[CANCELLED] User declined to run command."
-
-        return _execute_shell_command(command, timeout)
-
-    decision = get_action_gateway().gate_exec(
+    decision = gateway.gate_exec(
         authority=authority,
         action="shell_tools.shell",
         command=command,
         confirm_available=confirm_available,
-        execute=_attempt,
+        confirm=confirm,
+        execute=lambda: _execute_shell_command(command, timeout),
     )
     if decision.outcome == OUTCOME_REFUSED:
+        if decision.reason == "Human confirmation declined; command not attempted.":
+            return "[CANCELLED] User declined to run command."
         return f"[BLOCKED] {decision.reason}"
     if decision.outcome == OUTCOME_FAILED:
-        # Not reachable in practice today — _attempt()/_execute_shell_command()
-        # already catch every exception internally and return an "[ERROR] ..."
+        # Not reachable in practice today — _execute_shell_command()
+        # catches ordinary execution exceptions internally and returns an "[ERROR] ..."
         # string rather than raising — but handled explicitly rather than
         # silently falling through to the ALLOWED-shaped return below.
         return f"[ERROR] {decision.reason}"
