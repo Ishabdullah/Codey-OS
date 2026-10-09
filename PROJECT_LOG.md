@@ -1,3 +1,119 @@
+## 2026-10-09 — WP2.1 slice 14: branch/ref checkout mediation; prior work pushed
+
+**Publication requested by user:** completed work was already committed
+through `c8007ca`. Coordinator pushed reviewed commits to GitHub main
+before starting this slice; unrelated .claude agent-memory edits stayed
+unstaged/uncommitted. Literal output:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   fd5c1ed..c8007ca  main -> main
+```
+
+**Change (`4ac1a7f`):** `git_checkout` is constrained to branch/ref
+switching and mediated as ACT / `githelper.git_checkout` / static command
+`local git checkout attempt`. Leading-dash option targets are rejected
+before gateway/subprocess except exact `-` (previous branch). Command is
+now `git checkout <ref> --`; the trailing separator stops filename-only
+restoration. Normal branch switching and detached hash/ref checkout remain
+available. Original stderr-first/stdout/fallback output, Git failure
+strings and original subprocess exception identity persist. Nonzero Git
+status audits failed; unexpected refusal never executes. No second prompt
+or callback was added. docs/commands.md explains branch/ref-only behavior.
+
+**Main behavior unchanged:** existing y-only confirmation also runs under
+YOLO; n/yes/blank/EOF/interrupt cancels before helper/gateway invocation.
+No mutation attempt or cancellation audit is added for those cancellations.
+Successful audit metadata is static; Git failure reasons may retain stderr.
+Audit sink persistence remains best effort. Git dirty-change protection is
+retained, but no general recovery/atomicity/rollback guarantee is claimed.
+Merge, independent checkpoint rollback (NEW-862/810), backups/database
+writes/pruning, plugin exports (NEW-864), parsing/environment findings
+NEW-865/866 and the rest of WP2.1 remain open.
+
+**Pipeline:** architect reported scoped spec and disposable Git evidence
+→ implementer built/tested → independent reviewer APPROVED → coordinator
+independently verified → exact three-file code commit. Thirty new cases
+cover clean switching between different commits/file contents, same-HEAD
+staged/dirty preservation, branch/file collision, filename-only protection,
+detached hash, previous '-' success/failure, leading option rejection,
+Git-protected dirty conflicts, missing ref/nonrepo/default/explicit cwd,
+exact output priority/argv, refusal, original exception identity, blocked
+audit parent and real private main/history/unchanged prompt. Git variables,
+configuration/templates/hooks/signing isolated before initialization;
+config state redirected before collection (`NEW-855`). No HOME override.
+No network/push, project checkout, model, peer or live-store test. The
+coordinator's authorized GitHub publication above is separate from test
+activity. Code-complete + code-reviewer-approved; no live-project/model
+verification claimed. No setup/dependency change. Full suite excluded
+(`NEW-791`); type checker unavailable (command -v mypy pyright ty, no output).
+
+**Refinement:** initial run passed 165 in 48.29s. Coordinator requested
+one additional clean different-commit/file-content switch test; final
+implementer run passed 166 in 51.48s. No failing run reported. Independent
+reviewer used the 72-case four-file checkout/gateway subset (not all 166),
+passing in 18.48s, plus adversarial source review. Literal reviewer command:
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice14-validate.py -q tests/test_git_checkout_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py
+72 passed in 18.48s
+```
+
+**NEW-867, confirmed and resolved:** prior helper passed raw names as Git
+operands; option `--force` could discard dirty changes and filenames could
+select restoration mode. Architect reproduced force loss only in a fresh
+isolated disposable repository and tested proposed branch-only semantics.
+Literal architect excerpt:
+
+```text
+('checkout', 'other', '--') code= 0 branch= other
+('checkout', '-', '--') code= 0 branch= main
+branch-only path operand: 128 file preserved= True
+original raw force operand: 0 dirty lost= True
+```
+
+No live-project data-loss incident asserted. Path-mode concern was source-
+confirmed; post-fix tests prove filename-only input fails and retains dirty
+bytes. Fix is limited to this helper; checkpoint checkout stays separate.
+Complete literal code/test diff is in commit `4ac1a7f`; temporary artifact
+/data/data/com.termux/files/usr/tmp/codey-slice14.diff.
+
+**Literal coordinator verification:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice14-validate.py -q tests/test_git_checkout_gateway.py tests/test_action_gateway_confirmation.py tests/test_git_push_gateway.py tests/test_git_branch_gateway.py tests/test_git_commit_gateway.py tests/test_checkpoint_git_gateway.py tests/test_action_gateway.py tests/test_action_gateway_audit_failure.py tests/test_main_peer_gateway.py
+........................................................................ [ 43%]
+........................................................................ [ 86%]
+......................                                                   [100%]
+166 passed in 58.81s
+
+$ ruff check tests/test_git_checkout_gateway.py
+All checks passed!
+
+$ ruff check core/githelper.py tests/test_git_checkout_gateway.py --select F,E9
+All checks passed!
+
+$ ruff check core/githelper.py --statistics
+20	PLW1510	[ ] subprocess-run-without-check
+16	RUF013 	[ ] implicit-optional
+12	UP006  	[*] non-pep585-annotation
+ 2	BLE001 	[ ] blind-except
+ 1	UP035  	[ ] deprecated-import
+ 1	PIE810 	[ ] multiple-starts-ends-with
+ 1	S110   	[ ] try-except-pass
+Found 53 errors.
+[*] 12 fixable with the `--fix` option (17 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+New-file/focused lint pass; the 53 full-helper findings are unchanged
+baseline debt. Records receive a separate mandatory review before commit;
+user-requested publication of this round follows its reviewed commits.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 13: Git push requires explicit human confirmation
 
 **Change (`d288726`):** Git push publishes repository data and is now

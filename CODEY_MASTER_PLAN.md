@@ -737,6 +737,19 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 14, branch/ref checkout, 2026-10-09** (`4ac1a7f`)
+  — ACT mediation with option rejection (except previous-branch `-`) and
+  trailing `--` prevents file restoration through the branch/ref helper.
+  Main's existing y-only prompt, including YOLO, remains unchanged;
+  cancellations precede any gateway attempt/audit. Original Git output/error
+  formatting and exception identity preserved. 30 new cases; implementer/
+  coordinator 166 bounded tests, reviewer 72-test checkout/gateway subset.
+  Real temporary Git, code-complete + code-reviewer-approved. `NEW-867`
+  resolved; original force loss reproduced only in a disposable repository.
+  No live-project checkout/model/peer verification claimed. Merge and
+  independent checkpoint rollback remain ungated. Prior commits pushed to
+  GitHub through `c8007ca` on user request; publication is separate from tests.
+
 - **WP2.1 slice 13, confirmed Git push, 2026-10-09** (`d288726`)
   — push is HIGH_IMPACT and requires a human callback's explicit True.
   Ordinary interactive `/git push` prompts once; direct callback-free,
@@ -744,8 +757,9 @@ scoped to what it actually proved.
   Optional gateway confirmation leaves existing callback-free/READ/ACT
   contracts intact. 36 new cases, 136 bounded tests; real temporary local
   bare remote, code-complete + code-reviewer-approved. No network/project
-  publication or live-model verification claimed. Checkout, merge and
-  independent checkpoint rollback remain ungated. Source-only parsing and
+  publication or live-model verification claimed. At slice 13, checkout,
+  merge and independent checkpoint rollback remained ungated; core checkout
+  is mediated by slice 14 above. Source-only parsing and
   dormant environment-helper findings `NEW-865`/`NEW-866` logged open.
 
 - **WP2.1 slice 12, local branch creation, 2026-10-08** (`187f7a8`)
@@ -5362,9 +5376,13 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   reviewer-approved, 136 bounded tests / 36 new cases. HIGH_IMPACT callback
   approval required; callback-free/YOLO/headless calls refuse. Local temporary
   bare-remote evidence; no network/project publishing claimed.
+- [x] **WP2.1 slice 14 / branch-ref checkout (`NEW-867`)** — `4ac1a7f`,
+  reviewer-approved; 30 new cases, 166 bounded tests, reviewer 72-test subset.
+  ACT attempts preserve intended switching/output; options rejected and
+  trailing `--` prevents file restoration. Main prompt unchanged.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
-  architect-scope checkout and merge, including the
-  independent checkpoint rollback checkout. Preserve confirmation and
+  architect-scope merge and independent checkpoint rollback checkout.
+  Preserve confirmation and
   distinguish external publishing from working-file changes.
   CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
 - [ ] **CCOS Git manifest/export alignment (`NEW-864`)** — source-confirmed

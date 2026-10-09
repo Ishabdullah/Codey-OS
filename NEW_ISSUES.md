@@ -20985,3 +20985,15 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Boundary:** slice 13 does not reuse this helper; new push availability treats TTY-check errors as unavailable and refuses. No peer helper change or peer execution bundled.
 - **Fix direction:** review fail-closed environment detection before reusing the helper; independently establish production reachability if it is wired later.
 - **Cross-reference:** `core/peer_cli.py::is_interactive_environment`, `tests/test_escalation_review_queue.py`, master Appendix A.
+
+
+## 2026-10-09 — WP2.1 slice 14: branch/ref checkout mediated
+
+- **Coverage:** `4ac1a7f` mediates branch/ref-only `git_checkout` as ACT with static metadata. Leading options rejected except previous-branch `-`; trailing `--` prevents filename-only restoration. Normal branch/hash checkout, cwd, output priority/error strings and subprocess exception identity persist. Main y-only prompt (also YOLO) unchanged; cancellation precedes helper and has no gateway attempt/audit. 30 new cases; implementer/coordinator 166 bounded tests, independent reviewer 72-case checkout/gateway subset. Real temporary Git only, no network/project checkout/model/peer/live-store test. Full WP2.1 DoD remains open; merge and independent checkpoint rollback still need scoping. Audit persistence is best effort; Git failure reasons may retain stderr.
+
+### [NEW-867] Confirmed and fixed: branch checkout helper accepted raw options and filename restoration operands
+
+- **Status:** Fixed (`4ac1a7f`), code-complete + code-reviewer-approved. Previously `git_checkout(name)` passed unchecked name directly in `git checkout name`. Architect reproduced original raw `--force` discarding dirty bytes in an isolated disposable repository. File-path mode risk is source-confirmed; no pre-fix filename restoration reproduction or live-project data-loss incident claimed.
+- **Resolution:** reject leading option inputs except exact `-` before gateway/subprocess; append trailing `--` to enforce branch/ref interpretation. Real tests verify option refusal preserves HEAD/index/dirty bytes, filename-only input fails without restoring, branch/file collision selects the branch, Git dirty-switch protection remains and intended branch/hash/previous-branch behavior works. ACT attempts are audited; nonzero Git results audit failed.
+- **Boundary:** independent checkpoint rollback still issues its own checkout and is not covered (NEW-862/810); shell command surfaces and plugin export mismatch (NEW-864) unchanged. No cancellation audit added to main's pre-attempt prompt. This is a branch/ref API, not support for arbitrary Git checkout modes.
+- **Cross-reference:** `core/githelper.py::git_checkout`, `tests/test_git_checkout_gateway.py`, `docs/commands.md`, blueprint §21 WP2.1 slice 14, master §4.2 / Appendix A.
