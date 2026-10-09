@@ -102,7 +102,7 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 | `/git branches` | List all branches (current highlighted) |
 | `/git branch <name>` | Create and switch to a new branch |
 | `/git checkout <name>` | Switch branch/ref with a y-only confirmation prompt (also in YOLO); no options or file restoration |
-| `/git merge <branch>` | Merge with conflict detection and resolution flow |
+| `/git merge <branch>` | Merge a branch/ref without options; conflict resolution flow remains available. Failed merges may leave changed files, index entries, and MERGE_HEAD |
 | `/git commit` | Generate an AI commit message from diff — you approve before commit |
 | `/git commit "msg"` | Commit with an exact message |
 | `/git diff` | Show the current diff |

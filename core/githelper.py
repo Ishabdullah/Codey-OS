@@ -339,22 +339,54 @@ def git_checkout(name: str, path: str = None) -> str:
 
 
 def git_merge(branch: str, path: str = None) -> str:
-    """
-    Merge `branch` into the current branch.
+    """Merge a branch/ref through ACT mediation; options are not accepted.
 
-    Returns:
-        "OK: <output>"              on clean merge
-        "[CONFLICT] <output>"       when conflict markers were written
-        "[ERROR] <message>"         on other failure
+    Failed merges can leave changed files, index entries, and MERGE_HEAD.
+    Returns the existing OK:, [CONFLICT], or [ERROR] output strings.
     """
+    if branch.startswith("-") and branch != "-":
+        return f"[ERROR] Merge options are not supported: '{branch}'"
+
+    from core.action_gateway import ACT, get_action_gateway
+
     path = path or os.getcwd()
-    result = subprocess.run(["git", "merge", branch], capture_output=True, text=True, cwd=path)
-    combined = (result.stdout + result.stderr).strip()
-    if result.returncode == 0:
-        return f"OK: {combined or 'Merged successfully.'}"
-    if "CONFLICT" in combined.upper():
-        return f"[CONFLICT] {combined}"
-    return f"[ERROR] {combined}"
+    output = None
+    original_error = None
+
+    def execute():
+        nonlocal output, original_error
+        try:
+            result = subprocess.run(
+                ["git", "merge", "--", branch], capture_output=True, text=True, cwd=path
+            )
+        except Exception as exc:
+            # Audit failed execution, then preserve the caller's original
+            # subprocess exception instead of replacing it with a decision.
+            original_error = exc
+            raise
+        combined = (result.stdout + result.stderr).strip()
+        if result.returncode == 0:
+            output = f"OK: {combined or 'Merged successfully.'}"
+            return output
+        if "CONFLICT" in combined.upper():
+            output = f"[CONFLICT] {combined}"
+        else:
+            output = f"[ERROR] {combined}"
+        # A conflicted merge was attempted but did not complete successfully.
+        raise RuntimeError(output)
+
+    decision = get_action_gateway().gate_exec(
+        authority=ACT,
+        action="githelper.git_merge",
+        command="local git merge attempt",
+        confirm_available=False,
+        execute=execute,
+    )
+    if original_error is not None:
+        raise original_error
+    if output is not None:
+        return output
+    return f"[ERROR] Local git merge {decision.outcome}: {decision.reason}"
 
 
 # ── Conflict detection & parsing (Phase 3.2) ──────────────────────────────────
