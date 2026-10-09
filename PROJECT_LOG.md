@@ -1,3 +1,151 @@
+## 2026-10-09 — WP2.1 slice 24: installed-Git boundary for dedicated calls
+
+**Previous slice published:** code `ed1e148`, records `17ffb82`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   9ed9fbb..17ffb82  main -> main
+```
+
+**Change (`ccbae49`):** lazy absolute installed-Git adapter, all 20 githelper +
+eight checkpoint calls migrated (queries/push/hash/authorized rollback included).
+Ordered candidates Python base installation/bin/git, /usr/bin/git and /bin/git,
+deduplicated. No PATH/cwd/repository/env override selection. Absolute regular
+executable required; existing unusable preferred entries (including broken links)
+and inspection errors fail, missing candidates fall back in order. Operands and
+kwargs untouched, input vector copied, return/exception identity retained. No
+import-time selection/state/spawn. Mutations keep selection inside existing gated
+thunks; push/rollback refusals neither select nor spawn. Nominal authority/prompt/
+audit/config/environment behavior unchanged, automatic checkpoints remain useful.
+
+**Trust/limits:** OS/Python package installation is trusted dependency. Location
+inspection does not verify package contents/digest/immutability or protect concurrent
+replacement; regular executable installation symlinks accepted. All kwargs remain
+trusted caller input/verbatim, including hypothetical executable/shell overrides;
+current 28 callers supply none. This is initial executable selection for these
+calls, not a general arbitrary-kwargs binding or process sandbox. Git config/hooks/
+filters/secondary helpers/inherited environment and query mediation/fidelity remain
+open under NEW-877; ACT effects not proven bounded. No query audit added or duplicate
+mutation audit. Next isolated administrative/operation-specific automatic/local
+commit contract, then query READ and checkout/merge contracts. NEW-875/874 open.
+
+**Pipeline/evidence:** architect → implementer → independent reviewer APPROVED
+→ coordinator checks → exact eleven-file code commit. 32 new cases (coordinator
+AST count of literal parameterization confirmed). Initial implementer suite 258
+passed in 34.49s; selection changed from lexists to lstat catching only not-found
+so inspection errors cannot silently fall back; three cases added. Final implementer
+261/34.77s, reviewer 261/83.94s (same eleven files, different order), coordinator
+261/87.08s. No test failures/skips. Real temporary Git with executable fake PATH git
+unused by queries/commits/checkpoints, intended scoped/clean hashes/unrelated staging,
+existing branch/checkout/merge/conflict/errors, file-only local-bare push and temporary
+Git/backups/SQLite rollback; refusal/import/forwarding/errors/absence tests.
+No model/peer/network/project checkout/merge/rollback/publishing/live-store test;
+coordinator GitHub push is separately authorized publication. Precollection config
+Path/DB/audit isolation NEW-855, no HOME override. No new dependency/install step:
+installer already installs Git for Termux/Linux. New/all touched-test/focused lint
+clean. Legacy production full Ruff 79→51: githelper 53→33, checkpoint 26→18, exactly
+28 migrated PLW1510 calls removed. Single documented adapter delegation suppression
+preserves caller-owned check kwargs; other debt retained. Initial PLW1510/I001 lint
+failures below, import spacing fixed before tests. Full suite excluded NEW-791/type
+checker unavailable. Code-complete + reviewer-approved, temporary Git mechanics
+verified; no additional live verification required. Full literal 1,155-line diff:
+/data/data/com.termux/files/usr/tmp/codey-slice24.diff. No legacy
+(githelper|checkpoint).subprocess Python references remain (rg exit1/no matches).
+
+**Literal coordinator installed-path inspection:**
+
+```text
+sys.base_prefix = /data/data/com.termux/files/usr
+candidate = /data/data/com.termux/files/usr/bin/git
+regular file = True
+symlink = False
+```
+
+**Literal coordinator checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice24-validate.py -q tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py
+........................................................................ [ 27%]
+........................................................................ [ 55%]
+........................................................................ [ 82%]
+.............................................                            [100%]
+261 passed in 87.08s (0:01:27)
+
+$ ruff check core/git_execution.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py
+All checks passed!
+
+$ ruff check core/githelper.py core/checkpoint.py core/git_execution.py --select F,E9,I
+All checks passed!
+
+$ ruff check core/githelper.py core/checkpoint.py core/git_execution.py --statistics
+18	RUF013	[ ] implicit-optional
+17	UP006 	[*] non-pep585-annotation
+ 5	BLE001	[ ] blind-except
+ 4	UP035 	[-] deprecated-import
+ 4	UP045 	[*] non-pep604-annotation-optional
+ 1	PIE810	[ ] multiple-starts-ends-with
+ 1	EXE001	[ ] shebang-not-executable
+ 1	S110  	[ ] try-except-pass
+Found 51 errors.
+[*] 22 fixable with the `--fix` option (19 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+**Literal initial implementer lint (corrected/documented before tests):**
+
+```text
+$ ruff check core/git_execution.py tests/test_git_execution.py --fix
+PLW1510 `subprocess.run` without explicit `check` argument
+  --> core/git_execution.py:44:12
+   |
+42 |         raise ValueError("Git argv must begin with the literal 'git' executable")
+43 |     executable = _trusted_git_executable()
+44 |     return subprocess.run([executable, *argv[1:]], **kwargs)
+   |            ^^^^^^^^^^^^^^
+help: Add explicit `check=False`
+
+Found 1 error.
+$ ruff check core/githelper.py core/checkpoint.py core/git_execution.py --select F,E9,I
+I001 [*] Import block is un-sorted or un-formatted
+  --> core/checkpoint.py:13:1
+   |
+11 |   """
+12 |
+13 | / import json
+14 | | import re
+15 | | import shutil
+16 | | import time
+17 | | from dataclasses import dataclass
+18 | | from pathlib import Path
+19 | | from typing import Callable, Dict, List, Optional
+20 | |
+21 | | from core.git_execution import run_git
+22 | |
+23 | | from core.state import get_state_store
+24 | | from utils.config import CHECKPOINT_DIR, CODE_DIR
+25 | | from utils.logger import info, success, warning
+   | |_______________________________________________^
+26 |
+27 |   # Checkpoint directory
+   |
+help: Organize imports
+   |
+21 | from core.git_execution import run_git
+   -
+22 | from core.state import get_state_store
+   |
+
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+```
+
+Tracking docs independently reviewed before records commit/push. User continuous
+publication/continuation authorization retained, no new issue ID allocated.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 23: constrained file search with truthful READ outcomes
 
 **Previous slice published:** code `49358e0`, records `9ed9fbb`. Actual push:

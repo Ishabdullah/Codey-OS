@@ -737,6 +737,21 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 24, dedicated installed-Git selection foundation, 2026-10-09**
+  (`ccbae49`) — 20 githelper + eight checkpoint Git calls use a lazy adapter
+  selecting absolute installation candidates without PATH/cwd/environment override.
+  Existing unusable preferred candidates and inspection errors fail explicitly;
+  missing candidates fall back in fixed order. Operands/kwargs/returns/errors,
+  ACT/HIGH labels and automatic checkpoint commits preserved. Current callers
+  have no executable/shell overrides; adapter kwargs are trusted/verbatim, not
+  a general arbitrary-kwargs binding or sandbox. Trust OS/Python installation
+  integrity, not contents/digest/immutability/replacement protection. 32 new
+  cases / 261 focused tests, reviewer-approved with temporary Git mechanics.
+  NEW-877 only partially addressed: configured hooks/helpers/inherited environment
+  and ungated query/failure coverage remain open. Next automatic/local commit
+  execution contract, then query and checkout/merge contracts. NEW-875/874 remain;
+  full WP2.1 DoD open. No new dependency or policy exception.
+
 - **WP2.1 slice 23, constrained search_files READ, 2026-10-09** (`ed1e148`) —
   external find replaced by in-process lstat/scandir basename recursion inside
   one READ gate; literal paths/patterns cannot become utility expressions or
@@ -5551,14 +5566,20 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   reviewer-approved, 44 new cases / 740 focused tests. In-process literal READ
   basename traversal with one truthful audit, no utility invocation; real temp
   trees/links/failure/cap/deadline/agent tests. Compatibility/timeout limits stated.
+- [x] **WP2.1 slice 24 / installed-Git selection (`NEW-877` foundation)** —
+  `ccbae49`, reviewer-approved, 32 new cases / 261 focused tests. All 28 helper/
+  checkpoint calls use lazy absolute installation selection, current operands/
+  kwargs/classification/automatic commit behavior preserved. Config/helper effects
+  and query auditing remain open; not general executable containment.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
   positives; dynamic/non-Python/sibling coverage remains open. 14 work groups
   plus closure, not 14 promised slices. Next remaining shell classification
   (`NEW-875`; direct shell Git/find/xargs/argument-bearing env covered;
-  search_files `NEW-878` fixed; dedicated Git contract `NEW-877` next, then
-  remaining wrappers/embedded execution),
+  search_files `NEW-878` fixed; `NEW-877` absolute selection foundation covered,
+  automatic/local commit execution contract next, then remaining Git/query and
+  wrappers/embedded execution),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
   boundaries and final closure. Preserve confirmation; distinguish publishing
@@ -5574,8 +5595,10 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   bypass/publishing/failure exploit claimed. Attempted peer execution plus
   later bookkeeping failure remains distinct from refusal.
 - [ ] **Dedicated Git execution contract (`NEW-877`)** — source-confirmed:
-  githelper queries/ACT mutations and checkpoint commit/query subprocesses
-  inherit repository/user configuration and environment. Hooks/helpers can
+  slice 24 replaces initial PATH lookup in all 28 dedicated calls with absolute
+  installation selection. Queries/ACT mutations and checkpoint commit/query
+  subprocesses still inherit repository/user configuration and environment.
+  Query mediation/failure coverage open. Hooks/helpers can
   introduce unbounded effects; nominal local classification is insufficient.
   No exploit reproduced. Scope constrained execution preserving useful automatic
   checkpoint commits, or appropriate authorization; do not trust config by name.
