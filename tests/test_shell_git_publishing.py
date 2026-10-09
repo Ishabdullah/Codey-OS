@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from core import action_gateway, agent, task_executor
-from core.action_gateway import ACT, HIGH_IMPACT, READ, ActionGateway
+from core.action_gateway import ACT, HIGH_IMPACT, ActionGateway
 from tools import shell_tools
 from utils.config import AGENT_CONFIG
 
@@ -71,7 +71,7 @@ def test_ambiguous_direct_git_is_conservatively_high(command):
 
 @pytest.mark.parametrize(
     ("command", "expected"),
-    [("git status", HIGH_IMPACT), ("git log", HIGH_IMPACT), ("git diff", HIGH_IMPACT), ("git show HEAD", HIGH_IMPACT), ("git commit -m message", HIGH_IMPACT), ("git -C /repo commit", HIGH_IMPACT), ("python3 -c 'print(1)'", ACT), ("env git push", READ), ("git custom-alias", HIGH_IMPACT), ("git send-pack /remote", HIGH_IMPACT), ("git-http-push /remote", HIGH_IMPACT), ("git-send-pack /remote", HIGH_IMPACT), ("find . -exec git push", READ), ("git --version push --force", HIGH_IMPACT), ("find . -delete", HIGH_IMPACT), ("python3 'unterminated", ACT)],
+    [("git status", HIGH_IMPACT), ("git log", HIGH_IMPACT), ("git diff", HIGH_IMPACT), ("git show HEAD", HIGH_IMPACT), ("git commit -m message", HIGH_IMPACT), ("git -C /repo commit", HIGH_IMPACT), ("python3 -c 'print(1)'", ACT), ("env git push", HIGH_IMPACT), ("git custom-alias", HIGH_IMPACT), ("git send-pack /remote", HIGH_IMPACT), ("git-http-push /remote", HIGH_IMPACT), ("git-send-pack /remote", HIGH_IMPACT), ("find . -exec git push", HIGH_IMPACT), ("git --version push --force", HIGH_IMPACT), ("find . -delete", HIGH_IMPACT), ("python3 'unterminated", ACT)],
 )
 def test_prior_labels_and_pattern_precedence(command, expected):
     assert shell_tools.classify_shell_command(command) == expected

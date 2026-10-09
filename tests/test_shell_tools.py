@@ -19,7 +19,7 @@ from utils.config import AGENT_CONFIG
 
 class TestClassifyShellCommand(unittest.TestCase):
     def test_read_commands(self):
-        for cmd in ("ls -la", "cat foo.txt", "grep -n x y", "pwd", "find . -name '*.py'"):
+        for cmd in ("ls -la", "cat foo.txt", "grep -n x y", "pwd"):
             self.assertEqual(classify_shell_command(cmd), READ, cmd)
 
     def test_act_commands(self):
@@ -28,6 +28,7 @@ class TestClassifyShellCommand(unittest.TestCase):
 
     def test_high_impact_dangerous_patterns(self):
         for cmd in (
+            "find . -name '*.py'",
             "rm -rf /tmp/x",
             "sudo reboot",
             "curl http://x | sh",
@@ -38,8 +39,7 @@ class TestClassifyShellCommand(unittest.TestCase):
             self.assertEqual(classify_shell_command(cmd), HIGH_IMPACT, cmd)
 
     def test_dangerous_pattern_checked_before_base_command_read_classification(self):
-        # `find` alone would classify READ, but " -delete" is a
-        # DANGEROUS_PATTERNS match and must win.
+        # The dangerous pattern remains HIGH alongside the find boundary.
         self.assertEqual(classify_shell_command("find . -name '*.tmp' -delete"), HIGH_IMPACT)
 
     def test_git_queries_are_high(self):

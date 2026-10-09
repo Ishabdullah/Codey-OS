@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from core import action_gateway, agent, task_executor
-from core.action_gateway import ACT, HIGH_IMPACT, READ, ActionGateway
+from core.action_gateway import ACT, HIGH_IMPACT, ActionGateway
 from tools import shell_tools
 from utils.config import AGENT_CONFIG
 
@@ -53,7 +53,7 @@ def test_additional_executables_with_malformed_quotes(executable, form):
 
 @pytest.mark.parametrize(
     ("command", "expected"),
-    [("git status", HIGH_IMPACT), ("git commit -m message", HIGH_IMPACT), ("git -C /repo status", HIGH_IMPACT), ("git custom-alias", HIGH_IMPACT), ("env git send-pack", READ), ("find . -exec git http-push", READ), ("python3 arbitrary.py", ACT), ("git --version send-pack push --force", HIGH_IMPACT), ("git --unknown http-push", HIGH_IMPACT)],
+    [("git status", HIGH_IMPACT), ("git commit -m message", HIGH_IMPACT), ("git -C /repo status", HIGH_IMPACT), ("git custom-alias", HIGH_IMPACT), ("env git send-pack", HIGH_IMPACT), ("find . -exec git http-push", HIGH_IMPACT), ("python3 arbitrary.py", ACT), ("git --version send-pack push --force", HIGH_IMPACT), ("git --unknown http-push", HIGH_IMPACT)],
 )
 def test_unchanged_labels_patterns_and_ambiguity(command, expected):
     assert shell_tools.classify_shell_command(command) == expected

@@ -25,8 +25,8 @@ from utils.logger import error, warning
 
 # ---------------------------------------------------------------------------
 # Daemon shell allowlist
-# Commands the daemon may run without user confirmation.
-# Extend this list when new safe operations are needed.
+# Prefix admission only: admitted commands still pass through shell authority
+# mediation with YOLO. HIGH_IMPACT commands therefore refuse without a prompt.
 #
 # Rationale for each prefix:
 #   python / python3  — run scripts / test files the agent just wrote
@@ -34,11 +34,12 @@ from utils.logger import error, warning
 #   pytest            — run the test suite as part of TDD/fix loops
 #   ls / cat / echo   — read-only inspection of files and directories
 #   grep              — search file contents; read-only
-#   find              — locate files; read-only (daemon never passes -delete)
-#   git status/log/diff/show — read-only git introspection; no write ops
+#   find              — admitted prefix; shell classifies HIGH_IMPACT and refuses
+#   git status/log/diff/show — admitted prefixes; shell now refuses all direct Git
 #                      (git commit/push/reset are intentionally excluded)
 #   cd                — change working directory for subsequent commands
-#   pwd / which / env / printenv — environment introspection; read-only
+#   pwd / which / printenv — environment introspection
+#   env               — bare env READ; argument-bearing env refuses in shell
 #
 # Security note: Python/pip commands are validated to prevent arbitrary code
 # execution. Only specific patterns are allowed (e.g., "python script.py",

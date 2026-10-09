@@ -165,13 +165,11 @@ READ_COMMANDS = {
     "head",
     "tail",
     "grep",
-    "find",
     "wc",
     "sort",
     "uniq",
     "pwd",
     "which",
-    "env",
     "printenv",
     "date",
     "whoami",
@@ -183,19 +181,19 @@ READ_COMMANDS = {
     "tree",
 }
 
-def _direct_git_after_quote_error(command: str) -> bool:
-    """Recognize an identifiable Git executable even if later quoting fails."""
+def _direct_high_impact_after_quote_error(command: str) -> bool:
+    """Recognize an identifiable restricted executable despite malformed quoting."""
     lexer = shlex.shlex(command, posix=True)
     lexer.whitespace_split = True
     lexer.commenters = ""
     try:
         executable = next(lexer, "")
     except ValueError:
-        # An unclosed executable quote can still clearly start with git.
+        # An unclosed executable quote can still identify a restricted family.
         raw = command.split(maxsplit=1)
         executable = raw[0].strip("\"'") if raw else ""
     base = Path(executable).name
-    return base == "git" or base.startswith("git-")
+    return base in {"git", "find", "xargs", "env"} or base.startswith("git-")
 
 
 def classify_shell_command(command: str) -> str:
@@ -206,14 +204,15 @@ def classify_shell_command(command: str) -> str:
       1. DANGEROUS_PATTERNS (the existing, narrower, irreversible/
          security-relevant subset — NOT the broader DANGEROUS_COMMANDS
          set used by is_dangerous()'s warn-and-confirm path) -> HIGH_IMPACT.
-         Checked first so a pattern match (e.g. "find X -delete") always
-         wins over a base-command read, even though `find` alone would
-         otherwise classify READ.
+         Pattern matches always win before executable classification.
       2. Every direct git or git-* executable -> HIGH_IMPACT. Git
          configuration, hooks, and helpers can introduce opaque effects,
          including for queries. This conservative boundary does not claim
          every invocation is destructive; no discovery is performed.
-      3. Other executables retain their previous READ/ACT labels.
+      3. Direct find/xargs and argument-bearing env -> HIGH_IMPACT.
+         These can dispatch children or produce other effects. Only a
+         successfully tokenized bare env remains READ; no child is parsed.
+      4. Other executables retain their previous READ/ACT labels.
          Wrappers and arbitrary scripts still require separate assessment.
     """
     cmd_lower = command.lower()
@@ -224,7 +223,7 @@ def classify_shell_command(command: str) -> str:
     try:
         parts = shlex.split(command)
     except ValueError:
-        if _direct_git_after_quote_error(command):
+        if _direct_high_impact_after_quote_error(command):
             return HIGH_IMPACT
         parts = command.split()
 
@@ -232,8 +231,10 @@ def classify_shell_command(command: str) -> str:
         return ACT
 
     base = Path(parts[0]).name
-    if base == "git" or base.startswith("git-"):
+    if base in {"git", "find", "xargs"} or base.startswith("git-"):
         return HIGH_IMPACT
+    if base == "env":
+        return READ if len(parts) == 1 else HIGH_IMPACT
     if base in READ_COMMANDS:
         return READ
     return ACT

@@ -57,7 +57,7 @@ def test_ambiguity_and_identifiable_malformed_git_quotes_are_high(command):
     assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
 
 
-@pytest.mark.parametrize(("command", "expected"), [("env git custom-alias", READ), ("find . -exec git custom-alias", READ), ("python3 arbitrary.py", ACT), ("echo safe", ACT), ("pwd", READ), ("find . -delete", HIGH_IMPACT), ("git --version push --force", HIGH_IMPACT)])
+@pytest.mark.parametrize(("command", "expected"), [("env git custom-alias", HIGH_IMPACT), ("find . -exec git custom-alias", HIGH_IMPACT), ("python3 arbitrary.py", ACT), ("echo safe", ACT), ("pwd", READ), ("find . -delete", HIGH_IMPACT), ("git --version push --force", HIGH_IMPACT)])
 def test_other_labels_and_pattern_precedence_unchanged(command, expected):
     assert shell_tools.classify_shell_command(command) == expected
 
