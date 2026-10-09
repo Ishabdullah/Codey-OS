@@ -1,3 +1,215 @@
+## 2026-10-09 — WP2.1 slice 25: local commit child-environment prerequisite
+
+**Previous slice published:** code `ccbae49`, records `393c54f`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   17ffb82..393c54f  main -> main
+```
+
+**Change (`80e4529`):** one allowlisted child-environment snapshot for each complete
+local/scoped Git commit and checkpoint Git sequence, fresh mapping for every call.
+HOME/XDG, USER/LOGNAME/EMAIL/TZ and author/committer NAME/EMAIL/DATE retained verbatim;
+fixed deduplicated absolute installation-parent PATH, LC_ALL=C and NOSYSTEM=1.
+All other ambient variables omitted, including Git config injection/selectors,
+repo/index/object redirects, execution/pager/editor/SSH/askpass/trace, loader/shell
+startup controls and arbitrary hook environment. Runner accepts only existing
+cwd/capture_output/text/check/timeout kwargs, rejects others before selection/spawn.
+General run_git forwarding remains unchanged. Three private query helpers accept
+runner; public queries keep ordinary execution. Helper factories are inside ACT
+thunks; checkpoint factory/repo preflight precede gate as before, all its queries
+share profile. Refused helpers construct nothing; refused checkpoints still perform
+repo preflight, then no mutation. ACT/audit counts, operands/results/errors, scoped
+unrelated staging, clean/no-path/hash fidelity and partial effects preserved.
+
+**Compatibility and remaining scope:** system config, ambient redirects/config
+selectors, localized diagnostics and arbitrary hook env no longer honored. Repo/
+global config and retained scalar identities remain useful. Hooks/filters/signing/
+helpers remain unbounded; no complete ACT effects containment, arbitrary-command
+sandbox, installation content integrity/immutability or race guarantee. Other Git
+operations' environment unchanged; no standalone query audit/fidelity fix. NEW-877
+stays open. NEW-879 MEDIUM source-confirmed filename/pathspec scope finding recorded,
+no runtime reproduction/fix in this slice. Next architect scopes operand/configuration
+contract, then query/checkout/merge and remaining NEW-875/874/other WP2.1 groups.
+14 work groups plus closure, exact slice count unknown; full DoD not met.
+
+**Pipeline/corrections:** architect → implementer → first independent code review
+CHANGES REQUESTED → implementer correction → second code review APPROVED → coordinator
+checks → exact eight-file code commit. First suite 1 failed/283 passed/95.83s: installed
+Git uses UTC Z rather than +00:00; corrected fixed epoch 981173106 assertion preserves
+author/committer/date evidence, no production change. Then 284/95.03s passed. Root full
+621-line diff review noticed PATH exists filtering; reviewer independently reproduced
+empty PATH/current-directory lookup. Fixed absolute candidate parents regardless of
+existence, no profile filesystem probes, reject empty parent set; two added meaningful
+regressions. Final full 656-line diff read by root. 25 new cases independently counted
+from literal AST parameterization; 261 retained + 25 = 286. Final implementer 96.83s,
+reviewer 97.49s, coordinator 97.84s; final no failures/skips. Initial PIE807 test lint
+corrected before tests, full transcript below. Production Ruff baseline 51 unchanged;
+new/touched-test and production F/E9/I clean. Diff check pass. No dependency/install
+change. Full suite excluded NEW-791; type checker command-v exit127/no output.
+
+**Real mechanics and limits:** temporary repo/global/XDG/scalar/EMAIL identities,
+missing-identity failures and staging/unchanged HEAD retained, intended repo committed
+under ambient redirects while second repo HEAD/index/bytes unchanged; env-injected hook
+and inherited-PATH fake Git marker absent, trace path uncreated. Captured child mapping
+and exact allowlist establish omitted controls; marker absence alone does not prove
+SSH/editor or arbitrary configured helpers exercised. No SSH/remote transport used for
+new tests. Scoped unrelated staging, checkpoint initial/clean/hash and failure behavior,
+real temp backups/SQLite integration; retained file-only local push/rollback regressions.
+Child-only disposable HOME/XDG seam in four existing fixtures and new fixture; process
+HOME/XDG unchanged, no actual home writes. Precollection utils.config Path + DB/audit
+redirection for NEW-855. No model/peer/network/project checkout/merge/rollback/live-store
+test; coordinator GitHub push separately authorized. Code-complete + reviewer-approved,
+temporary Git mechanics verified only; no additional live verification needed.
+
+**Literal coordinator tests:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice25-validate.py -q tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py
+........................................................................ [ 25%]
+........................................................................ [ 50%]
+........................................................................ [ 75%]
+......................................................................   [100%]
+286 passed in 97.84s (0:01:37)
+```
+
+**Literal coordinator lint/checks:**
+
+```text
+$ ruff check core/git_execution.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py
+All checks passed!
+$ ruff check core/git_execution.py core/githelper.py core/checkpoint.py --select F,E9,I
+All checks passed!
+$ ruff check core/git_execution.py core/githelper.py core/checkpoint.py --statistics
+18	RUF013	[ ] implicit-optional
+17	UP006 	[*] non-pep585-annotation
+ 5	BLE001	[ ] blind-except
+ 4	UP035 	[-] deprecated-import
+ 4	UP045 	[*] non-pep604-annotation-optional
+ 1	PIE810	[ ] multiple-starts-ends-with
+ 1	EXE001	[ ] shebang-not-executable
+ 1	S110  	[ ] try-except-pass
+Found 51 errors.
+[*] 22 fixable with the `--fix` option (19 hidden fixes can be enabled with the `--unsafe-fixes` option).
+$ git diff --check
+$ command -v mypy pyright ty
+```
+Last command exit127, no output; diff check exit0/no output. Full production lint
+exit1 from disclosed baseline; focused lint exit0.
+
+**Initial test failure (corrected; excerpt trailing spaces trimmed, raw artifact unchanged):**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice25-validate.py -q tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py
+...............F........................................................ [ 25%]
+........................................................................ [ 50%]
+........................................................................ [ 76%]
+....................................................................     [100%]
+=================================== FAILURES ===================================
+_________ test_real_identities_dates_and_home_config_retained[scalar] __________
+
+repository = namespace(repo=PosixPath('/data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-237/test_real_identities_dates_...-237/test_real_identities_dates_and3/audit.jsonl'), gateway=<core.action_gateway.ActionGateway object at 0x7c3aec1480>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7c3af45180>
+identity = 'scalar'
+
+    @pytest.mark.parametrize("identity", ["repository", "global", "xdg", "scalar", "email-fallback"])
+    def test_real_identities_dates_and_home_config_retained(repository, monkeypatch, identity):
+        r = repository
+        expected_name, expected_email = "Repository Identity", "repository@example.invalid"
+        if identity != "repository":
+            r.git("config", "--unset", "user.name")
+            r.git("config", "--unset", "user.email")
+        if identity in {"global", "xdg"}:
+            expected_name, expected_email = "Global Identity", "global@example.invalid"
+            config = r.home / ".gitconfig" if identity == "global" else r.xdg / "git/config"
+            config.parent.mkdir(parents=True, exist_ok=True)
+            config.write_text(f"[user]\n name = {expected_name}\n email = {expected_email}\n")
+        elif identity == "scalar":
+            expected_name, expected_email = "Scalar Identity", "scalar@example.invalid"
+            for role in ["AUTHOR", "COMMITTER"]:
+                monkeypatch.setenv(f"GIT_{role}_NAME", expected_name)
+                monkeypatch.setenv(f"GIT_{role}_EMAIL", expected_email)
+                monkeypatch.setenv(f"GIT_{role}_DATE", "2001-02-03T04:05:06 +0000")
+        elif identity == "email-fallback":
+            expected_name, expected_email = "Fallback Identity", "fallback@example.invalid"
+            r.git("config", "user.name", expected_name)
+            r.git("config", "user.useConfigOnly", "false")
+            monkeypatch.setenv("EMAIL", expected_email)
+        r.trigger.write_text("new content\n")
+        assert not githelper.git_commit_paths("identity", ["core/example.py"], str(r.repo)).startswith("[ERROR]")
+        assert r.git("log", "-1", "--format=%an|%ae|%cn|%ce").stdout.strip() == f"{expected_name}|{expected_email}|{expected_name}|{expected_email}"
+        if identity == "scalar":
+>           assert r.git("log", "-1", "--format=%aI|%cI").stdout.strip() == "2001-02-03T04:05:06+00:00|2001-02-03T04:05:06+00:00"
+E           AssertionError: assert '2001-02-03T0...-03T04:05:06Z' == '2001-02-03T0...4:05:06+00:00'
+E
+E             - 2001-02-03T04:05:06+00:00|2001-02-03T04:05:06+00:00
+E             ?                    ^^^^^^                    ^^^^^^
+E             + 2001-02-03T04:05:06Z|2001-02-03T04:05:06Z
+E             ?                    ^                    ^
+
+tests/test_git_local_commit_environment.py:158: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_git_local_commit_environment.py::test_real_identities_dates_and_home_config_retained[scalar]
+1 failed, 283 passed in 95.83s (0:01:35)
+```
+
+**Literal initial lint/fix:**
+
+```text
+$ ruff check tests/test_git_local_commit_environment.py
+PIE807 [*] Prefer `dict` over useless lambda
+  --> tests/test_git_local_commit_environment.py:68:69
+   |
+66 | @pytest.mark.parametrize("keyword", ["env", "executable", "shell", "input", "stdin", "stdout", "stderr", "encoding", "preexec_fn", "un…
+67 | def test_profile_rejects_forbidden_kwargs_before_selection_or_spawn(monkeypatch, keyword):
+68 |     monkeypatch.setattr(git_execution, "_local_commit_environment", lambda: {})
+   |                                                                     ^^^^^^^^^^
+69 |     runner = git_execution.local_commit_runner()
+70 |     forbidden = Mock()
+   |
+help: Replace with `lambda` with `dict`
+   |
+67 | def test_profile_rejects_forbidden_kwargs_before_selection_or_spawn(monkeypatch, keyword):
+   -     monkeypatch.setattr(git_execution, "_local_commit_environment", lambda: {})
+68 +     monkeypatch.setattr(git_execution, "_local_commit_environment", dict)
+69 |     runner = git_execution.local_commit_runner()
+   |
+
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+$ ruff check tests/test_git_local_commit_environment.py --fix
+Found 1 error (1 fixed, 0 remaining).
+```
+
+**Literal first-review reproduction (before correction):**
+
+```text
+Reviewer first-pass harmless reproduction (before correction; both exit 0, no child executable run):
+
+$ python -c 'from pathlib import Path; from core import git_execution; git_execution._git_candidates = lambda: (Path("/definitely-missing-install-a/bin/git"), Path("/definitely-missing-install-b/bin/git")); print(repr(git_execution._local_commit_environment()["PATH"]))'
+''
+
+$ python -c 'import os; print(os.get_exec_path({"PATH": ""}))'
+['']
+```
+
+**Record-format check correction:** copied pytest blank diagnostic line contained
+trailing spaces; record-stage diff check failed below. Only those trailing spaces
+were trimmed in this excerpt; the raw initial-failure artifact remains exact.
+
+```text
+$ git diff --check
+PROJECT_LOG.md:145: trailing whitespace.
++E
+```
+
+**Artifacts:** /data/data/com.termux/files/usr/tmp/codey-slice25.diff (first 621-line
+implementation); codey-slice25-rereview.diff (final 656-line full diff); initial-failure,
+initial-lint, final-validation (284-case), rereview-validation (286-case),
+review-correction, review-reproduction and coordinator-tests files retained alongside
+bootstrap. Maintained census TSVs unchanged. Unrelated agent memories left unstaged.
+
 ## 2026-10-09 — WP2.1 slice 24: installed-Git boundary for dedicated calls
 
 **Previous slice published:** code `ed1e148`, records `17ffb82`. Actual push:

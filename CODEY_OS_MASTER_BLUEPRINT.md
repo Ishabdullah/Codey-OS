@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-24 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-24: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-25 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-25: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2928,7 +2928,8 @@ reviewed by `/root/code_reviewer`, APPROVED), `11a71fe` (slice 21;
 reviewed by `/root/code_reviewer`, APPROVED), `49358e0` (slice 22;
 reviewed by `/root/code_reviewer`, APPROVED), `ed1e148` (slice 23;
 reviewed by `/root/code_reviewer`, APPROVED), `ccbae49` (slice 24;
-reviewed by `/root/code_reviewer`, APPROVED).
+reviewed by `/root/code_reviewer`, APPROVED), `80e4529` (slice 25;
+reviewed by `/root/code_reviewer`, APPROVED after correction).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
@@ -3580,11 +3581,50 @@ reviewed by `/root/code_reviewer`, APPROVED).
   **Next:** NEW-877 remains open. Scope isolated administrative/operation-specific
   automatic checkpoint/local commit contract; then honest query READ outcomes,
   checkout/merge contracts. NEW-875 classification and NEW-874 shell fidelity open.
+- **Slice 25 (2026-10-09, local commit ambient environment, `80e4529`):**
+  New local_commit_runner snapshots a private allowlisted environment once and
+  supplies fresh copies to every Git call in git_commit/git_commit_paths and
+  checkpoint._create_git_commit, including internal repo/status/diff/hash queries.
+  HOME/XDG, USER/LOGNAME/EMAIL/TZ and author/committer NAME/EMAIL/DATE retained;
+  absolute installation-parent PATH, LC_ALL=C and GIT_CONFIG_NOSYSTEM=1 constructed.
+  Other config injection/selectors, repo/index/object redirects, execution/pager/
+  editor/SSH/askpass/trace overrides, loader/shell and arbitrary hook env removed.
+  Restrict runner kwargs to cwd/capture_output/text/check/timeout; general run_git
+  stays verbatim. Public standalone queries keep ordinary execution; branch/
+  checkout/merge/push/rollback profiles unchanged. Mutation ACT/audit/error/no-op/
+  staging/hash semantics retained. Helper refusal constructs nothing; checkpoint
+  profile and repo preflight remain before gate, no-path calls still no mutation
+  audit. This slice does not add query audits or fix their error fidelity.
+  **Compatibility/limits:** system configuration and localized diagnostics no
+  longer honored, arbitrary hook environment stripped. Repository/global identity
+  remains useful; repository/global config/hooks/filters/signing/helpers remain
+  unbounded. Installation location trust remains, no sandbox/integrity/race proof.
+  NEW-877 open. NEW-879 source-confirmed filename/pathspec scope finding, no
+  reproduction/fix; scope operand foundation and isolated administrative commit
+  context next, then query/checkout/merge contracts and remaining NEW-875/874.
+  **Pipeline/evidence:** first reviewer CHANGES REQUESTED for candidate.exists()
+  producing empty PATH; fixed absolute parents irrespective of existence, no FS
+  probing, empty parent set rejects. Explicit all-missing/no-probe tests added;
+  second code review APPROVED. Initial 1 failed/283 passed/95.83s was equivalent
+  UTC Z/+00:00 test expectation, corrected fixed epoch; pre-review 284/95.03s.
+  Final 25 new cases / 286 focused tests: implementer 96.83s, reviewer 97.49s,
+  coordinator 97.84s. Real temporary repo/global/XDG/scalar/EMAIL identities,
+  redirected second repo unchanged, env-injected hook and fake PATH markers and
+  trace absent, scoped unrelated staging, checkpoint initial/clean/hash/failure,
+  temporary backup/SQLite integration and existing file-only push/rollback.
+  Exact allowlist/copy/snapshot/kwargs/refusal/order assertions; no SSH transport
+  or actual configured-repository helper exploit claimed. CHILD-only disposable
+  HOME/XDG fixture seams, process HOME/XDG intact; precollection state isolation.
+  New/touched-test and production F/E9/I lint pass; full baseline 51 unchanged,
+  initial PIE807 fixed and recorded. Diff check pass, full suite excluded NEW-791,
+  type checkers unavailable. No dependency/setup change, model/peer/network/project
+  checkout/merge/rollback/live-store test. Code-complete + reviewer-approved;
+  temporary Git mechanics verified only. Full WP2.1 DoD not met.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all twenty-four slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all twenty-five slices** (slices 3, 5 and 25 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-24 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-25 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3601,7 +3641,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
   Slice 22 covers direct find/xargs/argument-bearing env; bare parsed env READ.
   Slice 23 fixes dedicated search_files NEW-878 with in-process READ mediation.
   Slice 24 removes initial PATH selection across all dedicated Git/checkpoint
-  calls, but configuration/helpers/environment/query effects NEW-877 remain.
+  calls. Slice 25 bounds ambient environment for complete commit/checkpoint
+  sequences; configuration/helpers/query effects NEW-877 and literal-path scope
+  NEW-879 remain. Other dedicated Git calls still inherit environment.
   Broader wrappers/scripts/opaque NEW-875 and failed-execution NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,

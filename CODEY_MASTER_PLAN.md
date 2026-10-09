@@ -737,6 +737,23 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 25, local commit child-environment foundation, 2026-10-09**
+  (`80e4529`) — one allowlisted child environment per complete local/scoped Git
+  commit and checkpoint Git sequence, fresh mapping per invocation. HOME/XDG,
+  identity/date metadata retained; fixed absolute installation PATH, LC_ALL=C,
+  system config excluded. Other ambient config injection, repository/index/object
+  redirects and execution/loader/shell overrides removed. Runner kwargs restricted;
+  general Git execution and standalone queries unchanged. Existing ACT audits,
+  staging/failure/hash/no-op behavior retained. Helper refusal never constructs
+  profile; checkpoint profile/repo preflight still precede mutation gate.
+  Reviewer-approved after empty-PATH correction; 25 new cases / 286 focused tests,
+  temporary Git mechanics verified, production lint baseline 51 unchanged.
+  System config/localized diagnostics/arbitrary hook environment intentionally
+  no longer honored; repository/global hooks/filters/signing/helpers unbounded.
+  NEW-877 stays open; NEW-879 literal filename/pathspec scope finding logged,
+  source-confirmed without reproduction. Next operand/configuration contract,
+  then query/checkout/merge and remaining groups. Full WP2.1 DoD remains open.
+
 - **WP2.1 slice 24, dedicated installed-Git selection foundation, 2026-10-09**
   (`ccbae49`) — 20 githelper + eight checkpoint Git calls use a lazy adapter
   selecting absolute installation candidates without PATH/cwd/environment override.
@@ -5571,6 +5588,17 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   checkpoint calls use lazy absolute installation selection, current operands/
   kwargs/classification/automatic commit behavior preserved. Config/helper effects
   and query auditing remain open; not general executable containment.
+- [x] **WP2.1 slice 25 / local commit environment (`NEW-877` prerequisite)** —
+  `80e4529`, reviewer-approved after PATH correction, 25 new cases / 286 tests.
+  One snapshot/fresh child mapping for complete commit/checkpoint sequences;
+  fixed installation PATH, metadata retained, ambient execution/redirect/config
+  controls excluded. System config/locale compatibility changes explicit.
+  Configured helpers/query coverage open; no full ACT effects containment.
+- [ ] **Literal scoped Git operands (`NEW-879`)** — source-confirmed MEDIUM:
+  supplied filenames remain Git pathspecs in scoped commit/status/checkpoint
+  add/diff/commit calls. '--' separates options but not glob/pathspec semantics;
+  wildcard/magic names can exceed exact-file scope. No reproduction/fix claimed.
+  Scope operand contract as automatic-commit prerequisite, preserving real paths.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
@@ -5578,7 +5606,8 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   plus closure, not 14 promised slices. Next remaining shell classification
   (`NEW-875`; direct shell Git/find/xargs/argument-bearing env covered;
   search_files `NEW-878` fixed; `NEW-877` absolute selection foundation covered,
-  automatic/local commit execution contract next, then remaining Git/query and
+  slice 25 commit environment covered; literal operands NEW-879 and
+  automatic/local commit configuration contract next, then remaining Git/query and
   wrappers/embedded execution),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
@@ -5597,7 +5626,8 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 - [ ] **Dedicated Git execution contract (`NEW-877`)** — source-confirmed:
   slice 24 replaces initial PATH lookup in all 28 dedicated calls with absolute
   installation selection. Queries/ACT mutations and checkpoint commit/query
-  subprocesses still inherit repository/user configuration and environment.
+  subprocesses still inherit repository/user configuration. Slice 25 bounds ambient
+  environment for complete commit/checkpoint sequences only; other calls retain it.
   Query mediation/failure coverage open. Hooks/helpers can
   introduce unbounded effects; nominal local classification is insufficient.
   No exploit reproduced. Scope constrained execution preserving useful automatic
