@@ -48,17 +48,17 @@ def test_operand_free_globals_before_push(option):
     "command",
     ["git -C push status", "git -c alias.demo=push status", "git --git-dir push status", "git --work-tree=push log", "git --namespace push show", "git --attr-source push diff", "git --exec-path=push status", "git -C '' status", "git -c foo.bar status", "git", "git -C /repo", "git --no-pager"],
 )
-def test_nonpush_globals_retain_previous_act(command):
-    assert shell_tools.classify_shell_command(command) == ACT
+def test_nonpush_globals_are_high(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
 
 
 @pytest.mark.parametrize(
     "query",
     ["-v", "--version", "-h", "--help", "--exec-path", "--html-path", "--man-path", "--info-path", "--list-cmds=builtins"],
 )
-def test_terminal_queries_do_not_scan_trailing_push(query):
-    assert shell_tools.classify_shell_command(f"git {query} push") == ACT
-    assert shell_tools.classify_shell_command(f"git -C /repo {query} push") == ACT
+def test_terminal_queries_are_high(query):
+    assert shell_tools.classify_shell_command(f"git {query} push") == HIGH_IMPACT
+    assert shell_tools.classify_shell_command(f"git -C /repo {query} push") == HIGH_IMPACT
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ def test_ambiguous_direct_git_is_conservatively_high(command):
 
 @pytest.mark.parametrize(
     ("command", "expected"),
-    [("git status", READ), ("git log", READ), ("git diff", READ), ("git show HEAD", READ), ("git commit -m message", ACT), ("git -C /repo commit", ACT), ("python3 -c 'print(1)'", ACT), ("env git push", READ), ("git custom-alias", HIGH_IMPACT), ("git send-pack /remote", HIGH_IMPACT), ("git-http-push /remote", HIGH_IMPACT), ("git-send-pack /remote", HIGH_IMPACT), ("find . -exec git push", READ), ("git --version push --force", HIGH_IMPACT), ("find . -delete", HIGH_IMPACT), ("python3 'unterminated", ACT)],
+    [("git status", HIGH_IMPACT), ("git log", HIGH_IMPACT), ("git diff", HIGH_IMPACT), ("git show HEAD", HIGH_IMPACT), ("git commit -m message", HIGH_IMPACT), ("git -C /repo commit", HIGH_IMPACT), ("python3 -c 'print(1)'", ACT), ("env git push", READ), ("git custom-alias", HIGH_IMPACT), ("git send-pack /remote", HIGH_IMPACT), ("git-http-push /remote", HIGH_IMPACT), ("git-send-pack /remote", HIGH_IMPACT), ("find . -exec git push", READ), ("git --version push --force", HIGH_IMPACT), ("find . -delete", HIGH_IMPACT), ("python3 'unterminated", ACT)],
 )
 def test_prior_labels_and_pattern_precedence(command, expected):
     assert shell_tools.classify_shell_command(command) == expected

@@ -36,20 +36,20 @@ def test_operand_free_globals_preserve_unknown_restriction(flag):
 
 
 @pytest.mark.parametrize("prefix", ["-C {}", "-c alias.demo={}", "--git-dir {}", "--work-tree={}", "--namespace {}", "--config-env foo.bar={}", "--attr-source {}", "--exec-path={}"])
-def test_unknown_operation_name_in_operand_is_not_effective_operation(prefix):
-    assert shell_tools.classify_shell_command(f"git {prefix.format('custom-alias')} status") == ACT
+def test_operand_names_do_not_exempt_direct_git(prefix):
+    assert shell_tools.classify_shell_command(f"git {prefix.format('custom-alias')} status") == HIGH_IMPACT
 
 
-@pytest.mark.parametrize(("operation", "direct"), [("status", READ), ("log", READ), ("diff", READ), ("show", READ), ("commit", ACT)])
-def test_five_reviewed_operations_keep_exact_prior_labels(operation, direct):
-    assert shell_tools.classify_shell_command(f"git {operation}") == direct
-    assert shell_tools.classify_shell_command(f"git -C /repo {operation}") == ACT
-    assert shell_tools.classify_shell_command(f"'/temporary/path with spaces/git' {operation}") == direct
+@pytest.mark.parametrize("operation", ["status", "log", "diff", "show", "commit"])
+def test_previously_retained_operations_are_high(operation):
+    assert shell_tools.classify_shell_command(f"git {operation}") == HIGH_IMPACT
+    assert shell_tools.classify_shell_command(f"git -C /repo {operation}") == HIGH_IMPACT
+    assert shell_tools.classify_shell_command(f"'/temporary/path with spaces/git' {operation}") == HIGH_IMPACT
 
 
 @pytest.mark.parametrize("command", ["git", "git -C /repo", "git --no-pager", "git --version custom-alias", "git --help checkout", "git --exec-path custom-alias", "git --html-path custom-alias", "git --man-path custom-alias", "git --info-path custom-alias", "git --list-cmds=builtins custom-alias"])
-def test_queries_and_absent_operation_are_unchanged(command):
-    assert shell_tools.classify_shell_command(command) == ACT
+def test_queries_and_absent_operation_are_high(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
 
 
 @pytest.mark.parametrize("command", ["git --unknown status", "git -- status", "git -C", "git status 'unterminated", "git-custom 'unterminated", "'git-custom argument", "'/temporary/path with spaces/git-custom' 'unterminated"])

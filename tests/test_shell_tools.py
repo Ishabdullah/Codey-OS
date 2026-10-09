@@ -2,7 +2,7 @@
 CODEY_OS_MASTER_BLUEPRINT.md §21).
 
 Covers one assertion per authority class, the DANGEROUS_PATTERNS-before-
-base-command ordering case, and the git-subcommand split.
+base-command ordering case, and the unconditional direct Git boundary.
 """
 
 import json
@@ -42,15 +42,15 @@ class TestClassifyShellCommand(unittest.TestCase):
         # DANGEROUS_PATTERNS match and must win.
         self.assertEqual(classify_shell_command("find . -name '*.tmp' -delete"), HIGH_IMPACT)
 
-    def test_git_read_subcommands(self):
+    def test_git_queries_are_high(self):
         for cmd in ("git status", "git log", "git diff", "git show HEAD"):
-            self.assertEqual(classify_shell_command(cmd), READ, cmd)
+            self.assertEqual(classify_shell_command(cmd), HIGH_IMPACT, cmd)
 
     def test_git_high_impact_subcommand_via_dangerous_pattern(self):
         self.assertEqual(classify_shell_command("git push --force"), HIGH_IMPACT)
 
-    def test_git_other_subcommand_is_act(self):
-        self.assertEqual(classify_shell_command("git commit -m x"), ACT)
+    def test_git_commit_is_high(self):
+        self.assertEqual(classify_shell_command("git commit -m x"), HIGH_IMPACT)
 
     def test_empty_command(self):
         self.assertEqual(classify_shell_command(""), ACT)

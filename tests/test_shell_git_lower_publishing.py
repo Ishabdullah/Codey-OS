@@ -35,14 +35,14 @@ def test_effective_operations_after_globals(operation, prefix):
 
 @pytest.mark.parametrize("value", ["send-pack", "http-push"])
 @pytest.mark.parametrize("prefix", ["-C {}", "--namespace={}", "--attr-source {}", "-c alias.demo={}"])
-def test_operand_values_are_not_operations(value, prefix):
-    assert shell_tools.classify_shell_command(f"git {prefix.format(value)} status") == ACT
+def test_operand_values_do_not_exempt_direct_git(value, prefix):
+    assert shell_tools.classify_shell_command(f"git {prefix.format(value)} status") == HIGH_IMPACT
 
 
 @pytest.mark.parametrize("operation", ["send-pack", "http-push"])
 @pytest.mark.parametrize("query", ["--version", "--help", "--exec-path", "--html-path", "--man-path", "--info-path", "--list-cmds=builtins"])
-def test_terminal_queries_do_not_scan_family_names(operation, query):
-    assert shell_tools.classify_shell_command(f"git -C /temporary/repo {query} {operation}") == ACT
+def test_terminal_queries_are_high(operation, query):
+    assert shell_tools.classify_shell_command(f"git -C /temporary/repo {query} {operation}") == HIGH_IMPACT
 
 
 @pytest.mark.parametrize("executable", ["git-send-pack", "git-http-push"])
@@ -53,7 +53,7 @@ def test_additional_executables_with_malformed_quotes(executable, form):
 
 @pytest.mark.parametrize(
     ("command", "expected"),
-    [("git status", READ), ("git commit -m message", ACT), ("git -C /repo status", ACT), ("git custom-alias", HIGH_IMPACT), ("env git send-pack", READ), ("find . -exec git http-push", READ), ("python3 arbitrary.py", ACT), ("git --version send-pack push --force", HIGH_IMPACT), ("git --unknown http-push", HIGH_IMPACT)],
+    [("git status", HIGH_IMPACT), ("git commit -m message", HIGH_IMPACT), ("git -C /repo status", HIGH_IMPACT), ("git custom-alias", HIGH_IMPACT), ("env git send-pack", READ), ("find . -exec git http-push", READ), ("python3 arbitrary.py", ACT), ("git --version send-pack push --force", HIGH_IMPACT), ("git --unknown http-push", HIGH_IMPACT)],
 )
 def test_unchanged_labels_patterns_and_ambiguity(command, expected):
     assert shell_tools.classify_shell_command(command) == expected
