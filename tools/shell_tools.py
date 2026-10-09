@@ -1,6 +1,10 @@
+import os
 import shlex
+import stat
 import subprocess
+from fnmatch import fnmatchcase
 from pathlib import Path
+from time import monotonic
 
 from core.action_gateway import (
     ACT,
@@ -394,17 +398,81 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
 
 
 def search_files(pattern: str, path: str = ".") -> str:
-    """Search for files matching pattern. Uses subprocess list args to prevent injection."""
-    try:
-        result = subprocess.run(
-            ["find", path, "-name", pattern], capture_output=True, text=True, timeout=15
-        )
-        lines = (result.stdout + result.stderr).strip().splitlines()
-        lines = [l for l in lines if l.strip()][:50]
-        return "\n".join(lines) if lines else "(no matches)"
-    except subprocess.TimeoutExpired:
-        return "[ERROR] Search timed out"
-    except FileNotFoundError:
-        return "[ERROR] 'find' command not available"
-    except Exception as e:
-        return f"[ERROR] {e}"
+    """Audited READ basename search using Python fnmatchcase, capped at 50 lines.
+
+    Paths are literal and unrestricted; no utility options, expansion, or
+    resolution are applied. Matching is case-sensitive, includes hidden entries,
+    and treats backslashes literally rather than using GNU find glob/locale
+    semantics. Directory symlinks are not intentionally followed, including a
+    starting link with trailing slashes. Results are unsorted. Errors discard
+    partial matches; traversal continues after the display cap to detect them.
+    The 15-second deadline is cooperative and cannot interrupt blocked syscalls.
+    This provides no containment, snapshot, or concurrent replacement guarantee.
+    """
+    def execute():
+        if (
+            not isinstance(pattern, str) or not isinstance(path, str)
+            or not path or "\0" in path or "\0" in pattern
+        ):
+            raise RuntimeError("Invalid search arguments")
+        try:
+            deadline = monotonic() + 15
+
+            def check_deadline():
+                if monotonic() >= deadline:
+                    raise TimeoutError
+
+            lines = []
+
+            def match(display, name):
+                if fnmatchcase(name, pattern):
+                    for line in display.splitlines():
+                        if line.strip() and len(lines) < 50:
+                            lines.append(line)
+
+            # Strip only trailing separators so lstat inspects a starting
+            # symlink itself, rather than following the trailing-slash form.
+            root = path.rstrip(os.sep) or os.sep
+            check_deadline()
+            mode = os.lstat(root).st_mode
+            check_deadline()
+            match(root, os.path.basename(root))
+            pending = [root] if stat.S_ISDIR(mode) else []
+            while pending:
+                directory = pending.pop()
+                check_deadline()
+                with os.scandir(directory) as entries:
+                    check_deadline()
+                    for entry in entries:
+                        check_deadline()
+                        display = os.path.join(directory, entry.name)
+                        match(display, entry.name)
+                        check_deadline()
+                        is_directory = entry.is_dir(follow_symlinks=False)
+                        check_deadline()
+                        if is_directory:
+                            pending.append(display)
+                    check_deadline()
+            check_deadline()
+            return "\n".join(lines) if lines else "(no matches)"
+        except TimeoutError:
+            raise RuntimeError("Search timed out") from None
+        except FileNotFoundError:
+            raise RuntimeError("Search path not found") from None
+        except PermissionError:
+            raise RuntimeError("Search permission denied") from None
+        except Exception:
+            # Normalize traversal failures before auditing: exception text can
+            # disclose paths or query data, and partial output is not success.
+            raise RuntimeError("Search failed") from None
+
+    decision = get_action_gateway().gate_exec(
+        authority=READ, action="shell_tools.search_files",
+        command="recursive basename search", confirm_available=False,
+        execute=execute,
+    )
+    if decision.outcome == OUTCOME_REFUSED:
+        return f"[BLOCKED] {decision.reason}"
+    if decision.outcome == OUTCOME_FAILED:
+        return f"[ERROR] {decision.reason}"
+    return decision.detail.get("result", "(no matches)")
