@@ -737,6 +737,17 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 15, branch/ref merge, 2026-10-09** (`24fecfd`)
+  — ACT attempts reject raw options except previous-branch `-`, use
+  `git merge -- <ref>`, preserve main's conflict workflow and Git strings/
+  exception identity. Conflicts audit failed and can leave files/index/
+  MERGE_HEAD. 31 new cases; implementer/coordinator 197 bounded tests,
+  reviewer 73-test merge/gateway subset. Real temporary Git, code-complete
+  + code-reviewer-approved. `NEW-868` resolved; `NEW-869` substring conflict
+  heuristic logged source-confirmed/open. No project merge/model/peer test.
+  Next: independent checkpoint rollback, then census/scope remaining WP2.1
+  surfaces; user authorized sequential completion and push after each slice.
+
 - **WP2.1 slice 14, branch/ref checkout, 2026-10-09** (`4ac1a7f`)
   — ACT mediation with option rejection (except previous-branch `-`) and
   trailing `--` prevents file restoration through the branch/ref helper.
@@ -746,8 +757,9 @@ scoped to what it actually proved.
   coordinator 166 bounded tests, reviewer 72-test checkout/gateway subset.
   Real temporary Git, code-complete + code-reviewer-approved. `NEW-867`
   resolved; original force loss reproduced only in a disposable repository.
-  No live-project checkout/model/peer verification claimed. Merge and
-  independent checkpoint rollback remain ungated. Prior commits pushed to
+  No live-project checkout/model/peer verification claimed. At slice 14,
+  merge and checkpoint rollback remained ungated; merge is mediated by
+  slice 15 above. Prior commits pushed to
   GitHub through `c8007ca` on user request; publication is separate from tests.
 
 - **WP2.1 slice 13, confirmed Git push, 2026-10-09** (`d288726`)
@@ -5380,8 +5392,13 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   reviewer-approved; 30 new cases, 166 bounded tests, reviewer 72-test subset.
   ACT attempts preserve intended switching/output; options rejected and
   trailing `--` prevents file restoration. Main prompt unchanged.
+- [x] **WP2.1 slice 15 / branch-ref merge (`NEW-868`)** — `24fecfd`,
+  reviewer-approved; 31 new cases, 197 bounded tests, reviewer 73-test subset.
+  ACT attempts retain conflict flow and honestly audit nonzero results failed;
+  raw merge options rejected. Conflict state can remain after failed attempts.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Next:
-  architect-scope merge and independent checkpoint rollback checkout.
+  architect-scope independent checkpoint rollback, then census and implement
+  remaining mutation surfaces sequentially (user instruction 2026-10-09).
   Preserve confirmation and
   distinguish external publishing from working-file changes.
   CCOS, outbound HTTP, DB writes, messages and device actions remain pending.
@@ -5399,6 +5416,9 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   content trust unresolved; load-error/data-shape handling, suspected
   concurrent writes and stale draft cache logged without fixes.
   Gateway audit-directory OSError (`NEW-835`) is fixed by slice 9.
+- [ ] **Merge conflict classification (`NEW-869`)** — source-confirmed
+  substring output heuristic can label unrelated diagnostics as conflicts;
+  no reproduced false classification. Scope separately from ACT mediation.
 - [ ] **Push parsing / latent environment detection (`NEW-865`, `NEW-866`)**
   — push prefix matching accepts unrelated subcommands and ignores args;
   unused peer interactive helper returns True on TTY-check errors.

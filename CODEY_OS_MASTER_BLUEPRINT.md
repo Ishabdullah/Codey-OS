@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-14 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-14: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-15 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-15: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2918,6 +2918,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `0dd1fa7` (slice 11;
 reviewed by `/root/code_reviewer`, APPROVED), `187f7a8` (slice 12;
 reviewed by `/root/code_reviewer`, APPROVED), `d288726` (slice 13;
 reviewed by `/root/code_reviewer`, APPROVED), `4ac1a7f` (slice 14;
+reviewed by `/root/code_reviewer`, APPROVED), `24fecfd` (slice 15;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3315,18 +3316,43 @@ reviewed by `/root/code_reviewer`, APPROVED).
   remain, no global rollback guarantee. Failed reasons may retain Git stderr,
   audit persistence is best effort. Merge, checkpoint's independent rollback
   and plugin export mismatch `NEW-864` remain outside this slice.
+- **Slice 15 (2026-10-09, branch/ref merge, `24fecfd`, `NEW-868`):**
+  `git_merge` uses ACT / `githelper.git_merge` / static command
+  `local git merge attempt`. Reject leading options except exact previous-
+  branch `-`; argv is `git merge -- <ref>`. Git success/conflict/error
+  strings and subprocess exception identity persist. Every nonzero result,
+  including conflicts, audits failed; failed attempts can leave conflict
+  files, unmerged index entries and MERGE_HEAD. Main source unchanged:
+  clean merge adds no prompt, existing conflict-resolution prompt/workflow
+  retained; accepted agent resolution mocked in tests, not actually run.
+  **Evidence:** 31 new cases, implementer/coordinator 197 bounded tests;
+  reviewer 73-test merge/gateway subset plus adversarial source audit.
+  Real temporary Git covers fast-forward/two-parent ancestry/content,
+  up-to-date/hash/ref/previous branch, conflict state, missing/nonrepo/dirty
+  failures, raw-option protection, argv/output/exception, refusal, blocked
+  audit and main history/conflict flow. State/Git configuration isolated.
+  No network, project merge, model, peer or live-store test. Code-complete
+  + reviewer-approved; new-file/focused lint pass, helper Ruff 53 baseline.
+  Full suite excluded (`NEW-791`), type checker unavailable, no setup change.
+  **Limits:** audit persistence best effort, failure reasons can retain Git
+  output; no no-side-effect/rollback guarantee for failed merges. `NEW-868`
+  raw --squash index mutation reproduced only in disposable Git and resolved
+  for this helper. `NEW-869` existing substring conflict heuristic is source-
+  confirmed/open, unchanged. Next independent checkpoint rollback, then
+  remaining-surface census/scoping; user authorized continuous sequential
+  work with reviewed commits/push after each slice (2026-10-09).
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all fourteen slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all fifteen slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-14 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-15 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
   block, and `handle_command()`'s `/peer` branch),
   the dormant parked-escalation callable, two local commit helpers, and
   nonempty checkpoint Git attempts, local branch creation, confirmed push
-  and branch/ref checkout;
+  and branch/ref checkout/merge;
   the four-of-42 write-primitive count does not measure Git subprocess coverage.
   Shell exec has two known gaps (`NEW-836`,
   daemon allowlist refusals; `NEW-837`, declined-confirmation audit
@@ -3336,15 +3362,16 @@ reviewed by `/root/code_reviewer`, APPROVED).
   semantics (`NEW-852`..`NEW-854`). CCOS capability invocation (deliberately
   deferred, low real traffic), outbound HTTP, DB writes,
   message/email sends, and device actions remain entirely untouched. Git
-  coverage is partial: merge and checkpoint rollback's independent checkout
-  remain ungated. `NEW-860`/`NEW-861`
+  coverage is partial: checkpoint rollback's independent checkout remains
+  ungated; core branch/ref merge is now covered. `NEW-860`/`NEW-861`
   are fixed for scoped commit attempts; checkpoint backup/database writes,
   rollback/pruning and `NEW-862`/`NEW-863` remain outside this coverage.
   CCOS Git manifest/export mismatch `NEW-864` awaits scoped alignment
   after mutation policy coverage and before CCOS wiring.
   Push parsing `NEW-865` and unused interactive-helper fallback `NEW-866`
   are not fixed; optional confirmation has not been applied to shell paths
-  (`NEW-837`) or other callback-free gateways.
+  (`NEW-837`) or other callback-free gateways. Merge conflict substring
+  classification `NEW-869` is also open.
   Notes mediation is covered; `NEW-846` content trust and notes integrity/cache
   findings (`NEW-857`..`NEW-859`) remain open.**
 

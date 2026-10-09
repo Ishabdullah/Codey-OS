@@ -20997,3 +20997,21 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Resolution:** reject leading option inputs except exact `-` before gateway/subprocess; append trailing `--` to enforce branch/ref interpretation. Real tests verify option refusal preserves HEAD/index/dirty bytes, filename-only input fails without restoring, branch/file collision selects the branch, Git dirty-switch protection remains and intended branch/hash/previous-branch behavior works. ACT attempts are audited; nonzero Git results audit failed.
 - **Boundary:** independent checkpoint rollback still issues its own checkout and is not covered (NEW-862/810); shell command surfaces and plugin export mismatch (NEW-864) unchanged. No cancellation audit added to main's pre-attempt prompt. This is a branch/ref API, not support for arbitrary Git checkout modes.
 - **Cross-reference:** `core/githelper.py::git_checkout`, `tests/test_git_checkout_gateway.py`, `docs/commands.md`, blueprint §21 WP2.1 slice 14, master §4.2 / Appendix A.
+
+
+## 2026-10-09 — WP2.1 slice 15: branch/ref merge mediated
+
+- **Coverage:** `24fecfd` mediates `git_merge` as ACT after rejecting leading options except `-`, uses `git merge -- <ref>`, retains original strings/exception identity and main conflict flow. Conflicts/nonzero exits audit failed; partial files/index/MERGE_HEAD may remain. 31 new cases, implementer/coordinator 197 bounded tests, reviewer 73-case merge/gateway subset; real temporary Git only, no project merge/model/peer/live-store/network test. Full WP2.1 DoD remains open. Static success metadata, possible Git output in failed reasons, best-effort audit persistence.
+
+### [NEW-868] Confirmed and fixed: raw merge option operands changed intended branch/ref semantics
+
+- **Status:** Fixed (`24fecfd`), code-complete + code-reviewer-approved. Before mediation, raw branch string was passed as a Git argument without option separation. Architect's isolated temporary repository with configured upstream reproduced `--squash` changing index without advancing HEAD. No project-repository incident claimed.
+- **Resolution:** reject leading options except previous-branch `-` before gateway/subprocess; use `git merge -- <ref>`. Tests preserve existing conflict state when option inputs are rejected and verify intended branch/hash/ref/previous merges, including clean two-parent ancestry. Arbitrary abort/squash/options are not supported through this API.
+- **Cross-reference:** `core/githelper.py::git_merge`, `tests/test_git_merge_gateway.py`, blueprint §21 WP2.1 slice 15 / master §4.2 and Appendix A.
+
+### [NEW-869] Confirmed: merge result conflict classification uses output substring rather than unmerged index state
+
+- **Status:** Source-confirmed by architect/coordinator; logged, not fixed. `git_merge` labels a nonzero exit [CONFLICT] whenever combined stdout/stderr contains CONFLICT (case-insensitive), without checking unmerged index state. An unrelated diagnostic containing that word can be labeled as a conflict. No false-positive runtime reproduction claimed.
+- **Boundary:** main subsequently calls `detect_conflicts`; the diagnostic classification can still enter its conflict branch without actual unmerged entries. Slice 15 preserves this historical workflow; gateway correctly audits all nonzero exits failed regardless of label.
+- **Fix direction:** separately scope conflict classification using actual Git state while preserving useful error output and valid resolution flow.
+- **Cross-reference:** `core/githelper.py::git_merge`, `main.py::handle_command` merge branch, master Appendix A.

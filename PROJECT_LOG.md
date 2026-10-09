@@ -1,3 +1,95 @@
+## 2026-10-09 — WP2.1 slice 15: branch/ref merge mediated; continuous execution authorized
+
+**User instruction:** finish merge, then independent checkpoint rollback,
+one slice at a time; scope/implement remaining WP2.1 without stopping,
+brief updates and reviewed commits/push after every slice. This authorizes
+publication, not real model/peer/live-store tests. Prior round is already
+published through `01024b8`; no unrelated agent-memory files are staged.
+
+**Change (`24fecfd`):** `git_merge` rejects leading option operands except
+exact `-`, then executes `git merge -- <ref>` as ACT with static metadata.
+Original OK:/[CONFLICT]/[ERROR] strings, combined output and subprocess
+exception identity persist. All nonzero results audit failed, including
+conflicts; files/index/MERGE_HEAD can remain changed. Failed does not imply
+no side effects. Main conflict handling unchanged; no added pre-merge
+prompt/callback. Successful audit metadata static; failure reasons may
+retain Git output, persistence best effort. Command reference updated.
+
+**Pipeline/evidence:** architect → implementer → independent reviewer
+APPROVED → coordinator verification → exact three-file code commit.
+31 new cases, implementer 197 passed in 65.59s; coordinator full bounded
+set 197 in 65.65s. Independent reviewer used four-file merge/gateway subset:
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice15-validate.py -q tests/test_git_merge_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py
+73 passed in 21.63s
+```
+
+Real isolated temporary Git verifies fast-forward content/HEAD, two-parent
+ancestry, up-to-date/hash/ref/previous-branch, actual conflicts with unmerged
+index/MERGE_HEAD, dirty protection, missing/nonrepo, raw-option rejection
+while a conflict exists, exact argv/output, exception identity, refusal,
+audit blocker and real main/history/conflict workflow. Accepted resolution
+alone invokes a mocked agent; no inference/peer execution. Git variables,
+config/templates/hooks/signing isolated; GIT_MERGE_AUTOEDIT=no in tests.
+State redirected before collection (`NEW-855`), no HOME override. No network,
+project merge, model, peer or live-store test. Code-complete + reviewer-
+approved, no live-project merge verified. No dependency/setup change.
+Full suite excluded (`NEW-791`); type checker unavailable (no mypy/pyright/ty).
+No failing test run reported. Literal diff in commit `24fecfd`; temporary
+artifact /data/data/com.termux/files/usr/tmp/codey-slice15.diff.
+
+**Findings:** NEW-868 raw merge options changed semantics; architect's
+isolated upstream-configured repository reproduced --squash changing index
+without advancing HEAD. Guarded branch/ref mediation resolves this helper
+boundary, not support for arbitrary merge modes. Literal architect output:
+
+```text
+merge -- -: 0 topic file= True
+original raw --squash: 0 HEAD unchanged= True index changed= True
+```
+
+NEW-869 source-confirmed: conflict result classification uses a substring
+in combined Git output, not unmerged index state. Unrelated diagnostics
+containing CONFLICT can be labeled conflicts. No false-positive runtime
+reproduction; preserved and logged separately. Checkpoint rollback, plugin
+exports and remaining WP2.1 surfaces stay open; next is rollback.
+
+**Literal coordinator checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice15-validate.py -q tests/test_git_merge_gateway.py tests/test_git_checkout_gateway.py tests/test_action_gateway_confirmation.py tests/test_git_push_gateway.py tests/test_git_branch_gateway.py tests/test_git_commit_gateway.py tests/test_checkpoint_git_gateway.py tests/test_action_gateway.py tests/test_action_gateway_audit_failure.py tests/test_main_peer_gateway.py
+........................................................................ [ 36%]
+........................................................................ [ 73%]
+.....................................................                    [100%]
+197 passed in 65.65s (0:01:05)
+
+$ ruff check tests/test_git_merge_gateway.py
+All checks passed!
+
+$ ruff check core/githelper.py tests/test_git_merge_gateway.py --select F,E9
+All checks passed!
+
+$ ruff check core/githelper.py --statistics
+20	PLW1510	[ ] subprocess-run-without-check
+16	RUF013 	[ ] implicit-optional
+12	UP006  	[*] non-pep585-annotation
+ 2	BLE001 	[ ] blind-except
+ 1	UP035  	[ ] deprecated-import
+ 1	PIE810 	[ ] multiple-starts-ends-with
+ 1	S110   	[ ] try-except-pass
+Found 53 errors.
+[*] 12 fixable with the `--fix` option (17 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+Helper lint debt unchanged at 53; no full-suite/fully-lint-clean claim.
+Tracking records receive independent review before their separate commit;
+authorized push follows, then rollback work continues without a final turn.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 14: branch/ref checkout mediation; prior work pushed
 
 **Publication requested by user:** completed work was already committed
