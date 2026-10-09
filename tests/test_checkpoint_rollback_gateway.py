@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, checkpoint
+from core import action_gateway, checkpoint, git_execution
 from core.action_gateway import HIGH_IMPACT, ActionGateway
 from core.state import StateStore
 
@@ -28,7 +28,7 @@ def checkpoint_repo(tmp_path, monkeypatch, request):
     repo.mkdir()
 
     def git(*args, check=True):
-        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=check)
+        return subprocess.run([git_execution._trusted_git_executable(), *args], cwd=repo, capture_output=True, text=True, check=check)
 
     git("init", "-b", "main")
     for key, value in {
@@ -111,7 +111,7 @@ def test_denial_does_no_work(checkpoint_repo, monkeypatch, confirmation):
     monkeypatch.setattr(checkpoint, "get_state_store", forbidden)
     monkeypatch.setattr(checkpoint, "_rollback_files", forbidden)
     monkeypatch.setattr(checkpoint.shutil, "copy2", forbidden)
-    monkeypatch.setattr(checkpoint.subprocess, "run", forbidden)
+    monkeypatch.setattr(git_execution.subprocess, "run", forbidden)
     if confirmation is None or confirmation == "not-callable":
         callback = confirmation
     elif isinstance(confirmation, BaseException):
@@ -152,11 +152,11 @@ def test_create_checkpoint_and_full_repository_detached_restore(checkpoint_repo,
         return original_run(args, **kwargs)
 
     with monkeypatch.context() as operations:
-        operations.setattr(checkpoint.subprocess, "run", run)
+        operations.setattr(git_execution.subprocess, "run", run)
         assert checkpoint.rollback(checkpoint_id, confirm=lambda: True) is True
     assert calls == [
-        (["git", "cat-file", "-t", saved_hash], {"cwd": r.repo, "capture_output": True, "text": True}),
-        (["git", "checkout", "--detach", saved_hash, "--"], {"cwd": r.repo, "capture_output": True, "text": True}),
+        ([git_execution._trusted_git_executable(), "cat-file", "-t", saved_hash], {"cwd": r.repo, "capture_output": True, "text": True}),
+        ([git_execution._trusted_git_executable(), "checkout", "--detach", saved_hash, "--"], {"cwd": r.repo, "capture_output": True, "text": True}),
     ]
     assert r.git("rev-parse", "HEAD").stdout.strip() == saved_hash
     assert r.git("symbolic-ref", "HEAD", check=False).returncode != 0
@@ -181,7 +181,7 @@ def test_file_only_compatibility_and_recursive_producer_scope(checkpoint_repo, m
         source.write_text(f"saved {name}\n")
     forbidden = Mock(side_effect=AssertionError("no Git for file-only"))
     with monkeypatch.context() as calls:
-        calls.setattr(checkpoint.subprocess, "run", forbidden)
+        calls.setattr(git_execution.subprocess, "run", forbidden)
         assert checkpoint.rollback("saved", confirm=lambda: True) is True
         forbidden.assert_not_called()
     assert r.trigger.read_text() == "restored = True\n"
@@ -207,7 +207,7 @@ def test_invalid_ids_fail_before_state_and_copy(checkpoint_repo, monkeypatch, ch
     forbidden = Mock(side_effect=AssertionError("invalid ID must not proceed"))
     monkeypatch.setattr(checkpoint, "get_state_store", forbidden)
     monkeypatch.setattr(checkpoint.shutil, "copy2", forbidden)
-    monkeypatch.setattr(checkpoint.subprocess, "run", forbidden)
+    monkeypatch.setattr(git_execution.subprocess, "run", forbidden)
     assert checkpoint.rollback(checkpoint_id, confirm=lambda: True) is False
     forbidden.assert_not_called()
     checkpoint.success.assert_not_called()
@@ -265,7 +265,7 @@ def test_unsafe_backups_fail_before_any_copy(checkpoint_repo, tmp_path, monkeypa
     before = (outside / "example.py").read_bytes()
     forbidden = Mock(side_effect=AssertionError("no copy/Git after unsafe preflight"))
     monkeypatch.setattr(checkpoint.shutil, "copy2", forbidden)
-    monkeypatch.setattr(checkpoint.subprocess, "run", forbidden)
+    monkeypatch.setattr(git_execution.subprocess, "run", forbidden)
     assert checkpoint.rollback(checkpoint_id, confirm=lambda: True) is False
     forbidden.assert_not_called()
     assert (outside / "example.py").read_bytes() == before
@@ -319,9 +319,9 @@ def test_partial_copy_failure_stops_before_git_and_log(checkpoint_repo, monkeypa
     original_run = subprocess.run
     with monkeypatch.context() as calls:
         runner = Mock(wraps=original_run)
-        calls.setattr(checkpoint.subprocess, "run", runner)
+        calls.setattr(git_execution.subprocess, "run", runner)
         assert checkpoint.rollback("saved", confirm=lambda: True) is False
-        assert [call.args[0][:3] for call in runner.call_args_list] == [["git", "cat-file", "-t"]]
+        assert [call.args[0][:3] for call in runner.call_args_list] == [[git_execution._trusted_git_executable(), "cat-file", "-t"]]
     assert len(copies) == 2
     assert r.trigger.read_text() == "restored = True\n"
     assert not (r.repo / "core/second.py").exists()
@@ -389,7 +389,7 @@ def test_operation_exceptions_are_failed_without_success(checkpoint_repo, monkey
                 raise failure
             return original_run(args, **kwargs)
 
-        monkeypatch.setattr(checkpoint.subprocess, "run", run)
+        monkeypatch.setattr(git_execution.subprocess, "run", run)
     assert checkpoint.rollback("saved", confirm=lambda: True) is False
     assert r.state.get_recent_actions() == []
     checkpoint.success.assert_not_called()
@@ -411,7 +411,7 @@ def test_nonzero_checkout_never_logs_success(checkpoint_repo, monkeypatch):
             return SimpleNamespace(returncode=1, stdout="", stderr="original checkout error\n")
         return original_run(args, **kwargs)
 
-    monkeypatch.setattr(checkpoint.subprocess, "run", run)
+    monkeypatch.setattr(git_execution.subprocess, "run", run)
     assert checkpoint.rollback("saved", confirm=lambda: True) is False
     assert r.trigger.read_text() == "restored = True\n"
     assert r.state.get_recent_actions() == []

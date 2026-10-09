@@ -7,28 +7,29 @@ v2.5.5 — Phase 3: branch management, smart commit messages,
 
 import os
 import re
-import subprocess
 from pathlib import Path
 from typing import List
+
+from core.git_execution import run_git
 
 # ── Basic repo queries ─────────────────────────────────────────────────────────
 
 
 def is_git_repo(path: str = None) -> bool:
     path = path or os.getcwd()
-    result = subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True, cwd=path)
+    result = run_git(["git", "rev-parse", "--git-dir"], capture_output=True, cwd=path)
     return result.returncode == 0
 
 
 def git_status(path: str = None) -> str:
     path = path or os.getcwd()
-    result = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, cwd=path)
+    result = run_git(["git", "status", "--short"], capture_output=True, text=True, cwd=path)
     return result.stdout.strip() or "Nothing to commit."
 
 
 def git_diff_stat(path: str = None) -> str:
     path = path or os.getcwd()
-    result = subprocess.run(
+    result = run_git(
         ["git", "diff", "--stat", "HEAD"], capture_output=True, text=True, cwd=path
     )
     return result.stdout.strip()
@@ -36,7 +37,7 @@ def git_diff_stat(path: str = None) -> str:
 
 def git_log(n: int = 5, path: str = None) -> str:
     path = path or os.getcwd()
-    result = subprocess.run(
+    result = run_git(
         ["git", "log", f"-{n}", "--oneline"], capture_output=True, text=True, cwd=path
     )
     return result.stdout.strip() or "No commits yet."
@@ -45,7 +46,7 @@ def git_log(n: int = 5, path: str = None) -> str:
 def git_current_branch(path: str = None) -> str:
     """Return the name of the current branch."""
     path = path or os.getcwd()
-    result = subprocess.run(
+    result = run_git(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, cwd=path
     )
     return result.stdout.strip() or "unknown"
@@ -104,7 +105,7 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
             return "[ERROR] Not a git repository."
 
         if add_all:
-            result = subprocess.run(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
+            result = run_git(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
             if result.returncode != 0:
                 return f"[ERROR] git add failed: {result.stderr}"
 
@@ -112,7 +113,7 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
         if status == "Nothing to commit.":
             return "Nothing to commit — working tree clean."
 
-        result = subprocess.run(
+        result = run_git(
             ["git", "commit", "-m", message], capture_output=True, text=True, cwd=path
         )
         if result.returncode == 0:
@@ -125,7 +126,7 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
 def git_status_paths(paths: List[str], path: str = None) -> str:
     """Like git_status(), but scoped to specific paths only."""
     path = path or os.getcwd()
-    result = subprocess.run(
+    result = run_git(
         ["git", "status", "--short", "--"] + list(paths),
         capture_output=True,
         text=True,
@@ -150,7 +151,7 @@ def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
         if not paths:
             return "Nothing to commit."
 
-        result = subprocess.run(["git", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
+        result = run_git(["git", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
         if result.returncode != 0:
             return f"[ERROR] git add failed: {result.stderr}"
 
@@ -158,7 +159,7 @@ def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
         if status == "Nothing to commit.":
             return "Nothing to commit — working tree clean."
 
-        result = subprocess.run(
+        result = run_git(
             ["git", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
         )
         if result.returncode == 0:
@@ -183,7 +184,7 @@ def git_push(path: str = None, *, confirm=None) -> str:
     def execute():
         nonlocal output, original_error
         try:
-            result = subprocess.run(["git", "push"], capture_output=True, text=True, cwd=path)
+            result = run_git(["git", "push"], capture_output=True, text=True, cwd=path)
         except Exception as exc:
             # Audit execution failure, then restore the caller's original
             # subprocess exception instead of replacing it with a decision.
@@ -219,7 +220,7 @@ def git_branches(path: str = None) -> str:
     Shows remote-tracking refs too when present.
     """
     path = path or os.getcwd()
-    result = subprocess.run(
+    result = run_git(
         ["git", "branch", "-a", "--format=%(HEAD) %(refname:short)"],
         capture_output=True,
         text=True,
@@ -263,7 +264,7 @@ def git_branch_create(name: str, path: str = None) -> str:
     def execute():
         nonlocal output, original_error
         try:
-            result = subprocess.run(
+            result = run_git(
                 ["git", "checkout", "-b", name], capture_output=True, text=True, cwd=path
             )
         except Exception as exc:
@@ -310,7 +311,7 @@ def git_checkout(name: str, path: str = None) -> str:
     def execute():
         nonlocal output, original_error
         try:
-            result = subprocess.run(
+            result = run_git(
                 ["git", "checkout", name, "--"], capture_output=True, text=True, cwd=path
             )
         except Exception as exc:
@@ -356,7 +357,7 @@ def git_merge(branch: str, path: str = None) -> str:
     def execute():
         nonlocal output, original_error
         try:
-            result = subprocess.run(
+            result = run_git(
                 ["git", "merge", "--", branch], capture_output=True, text=True, cwd=path
             )
         except Exception as exc:
@@ -399,13 +400,13 @@ def detect_conflicts(path: str = None) -> List[str]:
     which is the authoritative way to find unmerged paths.
     """
     cwd = path or os.getcwd()
-    result = subprocess.run(
+    result = run_git(
         ["git", "diff", "--name-only", "--diff-filter=U"], capture_output=True, text=True, cwd=cwd
     )
     files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
     # Fallback: grep for conflict markers (catches edge cases)
     if not files:
-        result2 = subprocess.run(
+        result2 = run_git(
             ["git", "status", "--short"], capture_output=True, text=True, cwd=cwd
         )
         for line in result2.stdout.splitlines():
@@ -489,7 +490,7 @@ def git_diff_for_commit(path: str = None, max_chars: int = 3000) -> str:
     cwd = path or os.getcwd()
 
     for args in (["git", "diff", "--cached"], ["git", "diff"]):
-        result = subprocess.run(args, capture_output=True, text=True, cwd=cwd)
+        result = run_git(args, capture_output=True, text=True, cwd=cwd)
         if result.stdout.strip():
             diff = result.stdout.strip()
             if len(diff) > max_chars:
@@ -497,7 +498,7 @@ def git_diff_for_commit(path: str = None, max_chars: int = 3000) -> str:
             return diff
 
     # Nothing staged or unstaged — use HEAD diff
-    result = subprocess.run(
+    result = run_git(
         ["git", "diff", "HEAD~1", "HEAD"], capture_output=True, text=True, cwd=cwd
     )
     diff = result.stdout.strip()
@@ -509,7 +510,7 @@ def git_diff_for_commit(path: str = None, max_chars: int = 3000) -> str:
 def git_commit_log_messages(n: int = 10, path: str = None) -> List[str]:
     """Return the last n commit subject lines (for style detection)."""
     cwd = path or os.getcwd()
-    result = subprocess.run(
+    result = run_git(
         ["git", "log", f"-{n}", "--format=%s"], capture_output=True, text=True, cwd=cwd
     )
     return [l.strip() for l in result.stdout.splitlines() if l.strip()]

@@ -15,7 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, githelper
+from core import action_gateway, git_execution, githelper
 from core.action_gateway import ACT, ActionGateway, GatewayDecision
 
 
@@ -37,7 +37,7 @@ def repository(tmp_path, monkeypatch):
 
     def git(*args, check=True):
         return subprocess.run(
-            ["git", *args], cwd=repo, capture_output=True, text=True, check=check,
+            [git_execution._trusted_git_executable(), *args], cwd=repo, capture_output=True, text=True, check=check,
         )
 
     git("init", "-b", "main")
@@ -197,7 +197,7 @@ def test_refusal_never_runs_subprocess_or_mutates(repository, scoped, monkeypatc
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     with monkeypatch.context() as calls:
         runner = Mock(side_effect=AssertionError("refusal must not invoke Git"))
-        calls.setattr(githelper.subprocess, "run", runner)
+        calls.setattr(git_execution.subprocess, "run", runner)
         assert invoke(r, scoped) == "[ERROR] Local git commit refused: test policy"
         runner.assert_not_called()
     assert snapshot(r) == before
@@ -213,7 +213,7 @@ def test_subprocess_exception_identity_is_preserved(repository, scoped, monkeypa
     r = repository
     failure = OSError("original subprocess error")
     runner = Mock(side_effect=failure)
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     with pytest.raises(OSError) as caught:
         invoke(r, scoped)
     assert caught.value is failure

@@ -15,7 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, githelper
+from core import action_gateway, git_execution, githelper
 from core.action_gateway import ACT, ActionGateway, GatewayDecision
 
 
@@ -34,7 +34,7 @@ def repository(tmp_path, monkeypatch):
     repo.mkdir()
 
     def git(*args, check=True):
-        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=check)
+        return subprocess.run([git_execution._trusted_git_executable(), *args], cwd=repo, capture_output=True, text=True, check=check)
 
     git("init", "-b", "main")
     for key, value in {
@@ -112,7 +112,7 @@ def test_git_failure_preserves_exact_error_string(repository, tmp_path, case):
         cwd = tmp_path / "not-a-repo"
         cwd.mkdir()
     failure = subprocess.run(
-        ["git", "checkout", "-b", name], cwd=cwd, capture_output=True, text=True, check=False,
+        [git_execution._trusted_git_executable(), "checkout", "-b", name], cwd=cwd, capture_output=True, text=True, check=False,
     )
     assert failure.returncode != 0
     result = githelper.git_branch_create(name, path=str(cwd))
@@ -129,7 +129,7 @@ def test_rejected_names_do_not_reach_gateway_or_git(repository, monkeypatch, nam
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     with monkeypatch.context() as calls:
         runner = Mock(side_effect=AssertionError("invalid name must not invoke Git"))
-        calls.setattr(githelper.subprocess, "run", runner)
+        calls.setattr(git_execution.subprocess, "run", runner)
         result = githelper.git_branch_create(name, path=str(r.repo))
         runner.assert_not_called()
     expected = (
@@ -150,7 +150,7 @@ def test_refusal_never_runs_git_or_changes_refs(repository, monkeypatch):
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     with monkeypatch.context() as calls:
         runner = Mock(side_effect=AssertionError("refusal must not invoke Git"))
-        calls.setattr(githelper.subprocess, "run", runner)
+        calls.setattr(git_execution.subprocess, "run", runner)
         assert githelper.git_branch_create("new-branch", path=str(r.repo)) == (
             "[ERROR] Local git branch creation refused: test policy"
         )
@@ -168,12 +168,12 @@ def test_subprocess_exception_object_is_preserved(repository, monkeypatch):
     r = repository
     original = OSError("original subprocess failure")
     runner = Mock(side_effect=original)
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     with pytest.raises(OSError) as caught:
         githelper.git_branch_create("new-branch", path=str(r.repo))
     assert caught.value is original
     runner.assert_called_once_with(
-        ["git", "checkout", "-b", "new-branch"], capture_output=True, text=True, cwd=str(r.repo),
+        [git_execution._trusted_git_executable(), "checkout", "-b", "new-branch"], capture_output=True, text=True, cwd=str(r.repo),
     )
     assert_audit(r, "failed", str(original))
 

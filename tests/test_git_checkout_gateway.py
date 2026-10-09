@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, githelper
+from core import action_gateway, git_execution, githelper
 from core.action_gateway import ACT, ActionGateway, GatewayDecision
 
 
@@ -30,7 +30,7 @@ def repository(tmp_path, monkeypatch):
     repo.mkdir()
 
     def git(*args, check=True):
-        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=check)
+        return subprocess.run([git_execution._trusted_git_executable(), *args], cwd=repo, capture_output=True, text=True, check=check)
 
     git("init", "-b", "main")
     for key, value in {
@@ -180,7 +180,7 @@ def test_options_rejected_before_gateway_or_subprocess(repository, monkeypatch, 
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     with monkeypatch.context() as calls:
         runner = Mock(side_effect=AssertionError("no Git for options"))
-        calls.setattr(githelper.subprocess, "run", runner)
+        calls.setattr(git_execution.subprocess, "run", runner)
         assert githelper.git_checkout(name, str(r.repo)) == f"[ERROR] Checkout options are not supported: '{name}'"
         runner.assert_not_called()
     gate.assert_not_called()
@@ -213,7 +213,7 @@ def test_missing_ref_or_nonrepo_exact_failure(repository, tmp_path, nonrepo):
         cwd = tmp_path / "nonrepo"
         cwd.mkdir()
     expected = subprocess.run(
-        ["git", "checkout", "missing-ref", "--"], cwd=cwd,
+        [git_execution._trusted_git_executable(), "checkout", "missing-ref", "--"], cwd=cwd,
         capture_output=True, text=True, check=False,
     )
     assert expected.returncode != 0
@@ -231,9 +231,9 @@ def test_missing_ref_or_nonrepo_exact_failure(repository, tmp_path, nonrepo):
 def test_success_output_and_exact_argv(repository, monkeypatch, stderr, stdout, expected):
     r = repository
     runner = Mock(return_value=SimpleNamespace(returncode=0, stderr=stderr, stdout=stdout))
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     assert githelper.git_checkout("target", str(r.repo)) == expected
-    runner.assert_called_once_with(["git", "checkout", "target", "--"], capture_output=True, text=True, cwd=str(r.repo))
+    runner.assert_called_once_with([git_execution._trusted_git_executable(), "checkout", "target", "--"], capture_output=True, text=True, cwd=str(r.repo))
     assert_audit(r)
 
 
@@ -245,7 +245,7 @@ def test_refusal_never_executes(repository, monkeypatch):
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     with monkeypatch.context() as calls:
         runner = Mock(side_effect=AssertionError("no Git on refusal"))
-        calls.setattr(githelper.subprocess, "run", runner)
+        calls.setattr(git_execution.subprocess, "run", runner)
         assert githelper.git_checkout("target", str(r.repo)) == "[ERROR] Local git checkout refused: test policy"
         runner.assert_not_called()
     gate.assert_called_once()
@@ -262,7 +262,7 @@ def test_subprocess_exception_identity(repository, monkeypatch):
     r = repository
     original = OSError("original subprocess error")
     runner = Mock(side_effect=original)
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     with pytest.raises(OSError) as caught:
         githelper.git_checkout("target", str(r.repo))
     assert caught.value is original

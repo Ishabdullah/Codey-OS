@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, checkpoint
+from core import action_gateway, checkpoint, git_execution
 from core.action_gateway import ACT, ActionGateway, GatewayDecision
 from core.state import StateStore
 
@@ -32,7 +32,7 @@ def checkpoint_repo(tmp_path, monkeypatch, request):
     repo.mkdir()
 
     def git(*args, check=True):
-        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=check)
+        return subprocess.run([git_execution._trusted_git_executable(), *args], cwd=repo, capture_output=True, text=True, check=check)
 
     git("init", "-b", "main")
     for key, value in {
@@ -151,10 +151,10 @@ def test_invalid_add_fails_without_old_head_fallback(checkpoint_repo, monkeypatc
     head = r.git("rev-parse", "HEAD").stdout.strip()
     with monkeypatch.context() as calls:
         runner = Mock(wraps=subprocess.run)
-        calls.setattr(checkpoint.subprocess, "run", runner)
+        calls.setattr(git_execution.subprocess, "run", runner)
         assert checkpoint._create_git_commit("invalid", ["missing.py"]) is None
     commands = [call.args[0] for call in runner.call_args_list]
-    assert commands == [["git", "rev-parse", "--git-dir"], ["git", "add", "--", "missing.py"]]
+    assert commands == [[git_execution._trusted_git_executable(), "rev-parse", "--git-dir"], [git_execution._trusted_git_executable(), "add", "--", "missing.py"]]
     assert r.git("rev-parse", "HEAD").stdout.strip() == head
     reason = r.warnings.call_args.args[0].split("Checkpoint: git commit failed: ", 1)[1]
     assert reason.startswith("git add failed:")
@@ -184,14 +184,14 @@ def test_diff_error_is_not_treated_as_changes(checkpoint_repo, monkeypatch):
 
     def run(args, **kwargs):
         commands.append(args)
-        if args[:4] == ["git", "diff", "--cached", "--quiet"]:
+        if args[:4] == [git_execution._trusted_git_executable(), "diff", "--cached", "--quiet"]:
             return subprocess.CompletedProcess(args, 2, "", "diff failed")
         return real_run(args, **kwargs)
 
     with monkeypatch.context() as calls:
-        calls.setattr(checkpoint.subprocess, "run", run)
+        calls.setattr(git_execution.subprocess, "run", run)
         assert checkpoint._create_git_commit("diff error", ["core/example.py"]) is None
-    assert not any(args[:2] == ["git", "commit"] for args in commands)
+    assert not any(args[:2] == [git_execution._trusted_git_executable(), "commit"] for args in commands)
     assert r.git("rev-parse", "HEAD").stdout.strip() == head
     assert_audit(r, "failed", "git diff failed: diff failed")
 
@@ -203,12 +203,12 @@ def test_final_head_failure_reports_failure_after_real_commit(checkpoint_repo, m
     real_run = subprocess.run
 
     def run(args, **kwargs):
-        if args == ["git", "rev-parse", "HEAD"]:
+        if args == [git_execution._trusted_git_executable(), "rev-parse", "HEAD"]:
             return subprocess.CompletedProcess(args, 1, "", "HEAD lookup failed")
         return real_run(args, **kwargs)
 
     with monkeypatch.context() as calls:
-        calls.setattr(checkpoint.subprocess, "run", run)
+        calls.setattr(git_execution.subprocess, "run", run)
         assert checkpoint._create_git_commit("HEAD error", ["core/example.py"]) is None
     # A failed attempt audit does not imply the earlier commit was undone.
     assert r.git("rev-parse", "HEAD").stdout.strip() != head
@@ -225,9 +225,9 @@ def test_refusal_never_stages_or_commits(checkpoint_repo, monkeypatch):
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     with monkeypatch.context() as calls:
         runner = Mock(wraps=subprocess.run)
-        calls.setattr(checkpoint.subprocess, "run", runner)
+        calls.setattr(git_execution.subprocess, "run", runner)
         assert checkpoint._create_git_commit("refused", ["core/example.py"]) is None
-    assert [call.args[0] for call in runner.call_args_list] == [["git", "rev-parse", "--git-dir"]]
+    assert [call.args[0] for call in runner.call_args_list] == [[git_execution._trusted_git_executable(), "rev-parse", "--git-dir"]]
     assert r.git("rev-parse", "HEAD").stdout.strip() == head
     assert (r.repo / ".git/index").read_bytes() == index
     assert r.trigger.read_text() == "changed = True\n"

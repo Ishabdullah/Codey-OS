@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, githelper
+from core import action_gateway, git_execution, githelper
 from core.action_gateway import HIGH_IMPACT, ActionGateway
 
 
@@ -50,7 +50,7 @@ def repository(tmp_path, monkeypatch):
     repo.mkdir()
 
     def git(*args, cwd=repo, check=True):
-        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=check)
+        return subprocess.run([git_execution._trusted_git_executable(), *args], cwd=cwd, capture_output=True, text=True, check=check)
 
     git("init", "-b", "main")
     for key, value in {
@@ -101,16 +101,16 @@ def test_real_no_destination_preserves_failure(repository, gateway, monkeypatch)
 @pytest.mark.parametrize("stdout", ["  pushed output\n", ""])
 def test_exact_push_argv_result(gateway, monkeypatch, stdout):
     runner = Mock(return_value=SimpleNamespace(returncode=0, stdout=stdout, stderr="private stderr"))
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     assert githelper.git_push("/temporary/repo", confirm=lambda: True) == (stdout.strip() or "Pushed successfully.")
-    runner.assert_called_once_with(["git", "push"], capture_output=True, text=True, cwd="/temporary/repo")
+    runner.assert_called_once_with([git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd="/temporary/repo")
     assert record(gateway)["outcome"] == "allowed"
     assert "private stderr" not in gateway.audit.read_text()
 
 
 def test_no_callback_never_executes(gateway, monkeypatch):
     runner = Mock(side_effect=AssertionError("no execution"))
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     assert githelper.git_push().startswith("[ERROR] Git push refused:")
     runner.assert_not_called()
     assert "no confirmation path available" in record(gateway)["reason"]
@@ -119,7 +119,7 @@ def test_no_callback_never_executes(gateway, monkeypatch):
 def test_original_exception_is_preserved(gateway, monkeypatch):
     original = OSError("original subprocess error")
     runner = Mock(side_effect=original)
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     with pytest.raises(OSError) as caught:
         githelper.git_push(confirm=lambda: True)
     assert caught.value is original
@@ -133,7 +133,7 @@ def test_push_survives_blocked_audit(gateway, monkeypatch, tmp_path):
     blocker.write_text("blocker")
     monkeypatch.setattr(action_gateway, "get_action_gateway", lambda: ActionGateway(audit_file=blocker / "audit.jsonl"))
     runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="", stderr=""))
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     assert githelper.git_push(confirm=lambda: True) == "Pushed successfully."
     runner.assert_called_once()
     assert blocker.read_text() == "blocker"
@@ -196,7 +196,7 @@ def test_main_push_confirmation(private_main, gateway, monkeypatch, answer, exce
     prompt = Mock(return_value=answer, side_effect=exception)
     monkeypatch.setattr("builtins.input", prompt)
     runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="", stderr=""))
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     history = [{"role": "user", "content": "existing"}]
     handled, returned = main.handle_command("/git push", history, yolo=yolo)
     assert handled is True
@@ -207,7 +207,7 @@ def test_main_push_confirmation(private_main, gateway, monkeypatch, answer, exce
         prompt.assert_called_once_with("Publish this repository's commits to its configured remote? [y/N]: ")
     assert runner.call_count == int(allowed)
     if allowed:
-        runner.assert_called_once_with(["git", "push"], capture_output=True, text=True, cwd=os.getcwd())
+        runner.assert_called_once_with([git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd=os.getcwd())
         main.success.assert_called_once_with("Pushed successfully.")
         main.error.assert_not_called()
     else:
@@ -234,12 +234,12 @@ def test_main_result_with_blocked_audit(private_main, gateway, monkeypatch, tmp_
     runner = Mock(return_value=SimpleNamespace(
         returncode=1 if failed else 0, stdout="", stderr="  original Git failure\n",
     ))
-    monkeypatch.setattr(githelper.subprocess, "run", runner)
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
     history = []
     handled, returned = main.handle_command("/git push", history)
     assert handled is True and returned is history and history == []
     prompt.assert_called_once()
-    runner.assert_called_once_with(["git", "push"], capture_output=True, text=True, cwd=os.getcwd())
+    runner.assert_called_once_with([git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd=os.getcwd())
     if failed:
         main.error.assert_called_once_with("[ERROR] original Git failure")
         main.success.assert_not_called()
