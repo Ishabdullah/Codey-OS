@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-21 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-21: 2026-10-09); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-22 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-22: 2026-10-09); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2925,6 +2925,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `d0125eb` (slice 18;
 reviewed by `/root/code_reviewer`, APPROVED), `93be92c` (slice 19;
 reviewed by `/root/code_reviewer`, APPROVED), `959a5bc` (slice 20;
 reviewed by `/root/code_reviewer`, APPROVED), `11a71fe` (slice 21;
+reviewed by `/root/code_reviewer`, APPROVED), `49358e0` (slice 22;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3500,11 +3501,34 @@ reviewed by `/root/code_reviewer`, APPROVED).
   config/helper execution remains open; no exploit reproduced. Scope constrained
   helper contract preserving automatic checkpoints separately. Next wrappers/
   embedded execution, then helper contract and remaining classification/groups.
+- **Slice 22 (2026-10-09, find/xargs/env wrapper authority, `49358e0`):**
+  find/xargs always HIGH; env READ only as successfully parsed one-token
+  invocation, every argument-bearing form HIGH (including harmless options/
+  assignments). Restricted malformed-quote helper generalized; nonaffected
+  labels and Git HIGH preserved. No discovery/config inspection/child parsing.
+  Ordinary searches/argument env now refuse in headless/YOLO/daemon contexts;
+  internal utility prompts do not substitute for strict True gateway consent.
+  Actual argv/output/timeout/gateway unchanged; daemon comments only corrected.
+  **Evidence:** 129 new cases, implementer 696/5.29s, reviewer 696/5.16s,
+  coordinator 696/5.44s; six previous wrapper labels and ordinary find tightened.
+  Refusal ordering/markers/strict consent/exact execution/agent/daemon/bare env/
+  episodic refusal/sink failure covered, all new execution mocked. Existing
+  temporary file-only Git push regression real; no live wrapper/model/peer/
+  network/live-store test. Installed utility manuals read by architect for
+  semantics, not transport/execution proof. New/focused lint pass; production
+  23 baseline unchanged, shell test I001 baseline retained; initial missing ACT
+  test import corrected before pytest and failure retained. Full suite excluded
+  NEW-791/type checker unavailable. Code-complete + code-reviewer-approved.
+  **Limits/next:** NEW-875 wider wrappers/targets/opaque executable contents
+  remain. NEW-878 dedicated search_files invokes ungated find with model path;
+  option-shaped starting path can become expression, no exploit reproduced.
+  Next bounded search_files mediation/operand handling, then NEW-877 constrained
+  Git helper contract, remaining classification/groups. NEW-874 unchanged.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all twenty-one slices** (slices 3 and 5 each took 2 rounds).
+  **APPROVED, all twenty-two slices** (slices 3 and 5 each took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-21 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-22 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3518,8 +3542,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
   NEW-873 subset is fixed by slice 18; NEW-876 alternate direct families fixed
   by slice 19; unknown Git operation subset NEW-875 fixed by slice 20.
   Slice 21 covers all direct shell Git, including retained-five/query forms.
-  Wrappers/scripts/opaque effects NEW-875, dedicated helper effects NEW-877
-  and failed-execution audit NEW-874 remain. `/peer` bypass
+  Slice 22 covers direct find/xargs/argument-bearing env; bare parsed env READ.
+  Broader wrappers/scripts/opaque effects NEW-875, dedicated search_files NEW-878,
+  dedicated Git helper effects NEW-877 and failed-execution NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
   plus latent parked-execution

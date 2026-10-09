@@ -737,6 +737,19 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 22, shell wrapper authority, 2026-10-09** (`49358e0`) —
+  all direct find/xargs and argument-bearing env HIGH; successfully parsed
+  bare env READ. Identifiable malformed restricted quotes conservative HIGH;
+  classification pure, no child parser/discovery. Ordinary find searches and
+  env options also require approval; daemon admission comments corrected,
+  functional guards/argv/output/timeouts unchanged. 129 new cases / 696 focused
+  tests passed by all roles; new execution mocked, reviewer-approved. NEW-875
+  named wrapper subset covered, broader wrappers/targets/opaque effects open.
+  NEW-878 source-confirmed separate search_files find boundary ungated and
+  option-shaped paths can become expressions; no exploit reproduced. Next
+  search_files mediation/operand handling, then NEW-877 dedicated Git contract.
+  NEW-874 failure fidelity unchanged; full WP2.1 DoD remains open.
+
 - **WP2.1 slice 21, all direct shell Git authorization, 2026-10-09**
   (`11a71fe`) — every direct git/git-* invocation HIGH_IMPACT, including
   status/log/diff/show/commit and terminal/help/query forms. Uncontrolled
@@ -5516,13 +5529,18 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   `11a71fe`, reviewer-approved, 79 new cases / 567 focused tests. All direct
   git/git-* including reads/help HIGH; obsolete parser removed. Intentional
   headless shell Git restriction, dedicated helper effects NEW-877 still open.
+- [x] **WP2.1 slice 22 / find/xargs/env wrappers (`NEW-875` subset)** —
+  `49358e0`, reviewer-approved, 129 new cases / 696 focused tests. find/xargs
+  and argument-bearing env HIGH; bare parsed env READ; daemon comments only.
+  Other wrapper/opaque effects and dedicated search_files NEW-878 remain open.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
   positives; dynamic/non-Python/sibling coverage remains open. 14 work groups
   plus closure, not 14 promised slices. Next remaining shell classification
-  (`NEW-875`; all direct shell Git covered; wrappers/embedded execution next,
-  dedicated helper execution contract `NEW-877` queued),
+  (`NEW-875`; direct shell Git/find/xargs/argument-bearing env covered;
+  search_files `NEW-878` next, dedicated Git contract `NEW-877` then remaining
+  wrappers/embedded execution),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
   boundaries and final closure. Preserve confirmation; distinguish publishing
@@ -5530,12 +5548,18 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   without stopping (user instruction 2026-10-09).
 - [ ] **Shell classification/failure and peer bookkeeping (`NEW-875`,
   `NEW-874`, `NEW-844`)** — NEW-873/876 direct publishing families fixed;
-  all direct shell Git HIGH; env/find wrappers and scripts retain unresolved
-  READ/ACT effects. Dedicated Git helpers/checkpoints NEW-877 remain. Security/self-
+  direct shell Git/find/xargs/argument-bearing env HIGH; other wrappers/scripts
+  retain unresolved READ/ACT effects. Dedicated search_files NEW-878 and Git
+  helpers/checkpoints NEW-877 remain. Security/self-
   modification classification remains unresolved. Subprocess
   nonzero/caught errors can audit allowed. Source-confirmed residuals, no live
   bypass/publishing/failure exploit claimed. Attempted peer execution plus
   later bookkeeping failure remains distinct from refusal.
+- [ ] **Dedicated search_files mediation/operands (`NEW-878`)** — confirmed:
+  agent tool forwards model path to ungated find argv; option-shaped paths can
+  become expressions before name test. No exploit reproduced. Immediately scope
+  complete-operation mediation and safe starting-path representation; find '--'
+  alone is not sufficient. Keep pattern a literal operand and preserve search UX.
 - [ ] **Dedicated Git execution contract (`NEW-877`)** — source-confirmed:
   githelper queries/ACT mutations and checkpoint commit/query subprocesses
   inherit repository/user configuration and environment. Hooks/helpers can

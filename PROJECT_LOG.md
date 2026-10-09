@@ -1,3 +1,120 @@
+## 2026-10-09 — WP2.1 slice 22: shell wrapper authority
+
+**Previous slice published:** code `11a71fe`, records `c4dfe12`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   43171ed..c4dfe12  main -> main
+```
+
+**Change (`49358e0`):** direct find/xargs always HIGH, argument-bearing env HIGH,
+bare successfully parsed env READ. Identifiable restricted malformed quotes HIGH;
+no recursive child parse/discovery/environment/config inspection. Generic benign
+find searches and env options intentionally require explicit gateway approval;
+internal find/xargs prompts are insufficient. Six prior wrapper READ cases and
+ordinary find assertion tighten HIGH. Nonaffected executable labels, argv/timeouts/
+output/confirmation/gateway/returncodes unchanged. Daemon comments corrected only:
+prefix admission followed by authority mediation, not read-effects guarantee.
+
+**Pipeline/evidence:** completed architect → implementer → independent reviewer
+APPROVED → coordinator checks → exact seven-file code commit. 129 new cases;
+implementer 696/5.29s, reviewer 696/5.16s, coordinator 696/5.44s same twelve files.
+Matrices/quotes/purity/refusal ordering/unchanged markers/strict True/exact execution/
+agent and daemon integration/bare env/episodic refusal/sink failure tested. All new
+utility execution mocked; existing temporary file-only Git push regression real.
+Startup config Path/DB/audit isolation NEW-855, no HOME override. Architect read
+complete installed env/find/xargs manuals for semantic evidence; no actual utility/
+wrapper/alias/model/peer/network/project publishing/live-store test. Full literal
+382-line diff: /data/data/com.termux/files/usr/tmp/codey-slice22.diff. No dependency/
+setup change. New/focused lint clean; full touched production 23 baseline unchanged,
+shell test unchanged-import I001 baseline retained. Initial Ruff --fix caught
+missing ACT import (5 errors, 2 fixed, 3 F821 remaining); import added before pytest,
+final lint/tests passed. Exact failure below and retained scratch artifact.
+Full suite excluded NEW-791, type checker unavailable. Code-complete + reviewer-
+approved, no additional live verification required.
+
+**Findings/next:** NEW-875 named-wrapper subset covered, broad wrappers/targets/
+opaque effects open; bare-env classification not binary containment. NEW-878
+source-confirmed direct search_files boundary ungated/model path option expression;
+no exploit reproduced. Next search_files mediation/operand handling, then NEW-877
+Git helper contract and remaining classification/groups. NEW-874 unchanged.
+No incidental search_files/helper fix. Tracking independently reviewed before
+records commit; user continuous publication/continuation authorization retained.
+
+**Literal coordinator checks:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice22-validate.py -q tests/test_shell_wrapper_boundaries.py tests/test_shell_git_all_direct.py tests/test_shell_git_supported_operations.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py tests/test_shell_tools.py tests/test_shell_refusal_accounting.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_git_push_gateway.py tests/test_task_executor_telemetry.py
+........................................................................ [ 10%]
+........................................................................ [ 20%]
+........................................................................ [ 31%]
+........................................................................ [ 41%]
+........................................................................ [ 51%]
+........................................................................ [ 62%]
+........................................................................ [ 72%]
+........................................................................ [ 82%]
+........................................................................ [ 93%]
+................................................                         [100%]
+696 passed in 5.44s
+
+$ ruff check tests/test_shell_wrapper_boundaries.py tests/test_shell_git_supported_operations.py tests/test_shell_git_publishing.py tests/test_shell_git_lower_publishing.py
+All checks passed!
+
+$ ruff check tools/shell_tools.py core/task_executor.py tests/test_shell_wrapper_boundaries.py tests/test_shell_git_supported_operations.py tests/test_shell_git_lower_publishing.py tests/test_shell_git_publishing.py tests/test_shell_tools.py --select F,E9
+All checks passed!
+
+$ ruff check tools/shell_tools.py core/task_executor.py --statistics
+10	UP045  	[*] non-pep604-annotation-optional
+ 4	BLE001 	[ ] blind-except
+ 3	UP006  	[*] non-pep585-annotation
+ 2	PLW1510	[ ] subprocess-run-without-check
+ 1	SIM102 	[ ] collapsible-if
+ 1	UP035  	[ ] deprecated-import
+ 1	SIM103 	[ ] needless-bool
+ 1	EXE001 	[ ] shebang-not-executable
+Found 23 errors.
+[*] 13 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+$ git diff --check
+```
+
+**Literal initial implementer lint failure (corrected before pytest):**
+
+```text
+$ ruff check tests/test_shell_wrapper_boundaries.py tests/test_shell_git_supported_operations.py tests/test_shell_git_publishing.py tests/test_shell_git_lower_publishing.py --fix
+F821 Undefined name `ACT`
+  --> tests/test_shell_wrapper_boundaries.py:35:142
+   |
+35 | …", READ), ("ls -la", READ), ("grep x file", READ), ("echo safe", ACT), ("python3 arbitrary.py", ACT), ("python3 'unterminated", ACT),…
+   |                                                                   ^^^
+36 | …
+37 | …
+   |
+
+F821 Undefined name `ACT`
+  --> tests/test_shell_wrapper_boundaries.py:35:173
+   |
+35 | …rep x file", READ), ("echo safe", ACT), ("python3 arbitrary.py", ACT), ("python3 'unterminated", ACT), ("rm -rf /temporary", HIGH_IMP…
+   |                                                                   ^^^
+36 | …
+37 | …
+   |
+
+F821 Undefined name `ACT`
+  --> tests/test_shell_wrapper_boundaries.py:35:205
+   |
+35 | …, ACT), ("python3 arbitrary.py", ACT), ("python3 'unterminated", ACT), ("rm -rf /temporary", HIGH_IMPACT)])
+   |                                                                   ^^^
+36 | …
+37 | …
+   |
+
+Found 5 errors (2 fixed, 3 remaining).
+```
+
+---
+
 ## 2026-10-09 — WP2.1 slice 21: explicit approval for all direct shell Git
 
 **Previous slice published:** code `959a5bc`, records `43171ed`. Actual push:

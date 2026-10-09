@@ -21127,3 +21127,19 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Reachability:** main.py Git queries/mutations; core/agent.py:1084 git_commit_paths; core/filesystem.py:73 checkpoint creation before self-modification. CCOS Git adapter currently only exports is_git_repo; missing mutation exports NEW-864 are not claimed active callers.
 - **Fix direction:** architect-scope a constrained execution contract preserving useful automatic checkpoint commits while bounding helpers/hooks/configured effects, or require appropriate authorization for unbounded effects. Do not silently disable recovery or declare inherited config trusted. Direct shell Git authorization does not solve these separate subprocess boundaries.
 - **Cross-reference:** core/githelper.py:23/84/97/137/295/341, core/checkpoint.py:134/189, NEW-875, blueprint §21, master §4.2/Appendix A and remaining census. Security/effects debt separate from operand/failure correctness established by earlier slices.
+
+
+## 2026-10-09 — WP2.1 slice 22: wrapper authority and dedicated find tool
+
+### [NEW-875] partial resolution — direct find/xargs and argument-bearing env HIGH
+
+- **Status:** Named families conservatively HIGH (`49358e0`); bare successfully parsed env READ. Restricted identifiable quote failures HIGH. No child parser/discovery; other labels, execution arguments/outputs/timeouts/confirmation unchanged. Ordinary find searches and env inspection options also refuse headless; daemon comments only corrected. Code-complete + code-reviewer-approved.
+- **Evidence:** 129 new cases; implementer 696/5.29s, reviewer 696/5.16s, coordinator 696/5.44s. Refusal ordering/strict consent/single audit/agent/daemon/bare-env/episodic/sink checks; all new execution mocked. Installed env/find/xargs manuals fully read by architect. No wrapper execution/publication exploit or model/peer/network/live-store test.
+- **Open:** broader wrappers/embedded exec, security/self-modification and opaque executable contents. Bare-env/name labels do not establish binary containment. NEW-874 outcome fidelity unchanged; NEW-877 Git-helper contract and NEW-878 search_files remain distinct.
+
+### [NEW-878] HIGH — search_files bypasses gateway and interprets model-supplied find starting path
+
+- **Certainty/status:** Source-confirmed, open; no exploit reproduced. Not fixed by shell classification slice 22.
+- **Evidence/reachability:** core/agent.py:395 TOOLS search_files passes model pattern/path directly to tools/shell_tools.py::search_files, which invokes [find, path, -name, pattern] without gateway or safe starting-path representation. An option-shaped path such as -delete can be interpreted as an expression before the name test. List argv prevents shell interpolation, not utility option interpretation. Architect read full installed find manual, which warns '--' alone does not reliably delimit starting paths; coordinator read full shell_tools and traced agent forwarding.
+- **Fix direction:** next bounded slice must mediate the complete search operation and represent starting paths safely while retaining pattern as a literal -name operand and search UX. Consider a constrained known search contract separately from generic all-find HIGH; do not claim arbitrary executable trust or overall wrapper closure.
+- **Cross-reference:** core/agent.py:395, tools/shell_tools.py::search_files, NEW-875, blueprint §21, master §4.2/Appendix A, remaining census. Dedicated Git effects NEW-877 and shell error fidelity NEW-874 separate.
