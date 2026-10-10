@@ -221,7 +221,10 @@ def test_fake_path_git_never_used_by_queries_and_local_commit(repository):
     assert not githelper.git_commit_paths("trusted local commit", ["core/example.py"], str(r.repo)).startswith("[ERROR]")
     assert r.git("show", "HEAD:core/example.py").stdout == "updated = True\n"
     assert not r.marker.exists()
-    assert len(r.audit.read_text().splitlines()) == 1
+    ledger = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    assert [row["authority"] for row in ledger] == ["READ", "READ", "READ", "ACT"]
+    assert [row["action"] for row in ledger] == ["githelper.is_git_repo", "githelper.git_current_branch", "githelper.git_log", "githelper.git_commit_paths"]
+    assert all(row["outcome"] == "allowed" for row in ledger)
 
 
 def test_fake_path_git_checkpoint_changed_scoped_and_clean_hash(repository):

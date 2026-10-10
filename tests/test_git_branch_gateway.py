@@ -61,8 +61,12 @@ def snapshot(r):
     )
 
 
-def assert_audit(r, outcome="allowed", reason="command executed"):
+def assert_audit(r, outcome="allowed", reason="command executed", preflight=False):
     records = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    if preflight:
+        query = records.pop(0)
+        assert isinstance(query.pop("ts"), float)
+        assert query == {"authority": "READ", "action": "githelper.is_git_repo", "command": "git metadata query", "outcome": "allowed", "reason": "command executed"}
     assert len(records) == 1
     record = records[0]
     assert isinstance(record.pop("ts"), float)
@@ -229,4 +233,4 @@ def test_private_main_branch_handler_preserves_history(repository, monkeypatch):
     main.success.assert_called_once_with("Created and switched to branch 'main-branch'.")
     main.error.assert_not_called()
     assert r.git("symbolic-ref", "HEAD").stdout.strip() == "refs/heads/main-branch"
-    assert_audit(r)
+    assert_audit(r, preflight=True)

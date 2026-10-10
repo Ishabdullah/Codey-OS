@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from core.git_commit_context import discover_worktree, isolated_scoped_commit_context
-from core.git_execution import local_commit_runner, run_git
+from core.git_execution import run_git
 from core.state import get_state_store
 from utils.config import CHECKPOINT_DIR, CODE_DIR
 from utils.logger import info, success, warning
@@ -136,25 +136,20 @@ def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optiona
     """Commit literal triggering paths through ACT; directories select subtrees.
 
     Nonempty mutations use a private administrative/configuration context
-    inside ACT. No-path calls retain the separate query contract without a
-    mutation audit; scoped clean attempts return the existing HEAD.
+    inside ACT. No-path calls use one isolated READ query; scoped clean attempts return the existing HEAD.
     Directories, including '.', intentionally select their subtrees; this is
     no single-file or workspace containment guarantee. Staging/commit/hash lookup
     is not atomic: failure can leave staging or an already-created commit.
     """
     try:
         if not files_modified:
-            # Historical read-only query contract remains separate/open.
-            runner = local_commit_runner()
-            result = runner(
-                ["git", "rev-parse", "--git-dir"], cwd=CODE_DIR, capture_output=True, text=True
-            )
-            if result.returncode != 0:
+            from core.git_query_context import metadata_query
+
+            try:
+                return metadata_query(CODE_DIR, action="checkpoint.git_head", operation="head")
+            except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                warning("Checkpoint: Git metadata query failed")
                 return None
-            result = runner(
-                ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
-            )
-            return result.stdout.strip() if result.returncode == 0 else None
         if discover_worktree(CODE_DIR) is None:
             return None
 

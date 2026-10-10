@@ -601,7 +601,10 @@ def test_private_main_resolution_then_explicit_commit(repository, monkeypatch):
     assert main.handle_command("/git commit explicit resolution", history) == (True, history)
     assert r.git("show", "-s", "--format=%P", "HEAD").stdout.strip().split() == [old, incoming]
     assert r.git("show", "HEAD:core/example.py").stdout == "resolved without inference\n"
-    assert [record["outcome"] for record in records(r)] == ["failed", "allowed"]
+    ledger = records(r)
+    assert [record["outcome"] for record in ledger] == ["allowed", "failed", "allowed", "allowed"]
+    assert [record["authority"] for record in ledger] == ["READ", "ACT", "READ", "ACT"]
+    assert [record["action"] for record in ledger] == ["githelper.is_git_repo", "githelper.git_merge", "githelper.is_git_repo", "githelper.git_commit"]
 
 
 @pytest.mark.parametrize("name", ["MERGE_HEAD", "MERGE_MSG", "MERGE_MODE", "AUTO_MERGE", "SQUASH_MSG"])

@@ -98,8 +98,12 @@ def backup(r, checkpoint_id="saved", git_hash=None, *, row=True):
     return directory
 
 
-def audit_outcome(r, outcome, reason=None):
+def audit_outcome(r, outcome, reason=None, preflight=False):
     rows = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    if preflight:
+        query = rows.pop(0)
+        assert isinstance(query.pop("ts"), float)
+        assert query == {"authority": "READ", "action": "checkpoint.git_head", "command": "checkpoint Git HEAD query", "outcome": "allowed", "reason": "command executed"}
     assert len(rows) == 1
     row = rows[0]
     assert isinstance(row.pop("ts"), float)
@@ -178,7 +182,7 @@ def test_create_checkpoint_and_full_repository_detached_restore(checkpoint_repo,
     assert (r.repo / "codeyOS").stat().st_mode & 0o111
     assert r.state.get_recent_actions()[0]["action"] == "rollback"
     checkpoint.success.assert_called_once()
-    row = audit_outcome(r, "allowed")
+    row = audit_outcome(r, "allowed", preflight=True)
     for secret in (checkpoint_id, saved_hash, "private reason", "baseline = True"):
         assert secret not in json.dumps(row)
 

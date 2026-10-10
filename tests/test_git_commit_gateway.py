@@ -73,8 +73,13 @@ def records(r):
     return [json.loads(line) for line in r.audit.read_text().splitlines()]
 
 
-def assert_audit(r, action, outcome="allowed", reason="command executed"):
+def assert_audit(r, action, outcome="allowed", reason="command executed", queries=()):
     ledger = records(r)
+    assert len(ledger) == len(queries) + 1
+    for row, action_name in zip(ledger[:len(queries)], queries):
+        assert isinstance(row.pop("ts"), float)
+        assert row == {"authority": "READ", "action": action_name, "command": "git metadata query", "outcome": "allowed", "reason": "command executed"}
+    ledger = ledger[len(queries):]
     assert len(ledger) == 1
     record = ledger[0]
     assert isinstance(record.pop("ts"), float)
@@ -263,10 +268,11 @@ def test_real_agent_commit_offer(repository, monkeypatch, accept):
     if accept:
         assert r.git("log", "-1", "--format=%s").stdout.strip() == "Codey: fix a bug..."
         assert r.git("show", "HEAD:one.txt").stdout == "one changed\n"
-        assert_audit(r, "githelper.git_commit_paths")
+        assert_audit(r, "githelper.git_commit_paths", queries=("githelper.is_git_repo",))
     else:
         assert r.git("rev-parse", "HEAD").stdout == before
-        assert not r.audit.exists()
+        ledger = records(r)
+        assert len(ledger) == 1 and ledger[0]["authority"] == "READ" and ledger[0]["action"] == "githelper.is_git_repo" and ledger[0]["outcome"] == "allowed"
 
 
 def test_private_main_explicit_commit_handler(repository, monkeypatch):
@@ -303,4 +309,4 @@ def test_private_main_explicit_commit_handler(repository, monkeypatch):
     assert r.git("show", "HEAD:one.txt").stdout == "one changed\n"
     main.success.assert_called_once()
     main.error.assert_not_called()
-    assert_audit(r, "githelper.git_commit")
+    assert_audit(r, "githelper.git_commit", queries=("githelper.is_git_repo",))

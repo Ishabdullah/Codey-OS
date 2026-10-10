@@ -17,6 +17,7 @@ from core.git_commit_context import (
     isolated_scoped_commit_context,
 )
 from core.git_execution import run_git
+from core.git_query_context import metadata_query
 
 # ── Basic repo queries ─────────────────────────────────────────────────────────
 
@@ -28,7 +29,7 @@ def _is_git_repo(path, runner):
 
 
 def is_git_repo(path: str = None) -> bool:
-    return _is_git_repo(path, run_git)
+    return metadata_query(path, action="githelper.is_git_repo", operation="is_repo")
 
 
 def _git_status(path, runner):
@@ -50,20 +51,12 @@ def git_diff_stat(path: str = None) -> str:
 
 
 def git_log(n: int = 5, path: str = None) -> str:
-    path = path or os.getcwd()
-    result = run_git(
-        ["git", "log", f"-{n}", "--oneline"], capture_output=True, text=True, cwd=path
-    )
-    return result.stdout.strip() or "No commits yet."
+    return metadata_query(path, action="githelper.git_log", operation="log", n=n)
 
 
 def git_current_branch(path: str = None) -> str:
-    """Return the name of the current branch."""
-    path = path or os.getcwd()
-    result = run_git(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, cwd=path
-    )
-    return result.stdout.strip() or "unknown"
+    """Return the validated branch name, including unborn, or detached HEAD."""
+    return metadata_query(path, action="githelper.git_current_branch", operation="branch")
 
 
 # ── Commit ─────────────────────────────────────────────────────────────────────
@@ -261,26 +254,7 @@ def git_branches(path: str = None) -> str:
     List all local branches with current branch marked.
     Shows remote-tracking refs too when present.
     """
-    path = path or os.getcwd()
-    result = run_git(
-        ["git", "branch", "-a", "--format=%(HEAD) %(refname:short)"],
-        capture_output=True,
-        text=True,
-        cwd=path,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
-        return "No branches found."
-
-    lines = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith("* "):
-            lines.append(f"[bold green]* {line[2:]}[/bold green]  (current)")
-        else:
-            lines.append(f"  {line}")
-    return "\n".join(lines)
+    return metadata_query(path, action="githelper.git_branches", operation="branches")
 
 
 def git_branch_create(name: str, path: str = None) -> str:
@@ -551,11 +525,7 @@ def git_diff_for_commit(path: str = None, max_chars: int = 3000) -> str:
 
 def git_commit_log_messages(n: int = 10, path: str = None) -> List[str]:
     """Return the last n commit subject lines (for style detection)."""
-    cwd = path or os.getcwd()
-    result = run_git(
-        ["git", "log", f"-{n}", "--format=%s"], capture_output=True, text=True, cwd=cwd
-    )
-    return [l.strip() for l in result.stdout.splitlines() if l.strip()]
+    return metadata_query(path, action="githelper.git_commit_log_messages", operation="messages", n=n)
 
 
 def uses_conventional_commits(messages: List[str]) -> bool:

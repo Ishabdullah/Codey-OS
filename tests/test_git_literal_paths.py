@@ -271,7 +271,6 @@ def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, tmp_path, o
         yield SimpleNamespace(run=runner, pending_merge=False)
 
     monkeypatch.setattr(githelper, "isolated_broad_commit_context", broad_context)
-    monkeypatch.setattr(checkpoint, "local_commit_runner", Mock(return_value=runner))
     monkeypatch.setattr(checkpoint, "CODE_DIR", Path("/temporary cwd"))
     audit_file = tmp_path / "audit.jsonl"
     instance = ActionGateway(audit_file=audit_file)

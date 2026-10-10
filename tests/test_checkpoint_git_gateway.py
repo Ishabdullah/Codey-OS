@@ -126,7 +126,7 @@ def test_clean_trigger_does_not_commit_unrelated_index(checkpoint_repo):
 
 @pytest.mark.parametrize("files", [None, []], ids=["none", "empty"])
 @pytest.mark.parametrize("checkpoint_repo", [True, False], indirect=True, ids=["has-head", "unborn"])
-def test_no_paths_are_read_only_without_mutation_audit(checkpoint_repo, files):
+def test_no_paths_have_one_read_without_mutation_audit(checkpoint_repo, files):
     r = checkpoint_repo
     head = r.git("rev-parse", "HEAD", check=False)
     index_path = r.repo / ".git/index"
@@ -135,7 +135,9 @@ def test_no_paths_are_read_only_without_mutation_audit(checkpoint_repo, files):
         head.stdout.strip() if head.returncode == 0 else None
     )
     assert (index_path.read_bytes() if index_path.exists() else None) == index
-    assert not r.audit.exists()
+    ledger = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    assert len(ledger) == 1 and ledger[0]["authority"] == "READ"
+    assert ledger[0]["action"] == "checkpoint.git_head" and ledger[0]["outcome"] == "allowed"
 
 
 def test_no_repository_is_read_only_without_mutation_audit(checkpoint_repo, tmp_path, monkeypatch):

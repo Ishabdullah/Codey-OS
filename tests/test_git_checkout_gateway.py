@@ -57,8 +57,13 @@ def snapshot(r):
     )
 
 
-def assert_audit(r, outcome="allowed", reason="command executed"):
+def assert_audit(r, outcome="allowed", reason="command executed", queries=False):
     records = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    if queries:
+        for action_name in ("githelper.is_git_repo", "githelper.git_current_branch"):
+            query = records.pop(0)
+            assert isinstance(query.pop("ts"), float)
+            assert query == {"authority": "READ", "action": action_name, "command": "git metadata query", "outcome": "allowed", "reason": "command executed"}
     assert len(records) == 1
     record = records[0]
     assert isinstance(record.pop("ts"), float)
@@ -330,14 +335,18 @@ def test_main_existing_prompt_and_history(repository, private_main, monkeypatch,
     prompt.assert_called_once_with("Confirm? [y/N] ")
     main.error.assert_not_called()
     if allowed:
-        gate.assert_called_once()
+        assert gate.call_count == 3
+        assert [call.kwargs["action"] for call in gate.call_args_list] == ["githelper.is_git_repo", "githelper.git_current_branch", "githelper.git_checkout"]
         assert "Switched to branch 'target'" in main.success.call_args.args[0]
         assert r.git("symbolic-ref", "HEAD").stdout.strip() == "refs/heads/target"
-        assert_audit(r)
+        assert_audit(r, queries=True)
     else:
-        gate.assert_not_called()
+        assert gate.call_count == 2
+        assert [call.kwargs["authority"] for call in gate.call_args_list] == ["READ", "READ"]
         main.success.assert_not_called()
         main.info.assert_called_once_with("Checkout cancelled.")
         assert snapshot(r) == before
         assert (r.repo / ".git/index").read_bytes() == index
-        assert not r.audit.exists()
+        ledger = [json.loads(line) for line in r.audit.read_text().splitlines()]
+        assert [row["action"] for row in ledger] == ["githelper.is_git_repo", "githelper.git_current_branch"]
+        assert all(row["authority"] == "READ" and row["outcome"] == "allowed" for row in ledger)

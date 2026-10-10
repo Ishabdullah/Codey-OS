@@ -1066,7 +1066,12 @@ def check_git_and_offer_commit(user_message, tools_used, files_touched=None):
     from utils.logger import confirm as ask_confirm
     from utils.logger import error, info, success
 
-    if not is_git_repo():
+    try:
+        repository_present = is_git_repo()
+    except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+        error("Git metadata query failed.")
+        return
+    if not repository_present:
         return
 
     if not files_touched:

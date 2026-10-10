@@ -899,7 +899,12 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
         parts = cmd.split(maxsplit=2)
 
-        if not is_git_repo():
+        try:
+            repository_present = is_git_repo()
+        except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+            error("Git metadata query failed.")
+            return True, history
+        if not repository_present:
             error("Not a git repository.")
             return True, history
 
@@ -911,10 +916,20 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
             console.print(git_status())
 
         elif sub_low == "log":
-            console.print(git_log())
+            try:
+                output = git_log()
+            except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                error("Git metadata query failed.")
+                return True, history
+            console.print(output)
 
         elif sub_low == "branches":
-            console.print(git_branches())
+            try:
+                output = git_branches()
+            except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                error("Git metadata query failed.")
+                return True, history
+            console.print(output)
 
         elif sub_low == "branch":
             if not arg:
@@ -927,7 +942,11 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
             if not arg:
                 error("Usage: /git checkout <branch>")
             else:
-                current = git_current_branch()
+                try:
+                    current = git_current_branch()
+                except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                    error("Git metadata query failed.")
+                    return True, history
                 console.print(f"Switching from [bold]{current}[/bold] → [bold]{arg}[/bold]")
                 try:
                     confirm = input("Confirm? [y/N] ").strip().lower()
@@ -999,7 +1018,11 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     info("Nothing to commit — working tree clean.")
                     return True, history
                 console.print("[dim]Analyzing diff to generate commit message…[/dim]")
-                history_msgs = git_commit_log_messages()
+                try:
+                    history_msgs = git_commit_log_messages()
+                except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                    error("Git metadata query failed.")
+                    return True, history
                 suggested = generate_commit_message(diff, history_msgs)
                 console.print(f"\nSuggested message: [bold cyan]{suggested}[/bold cyan]")
                 try:

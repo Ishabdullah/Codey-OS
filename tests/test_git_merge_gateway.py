@@ -58,8 +58,12 @@ def snapshot(r):
     )
 
 
-def assert_audit(r, outcome="allowed", reason="command executed"):
+def assert_audit(r, outcome="allowed", reason="command executed", preflight=False):
     records = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    if preflight:
+        query = records.pop(0)
+        assert isinstance(query.pop("ts"), float)
+        assert query == {"authority": "READ", "action": "githelper.is_git_repo", "command": "git metadata query", "outcome": "allowed", "reason": "command executed"}
     assert len(records) == 1
     record = records[0]
     assert isinstance(record.pop("ts"), float)
@@ -313,7 +317,7 @@ def test_main_clean_merge_no_new_prompt(repository, private_main, monkeypatch):
     main.error.assert_not_called()
     main.warning.assert_not_called()
     assert r.git("rev-parse", "HEAD").stdout.strip() == target
-    assert_audit(r)
+    assert_audit(r, preflight=True)
 
 
 @pytest.mark.parametrize(
@@ -341,7 +345,7 @@ def test_main_real_conflict_resolution_flow(repository, private_main, monkeypatc
     main.error.assert_not_called()
     main.success.assert_not_called()
     assert_conflict_state(r, target)
-    assert_audit(r, "failed", result)
+    assert_audit(r, "failed", result, preflight=True)
     if accepted:
         agent.assert_called_once()
         arguments = agent.call_args
