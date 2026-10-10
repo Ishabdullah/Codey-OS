@@ -1,3 +1,328 @@
+## 2026-10-10 — WP2.1 slice 29: isolated Git metadata READ
+
+**Previous slice published:** code `7530b7a`, records `d7430fa`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   ed97c0b..d7430fa  main -> main
+```
+
+**Change (`29e5cc7`):**
+  Five public metadata helpers and no-path checkpoint HEAD queries use one
+  READ gate_exec each. Discovery, default cwd, copied private administration,
+  fixed installed Git commands and positive structural configuration all run
+  inside the gate. No original index/refs/logs/locks/config writes. Query child
+  environment excludes ambient execution/config/redirect controls and disables
+  lazy fetch; global/system settings omitted. Regular HEAD/refs/packed/shallow/
+  grafts copied; linked/bare/custom/nonregular/unsupported structural settings
+  fail explicitly. Metadata reads allow active operations and sparse/split index
+  because they never inspect the original index. Actual unborn branch name now
+  returned; genuine nonrepo/unborn results remain useful. Corrupt/missing HEAD
+  objects and checked command failures produce failed READ, never false empty.
+  Unexpected exception identity retained with static audit diagnostics; cleanup
+  failures accounted for. Main/agent stop dependent prompts/mutations/inference
+  on query failure. No-path checkpoint backup/SQLite remains useful with hash or
+  NULL and static warning on failed query. Other mutation behavior unchanged.
+  89 new cases + 759 retained = 848; coordinator 848 passed in 154.41s (0:02:34).
+  Real disposable Git/filesystem/SQLite/private CLI mechanics verified; no actual
+  promisor transport test, no additional live-service/model verification. No
+  atomic snapshot, containment, binary integrity or hostile-race guarantee.
+  NEW-877 partial: working-tree status/diff/conflict READ contracts next, then
+  remaining Git mutation configured effects. NEW-875/874/855 and full DoD open.
+
+**Pipeline:** architect COMPLETED → implementer COMPLETE → independent adversarial
+review APPROVED → coordinator checks → exact15-file code commit. Five tracking
+files reviewed separately before records commit. Agent-memory dirt preserved.
+No additional live-verifier required; disposable native mechanics and stubbed
+inference only. Source hashes guard reviewed/tested/committed files.
+
+**Corrections/evidence limits:** Actual old helper returned is_git_repo true,
+No commits yet. and [] with missing HEAD commit object; native log exit128 bad
+object HEAD. Full prototype/old-helper proof sources and outputs retained.
+Initial3failed53passed37.19s: genuine directory-at-symbolic-ref false unborn
+fixed regular leaf check; packed remote short name and absent graft-info parent
+fixtures corrected. Next2failed74passed50.96s: existing template directory name
+collision corrected. Focused351passed316.39s preceded fixed-argv/protocol five
+extra cases, final89new. Coordinator interim inspection also moved default cwd
+inside READ, rejected fixed temp symlink/resolved worktree aliases and broken
+linked markers, and accepted native valueless config booleans. Complete installed
+show-ref manual read275lines8023bytes, --exists0/2/1 distinction; full config
+manual not read/claimed. Root read all1275lines diff and609lines validation.
+Initial Ruff6 retained; unfinished imports later used, cleanup unused binding/noqa
+and blind assertion corrected. Import sorting11fixes restored unrelated main/agent
+formatting. Seven required query-boundary BLE001 catches gained local explanatory
+comments only after tests; no functional post-test edits. Production136 unchanged,
+focusedF/E9sevenlegacy. Promisor suppression source/control evidence only; no
+actual transport runtime proof. Orchestrator/CCOS optional runtime tests absent;
+existing best-effort/probe reachability source-traced, NEW-864 dormant unchanged.
+
+**Artifacts:** /data/data/com.termux/files/usr/tmp/codey-slice29- prefix:
+spec.md, proof.py/proof-output.jsonl, old-helper-proof.py/output.jsonl,
+initial-tests.txt/corrected-tests.txt/focused-tests.txt/final-tests.txt,
+validation.txt/diff/complete-sources.txt, lint transcripts/baseline comparison,
+review-report.txt/review-tests.txt/reviewed-source-hashes.json,
+root-tests.txt/root-checks.txt/record-hashes.json/records.diff.
+Publication receipt will be captured as codey-slice29-push.txt after the reviewed
+records commit.
+
+**Literal implementer exact19-file tests:**
+
+```text
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 25%]
+........................................................................ [ 33%]
+........................................................................ [ 42%]
+........................................................................ [ 50%]
+........................................................................ [ 59%]
+........................................................................ [ 67%]
+........................................................................ [ 76%]
+........................................................................ [ 84%]
+........................................................................ [ 93%]
+........................................................                 [100%]
+848 passed in 454.53s (0:07:34)
+```
+
+**Independent adversarial review:**
+
+```text
+APPROVED — WP2.1 slice29 independent adversarial code review
+
+Read complete authoritative spec, native prototype/old-helper proof sources and outputs, all1275 lines of fifteen-file diff, all609 lines of validation, actual metadata context/caller/shared fixture/bootstrap sources. Traced main, agent, orchestrator existing catch and actual CCOS Git sole probe export; did not execute plugin self-test or inference. No blocking findings or required corrections.
+
+Approved boundary: five metadata helpers plus no-path checkpoint each use one READ gate_exec, fixed action/command and no confirmation. Default cwd/count validation/context/discovery/selection/copies/spawns occur inside thunk; synthetic refusal selects/spawns/constructs nothing. Ordinary nonrepository/unborn results are distinguished from unsupported layout, corrupt or missing HEAD objects and checked failures. Born/detached hash/type validated; symbolic branch syntax and show-ref lookup codes handled explicitly; symbolic target directory rejected. Unborn current branch intentionally returns actual branch name. Existing ACT internals and worktree-query contract remain untouched.
+
+Private metadata administration is outside resolved worktree, chosen from fixed absolute temporary candidates; no ambient temporary paths. HEAD/regular refs/packedrefs/shallow/grafts copied; no original index/locks/refs/log writes or writable real refs/log bindings. Repository config is read through fixed no-includes NUL protocol, validated structural values only; includes/unknown extensions/layout contradictions fail. Fresh exact positive environment excludes ambient HOME/config/helper/loader/redirect controls, enforces optional-lock prevention/no lazy fetch and absolute installed Git; fixed argv disallows caller execution options. Read scope/local alternates remain unrestricted data, not filesystem containment. Import inertness and owned cleanup are tested. Body/cleanup errors preserve original unexpected exception identity with static failed audit; query results/stderr/subject/hash/path/exception content remain absent from new audit reasons.
+
+Main catches only migrated query calls and stops dependent prompts/mutations/inference on failure with static output/history unchanged. Agent aborts before status/confirm/commit. No-path checkpoint failure keeps backups and NULL Git hash; one READ replaces old unaudited query, nonempty ACT unchanged. Existing ledger adaptations preserve exact ordered query+mutation assertions including rollback preflight READ.
+
+Independent exact19-file command (exit0):
+python /data/data/com.termux/files/usr/tmp/codey-slice29-validate.py -q tests/test_git_metadata_queries.py tests/test_git_broad_commit_context.py tests/test_git_commit_context.py tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_shell_wrapper_boundaries.py tests/test_shell_refusal_accounting.py tests/test_shell_git_all_direct.py > /data/data/com.termux/files/usr/tmp/codey-slice29-review-tests.txt 2>&1
+
+Literal independent output:
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 25%]
+........................................................................ [ 33%]
+........................................................................ [ 42%]
+........................................................................ [ 50%]
+........................................................................ [ 59%]
+........................................................................ [ 67%]
+........................................................................ [ 76%]
+........................................................................ [ 84%]
+........................................................................ [ 93%]
+........................................................                 [100%]
+848 passed in 381.79s (0:06:21)
+
+848=89new+759retained. Independent raw output retained as codey-slice29-review-tests.txt. Real disposable metadata snapshots/configuration/packed refs/SHA256/corrupt missing-object/cleanup/backup SQLite/caller and prior Git mutation regressions passed. Entire original worktree/.git snapshot bytes/device/inode/entries unchanged in controlled query cases; no universal concurrent snapshot claim.
+
+Coverage limits explicitly assessed: missing-object runtime cases delete an ordinary commit object. No explicit promisor-pack transport runtime case executed; lazy-fetch/transport suppression is established by source whitelist/config omission plus exact environment-control assertions, not proof of an installed helper/working transport exploit. Orchestrator/CCOS reachability and catch/export semantics source traced, without dedicated runtime invocation or plugin activation. These optional coverage gaps do not block the bounded fixed-command/control contract. Prototype mechanics and actual old-helper false-empty reproduction retained distinctly from completed safety tests. No additional live model/service/project verifier needed.
+
+Independent new lint:
+ruff check core/git_query_context.py tests/test_git_metadata_queries.py
+All checks passed!
+
+Independent focused production lint:
+ruff check --select F,E9 core/agent.py core/checkpoint.py core/githelper.py main.py
+F841 Local variable `duration` is assigned to but never used
+   --> core/agent.py:837:9
+    |
+836 |     except Exception as e:
+837 |         duration = time.time() - start_time
+    |         ^^^^^^^^
+838 |         error_msg = str(e)
+    |
+help: Remove assignment to unused variable `duration`
+
+F541 [*] f-string without any placeholders
+    --> main.py:1210:27
+     |
+1208 |         _lt = s["longterm"]
+1209 |         if _lt["available"]:
+1210 |             console.print(f"   Status: available")
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^
+1211 |             console.print(f"   Embeddings: {_lt['embeddings']}")
+1212 |         else:
+     |
+help: Remove extraneous `f` prefix
+     |
+1209 |         if _lt["available"]:
+     -             console.print(f"   Status: available")
+1210 +             console.print("   Status: available")
+1211 |             console.print(f"   Embeddings: {_lt['embeddings']}")
+     |
+
+F541 [*] f-string without any placeholders
+    --> main.py:1232:27
+     |
+1230 |         _sym = s["symbolic"]
+1231 |         if _sym.get("available"):
+1232 |             console.print(f"   Status: available")
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^
+1233 |             console.print(f"   Concepts: {_sym.get('concepts', 0)}")
+1234 |             console.print(f"   Relations: {_sym.get('relations', 0)}")
+     |
+help: Remove extraneous `f` prefix
+     |
+1231 |         if _sym.get("available"):
+     -             console.print(f"   Status: available")
+1232 +             console.print("   Status: available")
+1233 |             console.print(f"   Concepts: {_sym.get('concepts', 0)}")
+     |
+
+F841 Local variable `enabled_clis` is assigned to but never used
+    --> main.py:1473:9
+     |
+1471 |         parts = cmd.split(maxsplit=2)
+1472 |         all_clis = mgr.available(include_disabled=True)
+1473 |         enabled_clis = mgr.available(include_disabled=False)
+     |         ^^^^^^^^^^^^
+1474 |         if not all_clis:
+1475 |             warning("No peer CLIs found (antigravity / qwen / claude).")
+     |
+help: Remove assignment to unused variable `enabled_clis`
+
+F541 [*] f-string without any placeholders
+    --> main.py:1509:31
+     |
+1507 |                         cli = fallback_cli
+1508 |                     else:
+1509 |                         error(f"No enabled fallback peer available.")
+     |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1510 |                         return True, history
+1511 |                 else:
+     |
+help: Remove extraneous `f` prefix
+     |
+1508 |                     else:
+     -                         error(f"No enabled fallback peer available.")
+1509 +                         error("No enabled fallback peer available.")
+1510 |                         return True, history
+     |
+
+F541 [*] f-string without any placeholders
+    --> main.py:1621:27
+     |
+1619 |         elif sub == "state":
+1620 |             state = _mem.get_graph_state()
+1621 |             console.print(f"[bold]Symbolic Graph State:[/bold]")
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1622 |             console.print(f"  Nodes: {len(state['nodes'])}")
+1623 |             console.print(f"  Edges: {len(state['edges'])}")
+     |
+help: Remove extraneous `f` prefix
+     |
+1620 |             state = _mem.get_graph_state()
+     -             console.print(f"[bold]Symbolic Graph State:[/bold]")
+1621 +             console.print("[bold]Symbolic Graph State:[/bold]")
+1622 |             console.print(f"  Nodes: {len(state['nodes'])}")
+     |
+
+F541 [*] f-string without any placeholders
+    --> main.py:1638:27
+     |
+1636 |         else:
+1637 |             status = _mem.symbolic.status()
+1638 |             console.print(f"[bold]Symbolic Graph:[/bold]")
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1639 |             console.print(f"  Available: {status.get('available', False)}")
+1640 |             console.print(f"  Concepts: {status.get('concepts', 0)}")
+     |
+help: Remove extraneous `f` prefix
+     |
+1637 |             status = _mem.symbolic.status()
+     -             console.print(f"[bold]Symbolic Graph:[/bold]")
+1638 +             console.print("[bold]Symbolic Graph:[/bold]")
+1639 |             console.print(f"  Available: {status.get('available', False)}")
+     |
+
+Found 7 errors.
+[*] 5 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+Independent full production lint:
+ruff check --statistics core/agent.py core/checkpoint.py core/githelper.py main.py core/git_query_context.py
+39	BLE001 	[ ] blind-except
+22	UP006  	[*] non-pep585-annotation
+21	RUF013 	[ ] implicit-optional
+16	S110   	[ ] try-except-pass
+11	I001   	[*] unsorted-imports
+ 5	UP035  	[-] deprecated-import
+ 5	F541   	[*] f-string-missing-placeholders
+ 5	UP045  	[*] non-pep604-annotation-optional
+ 4	PIE810 	[ ] multiple-starts-ends-with
+ 2	EXE001 	[ ] shebang-not-executable
+ 2	F841   	[ ] unused-variable
+ 1	PERF102	[ ] incorrect-dict-iterator
+ 1	UP024  	[*] os-error-alias
+ 1	S112   	[ ] try-except-continue
+ 1	C401   	[ ] unnecessary-generator-set
+Found 136 errors.
+[*] 45 fixable with the `--fix` option (29 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+Independent baseline comparison via git show HEAD and Ruff JSON stdin/current parsed codes: githelper33/33; checkpoint18/18; agent44/44; main41/41, identical per-code counts. Focused7 and production136 are inherited, new module/test clean. Raw lint outputs retained in separate reviewer scratch artifacts. git diff --check empty, exit0. Full suite excluded NEW791; no typechecker claim.
+
+SHA256 map codey-slice29-reviewed-source-hashes.json contains EXACT15 reviewed source/test paths from the full diff; all hashes rechecked unchanged after the independent suite. No source/docs/memory edits or commits/pushes by reviewer; scratch evidence only. Precollection runner redirects all config state Paths/DB/audit before import NEW855, tests disposable child seams/process homes unchanged. No models, peers, network, live stores/services or actual project query/mutation.
+
+NEW877 remains partial; immediately next working-tree status/diff/conflict query contract, then other Git mutation secondary effects. NEW875/874/855/864 unchanged. No atomic snapshot, hostile replacement/OS sandbox, installation/digest integrity, universal query safety or full WP2.1 closure claim.
+```
+
+**Literal coordinator exact19-file tests:**
+
+```text
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 25%]
+........................................................................ [ 33%]
+........................................................................ [ 42%]
+........................................................................ [ 50%]
+........................................................................ [ 59%]
+........................................................................ [ 67%]
+........................................................................ [ 76%]
+........................................................................ [ 84%]
+........................................................................ [ 93%]
+........................................................                 [100%]
+848 passed in 154.41s (0:02:34)
+```
+
+**Literal coordinator checks:**
+
+```text
+$ ruff check core/git_query_context.py tests/test_git_metadata_queries.py
+All checks passed!
+exit=0
+
+$ ruff check --select F,E9,I core/githelper.py core/checkpoint.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_git_branch_gateway.py tests/test_git_broad_commit_context.py tests/test_git_checkout_gateway.py tests/test_git_commit_gateway.py tests/test_git_execution.py tests/test_git_literal_paths.py tests/test_git_merge_gateway.py tests/test_git_metadata_queries.py
+All checks passed!
+exit=0
+
+$ ruff check --statistics core/githelper.py core/checkpoint.py core/git_commit_context.py
+18	RUF013	[ ] implicit-optional
+17	UP006 	[*] non-pep585-annotation
+ 5	BLE001	[ ] blind-except
+ 4	UP035 	[-] deprecated-import
+ 4	UP045 	[*] non-pep604-annotation-optional
+ 1	PIE810	[ ] multiple-starts-ends-with
+ 1	EXE001	[ ] shebang-not-executable
+ 1	S110  	[ ] try-except-pass
+Found 51 errors.
+[*] 22 fixable with the `--fix` option (19 hidden fixes can be enabled with the `--unsafe-fixes` option).
+exit=1
+
+$ sh -c command -v mypy; command -v pyright; command -v ty
+exit=127
+
+$ git diff --check
+exit=0
+```
+
+**Next:** slice30 working-tree READ contracts, then remaining Git mutations and
+the remaining14-work-group/closure scope. Exact remaining slice count unknown; groups
+can require multiple bounded slices. FullsuiteexcludedNEW-791, type unavailable,
+no new dependency. User continuous commit/push authorization remains in force.
+
+---
+
 ## 2026-10-10 — WP2.1 slice 28: isolated broad Git commits and merge continuation
 
 **Previous slice published:** code `a50f97e`, records `ed97c0b`. Actual push:

@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-28 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-26: 2026-10-09; 27-28: 2026-10-10); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-29 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-26: 2026-10-09; 27-29: 2026-10-10); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2932,6 +2932,7 @@ reviewed by `/root/code_reviewer`, APPROVED), `80e4529` (slice 25;
 reviewed by `/root/code_reviewer`, APPROVED after correction), `87bcd93` (slice 26;
 reviewed by `/root/code_reviewer`, APPROVED), `a50f97e` (slice 27;
 reviewed by `/root/code_reviewer`, APPROVED after correction), `7530b7a` (slice 28;
+reviewed by `/root/code_reviewer`, APPROVED), `29e5cc7` (slice 29;
 reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
@@ -3698,11 +3699,38 @@ reviewed by `/root/code_reviewer`, APPROVED).
   coordinator literal output and actual old-helper red regression in PROJECT_LOG.
   Initial fixture failures preserved/corrected; new/focused lint clean, full
   production 51 unchanged. Full suite excluded NEW-791, type checkers unavailable.
+- **Slice 29 (2026-10-10, isolated Git metadata READ, `29e5cc7`):**
+  Five public metadata helpers and no-path checkpoint HEAD queries use one
+  READ gate_exec each. Discovery, default cwd, copied private administration,
+  fixed installed Git commands and positive structural configuration all run
+  inside the gate. No original index/refs/logs/locks/config writes. Query child
+  environment excludes ambient execution/config/redirect controls and disables
+  lazy fetch; global/system settings omitted. Regular HEAD/refs/packed/shallow/
+  grafts copied; linked/bare/custom/nonregular/unsupported structural settings
+  fail explicitly. Metadata reads allow active operations and sparse/split index
+  because they never inspect the original index. Actual unborn branch name now
+  returned; genuine nonrepo/unborn results remain useful. Corrupt/missing HEAD
+  objects and checked command failures produce failed READ, never false empty.
+  Unexpected exception identity retained with static audit diagnostics; cleanup
+  failures accounted for. Main/agent stop dependent prompts/mutations/inference
+  on query failure. No-path checkpoint backup/SQLite remains useful with hash or
+  NULL and static warning on failed query. Other mutation behavior unchanged.
+  89 new cases + 759 retained = 848; coordinator 848 passed in 154.41s (0:02:34).
+  Real disposable Git/filesystem/SQLite/private CLI mechanics verified; no actual
+  promisor transport test, no additional live-service/model verification. No
+  atomic snapshot, containment, binary integrity or hostile-race guarantee.
+  NEW-877 partial: working-tree status/diff/conflict READ contracts next, then
+  remaining Git mutation configured effects. NEW-875/874/855 and full DoD open.
+  **Evidence:** implementer 848/454.53s; independent reviewer and coordinator
+  literal outputs in PROJECT_LOG. Initial failures/fixes retained; new module/tests
+  Ruff clean, tracked production 136 unchanged (seven focused F/E9 legacy findings).
+  Full suite excluded NEW-791; type checkers unavailable. Orchestrator/CCOS probe
+  source-traced; no latent export activation.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all twenty-eight slices** (slices 3, 5, 25 and 27 took 2 rounds).
+  **APPROVED, all twenty-nine slices** (slices 3, 5, 25 and 27 took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-28 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-29 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3723,8 +3751,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
   sequences. Slice 26 fixes literal-path scope NEW-879 for scoped helpers/checkpoints;
   slice 27 isolates scoped commit/checkpoint configuration with explicit unsupported
   states; slice 28 migrates broad commits with bounded merge/squash continuation.
-  Other helper configuration and query effects NEW-877 remain. Other dedicated Git calls
-  still inherit environment.
+  Slice 29 covers five metadata helpers and no-path checkpoint READ. Working-tree
+  query effects and other helper configuration NEW-877 remain; those dedicated
+  Git calls still inherit environment.
   Broader wrappers/scripts/opaque NEW-875 and failed-execution NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
