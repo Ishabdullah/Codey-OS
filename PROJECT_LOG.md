@@ -1,3 +1,195 @@
+## 2026-10-10 — WP2.1 slice 27: isolated scoped Git configuration and administration
+
+**Previous slice published:** code `87bcd93`, records `e096c4d`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   4095ada..e096c4d  main -> main
+```
+
+**Change (`a50f97e`):**
+  Scoped git_commit_paths and nonempty checkpoint Git commits use private
+  administration inside ACT, positive configuration data, empty hooks, unsigned
+  commits, disabled fsmonitor/maintenance and no lazy fetch. Actual index/object/
+  refs/reflogs retained; owned HEAD lock, detached publication and short-write
+  guard. Native attributes/conversions and binary NUL pathnames retained.
+  Every effective filter record rejected (explicit -filter conservatively
+  unsupported); absent/reset attributes usable. Unsupported linked/bare/custom/
+  unknown-extension/non-files-ref/split/sparse/active states and selected embedded
+  repos/gitlinks fail before staging. Outside absolute paths now fail static preflight; nonempty checkpoint
+  missing Git now audits failed ACT. No-path queries and broad commits unchanged.
+  Setup and later failures can leave partial effects; no transaction, workspace
+  containment or hostile concurrency guarantee. Checked Git errors retain original
+  text plus additional cleanup-failure accounting after reviewer correction.
+  96 new cases + 579 retained = 675 focused tests; coordinator 675 passed in 354.77s (0:05:54).
+  NEW-877 partial only; broad commit migration next, then query READ/fidelity and
+  checkout/merge/push secondary effects. NEW-875/874/855 and full WP2.1 DoD open.
+
+**Pipeline:** architect initial scope and effective-attribute ambiguity followup →
+implementer → independent reviewer CHANGES REQUESTED → implementer correction →
+independent reviewer APPROVED → coordinator checks → exact eight-file code commit.
+Records separately reviewed before commit. No unrelated memory files staged.
+Code began Oct9; final review/correction Oct10. No additional live model/service
+verification needed; real effects limited to disposable Git/filesystem/SQLite.
+
+**Evidence and corrections:** initial literal 3 failed/35 passed/16.06s (two stale
+context mocks, outside-path static preflight compatibility); focused 3 failed/140
+passed/44.88s (two fixture errors and actual split-index detection hidden by premature
+core.splitindex=false). Detect shared index before forcing false. Corrected focused
+1 failed/144 passed/45.40s: native fixture staging ran configured filter before tested
+call; moved executable driver setup after native stage and asserted absent marker.
+14-file 1 failed/379 passed/74.05s: old missing-Git checkpoint no-audit expectation
+changed to failed ACT for nonempty context. 17-file 453/76.46s used a different shell
+selection (383 Git/context/gateway +70 shell/tools/refusal/telemetry), not final suite.
+Owned-lock HEAD snapshot change: desired suite 1 failed/639 passed/76.13s from test
+os.open wrapper lacking dir_fd forwarding; fixture corrected, 61/19.81s.
+Effective filter ambiguity proof required --all binary NUL protocol, every present
+filter record rejected; explicit -filter unsupported, absent/reset allowed. Short
+write publication guard added. 666/86.69s then binary pathname cases 668/87.56s.
+Actual Git ancestor discovery reproduced false bare subcwd with ordinary HEAD+objects:
+red 1 failed/89 deselected/1.41s; refs marker added, green 3 passed/87 deselected/1.25s.
+Final pre-review 669/88.03s, coordinator 669/96.60s; AST independently counted 90 cases.
+
+Reviewer independently reproduced checked add/commit error hidden by simultaneous
+cleanup (2 passed/1.47s assertions demonstrated defect, not correctness):
+
+```text
+operation=add; result='[ERROR] CLEANUP_ERROR'; audit_reason='[ERROR] CLEANUP_ERROR'; outcome='failed'
+.operation=commit; result='[ERROR] CLEANUP_ERROR'; audit_reason='[ERROR] CLEANUP_ERROR'; outcome='failed'
+.
+2 passed in 1.47s
+```
+
+Correction six cases before fix: 4 failed/2 passed/90 deselected/3.25s (ordinary error
+strings passed, policy/OSError cleanup combinations failed). Checked failures now
+raise within context and convert back to exact prior [ERROR] text, preserving add
+trailing newline/commit stripping and original diagnostic plus generic additional
+failure in public result/audit. Unexpected exception identity tests retained.
+Focused corrected 96/83.25s; final exact17 selection 675, independent AST96+579.
+Installed repository-layout (483 lines) and gitattributes (1,897 lines) manuals
+read completely, along with config list/set help; full13,125-line config manual
+not read or claimed. Exact real attached/detached/config/include/attribute/split/
+format proof sources and outputs retained. Initial structural proof used an invalid
+version-zero extension repo and later split setup failed; not used as causal split
+evidence. Fresh separate format and split proofs establish the respective claims.
+Initial new-module Ruff four findings and test Ruff15 findings corrected narrowly;
+trailing whitespace fixed. Full production51 unchanged; new/focused lint clean.
+Full raw failures/proofs/diffs/commands retained under /data/data/com.termux/files/usr/tmp
+as codey-slice27-validation.txt, review-report.txt, review-double-failure.py/.txt,
+review-correction-red.txt, review-correction-focused.txt, review-correction-final.txt,
+review-final-report.txt, root-final-tests.txt and root-final-checks.txt (common
+codey-slice27- prefix). Coordinator read full initial1461-line diff, full912-line
+validation, complete corrected delta and final evidence. No initial failure hidden.
+
+**Literal final implementer tests (same exact17-file selection):**
+
+```text
+........................................................................ [ 10%]
+........................................................................ [ 21%]
+........................................................................ [ 32%]
+........................................................................ [ 42%]
+........................................................................ [ 53%]
+........................................................................ [ 64%]
+........................................................................ [ 74%]
+........................................................................ [ 85%]
+........................................................................ [ 96%]
+...........................                                              [100%]
+675 passed in 368.18s (0:06:08)
+```
+
+**Independent final reviewer record:**
+
+```text
+APPROVED — slice 27 corrected independent adversarial review
+
+The initial CHANGES REQUESTED finding is fixed. Both checked add/commit nonzero results now raise ScopedCommitError inside the private context. Ordinary public error strings remain exact, including add stderr newline and commit stderr stripping. Simultaneous policy/OSError cleanup preserves the original checked diagnostic and adds generic cleanup/publication failure disclosure to the public error and failed audit; unexpected exception identity remains unchanged.
+
+Full 1461-line initial diff and 912-line initial validation previously read. Corrected 1507-line eight-file artifact reviewed through an exact full artifact comparison: only two checked-error raise statements, the expected-error diagnostic docstring, and six meaningful regression cases changed. Corrected validation report read entirely. No additional blocking findings.
+
+Architecture remains bounded: scoped helper and nonempty checkpoint attempts isolate configuration administration, suppress configured executable helpers, reject every returned selected filter attribute, preserve real index/ref/object effects and owned HEAD-lock accounting. Partial staging, objects and publication can remain after later failure; no atomic transaction, durability, hostile replacement or general sandbox claim. Broad commit, standalone queries/no-path checkpoint and other Git helper effects remain outside this slice. Context.run omitted cwd is not a new blocker within fixed consumers: current production business calls all supply the validated cwd.
+
+Independent final command:
+python /data/data/com.termux/files/usr/tmp/codey-slice27-validate.py -q tests/test_git_commit_context.py tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_shell_wrapper_boundaries.py tests/test_shell_refusal_accounting.py tests/test_shell_git_all_direct.py > /data/data/com.termux/files/usr/tmp/codey-slice27-review-final-tests.txt 2>&1
+
+Literal independent test output (exit 0):
+........................................................................ [ 10%]
+........................................................................ [ 21%]
+........................................................................ [ 32%]
+........................................................................ [ 42%]
+........................................................................ [ 53%]
+........................................................................ [ 64%]
+........................................................................ [ 74%]
+........................................................................ [ 85%]
+........................................................................ [ 96%]
+...........................                                              [100%]
+675 passed in 351.31s (0:05:51)
+
+Independent lint/check commands and output retained in codey-slice27-review-final-lint.txt:
+ruff check core/git_commit_context.py tests/test_git_commit_context.py
+All checks passed!
+ruff check --select F,E9,I core/githelper.py core/checkpoint.py tests/test_checkpoint_git_gateway.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_literal_paths.py
+All checks passed!
+git diff --check
+(no output; exit 0)
+Full legacy production Ruff 51 findings remains disclosed; full suite excluded NEW791, no typechecker evidence. Initial review report/reproduction and implementer evidence were not overwritten.
+
+675 cases = 96 context cases + 579 retained. Bootstrap redirected all configuration state Paths, temporary DB and audit before collection. Tests used isolated temporary Git repositories, child-only HOME/XDG seams and actual temporary backup/SQLite integration; no models, peers, network, live project/store Git operations. No additional model/service/live project verification required for this scoped correction. No source, tracking docs, memory edits, commits or pushes by reviewer; only retained scratch review artifacts.
+```
+
+**Literal final coordinator tests:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice27-validate.py -q tests/test_git_commit_context.py tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_shell_wrapper_boundaries.py tests/test_shell_refusal_accounting.py tests/test_shell_git_all_direct.py
+........................................................................ [ 10%]
+........................................................................ [ 21%]
+........................................................................ [ 32%]
+........................................................................ [ 42%]
+........................................................................ [ 53%]
+........................................................................ [ 64%]
+........................................................................ [ 74%]
+........................................................................ [ 85%]
+........................................................................ [ 96%]
+...........................                                              [100%]
+675 passed in 354.77s (0:05:54)
+```
+
+**Literal final coordinator checks:**
+
+```text
+$ ruff check core/git_commit_context.py tests/test_git_commit_context.py
+All checks passed!
+exit=0
+$ ruff check --select F,E9,I core/githelper.py core/checkpoint.py tests/test_checkpoint_git_gateway.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_literal_paths.py
+All checks passed!
+exit=0
+$ ruff check --statistics core/githelper.py core/checkpoint.py core/git_commit_context.py
+18	RUF013	[ ] implicit-optional
+17	UP006 	[*] non-pep585-annotation
+ 5	BLE001	[ ] blind-except
+ 4	UP035 	[-] deprecated-import
+ 4	UP045 	[*] non-pep604-annotation-optional
+ 1	PIE810	[ ] multiple-starts-ends-with
+ 1	EXE001	[ ] shebang-not-executable
+ 1	S110  	[ ] try-except-pass
+Found 51 errors.
+[*] 22 fixable with the `--fix` option (19 hidden fixes can be enabled with the `--unsafe-fixes` option).
+exit=1
+$ git diff --check
+exit=0
+$ sh -c command -v mypy pyright ty
+exit=127
+```
+
+Full lint exit1 is existing51 findings, type availability exit127/no output;
+full suite excluded NEW-791. No dependency/setup change. Precollection config Paths,
+DB and audit redirected (NEW-855); child-only disposable HOME/XDG seams, process homes
+unchanged. No model/peer/network/project checkout/merge/rollback/live-store test.
+GitHub publication separately authorized. No full NEW-877 or WP2.1 closure; 14 work
+groups plus closure still need bounded scopes, exact slice count unknown.
+
+---
+
 ## 2026-10-09 — WP2.1 slice 26: literal scoped Git pathnames
 
 **Previous slice published:** code `80e4529`, records `4095ada`. Actual push:
