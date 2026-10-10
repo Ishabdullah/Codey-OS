@@ -1,3 +1,317 @@
+## 2026-10-09 — WP2.1 slice 26: literal scoped Git pathnames
+
+**Previous slice published:** code `80e4529`, records `4095ada`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   393c54f..4095ada  main -> main
+```
+
+**Change (`87bcd93`):** NEW-879 fixed for scoped status/add/diff/commit and checkpoint
+Git paths. Global literal flag immediately after git, '--' and operands verbatim;
+no quoting/glob expansion/resolve/existence checks/special-name rejection. Public
+scoped status copies inherited env, removes exactly GIT_LITERAL_PATHSPECS/GIT_GLOB_
+PATHSPECS/GIT_NOGLOB_PATHSPECS/GIT_ICASE_PATHSPECS, preserves all other env/config,
+parent unchanged. Internal status retains controlled local runner. Broad commit and
+repo/HEAD/hash argv, APIs/cwd/messages/exceptions/gates/audits/no-op/failure/partial
+staging preserved. Directories incl '.' intentional subtrees, empty public status
+unrestricted, empty scoped commit/checkpoint unchanged. No single-file/workspace
+containment or configured-helper safety. NEW-877 config/hooks/filters/signing/helpers/
+query mediation/fidelity remains open, NEW-875/874 unchanged. Next isolated administrative
+useful automatic/local commit contract, then queries/checkout/merge and remaining
+14 groups plus closure (not promised slice count); full WP2.1 DoD open.
+
+**Pipeline/evidence:** architect → implementer → independent reviewer APPROVED →
+coordinator checks → exact five-file code commit, 333 insertions/17 deletions.
+Full 461-line diff read (outer tool omitted env-test fragment, separately reread).
+38 new cases independently counted from explicit AST parameterization + 286 retained
+= 324. Focused 38/10.36s, first full 324/46.00s, then temp audit-file/one ACT assertion
+requested by coordinator and justified rerun: implementer 324/45.88s, reviewer
+324/46.44s, coordinator 324/45.93s. Final no failures/skips. Initial framework run
+failed reporting under global Path.exists sentinel, tool truncated output 9,540 tokens/
+513 lines; full raw not retained, exact available tail/disclosure below. Narrowed
+sentinel context exposed 3 failed/35 passed/11.44s from test audit path string, corrected
+Path then temp audit sink; no production fix for fixture errors. Usage-limit interruption
+before tests resumed on user continue, no abandoned test process.
+
+**Real mechanics/limits:** prior wildcard add staged target AND neighbor in disposable
+repo; fixed helper commits literal target, neighbor unchanged in history/dirty worktree.
+Real '*', '?', bracket, magic-looking/colon/leading-dash names, NUL tree/index checks,
+unrelated staging, relative/subdir/absolute/deleted/missing/outside paths and literal/
+ordinary/dot directory scope. Four public mode vars and empty-list status, unchanged
+parent env; exact argv/byte operands, no normalization/existence probes and one ACT
+record. Real wildcard .py checkpoint backup/SQLite/exact hash plus 286 regressions.
+Child-only disposable HOME/XDG seams, precollection config Path/DB/audit isolation,
+process home intact. No model/peer/network/project checkout/merge/rollback/live-store
+test; GitHub coordinator push separately authorized. New-test and F/E9/I Ruff pass,
+full production 51 unchanged, diff check clean. Full suite excluded NEW-791, type
+checkers absent. No dependency/setup change. Code-complete + reviewer-approved,
+real temporary Git mechanics verified only; no additional live verification needed.
+
+**Literal coordinator tests:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice26-validate.py -q tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py
+........................................................................ [ 22%]
+........................................................................ [ 44%]
+........................................................................ [ 66%]
+........................................................................ [ 88%]
+....................................                                     [100%]
+324 passed in 45.93s
+```
+
+**Literal coordinator lint/checks:**
+
+```text
+$ ruff check --select F,E9,I core/githelper.py core/checkpoint.py tests/test_checkpoint_git_gateway.py tests/test_git_local_commit_environment.py tests/test_git_literal_paths.py
+All checks passed!
+$ ruff check tests/test_git_literal_paths.py
+All checks passed!
+$ ruff check --statistics core/githelper.py core/checkpoint.py
+18	RUF013	[ ] implicit-optional
+17	UP006 	[*] non-pep585-annotation
+ 5	BLE001	[ ] blind-except
+ 4	UP035 	[-] deprecated-import
+ 4	UP045 	[*] non-pep604-annotation-optional
+ 1	PIE810	[ ] multiple-starts-ends-with
+ 1	EXE001	[ ] shebang-not-executable
+ 1	S110  	[ ] try-except-pass
+Found 51 errors.
+[*] 22 fixable with the `--fix` option (19 hidden fixes can be enabled with the `--unsafe-fixes` option).
+$ git diff --check
+$ command -v mypy pyright ty
+```
+Full lint exit1 baseline; focused lint/diff exit0; checker availability exit127/no output.
+
+**Initial framework failure (explicitly incomplete output):**
+
+```text
+Initial command: python /data/data/com.termux/files/usr/tmp/codey-slice26-validate.py -q tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py
+Session26618 exit1. Initial output contained34 progress dots then pytest INTERNALERROR. Tool output was truncated (9540 tokens;513 lines); full raw output was not retained. Exact last stack fragment from returned output:
+  File "/data/data/com.termux/files/usr/lib/python3.14/site-packages/_pytest/_code/code.py", line 94, in path
+    if not p.exists():
+  File "/data/data/com.termux/files/usr/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: no operand existence/normalization probes
+Correction: scope Path.exists/resolve sentinel to helper invocation with monkeypatch.context, restore before assertions and error reporting. Subsequent focused run exposed actual testfixture audit_file string instead of Path (full transcript slice26-focused-initial.txt); corrected to Path(os.devnull). No production correction required.
+```
+
+**Focused failure transcript (excerpt trailing spaces trimmed; raw artifact exact):**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice26-validate.py -q tests/test_git_literal_paths.py
+..................................FFF.                                   [100%]
+=================================== FAILURES ===================================
+_________ test_exact_scoped_flags_and_unchanged_broad_queries[scoped] __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ab3648210>
+operation = 'scoped'
+
+    @pytest.mark.parametrize("operation", ["scoped", "broad", "checkpoint"])
+    def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, operation):
+        operands = ["*.py", ":(glob)*", b"raw?bytes"]
+        before = list(operands)
+        responses = [SimpleNamespace(returncode=0, stdout=".git", stderr=""), SimpleNamespace(returncode=0, stdout="", stderr=""), SimpleNamespace(returncode=1 if operation == "checkpoint" else 0, stdout="M target", stderr=""), SimpleNamespace(returncode=0, stdout="original result", stderr="")]
+        if operation == "checkpoint":
+            responses.append(SimpleNamespace(returncode=0, stdout="saved hash\n", stderr=""))
+        runner = Mock(side_effect=responses)
+        monkeypatch.setattr(githelper, "local_commit_runner", Mock(return_value=runner))
+        monkeypatch.setattr(checkpoint, "local_commit_runner", Mock(return_value=runner))
+        monkeypatch.setattr(checkpoint, "CODE_DIR", Path("/temporary cwd"))
+        instance = ActionGateway(audit_file=os.devnull)
+        monkeypatch.setattr(action_gateway, "get_action_gateway", lambda: instance)
+        forbidden = Mock(side_effect=AssertionError("no operand existence/normalization probes"))
+        with monkeypatch.context() as probes:
+            probes.setattr(Path, "exists", forbidden)
+            probes.setattr(Path, "resolve", forbidden)
+            if operation == "checkpoint":
+                result = checkpoint._create_git_commit("message", operands)
+                wanted = "saved hash"
+                expected = [["git", "rev-parse", "--git-dir"], ["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "diff", "--cached", "--quiet", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "Codey checkpoint: message", "--", *operands], ["git", "rev-parse", "HEAD"]]
+            elif operation == "scoped":
+>               result = githelper.git_commit_paths("message", operands, "/temporary cwd")
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_git_literal_paths.py:269:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+core/githelper.py:203: in git_commit_paths
+    return _gate_local_commit("githelper.git_commit_paths", attempt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+core/githelper.py:92: in _gate_local_commit
+    decision = get_action_gateway().gate_exec(
+core/action_gateway.py:475: in gate_exec
+    self._audit(
+core/action_gateway.py:140: in _audit
+    _append_audit(record, self._audit_file)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+record = {'ts': 1791601344.7464204, 'authority': 'ACT', 'action': 'githelper.git_commit_paths', 'command': 'local git commit attempt', ...}
+path = '/dev/null'
+
+    def _append_audit(record: Dict[str, Any], path: Optional[Path] = None) -> None:
+        """Prepare and append best-effort audit output; sink OSErrors cannot
+        change the operation result or policy decision.
+        """
+        path = path or audit_path()
+        line = json.dumps(record, default=str) + "\n"
+        try:
+>           path.parent.mkdir(parents=True, exist_ok=True)
+            ^^^^^^^^^^^
+E           AttributeError: 'str' object has no attribute 'parent'
+
+core/action_gateway.py:113: AttributeError
+__________ test_exact_scoped_flags_and_unchanged_broad_queries[broad] __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ab36487c0>
+operation = 'broad'
+
+    @pytest.mark.parametrize("operation", ["scoped", "broad", "checkpoint"])
+    def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, operation):
+        operands = ["*.py", ":(glob)*", b"raw?bytes"]
+        before = list(operands)
+        responses = [SimpleNamespace(returncode=0, stdout=".git", stderr=""), SimpleNamespace(returncode=0, stdout="", stderr=""), SimpleNamespace(returncode=1 if operation == "checkpoint" else 0, stdout="M target", stderr=""), SimpleNamespace(returncode=0, stdout="original result", stderr="")]
+        if operation == "checkpoint":
+            responses.append(SimpleNamespace(returncode=0, stdout="saved hash\n", stderr=""))
+        runner = Mock(side_effect=responses)
+        monkeypatch.setattr(githelper, "local_commit_runner", Mock(return_value=runner))
+        monkeypatch.setattr(checkpoint, "local_commit_runner", Mock(return_value=runner))
+        monkeypatch.setattr(checkpoint, "CODE_DIR", Path("/temporary cwd"))
+        instance = ActionGateway(audit_file=os.devnull)
+        monkeypatch.setattr(action_gateway, "get_action_gateway", lambda: instance)
+        forbidden = Mock(side_effect=AssertionError("no operand existence/normalization probes"))
+        with monkeypatch.context() as probes:
+            probes.setattr(Path, "exists", forbidden)
+            probes.setattr(Path, "resolve", forbidden)
+            if operation == "checkpoint":
+                result = checkpoint._create_git_commit("message", operands)
+                wanted = "saved hash"
+                expected = [["git", "rev-parse", "--git-dir"], ["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "diff", "--cached", "--quiet", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "Codey checkpoint: message", "--", *operands], ["git", "rev-parse", "HEAD"]]
+            elif operation == "scoped":
+                result = githelper.git_commit_paths("message", operands, "/temporary cwd")
+                wanted = "original result"
+                expected = [["git", "rev-parse", "--git-dir"], ["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "status", "--short", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "message", "--", *operands]]
+            else:
+>               result = githelper.git_commit("message", "/temporary cwd")
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_git_literal_paths.py:273:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+core/githelper.py:136: in git_commit
+    return _gate_local_commit("githelper.git_commit", attempt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+core/githelper.py:92: in _gate_local_commit
+    decision = get_action_gateway().gate_exec(
+core/action_gateway.py:475: in gate_exec
+    self._audit(
+core/action_gateway.py:140: in _audit
+    _append_audit(record, self._audit_file)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+record = {'ts': 1791601344.8028948, 'authority': 'ACT', 'action': 'githelper.git_commit', 'command': 'local git commit attempt', ...}
+path = '/dev/null'
+
+    def _append_audit(record: Dict[str, Any], path: Optional[Path] = None) -> None:
+        """Prepare and append best-effort audit output; sink OSErrors cannot
+        change the operation result or policy decision.
+        """
+        path = path or audit_path()
+        line = json.dumps(record, default=str) + "\n"
+        try:
+>           path.parent.mkdir(parents=True, exist_ok=True)
+            ^^^^^^^^^^^
+E           AttributeError: 'str' object has no attribute 'parent'
+
+core/action_gateway.py:113: AttributeError
+_______ test_exact_scoped_flags_and_unchanged_broad_queries[checkpoint] ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ab3706350>
+operation = 'checkpoint'
+
+    @pytest.mark.parametrize("operation", ["scoped", "broad", "checkpoint"])
+    def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, operation):
+        operands = ["*.py", ":(glob)*", b"raw?bytes"]
+        before = list(operands)
+        responses = [SimpleNamespace(returncode=0, stdout=".git", stderr=""), SimpleNamespace(returncode=0, stdout="", stderr=""), SimpleNamespace(returncode=1 if operation == "checkpoint" else 0, stdout="M target", stderr=""), SimpleNamespace(returncode=0, stdout="original result", stderr="")]
+        if operation == "checkpoint":
+            responses.append(SimpleNamespace(returncode=0, stdout="saved hash\n", stderr=""))
+        runner = Mock(side_effect=responses)
+        monkeypatch.setattr(githelper, "local_commit_runner", Mock(return_value=runner))
+        monkeypatch.setattr(checkpoint, "local_commit_runner", Mock(return_value=runner))
+        monkeypatch.setattr(checkpoint, "CODE_DIR", Path("/temporary cwd"))
+        instance = ActionGateway(audit_file=os.devnull)
+        monkeypatch.setattr(action_gateway, "get_action_gateway", lambda: instance)
+        forbidden = Mock(side_effect=AssertionError("no operand existence/normalization probes"))
+        with monkeypatch.context() as probes:
+            probes.setattr(Path, "exists", forbidden)
+            probes.setattr(Path, "resolve", forbidden)
+            if operation == "checkpoint":
+                result = checkpoint._create_git_commit("message", operands)
+                wanted = "saved hash"
+                expected = [["git", "rev-parse", "--git-dir"], ["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "diff", "--cached", "--quiet", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "Codey checkpoint: message", "--", *operands], ["git", "rev-parse", "HEAD"]]
+            elif operation == "scoped":
+                result = githelper.git_commit_paths("message", operands, "/temporary cwd")
+                wanted = "original result"
+                expected = [["git", "rev-parse", "--git-dir"], ["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "status", "--short", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "message", "--", *operands]]
+            else:
+                result = githelper.git_commit("message", "/temporary cwd")
+                wanted = "original result"
+                expected = [["git", "rev-parse", "--git-dir"], ["git", "add", "-A"], ["git", "status", "--short"], ["git", "commit", "-m", "message"]]
+>       assert result == wanted
+E       AssertionError: assert None == 'saved hash'
+
+tests/test_git_literal_paths.py:276: AssertionError
+----------------------------- Captured stdout call -----------------------------
+⚠  Checkpoint: git commit failed: 'str' object has no attribute 'parent'
+=========================== short test summary info ============================
+FAILED tests/test_git_literal_paths.py::test_exact_scoped_flags_and_unchanged_broad_queries[scoped]
+FAILED tests/test_git_literal_paths.py::test_exact_scoped_flags_and_unchanged_broad_queries[broad]
+FAILED tests/test_git_literal_paths.py::test_exact_scoped_flags_and_unchanged_broad_queries[checkpoint]
+3 failed, 35 passed in 11.44s
+```
+
+**Optional coordinator observation NEW-880:** timestamp helper unavailable, no project
+caller identified. Exact command/final exception excerpt (full traceback returned by
+tool, this is an excerpt):
+
+```text
+$ python - <<'PY'
+from datetime import datetime
+from zoneinfo import ZoneInfo
+print(datetime.now(ZoneInfo('America/New_York')).isoformat())
+PY
+ModuleNotFoundError: No module named 'tzdata'
+zoneinfo._common.ZoneInfoNotFoundError: 'No time zone found with key America/New_York'
+$ rg -n 'ZoneInfo|zoneinfo|tzdata' core tools ccos restoricon_core utils pipeline main.py requirements.txt requirements-dev.txt install.sh
+```
+Python exit1; rg exit1/no matches. Supplied session date/UTC clock remain coordination
+sources; no dependency installed. Environment observation, no product impact proved,
+not a WP2.1 blocker or silently repaired application finding.
+
+**Coordinator record-write correction:** first shell heredoc reused delimiter PY in
+its documentation text. It terminated early; Python parse failed before any maintained
+save. Shell attempted remaining diagnostic text as commands and failed; status/diff
+confirmed no maintained docs changed. Retried with unique quoted outer delimiter.
+Literal returned error:
+
+```text
+  File "<stdin>", line 119
+    log=f'''## 2026-10-09 — WP2.1 slice 26: literal scoped Git pathnames
+        ^
+SyntaxError: unterminated triple-quoted f-string literal (detected at line 228)
+/bin/sh: 231: ModuleNotFoundError:: not found
+/bin/sh: 232: zoneinfo._common.ZoneInfoNotFoundError:: not found
+/bin/sh: 233: $: not found
+/bin/sh: 249: Syntax error: EOF in backquote substitution
+```
+
+**Artifacts:** /data/data/com.termux/files/usr/tmp/codey-slice26.diff (461 lines),
+validation.txt (exact focused failures/corrections/final commands and outputs),
+focused-initial/focused-final/initial-internalerror/lint-final/regression-final/
+regression-temp-audit-final/coordinator-tests files and isolation bootstrap retained.
+Census TSVs unchanged; maintained saves guarded immediate status + unchanged old content.
+Unrelated memory dirt left unstaged.
+
 ## 2026-10-09 — WP2.1 slice 25: local commit child-environment prerequisite
 
 **Previous slice published:** code `ccbae49`, records `393c54f`. Actual push:

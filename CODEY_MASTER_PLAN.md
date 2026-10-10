@@ -737,6 +737,20 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 26, literal scoped Git pathnames, 2026-10-09** (`87bcd93`) —
+  NEW-879 fixed for scoped status/add/diff/commit and checkpoint Git paths.
+  Global literal flag, existing '--' and verbatim operands; public scoped status
+  removes exactly four ambient pathspec-mode keys in a child copy, other query
+  config/environment retained. Broad commit and repo/HEAD queries unchanged.
+  Relative/absolute/cwd paths, tracked deletions, missing/outside failures and
+  unrelated staging verified. Directories incl '.' deliberately select subtrees;
+  public empty status remains unrestricted. No single-file/workspace containment.
+  38 new cases / 324 focused tests, reviewer-approved, real temp prior overscope
+  and fixed mechanics verified; lint baseline 51. Initial test fixture errors
+  corrected/recorded, first framework output truncated explicitly. NEW-877 hooks/
+  config/query/fidelity and other contracts open; isolated administrative useful
+  automatic/local commit context next. Full WP2.1 DoD remains open.
+
 - **WP2.1 slice 25, local commit child-environment foundation, 2026-10-09**
   (`80e4529`) — one allowlisted child environment per complete local/scoped Git
   commit and checkpoint Git sequence, fresh mapping per invocation. HOME/XDG,
@@ -5594,11 +5608,12 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   fixed installation PATH, metadata retained, ambient execution/redirect/config
   controls excluded. System config/locale compatibility changes explicit.
   Configured helpers/query coverage open; no full ACT effects containment.
-- [ ] **Literal scoped Git operands (`NEW-879`)** — source-confirmed MEDIUM:
-  supplied filenames remain Git pathspecs in scoped commit/status/checkpoint
-  add/diff/commit calls. '--' separates options but not glob/pathspec semantics;
-  wildcard/magic names can exceed exact-file scope. No reproduction/fix claimed.
-  Scope operand contract as automatic-commit prerequisite, preserving real paths.
+- [x] **Literal scoped Git operands (`NEW-879`) / WP2.1 slice 26** — `87bcd93`,
+  reviewer-approved, 38 new cases / 324 focused tests. Prior wildcard overscope
+  reproduced in temporary Git; literal flag and four public-query mode overrides
+  removed, operands retained. Special names/deletion/path forms/directory scope
+  and checkpoint integration verified. No containment or configured-helper/query
+  fidelity closure; NEW-877 stays open.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
@@ -5606,7 +5621,7 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   plus closure, not 14 promised slices. Next remaining shell classification
   (`NEW-875`; direct shell Git/find/xargs/argument-bearing env covered;
   search_files `NEW-878` fixed; `NEW-877` absolute selection foundation covered,
-  slice 25 commit environment covered; literal operands NEW-879 and
+  slice 25 commit environment and slice 26 literal operands NEW-879 covered;
   automatic/local commit configuration contract next, then remaining Git/query and
   wrappers/embedded execution),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
