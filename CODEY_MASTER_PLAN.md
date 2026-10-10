@@ -737,6 +737,10 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+**PAUSED, 2026-10-10:** Slice29 is complete and published. The user
+requested [HANDOFF.md](HANDOFF.md), then an explicit pause; slice30 is not
+scoped or started. Wait for new user direction before resuming WP2.1.
+
 - **WP2.1 slice 29, isolated Git metadata READ, 2026-10-10** (`29e5cc7`) —
   Five public metadata helpers and no-path checkpoint HEAD queries use one
   READ gate_exec each. Discovery, default cwd, copied private administration,
@@ -5714,6 +5718,8 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   boundaries and final closure. Preserve confirmation; distinguish publishing
   from working-file changes. Reviewed commit/push after each slice, continued
   without stopping (user instruction 2026-10-09).
+  The later explicit 2026-10-10 pause controls: see [HANDOFF.md](HANDOFF.md);
+  slice30 is not started, and resumption requires new user direction.
 - [ ] **Shell classification/failure and peer bookkeeping (`NEW-875`,
   `NEW-874`, `NEW-844`)** — NEW-873/876 direct publishing families fixed;
   direct shell Git/find/xargs/argument-bearing env HIGH; other wrappers/scripts

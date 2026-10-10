@@ -75,6 +75,8 @@ continuous completion and publication on 2026-10-09. Verification uses isolated
 temporary state; no live-store mutation, real recipient send, model load or peer
 execution is implied. Full suite remains excluded for NEW-791; unavailable type
 checkers and baseline lint debt must be disclosed.
+The subsequent 2026-10-10 user instruction pauses this run after HANDOFF; consult
+[HANDOFF.md](../../HANDOFF.md) and the master plan until the user resumes.
 
 ## Closure requirements
 
