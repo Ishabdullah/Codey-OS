@@ -7,6 +7,7 @@ No Filesystem.write, live repository, model, peer, or remote operation is used.
 import json
 import os
 import subprocess
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -161,12 +162,20 @@ def test_initial_commit_with_nonempty_paths(checkpoint_repo):
 def test_invalid_add_fails_without_old_head_fallback(checkpoint_repo, monkeypatch):
     r = checkpoint_repo
     head = r.git("rev-parse", "HEAD").stdout.strip()
-    with monkeypatch.context() as calls:
-        runner = Mock(wraps=subprocess.run)
-        calls.setattr(git_execution.subprocess, "run", runner)
-        assert checkpoint._create_git_commit("invalid", ["missing.py"]) is None
-    commands = [call.args[0] for call in runner.call_args_list]
-    assert commands == [[git_execution._trusted_git_executable(), "rev-parse", "--git-dir"], [git_execution._trusted_git_executable(), "--literal-pathspecs", "add", "--", "missing.py"]]
+    commands = []
+    original_context = checkpoint.isolated_scoped_commit_context
+
+    @contextmanager
+    def context(cwd, paths):
+        with original_context(cwd, paths) as run:
+            def runner(argv, **kwargs):
+                commands.append(argv)
+                return run(argv, **kwargs)
+            yield runner
+
+    monkeypatch.setattr(checkpoint, "isolated_scoped_commit_context", context)
+    assert checkpoint._create_git_commit("invalid", ["missing.py"]) is None
+    assert commands == [["git", "--literal-pathspecs", "add", "--", "missing.py"]]
     assert r.git("rev-parse", "HEAD").stdout.strip() == head
     reason = r.warnings.call_args.args[0].split("Checkpoint: git commit failed: ", 1)[1]
     assert reason.startswith("git add failed:")
@@ -239,7 +248,7 @@ def test_refusal_never_stages_or_commits(checkpoint_repo, monkeypatch):
         runner = Mock(wraps=subprocess.run)
         calls.setattr(git_execution.subprocess, "run", runner)
         assert checkpoint._create_git_commit("refused", ["core/example.py"]) is None
-    assert [call.args[0] for call in runner.call_args_list] == [[git_execution._trusted_git_executable(), "rev-parse", "--git-dir"]]
+    runner.assert_not_called()
     assert r.git("rev-parse", "HEAD").stdout.strip() == head
     assert (r.repo / ".git/index").read_bytes() == index
     assert r.trigger.read_text() == "changed = True\n"

@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -197,8 +198,12 @@ def test_absolute_outside_path_keeps_git_error(repository, tmp_path):
     outside = tmp_path / "outside.py"
     outside.write_text("protected\n")
     head = r.git("rev-parse", "HEAD").stdout
+    index = (r.repo / ".git/index").read_bytes()
     result = invoke(r, [str(outside)])
-    assert result.startswith("[ERROR] git add failed:") and "outside repository" in result
+    # Isolated candidate-query preflight now rejects before add, with a static reason.
+    assert result == "[ERROR] Isolated Git metadata query failed"
+    assert (r.repo / ".git/index").read_bytes() == index
+    audit(r, "helper", "failed")
     assert r.git("rev-parse", "HEAD").stdout == head and outside.read_text() == "protected\n"
     audit(r, "helper", "failed")
 
@@ -251,7 +256,17 @@ def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, tmp_path, o
     responses = [SimpleNamespace(returncode=0, stdout=".git", stderr=""), SimpleNamespace(returncode=0, stdout="", stderr=""), SimpleNamespace(returncode=1 if operation == "checkpoint" else 0, stdout="M target", stderr=""), SimpleNamespace(returncode=0, stdout="original result", stderr="")]
     if operation == "checkpoint":
         responses.append(SimpleNamespace(returncode=0, stdout="saved hash\n", stderr=""))
+    if operation != "broad":
+        responses.pop(0)
     runner = Mock(side_effect=responses)
+
+    @contextmanager
+    def context(cwd, paths):
+        yield runner
+
+    for module in (githelper, checkpoint):
+        monkeypatch.setattr(module, "discover_worktree", lambda cwd: (Path("/temporary cwd"), Path("/temporary cwd/.git")))
+        monkeypatch.setattr(module, "isolated_scoped_commit_context", context)
     monkeypatch.setattr(githelper, "local_commit_runner", Mock(return_value=runner))
     monkeypatch.setattr(checkpoint, "local_commit_runner", Mock(return_value=runner))
     monkeypatch.setattr(checkpoint, "CODE_DIR", Path("/temporary cwd"))
@@ -265,11 +280,11 @@ def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, tmp_path, o
         if operation == "checkpoint":
             result = checkpoint._create_git_commit("message", operands)
             wanted = "saved hash"
-            expected = [["git", "rev-parse", "--git-dir"], ["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "diff", "--cached", "--quiet", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "Codey checkpoint: message", "--", *operands], ["git", "rev-parse", "HEAD"]]
+            expected = [["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "diff", "--cached", "--quiet", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "Codey checkpoint: message", "--", *operands], ["git", "rev-parse", "HEAD"]]
         elif operation == "scoped":
             result = githelper.git_commit_paths("message", operands, "/temporary cwd")
             wanted = "original result"
-            expected = [["git", "rev-parse", "--git-dir"], ["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "status", "--short", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "message", "--", *operands]]
+            expected = [["git", "--literal-pathspecs", "add", "--", *operands], ["git", "--literal-pathspecs", "status", "--short", "--", *operands], ["git", "--literal-pathspecs", "commit", "-m", "message", "--", *operands]]
         else:
             result = githelper.git_commit("message", "/temporary cwd")
             wanted = "original result"

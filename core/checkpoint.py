@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+from core.git_commit_context import discover_worktree, isolated_scoped_commit_context
 from core.git_execution import local_commit_runner, run_git
 from core.state import get_state_store
 from utils.config import CHECKPOINT_DIR, CODE_DIR
@@ -134,60 +135,67 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
 def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optional[str]:
     """Commit literal triggering paths through ACT; directories select subtrees.
 
-    All calls share an isolated ambient child environment; repository/global
-    config and helpers remain unbounded. No-path calls read HEAD without a
+    Nonempty mutations use a private administrative/configuration context
+    inside ACT. No-path calls retain the separate query contract without a
     mutation audit; scoped clean attempts return the existing HEAD.
     Directories, including '.', intentionally select their subtrees; this is
     no single-file or workspace containment guarantee. Staging/commit/hash lookup
     is not atomic: failure can leave staging or an already-created commit.
     """
     try:
-        runner = local_commit_runner()
-        # Check if we're in a git repo
-        result = runner(
-            ["git", "rev-parse", "--git-dir"], cwd=CODE_DIR, capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            return None
-
         if not files_modified:
-            # Nothing specific to stage — no-op, just report current HEAD.
+            # Historical read-only query contract remains separate/open.
+            runner = local_commit_runner()
+            result = runner(
+                ["git", "rev-parse", "--git-dir"], cwd=CODE_DIR, capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                return None
             result = runner(
                 ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
             )
             return result.stdout.strip() if result.returncode == 0 else None
+        if discover_worktree(CODE_DIR) is None:
+            return None
 
         # Runtime import avoids the gateway -> Filesystem -> checkpoint cycle.
         from core.action_gateway import ACT, get_action_gateway
 
         def execute():
-            paths = list(files_modified)
-            result = runner(
-                ["git", "--literal-pathspecs", "add", "--"] + paths, cwd=CODE_DIR, capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"git add failed: {result.stderr.strip()}")
+            try:
+                paths = list(files_modified)
+                with isolated_scoped_commit_context(CODE_DIR, paths) as runner:
+                    result = runner(
+                        ["git", "--literal-pathspecs", "add", "--"] + paths, cwd=CODE_DIR, capture_output=True, text=True
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"git add failed: {result.stderr.strip()}")
 
-            result = runner(
-                ["git", "--literal-pathspecs", "diff", "--cached", "--quiet", "--"] + paths,
-                cwd=CODE_DIR, capture_output=True, text=True,
-            )
-            if result.returncode not in (0, 1):
-                raise RuntimeError(f"git diff failed: {result.stderr.strip()}")
-            if result.returncode == 1:
-                result = runner(
-                    ["git", "--literal-pathspecs", "commit", "-m", f"Codey checkpoint: {reason}", "--"] + paths,
-                    cwd=CODE_DIR, capture_output=True, text=True,
-                )
-                if result.returncode != 0:
-                    raise RuntimeError(f"git commit failed: {result.stderr.strip()}")
+                    result = runner(
+                        ["git", "--literal-pathspecs", "diff", "--cached", "--quiet", "--"] + paths,
+                        cwd=CODE_DIR, capture_output=True, text=True,
+                    )
+                    if result.returncode not in (0, 1):
+                        raise RuntimeError(f"git diff failed: {result.stderr.strip()}")
+                    if result.returncode == 1:
+                        result = runner(
+                            ["git", "--literal-pathspecs", "commit", "-m", f"Codey checkpoint: {reason}", "--"] + paths,
+                            cwd=CODE_DIR, capture_output=True, text=True,
+                        )
+                        if result.returncode != 0:
+                            raise RuntimeError(f"git commit failed: {result.stderr.strip()}")
 
-            result = runner(
-                ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"git rev-parse HEAD failed: {result.stderr.strip()}")
-            return result.stdout.strip()
+                    result = runner(
+                        ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"git rev-parse HEAD failed: {result.stderr.strip()}")
+                    return result.stdout.strip()
+            except Exception as exc:
+                # Include additional cleanup failure in audit without hiding the operation.
+                if getattr(exc, "_scoped_cleanup_failed", False):
+                    raise RuntimeError(f"{exc}; scoped Git context cleanup or publication also failed") from exc
+                raise
 
         decision = get_action_gateway().gate_exec(
             authority=ACT,

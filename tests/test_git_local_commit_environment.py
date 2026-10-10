@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -200,7 +201,12 @@ def test_redirect_config_hook_trace_and_fake_path_removed(repository, tmp_path, 
         result = commit(r, operation)
     assert result is not None and not result.startswith("[ERROR]")
     assert len(children) >= 4
-    assert all(not (set(redirects) - {"PATH"}) & child.keys() for child in children)
+    contextual = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"} if operation != "broad" else set()
+    assert all(not (set(redirects) - {"PATH"} - contextual) & child.keys() for child in children)
+    if contextual:
+        assert all(Path(child["GIT_DIR"]).parent == r.repo / ".git" for child in children)
+        assert all(child["GIT_WORK_TREE"] == str(r.repo) and child["GIT_INDEX_FILE"] == str(r.repo / ".git/index") for child in children)
+        assert all(child["GIT_OBJECT_DIRECTORY"] == str(r.repo / ".git/objects") and "GIT_COMMON_DIR" not in child for child in children)
     assert all(child["LC_ALL"] == "C" and child["GIT_CONFIG_NOSYSTEM"] == "1" and child["HOME"] == str(r.home) for child in children)
     assert len({id(child) for child in children}) == len(children)
     assert not marker.exists() and not trace.exists()
@@ -222,37 +228,43 @@ def test_helper_refusal_does_not_construct_environment(repository, monkeypatch, 
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     factory = Mock(side_effect=AssertionError("refusal must not construct runner"))
     monkeypatch.setattr(githelper, "local_commit_runner", factory)
+    monkeypatch.setattr(githelper, "isolated_scoped_commit_context", factory)
     result = githelper.git_commit_paths("unused", [], str(r.repo)) if scoped else githelper.git_commit("unused", str(r.repo))
     assert result == "[ERROR] Local git commit refused: test policy"
     factory.assert_not_called()
     assert not r.audit.exists()
 
 
-def test_checkpoint_constructs_once_before_historical_preflight_and_gate(repository, monkeypatch):
+def test_checkpoint_context_is_inside_gate_after_inprocess_discovery(repository, monkeypatch):
     r = repository
     order = []
-    original_factory = checkpoint.local_commit_runner
+    original_context = checkpoint.isolated_scoped_commit_context
+    original_discover = checkpoint.discover_worktree
     original_gate = r.gateway.gate_exec
 
-    def factory():
-        order.append("factory")
-        run = original_factory()
+    def discover(cwd):
+        order.append("discover")
+        return original_discover(cwd)
 
-        def runner(argv, **kwargs):
-            order.append(argv[2] if argv[1] == "--literal-pathspecs" else argv[1])
-            return run(argv, **kwargs)
-
-        return runner
+    @contextmanager
+    def context(cwd, paths):
+        order.append("context")
+        with original_context(cwd, paths) as run:
+            def runner(argv, **kwargs):
+                order.append(argv[2] if argv[1] == "--literal-pathspecs" else argv[1])
+                return run(argv, **kwargs)
+            yield runner
 
     def gate(**kwargs):
         order.append("gate")
         return original_gate(**kwargs)
 
-    monkeypatch.setattr(checkpoint, "local_commit_runner", factory)
+    monkeypatch.setattr(checkpoint, "discover_worktree", discover)
+    monkeypatch.setattr(checkpoint, "isolated_scoped_commit_context", context)
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     r.trigger.write_text("change\n")
     assert checkpoint._create_git_commit("ordering", [str(r.trigger)])
-    assert order == ["factory", "rev-parse", "gate", "add", "diff", "commit", "rev-parse"]
+    assert order == ["discover", "gate", "context", "add", "diff", "commit", "rev-parse"]
 
 
 def test_all_missing_candidates_still_build_nonempty_path_without_filesystem_probes(tmp_path, monkeypatch):

@@ -10,6 +10,11 @@ import re
 from pathlib import Path
 from typing import List
 
+from core.git_commit_context import (
+    ScopedCommitError,
+    discover_worktree,
+    isolated_scoped_commit_context,
+)
 from core.git_execution import local_commit_runner, run_git
 
 # ── Basic repo queries ─────────────────────────────────────────────────────────
@@ -82,6 +87,8 @@ def _gate_local_commit(action, operation):
             # The gateway records failure instead of raising; keep the
             # original exception so this adapter preserves caller behavior.
             original_error = exc
+            if getattr(exc, "_scoped_cleanup_failed", False):
+                raise RuntimeError(f"{exc}; scoped Git context cleanup or publication also failed") from exc
             raise
         if result.startswith("[ERROR]"):
             # Existing helpers report Git failures as strings. Raise only
@@ -168,8 +175,9 @@ def git_status_paths(paths: List[str], path: str = None) -> str:
 def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
     """Stage/commit literal paths through ACT; directories select their subtrees.
 
-    Uses one isolated ambient child environment; repository/global config and
-    helpers remain unbounded. Clean/no-path attempts audit without proving a commit.
+    A private administrative context imports selected configuration data only;
+    effective filter drivers and unsupported layouts fail before staging.
+    Clean/no-path attempts audit without proving a commit.
     A directory (including '.') intentionally selects its subtree; this is no
     single-file or workspace containment guarantee. Staging may remain after
     a failed commit (see NEW-17 for scoped paths).
@@ -177,28 +185,27 @@ def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
     def attempt():
         nonlocal path
         path = path or os.getcwd()
-        runner = local_commit_runner()
-
-        if not _is_git_repo(path, runner):
+        if discover_worktree(path) is None:
             return "[ERROR] Not a git repository."
-
         if not paths:
             return "Nothing to commit."
-
-        result = runner(["git", "--literal-pathspecs", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
-        if result.returncode != 0:
-            return f"[ERROR] git add failed: {result.stderr}"
-
-        status = _git_status_paths(paths, path, runner)
-        if status == "Nothing to commit.":
-            return "Nothing to commit — working tree clean."
-
-        result = runner(
-            ["git", "--literal-pathspecs", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return f"[ERROR] {result.stderr.strip()}"
+        try:
+            with isolated_scoped_commit_context(path, paths) as runner:
+                result = runner(["git", "--literal-pathspecs", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
+                if result.returncode != 0:
+                    raise ScopedCommitError(f"git add failed: {result.stderr}")
+                status = _git_status_paths(paths, path, runner)
+                if status == "Nothing to commit.":
+                    return "Nothing to commit — working tree clean."
+                result = runner(
+                    ["git", "--literal-pathspecs", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip()
+                raise ScopedCommitError(result.stderr.strip())
+        except ScopedCommitError as exc:
+            extra = "; scoped Git context cleanup or publication also failed" if getattr(exc, "_scoped_cleanup_failed", False) else ""
+            return f"[ERROR] {exc}{extra}"
 
     return _gate_local_commit("githelper.git_commit_paths", attempt)
 

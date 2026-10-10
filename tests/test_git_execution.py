@@ -273,7 +273,9 @@ def test_missing_git_preserves_helper_exception_checkpoint_none_without_old_head
     assert caught.value is original
     assert checkpoint._create_git_commit("missing", [str(r.trigger)]) is None
     checkpoint.warning.assert_called_once_with("Checkpoint: git commit failed: trusted Git missing")
-    assert not r.audit.exists() and not r.marker.exists()
+    rows = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    assert len(rows) == 1 and rows[0]["outcome"] == "failed" and rows[0]["authority"] == "ACT"
+    assert rows[0]["reason"] == str(original) and not r.marker.exists()
 
 
 def test_preferred_inspection_error_does_not_silently_fall_back(tmp_path, monkeypatch):
