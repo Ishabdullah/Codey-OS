@@ -201,7 +201,7 @@ def test_redirect_config_hook_trace_and_fake_path_removed(repository, tmp_path, 
         result = commit(r, operation)
     assert result is not None and not result.startswith("[ERROR]")
     assert len(children) >= 4
-    contextual = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"} if operation != "broad" else set()
+    contextual = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"}
     assert all(not (set(redirects) - {"PATH"} - contextual) & child.keys() for child in children)
     if contextual:
         assert all(Path(child["GIT_DIR"]).parent == r.repo / ".git" for child in children)
@@ -227,7 +227,7 @@ def test_helper_refusal_does_not_construct_environment(repository, monkeypatch, 
     gate = Mock(return_value=GatewayDecision(ACT, "refused", "test policy"))
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     factory = Mock(side_effect=AssertionError("refusal must not construct runner"))
-    monkeypatch.setattr(githelper, "local_commit_runner", factory)
+    monkeypatch.setattr(githelper, "isolated_broad_commit_context", factory)
     monkeypatch.setattr(githelper, "isolated_scoped_commit_context", factory)
     result = githelper.git_commit_paths("unused", [], str(r.repo)) if scoped else githelper.git_commit("unused", str(r.repo))
     assert result == "[ERROR] Local git commit refused: test policy"

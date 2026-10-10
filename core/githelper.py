@@ -13,9 +13,10 @@ from typing import List
 from core.git_commit_context import (
     ScopedCommitError,
     discover_worktree,
+    isolated_broad_commit_context,
     isolated_scoped_commit_context,
 )
-from core.git_execution import local_commit_runner, run_git
+from core.git_execution import run_git
 
 # ── Basic repo queries ─────────────────────────────────────────────────────────
 
@@ -111,34 +112,34 @@ def _gate_local_commit(action, operation):
 
 
 def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
-    """Stage/commit through ACT with an isolated ambient child environment.
+    """Commit through positive configuration and private administration.
 
-    Repository/global config and helpers remain unbounded. Clean no-op attempts
-    are audited.
+    Add-all covers the entire repo; staged-only preserves existing blobs.
+    Ordinary one-head merge/squash continuation is bounded. Partial effects
+    can remain after failure; this is not a filesystem sandbox or transaction.
     """
     def attempt():
         nonlocal path
         path = path or os.getcwd()
-        runner = local_commit_runner()
-
-        if not _is_git_repo(path, runner):
+        if discover_worktree(path) is None:
             return "[ERROR] Not a git repository."
-
-        if add_all:
-            result = runner(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
-            if result.returncode != 0:
-                return f"[ERROR] git add failed: {result.stderr}"
-
-        status = _git_status(path, runner)
-        if status == "Nothing to commit.":
-            return "Nothing to commit — working tree clean."
-
-        result = runner(
-            ["git", "commit", "-m", message], capture_output=True, text=True, cwd=path
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return f"[ERROR] {result.stderr.strip()}"
+        try:
+            with isolated_broad_commit_context(path, add_all=add_all) as context:
+                runner = context.run
+                if add_all:
+                    result = runner(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
+                    if result.returncode != 0:
+                        raise ScopedCommitError(f"git add failed: {result.stderr}")
+                status = _git_status(path, runner)
+                if status == "Nothing to commit." and not context.pending_merge:
+                    return "Nothing to commit — working tree clean."
+                result = runner(["git", "commit", "-m", message], capture_output=True, text=True, cwd=path)
+                if result.returncode == 0:
+                    return result.stdout.strip()
+                raise ScopedCommitError(result.stderr.strip())
+        except ScopedCommitError as exc:
+            extra = "; scoped Git context cleanup or publication also failed" if getattr(exc, "_scoped_cleanup_failed", False) else ""
+            return f"[ERROR] {exc}{extra}"
 
     return _gate_local_commit("githelper.git_commit", attempt)
 

@@ -256,8 +256,7 @@ def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, tmp_path, o
     responses = [SimpleNamespace(returncode=0, stdout=".git", stderr=""), SimpleNamespace(returncode=0, stdout="", stderr=""), SimpleNamespace(returncode=1 if operation == "checkpoint" else 0, stdout="M target", stderr=""), SimpleNamespace(returncode=0, stdout="original result", stderr="")]
     if operation == "checkpoint":
         responses.append(SimpleNamespace(returncode=0, stdout="saved hash\n", stderr=""))
-    if operation != "broad":
-        responses.pop(0)
+    responses.pop(0)
     runner = Mock(side_effect=responses)
 
     @contextmanager
@@ -267,7 +266,11 @@ def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, tmp_path, o
     for module in (githelper, checkpoint):
         monkeypatch.setattr(module, "discover_worktree", lambda cwd: (Path("/temporary cwd"), Path("/temporary cwd/.git")))
         monkeypatch.setattr(module, "isolated_scoped_commit_context", context)
-    monkeypatch.setattr(githelper, "local_commit_runner", Mock(return_value=runner))
+    @contextmanager
+    def broad_context(cwd, *, add_all=True):
+        yield SimpleNamespace(run=runner, pending_merge=False)
+
+    monkeypatch.setattr(githelper, "isolated_broad_commit_context", broad_context)
     monkeypatch.setattr(checkpoint, "local_commit_runner", Mock(return_value=runner))
     monkeypatch.setattr(checkpoint, "CODE_DIR", Path("/temporary cwd"))
     audit_file = tmp_path / "audit.jsonl"
@@ -288,7 +291,7 @@ def test_exact_scoped_flags_and_unchanged_broad_queries(monkeypatch, tmp_path, o
         else:
             result = githelper.git_commit("message", "/temporary cwd")
             wanted = "original result"
-            expected = [["git", "rev-parse", "--git-dir"], ["git", "add", "-A"], ["git", "status", "--short"], ["git", "commit", "-m", "message"]]
+            expected = [["git", "add", "-A"], ["git", "status", "--short"], ["git", "commit", "-m", "message"]]
     assert result == wanted
     assert [call.args[0] for call in runner.call_args_list] == expected
     assert operands == before

@@ -8,6 +8,7 @@ sandbox, atomic transaction, or protection against hostile concurrent changes.
 """
 
 import os
+import re
 import shutil
 import stat
 import tempfile
@@ -77,10 +78,16 @@ def _regular(path, *, optional=False):
 
 
 class _Context:
-    def __init__(self, cwd, paths, root, real, admin, environment):
+    def __init__(self, cwd, paths, root, real, admin, environment, *, broad=False, add_all=True):
         self.cwd, self.paths = cwd, list(paths)
         self.root, self.real, self.admin = root, real, admin
         self.environment = environment
+        self.broad, self.add_all = broad, add_all
+        self.pending_merge = False
+        self.metadata = {}
+        self.commit_attempted = False
+        self.commit_succeeded = False
+        self.before_commit = None
 
     def _run(self, argv, **kwargs):
         return git_execution.run_git(argv, env=dict(self.environment), **kwargs)
@@ -104,7 +111,17 @@ class _Context:
             raise ValueError("Unsupported scoped commit operation")
         if "cwd" in kwargs and os.path.abspath(os.fspath(kwargs["cwd"])) != os.path.abspath(os.fspath(self.cwd)):
             raise ValueError("Scoped commit cwd cannot be replaced")
+        if self.broad:
+            valid = argv == ["git", "status", "--short"] or (self.add_all and argv == ["git", "add", "-A"])
+            committing = len(argv) == 4 and argv[:3] == ["git", "commit", "-m"] and isinstance(argv[3], str)
+            if not (valid or committing):
+                raise ValueError("Unsupported broad commit business command")
+            if committing:
+                self.before_commit = self._head_commit()
+                self.commit_attempted = True
         result = self._run(argv, **kwargs)
+        if self.broad and committing:
+            self.commit_succeeded = result.returncode == 0
         if argv[position] == "status" and result.returncode != 0:
             raise ScopedCommitError("Isolated Git status failed")
         return result
@@ -151,6 +168,7 @@ class _Context:
         if version == "0" and extensions:
             raise ScopedCommitError("Git extensions require repository format version one")
         object_format = extensions.get("extensions.objectformat", "sha1")
+        self.hash_length = 64 if object_format == "sha256" else 40
         if object_format not in ("sha1", "sha256") or extensions.get("extensions.refstorage", "files") != "files":
             raise ScopedCommitError("Unsupported Git object or reference format")
         if repository.get("core.sparsecheckout", "false").lower() not in ("false", "no", "off", "0"):
@@ -182,6 +200,15 @@ class _Context:
         index = self._query(["git", "ls-files", "--sparse", "--stage", "-z"], binary=True)
         if any(record.startswith(b"040000 ") for record in index.split(b"\0")):
             raise ScopedCommitError("Sparse Git indexes are unsupported")
+        if self.broad and not self.add_all:
+            changed = self._query(["git", "diff", "--cached", "--name-only", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", "-z"], cwd=self.root, binary=True)
+            names = [os.fsdecode(name) for name in changed.split(b"\0") if name]
+            if not names:
+                return
+            selected = self._query(["git", "--literal-pathspecs", "ls-files", "--stage", "-z", "--", *names], cwd=self.root, binary=True)
+            if any(record.startswith(b"160000 ") for record in selected.split(b"\0")):
+                raise ScopedCommitError("Selected Git submodules are unsupported")
+            return
         selected = self._query(["git", "--literal-pathspecs", "ls-files", "--stage", "-z", "--", *self.paths], binary=True)
         if any(record.startswith(b"160000 ") for record in selected.split(b"\0")):
             raise ScopedCommitError("Selected Git submodules are unsupported")
@@ -209,9 +236,108 @@ class _Context:
                     raise ScopedCommitError("Selected Git filter drivers are unsupported")
 
 
+    def _head_commit(self):
+        result = self._run(["git", "rev-parse", "--verify", "HEAD"], cwd=self.root, capture_output=True, text=True, timeout=15)
+        if result.returncode == 128 and not result.stdout and not self.pending_merge:
+            return None  # Unborn HEAD is supported; no existing commit to compare.
+        if result.returncode != 0:
+            raise ScopedCommitError("Isolated Git HEAD verification failed")
+        value = result.stdout.strip()
+        if not re.fullmatch(r"[0-9a-fA-F]{" + str(self.hash_length) + r"}", value) or self._query(["git", "cat-file", "-t", value]).strip() != "commit":
+            raise ScopedCommitError("Isolated Git HEAD is not a valid commit")
+        return value.lower()
+
+    def prepare_metadata(self):
+        # Explicit compatibility caps; bounded reads also protect against growth
+        # after stat. These snapshots are rechecked as a set before any unlink.
+        for name in ("MERGE_HEAD", "MERGE_MSG", "MERGE_MODE", "AUTO_MERGE", "SQUASH_MSG"):
+            self.metadata[name] = _metadata_snapshot(self.real / name)
+        present = {name for name, snapshot in self.metadata.items() if snapshot is not None}
+        self.pending_merge = "MERGE_HEAD" in present
+        if _exists(self.real / "MERGE_AUTOSTASH") or _exists(self.real / "MERGE_RR"):
+            raise ScopedCommitError("Git autostash or rerere state is unsupported")
+        if self.pending_merge:
+            if "SQUASH_MSG" in present or _exists(self.real / "rr-cache"):
+                raise ScopedCommitError("Mixed or rerere-backed Git merge state is unsupported")
+            value = self.metadata["MERGE_HEAD"][2].decode("ascii", errors="replace").removesuffix("\n")
+            if not re.fullmatch(r"[0-9a-fA-F]{" + str(self.hash_length) + r"}", value):
+                raise ScopedCommitError("Git merge requires one full incoming commit")
+            self.incoming = value.lower()
+            if self._query(["git", "cat-file", "-t", value]).strip() != "commit" or self._head_commit() is None:
+                raise ScopedCommitError("Git merge requires valid local commits")
+            mode = self.metadata["MERGE_MODE"]
+            if mode is not None and mode[2] not in (b"", b"no-ff", b"no-ff\n"):
+                raise ScopedCommitError("Unsupported Git merge mode")
+        elif present & {"MERGE_MSG", "MERGE_MODE", "AUTO_MERGE"}:
+            raise ScopedCommitError("Orphan Git merge state is unsupported")
+        auto = self.metadata["AUTO_MERGE"]
+        if auto is not None:
+            value = auto[2].decode("ascii", errors="replace").removesuffix("\n")
+            if not re.fullmatch(r"[0-9a-fA-F]{" + str(self.hash_length) + r"}", value) or self._query(["git", "cat-file", "-t", value]).strip() != "tree":
+                raise ScopedCommitError("Unsupported Git automatic merge tree")
+        for name, snapshot in self.metadata.items():
+            if snapshot is not None:
+                (self.admin / name).write_bytes(snapshot[2])
+
+    def finish_metadata(self):
+        if not self.commit_attempted:
+            return
+        after = self._head_commit()
+        if after == self.before_commit:
+            if self.commit_succeeded:
+                raise ScopedCommitError("Git commit success has no verified HEAD transition")
+            return
+        if after is None:
+            raise ScopedCommitError("Git commit effect verification failed")
+        if self.pending_merge:
+            parents = self._query(["git", "show", "-s", "--format=%P", after]).strip().split()
+            if parents != [self.before_commit, self.incoming]:
+                raise ScopedCommitError("Git merge commit parentage verification failed")
+        removed = [name for name, snapshot in self.metadata.items() if snapshot is not None and not _exists(self.admin / name)]
+        if self.pending_merge and "MERGE_HEAD" not in removed:
+            raise ScopedCommitError("Git merge state removal was not verified")
+        if self.metadata.get("SQUASH_MSG") is not None and "SQUASH_MSG" not in removed:
+            raise ScopedCommitError("Git squash state removal was not verified")
+        for name, snapshot in self.metadata.items():
+            if _metadata_snapshot(self.real / name) != snapshot:
+                raise ScopedCommitError("Git operation metadata changed during commit")
+        for name in removed:
+            (self.real / name).unlink()
+
+
+def _metadata_snapshot(path):
+    if not _regular(path, optional=True):
+        return None
+    details = path.lstat()
+    limit = 1024 * 1024 if path.name in ("MERGE_MSG", "SQUASH_MSG") else 256
+    with path.open("rb") as stream:
+        value = stream.read(limit + 1)
+    if len(value) > limit:
+        raise ScopedCommitError("Git operation metadata exceeds supported size")
+    return details.st_dev, details.st_ino, value
+
 
 @contextmanager
 def isolated_scoped_commit_context(cwd, paths):
+    """Yield the existing scoped runner; active Git operations are unsupported."""
+    with _isolated_commit_context(cwd, paths) as context:
+        yield context.run
+
+
+@contextmanager
+def isolated_broad_commit_context(cwd, *, add_all=True):
+    """Yield bounded broad commands, supporting one ordinary merge or squash.
+
+    Message metadata is capped at 1MiB. No atomicity or hostile race guarantee.
+    Staged-only commits do not add or reconvert working-tree data.
+    """
+    with _isolated_commit_context(cwd, [], broad=True, add_all=add_all) as context:
+        yield context
+
+
+
+@contextmanager
+def _isolated_commit_context(cwd, paths, *, broad=False, add_all=True):
     """Yield a scoped runner with positive config and native data attributes.
 
     Uses actual index/objects/refs/reflogs. An owned HEAD lock coordinates ordinary
@@ -225,7 +351,7 @@ def isolated_scoped_commit_context(cwd, paths):
     root, real = discovered
     if real == root or real.is_symlink() or not real.is_dir():
         raise ScopedCommitError("Unsupported Git worktree layout")
-    for name in _ACTIVE:
+    for name in (_ACTIVE[1:] if broad else _ACTIVE):
         if _exists(real / name):
             raise ScopedCommitError("Active Git operations are unsupported")
     if _exists(real / "commondir") or _exists(real / "gitdir"):
@@ -249,6 +375,7 @@ def isolated_scoped_commit_context(cwd, paths):
     owned_stat = None
     published = False
     admin = None
+    context = None
     operation_error = None
     try:
         try:
@@ -277,11 +404,13 @@ def isolated_scoped_commit_context(cwd, paths):
             "GIT_OBJECT_DIRECTORY": str(real / "objects"), "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_SYSTEM": os.devnull, "GIT_ATTR_NOSYSTEM": "1", "GIT_NO_LAZY_FETCH": "1",
         })
-        context = _Context(cwd, paths, root, real, admin, environment)
+        context = _Context(cwd, [str(root)] if broad and add_all else paths, root, real, admin, environment, broad=broad, add_all=add_all)
         context.configure(home, xdg)
+        if broad:
+            context.prepare_metadata()
         context.preflight_paths()
         try:
-            yield context.run
+            yield context
         except BaseException as exc:
             operation_error = exc
             raise
@@ -291,10 +420,23 @@ def isolated_scoped_commit_context(cwd, paths):
     finally:
         cleanup_error = None
         if fd is not None:
+            head_unchanged = False
             try:
-                if original_head is not None and (real / "HEAD").read_bytes() != original_head:
-                    raise ScopedCommitError("Actual Git HEAD changed during scoped commit")
-                if admin is not None:
+                if original_head is not None:
+                    if lock.lstat().st_ino != owned_stat.st_ino or lock.lstat().st_dev != owned_stat.st_dev:
+                        raise ScopedCommitError("Owned Git HEAD lock was replaced")
+                    if (real / "HEAD").read_bytes() != original_head:
+                        raise ScopedCommitError("Actual Git HEAD changed during scoped commit")
+                    head_unchanged = True
+            except Exception as exc:  # noqa: BLE001 - retain real metadata if HEAD ownership changed
+                cleanup_error = exc
+            if head_unchanged and broad and context is not None:
+                try:
+                    context.finish_metadata()
+                except Exception as exc:  # noqa: BLE001 - publish committed detached HEAD despite metadata failure
+                    cleanup_error = exc
+            try:
+                if head_unchanged and admin is not None:
                     private_head = (admin / "HEAD").read_bytes()
                     if not original_head.startswith(b"ref: ") and private_head != original_head:
                         if os.write(fd, private_head) != len(private_head):
@@ -306,7 +448,8 @@ def isolated_scoped_commit_context(cwd, paths):
                         os.close(fd)
                         fd = None
             except Exception as exc:  # noqa: BLE001 - finish cleanup, preserve operation error
-                cleanup_error = exc
+                if cleanup_error is None:
+                    cleanup_error = exc
             try:
                 if not published and _exists(lock):
                     if lock.lstat().st_ino != owned_stat.st_ino:
