@@ -132,13 +132,14 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
 
 
 def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optional[str]:
-    """Commit only triggering paths through ACT mediation.
+    """Commit literal triggering paths through ACT; directories select subtrees.
 
     All calls share an isolated ambient child environment; repository/global
     config and helpers remain unbounded. No-path calls read HEAD without a
     mutation audit; scoped clean attempts return the existing HEAD.
-    Staging/commit/hash lookup are not
-    atomic: failure can leave staged changes or an already-created commit.
+    Directories, including '.', intentionally select their subtrees; this is
+    no single-file or workspace containment guarantee. Staging/commit/hash lookup
+    is not atomic: failure can leave staging or an already-created commit.
     """
     try:
         runner = local_commit_runner()
@@ -162,20 +163,20 @@ def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optiona
         def execute():
             paths = list(files_modified)
             result = runner(
-                ["git", "add", "--"] + paths, cwd=CODE_DIR, capture_output=True, text=True
+                ["git", "--literal-pathspecs", "add", "--"] + paths, cwd=CODE_DIR, capture_output=True, text=True
             )
             if result.returncode != 0:
                 raise RuntimeError(f"git add failed: {result.stderr.strip()}")
 
             result = runner(
-                ["git", "diff", "--cached", "--quiet", "--"] + paths,
+                ["git", "--literal-pathspecs", "diff", "--cached", "--quiet", "--"] + paths,
                 cwd=CODE_DIR, capture_output=True, text=True,
             )
             if result.returncode not in (0, 1):
                 raise RuntimeError(f"git diff failed: {result.stderr.strip()}")
             if result.returncode == 1:
                 result = runner(
-                    ["git", "commit", "-m", f"Codey checkpoint: {reason}", "--"] + paths,
+                    ["git", "--literal-pathspecs", "commit", "-m", f"Codey checkpoint: {reason}", "--"] + paths,
                     cwd=CODE_DIR, capture_output=True, text=True,
                 )
                 if result.returncode != 0:

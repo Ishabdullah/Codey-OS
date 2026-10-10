@@ -139,23 +139,40 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
 def _git_status_paths(paths, path, runner):
     path = path or os.getcwd()
     result = runner(
-        ["git", "status", "--short", "--"] + list(paths),
+        ["git", "--literal-pathspecs", "status", "--short", "--"] + list(paths),
         capture_output=True, text=True, cwd=path,
     )
     return result.stdout.strip() or "Nothing to commit."
 
 
 def git_status_paths(paths: List[str], path: str = None) -> str:
-    """Like git_status(), but scoped to specific paths only."""
-    return _git_status_paths(paths, path, run_git)
+    """Status of literal paths; directories select subtrees, including '.'.
+
+    An empty path list retains historical unrestricted status. This provides no
+    single-file or workspace containment. Only ambient pathspec mode overrides
+    are removed; other query environment/configuration behavior is unchanged.
+    """
+    environment = os.environ.copy()
+    for name in (
+        "GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS",
+        "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS",
+    ):
+        environment.pop(name, None)
+
+    def runner(argv, **kwargs):
+        return run_git(argv, env=environment, **kwargs)
+
+    return _git_status_paths(paths, path, runner)
 
 
 def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
-    """Stage and commit only the given paths through ACT mediation.
+    """Stage/commit literal paths through ACT; directories select their subtrees.
 
     Uses one isolated ambient child environment; repository/global config and
     helpers remain unbounded. Clean/no-path attempts audit without proving a commit.
-    Staging may remain after a failed commit (see NEW-17 for scoped paths).
+    A directory (including '.') intentionally selects its subtree; this is no
+    single-file or workspace containment guarantee. Staging may remain after
+    a failed commit (see NEW-17 for scoped paths).
     """
     def attempt():
         nonlocal path
@@ -168,7 +185,7 @@ def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
         if not paths:
             return "Nothing to commit."
 
-        result = runner(["git", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
+        result = runner(["git", "--literal-pathspecs", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
         if result.returncode != 0:
             return f"[ERROR] git add failed: {result.stderr}"
 
@@ -177,7 +194,7 @@ def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
             return "Nothing to commit — working tree clean."
 
         result = runner(
-            ["git", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
+            ["git", "--literal-pathspecs", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
         )
         if result.returncode == 0:
             return result.stdout.strip()

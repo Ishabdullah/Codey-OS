@@ -239,7 +239,7 @@ def test_checkpoint_constructs_once_before_historical_preflight_and_gate(reposit
         run = original_factory()
 
         def runner(argv, **kwargs):
-            order.append(argv[1])
+            order.append(argv[2] if argv[1] == "--literal-pathspecs" else argv[1])
             return run(argv, **kwargs)
 
         return runner

@@ -166,7 +166,7 @@ def test_invalid_add_fails_without_old_head_fallback(checkpoint_repo, monkeypatc
         calls.setattr(git_execution.subprocess, "run", runner)
         assert checkpoint._create_git_commit("invalid", ["missing.py"]) is None
     commands = [call.args[0] for call in runner.call_args_list]
-    assert commands == [[git_execution._trusted_git_executable(), "rev-parse", "--git-dir"], [git_execution._trusted_git_executable(), "add", "--", "missing.py"]]
+    assert commands == [[git_execution._trusted_git_executable(), "rev-parse", "--git-dir"], [git_execution._trusted_git_executable(), "--literal-pathspecs", "add", "--", "missing.py"]]
     assert r.git("rev-parse", "HEAD").stdout.strip() == head
     reason = r.warnings.call_args.args[0].split("Checkpoint: git commit failed: ", 1)[1]
     assert reason.startswith("git add failed:")
@@ -196,14 +196,14 @@ def test_diff_error_is_not_treated_as_changes(checkpoint_repo, monkeypatch):
 
     def run(args, **kwargs):
         commands.append(args)
-        if args[:4] == [git_execution._trusted_git_executable(), "diff", "--cached", "--quiet"]:
+        if args[:5] == [git_execution._trusted_git_executable(), "--literal-pathspecs", "diff", "--cached", "--quiet"]:
             return subprocess.CompletedProcess(args, 2, "", "diff failed")
         return real_run(args, **kwargs)
 
     with monkeypatch.context() as calls:
         calls.setattr(git_execution.subprocess, "run", run)
         assert checkpoint._create_git_commit("diff error", ["core/example.py"]) is None
-    assert not any(args[:2] == [git_execution._trusted_git_executable(), "commit"] for args in commands)
+    assert not any(args[:3] == [git_execution._trusted_git_executable(), "--literal-pathspecs", "commit"] for args in commands)
     assert r.git("rev-parse", "HEAD").stdout.strip() == head
     assert_audit(r, "failed", "git diff failed: diff failed")
 
