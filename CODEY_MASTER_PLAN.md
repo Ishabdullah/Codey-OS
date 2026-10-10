@@ -737,6 +737,27 @@ scoped to what it actually proved.
 
 ### 4.2 Built, approved, not live-verified
 
+- **WP2.1 slice 28, isolated broad Git commits, 2026-10-10** (`7530b7a`) —
+  Broad git_commit uses shared positive configuration/private administration
+  inside ACT. Exact API, business argv and caller cwd retained. Add-all preflight
+  covers the whole repo, including outside a subdirectory cwd; staged-only commits
+  existing blobs without add/filter eligibility/reconversion, rejecting changed
+  staged gitlinks even under ignore-all. Ordinary one-incoming merge commits retain
+  two verified parents; clean pending merges now commit instead of false no-op.
+  Squash remains one-parent. Known regular auxiliary metadata uses bounded reads
+  (messages 1MiB, structural fields 256 bytes), device/inode/byte/absence snapshots,
+  native new-HEAD/effect verification and guarded cleanup. Actual HEAD/owned lock
+  checked before metadata effects; detached publication continues after later
+  metadata failure when ownership remains intact. Scoped/checkpoint active-state
+  restrictions retained. Mixed/autostash/rerere-backed/malformed/nonregular states
+  fail explicitly before staging. Original checked diagnostics/exception identity
+  and truthful failed audits retained; partial staging/commit/publication/cleanup
+  effects possible. No atomicity, containment or hostile-concurrency guarantee.
+  84 new cases + 675 retained = 759; coordinator 759 passed in 130.78s (0:02:10).
+  NEW-877 partial: standalone query READ/fidelity and no-path checkpoint queries
+  next, then other Git mutation configuration effects. NEW-875/874/855 and full
+  WP2.1 DoD remain open.
+
 - **WP2.1 slice 27, isolated scoped Git commits, 2026-10-10** (`a50f97e`) —
   Scoped git_commit_paths and nonempty checkpoint Git commits use private
   administration inside ACT, positive configuration data, empty hooks, unsigned
@@ -5639,6 +5660,13 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   configuration and explicit unsupported states; original checked error plus
   cleanup-failure diagnostic preserved. Broad commits/queries/other helpers open;
   no atomicity/containment/hostile-concurrency promise.
+- [x] **WP2.1 slice 28 / broad Git commit contract (`NEW-877` partial)** —
+  `7530b7a`, reviewer-approved; 84 new cases / 759 tests. Real disposable Git
+  merge/squash/index/refs/HEAD/config/conversion and private CLI flow verified.
+  Clean pending merges now create two-parent commits; bounded guarded auxiliary
+  cleanup and independent detached publication after later errors. Explicit
+  unsupported states and partial-effect limits; standalone queries/other mutation
+  configuration remain open. No additional live-service verification required.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
@@ -5647,8 +5675,8 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   (`NEW-875`; direct shell Git/find/xargs/argument-bearing env covered;
   search_files `NEW-878` fixed; `NEW-877` absolute selection foundation covered,
   slice 25 commit environment and slice 26 literal operands NEW-879 covered;
-  slice 27 scoped configuration contract covered with explicit limits; broad
-  commit migration next, then remaining Git/query and
+  slices 27/28 scoped and broad commit configuration covered with explicit limits;
+  dedicated query READ/fidelity next, then remaining Git mutation and
   wrappers/embedded execution),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
@@ -5666,13 +5694,13 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   later bookkeeping failure remains distinct from refusal.
 - [ ] **Dedicated Git execution contract (`NEW-877`)** — source-confirmed:
   slice 24 replaces initial PATH lookup in all 28 dedicated calls with absolute
-  installation selection. Standalone queries, broad commits, other helper
-  mutations and no-path checkpoint queries still inherit repository/user
+  installation selection. Standalone queries, other helper mutations and no-path checkpoint queries
+  still inherit repository/user
   configuration. Slice 25 bounds ambient
   environment for complete commit/checkpoint sequences only; other calls retain it.
-  Slice 27 isolates scoped commit/checkpoint configuration; broad commits and
-  other helpers remain open. Query mediation/failure coverage open. Hooks/helpers
-  outside the scoped contract can introduce unbounded effects; nominal local classification is insufficient.
+  Slices 27/28 isolate scoped/checkpoint and broad commit configuration. Other
+  helpers and query mediation/failure coverage remain open. Hooks/helpers outside
+  the commit contracts can introduce unbounded effects; nominal local classification is insufficient.
   No exploit reproduced. Scope constrained execution preserving useful automatic
   checkpoint commits, or appropriate authorization; do not trust config by name.
 - [ ] **CCOS Git manifest/export alignment (`NEW-864`)** — source-confirmed

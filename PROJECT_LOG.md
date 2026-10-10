@@ -1,3 +1,209 @@
+## 2026-10-10 — WP2.1 slice 28: isolated broad Git commits and merge continuation
+
+**Previous slice published:** code `a50f97e`, records `ed97c0b`. Actual push:
+
+```text
+$ git -c http.postBuffer=16777216 push origin main
+To https://github.com/Ishabdullah/Codey-OS.git
+   e096c4d..ed97c0b  main -> main
+```
+
+**Change (`7530b7a`):**
+  Broad git_commit uses shared positive configuration/private administration
+  inside ACT. Exact API, business argv and caller cwd retained. Add-all preflight
+  covers the whole repo, including outside a subdirectory cwd; staged-only commits
+  existing blobs without add/filter eligibility/reconversion, rejecting changed
+  staged gitlinks even under ignore-all. Ordinary one-incoming merge commits retain
+  two verified parents; clean pending merges now commit instead of false no-op.
+  Squash remains one-parent. Known regular auxiliary metadata uses bounded reads
+  (messages 1MiB, structural fields 256 bytes), device/inode/byte/absence snapshots,
+  native new-HEAD/effect verification and guarded cleanup. Actual HEAD/owned lock
+  checked before metadata effects; detached publication continues after later
+  metadata failure when ownership remains intact. Scoped/checkpoint active-state
+  restrictions retained. Mixed/autostash/rerere-backed/malformed/nonregular states
+  fail explicitly before staging. Original checked diagnostics/exception identity
+  and truthful failed audits retained; partial staging/commit/publication/cleanup
+  effects possible. No atomicity, containment or hostile-concurrency guarantee.
+  84 new cases + 675 retained = 759; coordinator 759 passed in 130.78s (0:02:10).
+  NEW-877 partial: standalone query READ/fidelity and no-path checkpoint queries
+  next, then other Git mutation configuration effects. NEW-875/874/855 and full
+  WP2.1 DoD remain open.
+
+**Pipeline:** architect COMPLETED full scope/proofs → implementer COMPLETE →
+independent adversarial reviewer APPROVED → coordinator checks → exact five-file
+code commit. Five tracking files separately reviewed before records commit; no
+unrelated agent-memory files staged. No extra live-service/model verification
+needed: native effects are disposable Git/filesystem/SQLite fixtures, inference
+stubbed in private-main merge-resolution integration. Ordinary actual branch merge
+produces a checked conflict failure audit followed by allowed explicit resolution
+commit. Existing plugin export mismatch NEW-864 was not activated.
+
+**Regressions and corrections:** Required current old-helper runtime reproduction
+returned exact clean no-op with MERGE_HEAD: 1 failed in 2.14s. Native proof alone
+would have established source inference, not helper reproduction. Migrated real
+helper creates two expected parents while retaining identical clean tree.
+Initial scoped+new regression 97 passed/34.39s. Expanded focused run 4 failed/134
+passed/51.30s: SHA256 verification still used fixture original closed-over cwd,
+two binary conversion checks passed unsupported fixture text keyword, refusal
+fixture referenced missing gateway attribute. Fixture corrections then 1 failed/150
+passed/54.95s: private-main public query used status-only fixture wrapper requiring
+env; fixed private test seam without production query migration. Broad-only 82
+passed/37.26s preceded two stricter incoming-OID whitespace cases; final new84.
+Coordinator interim source inspection corrected unbound context cleanup, metadata
+failure skipping detached publication, and actual HEAD guard moved behind metadata
+effects. Guard now precedes auxiliary effects; independent publication continues
+only with original HEAD/owned lock intact. Uppercase OID comparison canonicalized;
+strict one-hash optional single newline retained. Bounded read(limit+1) prevents
+message growth after stat from bypassing cap. Actual changed/replaced/appeared
+metadata verified as a complete set before first unlink; foreign locks preserved.
+Checked add/commit errors retain original whitespace and generic extra failure.
+No claim of hostile races or multi-file transaction. Initial Ruff35 comprised33
+existing helper findings plus new import/unused-os issues, fixed narrowly; final
+production51 unchanged.
+
+**Artifacts:** Coordinator read all1112 lines of five-file diff and full744-line
+implementation validation including final output. All raw failures/proofs/commands
+retained under /data/data/com.termux/files/usr/tmp with codey-slice28- prefix:
+spec.md, proof.py/proof-output.jsonl, clean-merge-proof.py/output.jsonl,
+clean-merge-red.txt, context-initial.txt, focused-initial.txt, focused-corrected.txt,
+broad-complete.txt, validation.txt, diff, source-* snapshots, final-regression.txt,
+review-report.txt/review-tests.txt, root-tests.txt/root-checks.txt and SHA256 guards.
+Architect read complete installed git-commit manual1160lines/35284bytes and
+merge manual1482lines/46013bytes; initially truncated merge middle reread. Prior
+complete git-add/check-attr/gitattributes/repository-layout reads reused. Full
+config manual not read/claimed. Initial proof tuple included absent MERGE_RR;
+no rerere cleanup runtime evidence asserted.
+
+**Literal final implementer tests (exact18-file selection):**
+
+```text
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 28%]
+........................................................................ [ 37%]
+........................................................................ [ 47%]
+........................................................................ [ 56%]
+........................................................................ [ 66%]
+........................................................................ [ 75%]
+........................................................................ [ 85%]
+........................................................................ [ 94%]
+.......................................                                  [100%]
+759 passed in 126.79s (0:02:06)
+```
+
+**Independent adversarial review:**
+
+```text
+APPROVED — WP2.1 slice 28 independent adversarial code review
+
+Read complete authoritative codey-slice28-spec.md, all 1112 lines of the five-file diff including the entire new test module, all 744 lines of implementation validation, and actual context/helper/shared fixture/bootstrap source. Traced real main explicit/generated Git commit callers and private real-main merge-resolution integration. No blocking findings or required corrections.
+
+Approved scope: only broad git_commit joins the positive configuration/private administrative contract. ACT/static metadata/refusal boundary unchanged; discovery/context/spawns occur inside the thunk. Exact add-A/status/commit argv and supplied cwd preserved. Add-all eligibility is rooted at discovered repository root even from subcwd; staged-only never adds/reconverts blobs or checks working filters, while changed staged gitlinks cannot hide behind ignore-all. Executable configuration is not imported. Existing scoped/checkpoint active-state rejection remains.
+
+Broad business runner admits only exact intended command forms and fixed kwargs/cwd. Ordinary one-incoming merge and squash metadata support is bounded: regular snapshots with device/inode/bytes and recorded absence, message reads capped at 1MiB+1 and structural reads256+1, strict format-length commit/tree checks, unsupported mixed/autostash/rerere/active states rejected. Commit attempts recorded before execution. Observed valid new HEAD/ref transition and expected two merge parents plus native private metadata removal are required before cleanup; mocked zero without a transition fails. Actual HEAD and owned lock are checked before auxiliary effects, complete snapshot set validated before first unlink. Detached publication still runs after metadata failure when ownership is intact. Checked-error text, unexpected exception identity and additional cleanup accounting remain honest; later failures may leave real staging/objects/commit/publication or partial metadata deletion.
+
+Independent exact18-file command (exit0):
+python /data/data/com.termux/files/usr/tmp/codey-slice28-validate.py -q tests/test_git_broad_commit_context.py tests/test_git_commit_context.py tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_shell_wrapper_boundaries.py tests/test_shell_refusal_accounting.py tests/test_shell_git_all_direct.py > /data/data/com.termux/files/usr/tmp/codey-slice28-review-tests.txt 2>&1
+
+Literal test output:
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 28%]
+........................................................................ [ 37%]
+........................................................................ [ 47%]
+........................................................................ [ 56%]
+........................................................................ [ 66%]
+........................................................................ [ 75%]
+........................................................................ [ 85%]
+........................................................................ [ 94%]
+.......................................                                  [100%]
+759 passed in 127.16s (0:02:07)
+
+759 = 84 new broad cases +675 retained. This includes real disposable attached/unborn/detached/SHA256/index/ref/conversion/merge/squash/temporary SQLite regression effects and private-main flow with inference stubbed. Required old-helper clean-pending-merge runtime red is retained in implementation evidence (1 failed2.14s), independently reread; current real-helper regression passes.
+
+Independent check commands and literal output:
+ruff check core/git_commit_context.py tests/test_git_broad_commit_context.py
+All checks passed!
+ruff check --select F,E9,I core/githelper.py tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py
+All checks passed!
+git diff --check
+(no output; exit0)
+ruff check --statistics core/githelper.py core/checkpoint.py core/git_commit_context.py
+18	RUF013	[ ] implicit-optional
+17	UP006 	[*] non-pep585-annotation
+ 5	BLE001	[ ] blind-except
+ 4	UP035 	[-] deprecated-import
+ 4	UP045 	[*] non-pep604-annotation-optional
+ 1	PIE810	[ ] multiple-starts-ends-with
+ 1	EXE001	[ ] shebang-not-executable
+ 1	S110  	[ ] try-except-pass
+Found 51 errors.
+[*] 22 fixable with the `--fix` option (19 hidden fixes can be enabled with the `--unsafe-fixes` option).
+(exit1 for the unchanged51 legacy findings.)
+
+Each raw check output is retained as codey-slice28-review-{new-lint,focused-lint,diffcheck,production-lint}.txt; implementation evidence untouched. Full suite excluded NEW791; no typechecker claim. Bootstrap redirects configuration state Paths, DB and audit before collection (NEW855); child HOME/XDG fixture seams, process homes unchanged. No models/peers/network/live stores/project Git effects. Existing temporary file-only publishing regression is distinct from external publishing. No additional live service/model/project verification needed.
+
+NEW877 remains partial: standalone query mediation/fidelity, no-path checkpoint queries and other Git mutation configured effects remain open. NEW875/874/855 unchanged. Installation/package trust assumed; no arbitrary executable safety, sandbox, filesystem containment, atomicity, durability or hostile concurrent replacement guarantee. Reviewer made no source/docs/memory edits, commits or pushes; only scratch review/check evidence saved.
+```
+
+**Literal final coordinator tests:**
+
+```text
+$ python /data/data/com.termux/files/usr/tmp/codey-slice28-validate.py -q tests/test_git_broad_commit_context.py tests/test_git_commit_context.py tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py tests/test_git_execution.py tests/test_git_commit_gateway.py tests/test_git_branch_gateway.py tests/test_git_checkout_gateway.py tests/test_git_merge_gateway.py tests/test_git_push_gateway.py tests/test_checkpoint_git_gateway.py tests/test_checkpoint_rollback_gateway.py tests/test_action_gateway.py tests/test_action_gateway_confirmation.py tests/test_action_gateway_audit_failure.py tests/test_shell_wrapper_boundaries.py tests/test_shell_refusal_accounting.py tests/test_shell_git_all_direct.py
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 28%]
+........................................................................ [ 37%]
+........................................................................ [ 47%]
+........................................................................ [ 56%]
+........................................................................ [ 66%]
+........................................................................ [ 75%]
+........................................................................ [ 85%]
+........................................................................ [ 94%]
+.......................................                                  [100%]
+759 passed in 130.78s (0:02:10)
+```
+
+**Literal final coordinator checks:**
+
+```text
+$ ruff check core/git_commit_context.py tests/test_git_broad_commit_context.py
+All checks passed!
+exit=0
+
+$ ruff check --select F,E9,I core/githelper.py tests/test_git_literal_paths.py tests/test_git_local_commit_environment.py
+All checks passed!
+exit=0
+
+$ ruff check --statistics core/githelper.py core/checkpoint.py core/git_commit_context.py
+18	RUF013	[ ] implicit-optional
+17	UP006 	[*] non-pep585-annotation
+ 5	BLE001	[ ] blind-except
+ 4	UP035 	[-] deprecated-import
+ 4	UP045 	[*] non-pep604-annotation-optional
+ 1	PIE810	[ ] multiple-starts-ends-with
+ 1	EXE001	[ ] shebang-not-executable
+ 1	S110  	[ ] try-except-pass
+Found 51 errors.
+[*] 22 fixable with the `--fix` option (19 hidden fixes can be enabled with the `--unsafe-fixes` option).
+exit=1
+
+$ sh -c command -v mypy; command -v pyright; command -v ty
+exit=127
+
+$ git diff --check
+exit=0
+```
+
+Full production lint exit1 remains existing51; type availability exit127/no output.
+Full suite excluded NEW-791. Precollection config Paths/DB/audit redirected NEW-855;
+child-only disposable HOME/XDG seams, process homes unchanged. No model/peer/network/
+project checkout/merge/rollback/live-store test or dependency change. GitHub push
+separately authorized. 14 work groups plus closure remain, exact slice count unknown;
+NEW-877 partial only, next dedicated query contracts then other mutation effects.
+
+---
+
 ## 2026-10-10 — WP2.1 slice 27: isolated scoped Git configuration and administration
 
 **Previous slice published:** code `87bcd93`, records `e096c4d`. Actual push:

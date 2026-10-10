@@ -2902,7 +2902,7 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
-**WP2.1 — Build the Action Gateway** — **SLICES 1-27 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-26: 2026-10-09; 27: 2026-10-10); full DoD
+**WP2.1 — Build the Action Gateway** — **SLICES 1-28 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-26: 2026-10-09; 27-28: 2026-10-10); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3
 `a33abaa846854bffe` — 2 rounds, a real regression found and fixed, slice 4
@@ -2931,7 +2931,8 @@ reviewed by `/root/code_reviewer`, APPROVED), `ccbae49` (slice 24;
 reviewed by `/root/code_reviewer`, APPROVED), `80e4529` (slice 25;
 reviewed by `/root/code_reviewer`, APPROVED after correction), `87bcd93` (slice 26;
 reviewed by `/root/code_reviewer`, APPROVED), `a50f97e` (slice 27;
-reviewed by `/root/code_reviewer`, APPROVED after correction).
+reviewed by `/root/code_reviewer`, APPROVED after correction), `7530b7a` (slice 28;
+reviewed by `/root/code_reviewer`, APPROVED).
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
@@ -3673,11 +3674,35 @@ reviewed by `/root/code_reviewer`, APPROVED after correction).
   loss, correction adds six cases and preserves ordinary strings and exception
   identity. Full old production lint 51 unchanged; focused/new lint clean. Full
   suite excluded NEW-791, type checkers unavailable; temporary state only.
+- **Slice 28 (2026-10-10, isolated broad Git commits, `7530b7a`):**
+  Broad git_commit uses shared positive configuration/private administration
+  inside ACT. Exact API, business argv and caller cwd retained. Add-all preflight
+  covers the whole repo, including outside a subdirectory cwd; staged-only commits
+  existing blobs without add/filter eligibility/reconversion, rejecting changed
+  staged gitlinks even under ignore-all. Ordinary one-incoming merge commits retain
+  two verified parents; clean pending merges now commit instead of false no-op.
+  Squash remains one-parent. Known regular auxiliary metadata uses bounded reads
+  (messages 1MiB, structural fields 256 bytes), device/inode/byte/absence snapshots,
+  native new-HEAD/effect verification and guarded cleanup. Actual HEAD/owned lock
+  checked before metadata effects; detached publication continues after later
+  metadata failure when ownership remains intact. Scoped/checkpoint active-state
+  restrictions retained. Mixed/autostash/rerere-backed/malformed/nonregular states
+  fail explicitly before staging. Original checked diagnostics/exception identity
+  and truthful failed audits retained; partial staging/commit/publication/cleanup
+  effects possible. No atomicity, containment or hostile-concurrency guarantee.
+  84 new cases + 675 retained = 759; coordinator 759 passed in 130.78s (0:02:10).
+  NEW-877 partial: standalone query READ/fidelity and no-path checkpoint queries
+  next, then other Git mutation configuration effects. NEW-875/874/855 and full
+  WP2.1 DoD remain open.
+  **Evidence:** implementer 759/126.79s, independent reviewer 759/127.16s;
+  coordinator literal output and actual old-helper red regression in PROJECT_LOG.
+  Initial fixture failures preserved/corrected; new/focused lint clean, full
+  production 51 unchanged. Full suite excluded NEW-791, type checkers unavailable.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all twenty-seven slices** (slices 3, 5, 25 and 27 took 2 rounds).
+  **APPROVED, all twenty-eight slices** (slices 3, 5, 25 and 27 took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-27 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-28 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3697,7 +3722,8 @@ reviewed by `/root/code_reviewer`, APPROVED after correction).
   calls. Slice 25 bounds ambient environment for complete commit/checkpoint
   sequences. Slice 26 fixes literal-path scope NEW-879 for scoped helpers/checkpoints;
   slice 27 isolates scoped commit/checkpoint configuration with explicit unsupported
-  states. Broad commit/configuration/helpers/query effects NEW-877 remain. Other dedicated Git calls
+  states; slice 28 migrates broad commits with bounded merge/squash continuation.
+  Other helper configuration and query effects NEW-877 remain. Other dedicated Git calls
   still inherit environment.
   Broader wrappers/scripts/opaque NEW-875 and failed-execution NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
