@@ -152,6 +152,30 @@ Not a filesystem sandbox, atomic transaction, or protection against hostile
 concurrent changes. No index, object, ref, or HEAD copy is made; the real
 worktree's refs/HEAD/index are mutated directly, by design -- that is the
 entire purpose of these three operations.
+
+Fourth caller (slice32): core/checkpoint.py's rollback() routes its two
+bare `run_git` calls (a `cat-file -t` validation of the stored checkpoint
+hash, then the actual `git checkout --detach <hash> --` restore) through
+this module's isolated_mutation_context, reusing exactly the same
+hook-neutralization, filter-driver-rejection (via `reject_attribute`), and
+active-sequencer-rejection posture already applied to git_checkout. The
+`--detach` checkout argv is a new accepted shape in `_valid_mutation_argv`,
+separate from `--no-guess`, because rollback's operand is always a raw
+full-length hex OID (never a branch/tag name), which cannot trigger
+branch-name DWIM.
+
+`cat_file_type(oid)` vs `resolve_target(name)` -- do not use the latter for
+rollback's commit-type check. `resolve_target()` resolves via
+`<target>^{commit}`, which deliberately peels an annotated tag through to
+the commit it points at (correct for an ordinary checkout/merge operand,
+which may legitimately be a tag name). rollback's stored `git_hash` field
+is meant to hold only a previously-recorded `git rev-parse HEAD` value, so
+it must already BE a commit object, not merely resolve to one through a
+tag -- a tag object stored there means a tampered/corrupted checkpoint row,
+and `resolve_target()` would wrongly accept it. `cat_file_type()` performs
+no peeling and reports the literal type of the named object, which is the
+check rollback actually needs. Do not swap these two to "simplify" a future
+caller; the distinction is the whole point.
 """
 
 import os
@@ -228,7 +252,25 @@ def _valid_mutation_argv(argv):
         # `git checkout <name> --` takes the DWIM path and fires the filter,
         # while `git checkout --no-guess <name> --` fails with "invalid
         # reference" exactly as the strict probe predicted.
-        return len(argv) == 5 and argv[2] == "--no-guess" and isinstance(argv[3], str) and argv[4] == "--"
+        if len(argv) == 5 and argv[2] == "--no-guess" and isinstance(argv[3], str) and argv[4] == "--":
+            return True
+        # --detach is core/checkpoint.py::rollback's exact-hash restore
+        # command and needs no --no-guess. rollback() has already confirmed,
+        # via cat_file_type(), that the full-length hex string it passes
+        # here names an existing commit object before this call ever runs,
+        # so DWIM's auto-vivification (new local tracking branch from a
+        # same-named remote-tracking ref) is not the relevant risk -- the
+        # string resolves as the object itself. Verified experimentally
+        # (2026-10-13, disposable repo) that `git checkout --detach <hex> --`
+        # still detaches onto that exact commit even when a local branch
+        # happens to be named identically to the hex string (Git emits an
+        # "ambiguous refname" advice warning and resolves to the object, not
+        # the branch) -- this argv does not need --no-guess to behave
+        # correctly. Note this validator itself accepts any string in
+        # argv[3], not only hex; the hex-only property is enforced by
+        # rollback()'s regex check before isolated_mutation_context is ever
+        # entered, not by this validator.
+        return len(argv) == 5 and argv[2] == "--detach" and isinstance(argv[3], str) and argv[4] == "--"
     if argv[1:2] == ["merge"]:
         return len(argv) == 4 and argv[2] == "--" and isinstance(argv[3], str)
     return False
@@ -275,6 +317,21 @@ class _Context:
         if result.returncode != 0 or not value:
             return None
         return value
+
+    def cat_file_type(self, oid):
+        """Return `git cat-file -t`'s stripped stdout for `oid`, or '' on failure.
+
+        Unlike resolve_target()'s `^{commit}` peeling (correct for ordinary
+        checkout/merge operands, which may legitimately be tag names), this
+        performs no peeling -- it reports the literal type of the object named
+        by `oid` exactly. core/checkpoint.py's rollback() needs this stricter
+        check: its stored hash must already BE a commit object, not merely
+        resolve to one through a tag, since that field is meant to hold only a
+        previously-recorded `git rev-parse HEAD` value and a type mismatch is
+        treated as a tampered/corrupted checkpoint row.
+        """
+        result = self._query(["git", "cat-file", "-t", oid], check_rc=False)
+        return result.stdout.strip() if result.returncode == 0 else ""
 
     def changed_paths(self, target):
         """Paths that differ between the current HEAD and `target` (-z list)."""

@@ -170,10 +170,28 @@ def test_create_checkpoint_and_full_repository_detached_restore(checkpoint_repo,
     with monkeypatch.context() as operations:
         operations.setattr(git_execution.subprocess, "run", run)
         assert checkpoint.rollback(checkpoint_id, confirm=lambda: True) is True
-    assert calls == [
-        ([git_execution._trusted_git_executable(), "cat-file", "-t", saved_hash], {"cwd": r.repo, "capture_output": True, "text": True}),
-        ([git_execution._trusted_git_executable(), "checkout", "--detach", saved_hash, "--"], {"cwd": r.repo, "capture_output": True, "text": True}),
+    # Entering core/git_mutation_context.py's isolated_mutation_context (NEW
+    # slice32 behavior) adds its own preflight (split/sparse-index checks),
+    # a `cat-file -t` validation, a `changed_paths`/`reject_attribute` filter
+    # probe, and an `env=` override on every call -- only the final
+    # "checkout --detach <hash> --" is the pre-existing call. "other.txt" is
+    # the only committed path that differs between the current HEAD ("later
+    # version") and the checkpoint's saved commit, so it is the only name
+    # the filter probe sees; .gitattributes is absent so nothing is rejected.
+    git_bin = git_execution._trusted_git_executable()
+    expected = [
+        (["rev-parse", "--shared-index-path"], {"cwd": r.repo, "capture_output": True, "text": True, "timeout": 15}),
+        (["ls-files", "--sparse", "--stage", "-z"], {"cwd": r.repo, "capture_output": True, "text": False, "timeout": 15}),
+        (["cat-file", "-t", saved_hash], {"cwd": r.repo, "capture_output": True, "text": True, "timeout": 15}),
+        (["diff", "--name-only", "-z", "--no-ext-diff", "--no-textconv", "HEAD", saved_hash], {"cwd": r.repo, "capture_output": True, "text": False, "timeout": 15}),
+        (["check-attr", f"--source={saved_hash}", "-z", "--stdin", "--all"], {"cwd": r.repo, "capture_output": True, "text": False, "timeout": 15, "input": b"other.txt\0"}),
+        (["checkout", "--detach", saved_hash, "--"], {"cwd": r.repo, "capture_output": True, "text": True}),
     ]
+    assert len(calls) == len(expected)
+    for (args, kwargs), (expected_argv, expected_kwargs) in zip(calls, expected):
+        assert args == [git_bin, *expected_argv]
+        assert isinstance(kwargs.get("env"), dict)
+        assert {key: value for key, value in kwargs.items() if key != "env"} == expected_kwargs
     assert r.git("rev-parse", "HEAD").stdout.strip() == saved_hash
     assert r.git("symbolic-ref", "HEAD", check=False).returncode != 0
     assert r.trigger.read_text() == "baseline = True\n"
@@ -185,6 +203,19 @@ def test_create_checkpoint_and_full_repository_detached_restore(checkpoint_repo,
     row = audit_outcome(r, "allowed", preflight=True)
     for secret in (checkpoint_id, saved_hash, "private reason", "baseline = True"):
         assert secret not in json.dumps(row)
+    # Explicit single-audit-row property (required by slice32's spec): the
+    # ledger above has exactly one pre-existing READ row (create_checkpoint's
+    # own "checkpoint.git_head" query, popped by audit_outcome's preflight=
+    # True) plus exactly this one HIGH_IMPACT "checkpoint.rollback" row.
+    # isolated_mutation_context's internal preflight/cat-file/diff/check-attr
+    # calls run entirely inside this single HIGH_IMPACT gate -- they are not
+    # separately gated or audited, so routing rollback() through that
+    # context added zero new audit rows (environment isolation, not a
+    # nested gate).
+    ledger = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    assert len(ledger) == 2
+    assert ledger[-1]["authority"] == HIGH_IMPACT
+    assert ledger[-1]["action"] == "checkpoint.rollback"
 
 
 @pytest.mark.parametrize("row", [True, False], ids=["null-hash", "missing-row"])
@@ -337,7 +368,17 @@ def test_partial_copy_failure_stops_before_git_and_log(checkpoint_repo, monkeypa
         runner = Mock(wraps=original_run)
         calls.setattr(git_execution.subprocess, "run", runner)
         assert checkpoint.rollback("saved", confirm=lambda: True) is False
-        assert [call.args[0][:3] for call in runner.call_args_list] == [[git_execution._trusted_git_executable(), "cat-file", "-t"]]
+        # The isolated_mutation_context preflight (rev-parse/ls-files) and
+        # the cat-file/diff probe calls all run before any file copy (NEW
+        # slice32 behavior); git_hash equals the current HEAD here, so
+        # changed_paths() reports no differing paths and reject_attribute()
+        # short-circuits before issuing a check-attr call at all. The
+        # structural guarantee this test protects -- no checkout-related
+        # call happens before a mid-copy failure -- still holds: "checkout"
+        # must not appear in the subcommand list below.
+        subcommands = [call.args[0][1] for call in runner.call_args_list]
+        assert subcommands == ["rev-parse", "ls-files", "cat-file", "diff"]
+        assert "checkout" not in subcommands
     assert len(copies) == 2
     assert r.trigger.read_text() == "restored = True\n"
     assert not (r.repo / "core/second.py").exists()

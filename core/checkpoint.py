@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from core.git_commit_context import discover_worktree, isolated_scoped_commit_context
-from core.git_execution import run_git
+from core.git_mutation_context import GitMutationError, isolated_mutation_context
 from core.state import get_state_store
 from utils.config import CHECKPOINT_DIR, CODE_DIR
 from utils.logger import info, success, warning
@@ -274,6 +274,12 @@ def _rollback_files(checkpoint_id: str):
     return files
 
 
+def _copy_backup_files(files):
+    for backup_file, destination in files:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(backup_file, destination)
+
+
 def rollback(checkpoint_id: str, *, confirm: Optional[Callable[[], bool]] = None) -> bool:
     """Restore an authorized checkpoint; default/no approval performs no work.
 
@@ -296,23 +302,23 @@ def rollback(checkpoint_id: str, *, confirm: Optional[Callable[[], bool]] = None
         if git_hash is not None:
             if not isinstance(git_hash, str) or re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", git_hash) is None:
                 raise ValueError("Checkpoint commit ID is malformed")
-            result = run_git(
-                ["git", "cat-file", "-t", git_hash], cwd=CODE_DIR, capture_output=True, text=True
-            )
-            if result.returncode != 0 or result.stdout.strip() != "commit":
-                raise ValueError("Checkpoint commit ID is not an existing commit object")
-
-        for backup_file, destination in files:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(backup_file, destination)
-
-        if git_hash is not None:
-            result = run_git(
-                ["git", "checkout", "--detach", git_hash, "--"],
-                cwd=CODE_DIR, capture_output=True, text=True,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"Rollback git checkout failed: {result.stderr.strip()}")
+            try:
+                with isolated_mutation_context(CODE_DIR) as context:
+                    if context.cat_file_type(git_hash) != "commit":
+                        raise ValueError("Checkpoint commit ID is not an existing commit object")
+                    context.reject_attribute(context.changed_paths(git_hash), "filter", source=git_hash)
+                    _copy_backup_files(files)
+                    result = context.run(
+                        ["git", "checkout", "--detach", git_hash, "--"],
+                        cwd=CODE_DIR, capture_output=True, text=True,
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"Rollback git checkout failed: {result.stderr.strip()}")
+            except GitMutationError as exc:
+                extra = "; Git mutation context cleanup also failed" if getattr(exc, "_mutation_cleanup_failed", False) else ""
+                raise RuntimeError(f"{exc}{extra}") from exc
+        else:
+            _copy_backup_files(files)
 
         state.log_action("rollback", f"Restored from checkpoint {checkpoint_id}")
         return f"restored {len(files)} files"
