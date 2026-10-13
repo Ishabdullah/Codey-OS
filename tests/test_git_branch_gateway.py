@@ -120,7 +120,14 @@ def test_git_failure_preserves_exact_error_string(repository, tmp_path, case):
     )
     assert failure.returncode != 0
     result = githelper.git_branch_create(name, path=str(cwd))
-    assert result == f"[ERROR] {failure.stderr.strip()}"
+    if case == "non-repo":
+        # core/git_mutation_context.py's discover_worktree preflight rejects
+        # a non-repository cwd before any real git invocation, so this is a
+        # static diagnostic rather than git's own stderr (NEW slice31 behavior,
+        # matching githelper.git_commit's existing non-repo short-circuit).
+        assert result == "[ERROR] Not a git repository"
+    else:
+        assert result == f"[ERROR] {failure.stderr.strip()}"
     assert snapshot(r) == before
     assert_audit(r, "failed", result)
 
@@ -176,9 +183,16 @@ def test_subprocess_exception_object_is_preserved(repository, monkeypatch):
     with pytest.raises(OSError) as caught:
         githelper.git_branch_create("new-branch", path=str(r.repo))
     assert caught.value is original
-    runner.assert_called_once_with(
-        [git_execution._trusted_git_executable(), "checkout", "-b", "new-branch"], capture_output=True, text=True, cwd=str(r.repo),
-    )
+    # core/git_mutation_context.py's isolated_mutation_context runs its own
+    # preflight (split/sparse-index checks) before the real "checkout -b"
+    # invocation; with subprocess.run universally raising, the exception
+    # surfaces from that first isolated query instead, still preserving
+    # identity (NEW slice31 behavior change -- more than one subprocess call
+    # is now made per attempt).
+    runner.assert_called_once()
+    first_call = runner.call_args
+    assert first_call.args[0][:3] == [git_execution._trusted_git_executable(), "rev-parse", "--shared-index-path"]
+    assert Path(first_call.kwargs["cwd"]) == r.repo
     assert_audit(r, "failed", str(original))
 
 
@@ -234,3 +248,52 @@ def test_private_main_branch_handler_preserves_history(repository, monkeypatch):
     main.error.assert_not_called()
     assert r.git("symbolic-ref", "HEAD").stdout.strip() == "refs/heads/main-branch"
     assert_audit(r, preflight=True)
+
+
+def test_post_checkout_hook_does_not_fire(repository):
+    """WP2.1 slice31 discriminating test: core/git_mutation_context.py forces
+    core.hookspath to an empty directory via the highest-precedence
+    GIT_CONFIG_COUNT/KEY/VALUE env mechanism. Control case proves the hook
+    mechanism itself works (the real repository's own hookspath, restored to
+    .git/hooks, fires on an unmediated checkout) before asserting the
+    mediated githelper.git_branch_create call does not trigger it.
+    """
+    r = repository
+    marker = r.repo / "hook-fired.txt"
+    hooks_dir = r.repo / ".git/hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook = hooks_dir / "post-checkout"
+    hook.write_text(f"#!/bin/sh\necho fired >> {marker}\n")
+    hook.chmod(0o755)
+    r.git("config", "core.hooksPath", ".git/hooks")
+    # Control: an unmediated checkout with the real hookspath fires the hook.
+    r.git("checkout", "-b", "control-branch")
+    assert marker.read_text() == "fired\n"
+    r.git("checkout", "main")  # also an unmediated checkout; re-fires the hook
+    r.git("branch", "-D", "control-branch")
+    marker.unlink()
+    # Mediated: githelper.git_branch_create must not trigger the same hook.
+    result = githelper.git_branch_create("mediated-branch", path=str(r.repo))
+    assert result == "Created and switched to branch 'mediated-branch'."
+    assert not marker.exists()
+
+
+def test_active_merge_state_rejected(repository):
+    """WP2.1 slice31: branch-create must reject while a merge is mid-flight
+    (deliberately the opposite of core/git_worktree_context.py's tolerant
+    worktree-READ case; see core/git_mutation_context.py's docstring)."""
+    r = repository
+    r.git("checkout", "-b", "other")
+    (r.repo / "dirty.txt").write_text("other content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "other change")
+    r.git("checkout", "main")
+    (r.repo / "dirty.txt").write_text("main content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "main change")
+    r.git("merge", "--", "other", check=False)
+    assert (r.repo / ".git/MERGE_HEAD").exists()
+    before = snapshot(r)
+    result = githelper.git_branch_create("new-branch", path=str(r.repo))
+    assert result == "[ERROR] Active Git operations are unsupported"
+    assert snapshot(r) == before

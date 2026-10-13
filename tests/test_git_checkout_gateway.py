@@ -218,13 +218,19 @@ def test_missing_ref_or_nonrepo_exact_failure(repository, tmp_path, nonrepo):
         cwd = tmp_path / "nonrepo"
         cwd.mkdir()
     expected = subprocess.run(
-        [git_execution._trusted_git_executable(), "checkout", "missing-ref", "--"], cwd=cwd,
+        [git_execution._trusted_git_executable(), "checkout", "--no-guess", "missing-ref", "--"], cwd=cwd,
         capture_output=True, text=True, check=False,
     )
     assert expected.returncode != 0
     before = snapshot(r)
     result = githelper.git_checkout("missing-ref", str(cwd))
-    assert result == f"[ERROR] {expected.stderr.strip()}"
+    if nonrepo:
+        # core/git_mutation_context.py's discover_worktree preflight rejects
+        # a non-repository cwd before any real git invocation (NEW slice31
+        # behavior, matching githelper.git_commit's existing short-circuit).
+        assert result == "[ERROR] Not a git repository"
+    else:
+        assert result == f"[ERROR] {expected.stderr.strip()}"
     assert snapshot(r) == before
     assert_audit(r, "failed", result)
 
@@ -235,10 +241,32 @@ def test_missing_ref_or_nonrepo_exact_failure(repository, tmp_path, nonrepo):
 )
 def test_success_output_and_exact_argv(repository, monkeypatch, stderr, stdout, expected):
     r = repository
-    runner = Mock(return_value=SimpleNamespace(returncode=0, stderr=stderr, stdout=stdout))
+    git_bin = git_execution._trusted_git_executable()
+    final = SimpleNamespace(returncode=0, stderr=stderr, stdout=stdout)
+    # core/git_mutation_context.py's isolated_mutation_context runs its own
+    # preflight (split/sparse-index checks) and a filter-attribute probe
+    # before the real checkout; only the final "checkout --no-guess target
+    # --" invocation is the one this test cares about, so every other
+    # isolated query gets a benign canned response (NEW slice31 behavior
+    # change).
+    benign = SimpleNamespace(returncode=0, stderr="", stdout=b"")
+    unresolved = SimpleNamespace(returncode=1, stderr="", stdout="")
+
+    def side_effect(argv, **kwargs):
+        if argv[1:5] == ["checkout", "--no-guess", "target", "--"]:
+            return final
+        if argv[1:3] == ["rev-parse", "--verify"]:
+            return unresolved
+        return benign
+
+    runner = Mock(side_effect=side_effect)
     monkeypatch.setattr(git_execution.subprocess, "run", runner)
     assert githelper.git_checkout("target", str(r.repo)) == expected
-    runner.assert_called_once_with([git_execution._trusted_git_executable(), "checkout", "target", "--"], capture_output=True, text=True, cwd=str(r.repo))
+    final_args, final_kwargs = runner.call_args_list[-1]
+    assert final_args[0] == [git_bin, "checkout", "--no-guess", "target", "--"]
+    assert final_kwargs["capture_output"] is True and final_kwargs["text"] is True
+    assert Path(final_kwargs["cwd"]) == r.repo
+    assert "env" in final_kwargs
     assert_audit(r)
 
 
@@ -350,3 +378,126 @@ def test_main_existing_prompt_and_history(repository, private_main, monkeypatch,
         ledger = [json.loads(line) for line in r.audit.read_text().splitlines()]
         assert [row["action"] for row in ledger] == ["githelper.is_git_repo", "githelper.git_current_branch"]
         assert all(row["authority"] == "READ" and row["outcome"] == "allowed" for row in ledger)
+
+
+def test_post_checkout_hook_does_not_fire(repository):
+    """WP2.1 slice31 discriminating test: core/git_mutation_context.py forces
+    core.hookspath to an empty directory via the highest-precedence
+    GIT_CONFIG_COUNT/KEY/VALUE env mechanism. Control case proves the hook
+    mechanism itself works (the real repository's own hookspath, restored to
+    .git/hooks, fires on an unmediated checkout) before asserting the
+    mediated githelper.git_checkout call does not trigger it.
+    """
+    r = repository
+    r.git("branch", "target")
+    marker = r.repo / "hook-fired.txt"
+    (r.repo / ".git/hooks").mkdir(parents=True, exist_ok=True)
+    hook = r.repo / ".git/hooks/post-checkout"
+    hook.write_text(f"#!/bin/sh\necho fired >> {marker}\n")
+    hook.chmod(0o755)
+    r.git("config", "core.hooksPath", ".git/hooks")
+    # Control: an unmediated checkout with the real hookspath fires the hook.
+    r.git("checkout", "target")
+    assert marker.read_text() == "fired\n"
+    r.git("checkout", "main")  # also an unmediated checkout; re-fires the hook
+    marker.unlink()
+    # Mediated: githelper.git_checkout must not trigger the same hook.
+    result = githelper.git_checkout("target", str(r.repo))
+    assert "Switched to branch 'target'" in result
+    assert not marker.exists()
+
+
+def test_filter_driver_rejected_for_changed_path(repository):
+    """WP2.1 slice31 discriminating test: core/git_mutation_context.py probes
+    exactly the paths that will change on this checkout for a `filter`
+    attribute and rejects if any is set (verified experimentally which path
+    set is actually smudged; see that module's docstring)."""
+    r = repository
+    r.git("checkout", "-b", "filtered-branch")
+    (r.repo / ".gitattributes").write_text("dirty.txt filter=marker\n")
+    (r.repo / "dirty.txt").write_text("filtered content\n")
+    r.git("add", "--", ".gitattributes", "dirty.txt")
+    r.git("commit", "-m", "attach filter attribute")
+    r.git("checkout", "main")
+    before = snapshot(r)
+    result = githelper.git_checkout("filtered-branch", str(r.repo))
+    assert result == "[ERROR] Selected Git filter drivers are unsupported"
+    assert snapshot(r) == before
+
+
+def test_dwim_remote_tracking_checkout_filter_rejected(repository, tmp_path):
+    """WP2.1 slice31 regression test for the code-reviewer-found DWIM bypass:
+    resolve_target()'s strict `rev-parse --verify <name>^{commit}` probe and
+    the real `git checkout <name> --` command used to resolve names
+    differently. A name with no local branch but a same-named
+    remote-tracking ref (here synthesized directly via `update-ref` plus a
+    fake `remote add`, with no network involved) is unresolvable by the
+    strict probe -- so the filter-driver probe above is skipped -- but used
+    to still succeed via Git's branch-name DWIM (auto-creating a local
+    tracking branch from the remote-tracking ref), smudging content through
+    a configured filter driver with no rejection check having run at all.
+    Control case proves the DWIM mechanism and the filter driver both
+    actually fire on an unmediated checkout before asserting the mediated
+    githelper.git_checkout call is rejected and the driver never runs
+    (closed by running the real checkout with --no-guess; see
+    core/git_mutation_context.py's docstring).
+    """
+    r = repository
+    r.git("checkout", "-b", "feature-src")
+    (r.repo / ".gitattributes").write_text("dirty.txt filter=marker\n")
+    (r.repo / "dirty.txt").write_text("filtered content\n")
+    r.git("add", "--", ".gitattributes", "dirty.txt")
+    r.git("commit", "-m", "attach filter attribute")
+    feature_sha = r.git("rev-parse", "feature-src").stdout.strip()
+    r.git("checkout", "main")
+    r.git("branch", "-D", "feature-src")
+    r.git("remote", "add", "origin", "https://example.invalid/unused.git")
+    r.git("update-ref", "refs/remotes/origin/feature", feature_sha)
+    marker = tmp_path / "filter-fired.txt"
+    r.git("config", "filter.marker.smudge", f"sh -c 'touch {marker}; cat'")
+    r.git("config", "filter.marker.clean", "cat")
+    # Control: resolve_target()'s strict probe cannot resolve 'feature' by
+    # itself (no local branch of that name) -- the exact condition under
+    # which the filter probe above is skipped.
+    probe = r.git("rev-parse", "--verify", "--quiet", "feature^{commit}", check=False)
+    assert probe.returncode != 0
+    # Control: an unmediated DWIM checkout succeeds and fires the driver.
+    control = r.git("checkout", "feature")
+    assert control.returncode == 0
+    assert marker.exists()
+    marker.unlink()
+    r.git("checkout", "main")
+    r.git("branch", "-D", "feature")
+    before = snapshot(r)
+    # Mediated: githelper.git_checkout must not take the DWIM path at all.
+    result = githelper.git_checkout("feature", str(r.repo))
+    assert result == "[ERROR] fatal: invalid reference: feature"
+    assert not marker.exists()
+    assert snapshot(r) == before
+    # Assert the mechanism directly, not only git's (possibly-reworded)
+    # error text: no local 'feature' branch exists -- DWIM never ran.
+    local_branch = r.git("rev-parse", "--verify", "--quiet", "refs/heads/feature", check=False)
+    assert local_branch.returncode != 0
+    assert_audit(r, "failed", result)
+
+
+def test_active_merge_state_rejected(repository):
+    """WP2.1 slice31: checkout must reject while a merge is mid-flight
+    (deliberately the opposite of core/git_worktree_context.py's tolerant
+    worktree-READ case; see core/git_mutation_context.py's docstring)."""
+    r = repository
+    r.git("branch", "target")
+    r.git("checkout", "-b", "other")
+    (r.repo / "dirty.txt").write_text("other content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "other change")
+    r.git("checkout", "main")
+    (r.repo / "dirty.txt").write_text("main content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "main change")
+    r.git("merge", "--", "other", check=False)
+    assert (r.repo / ".git/MERGE_HEAD").exists()
+    before = snapshot(r)
+    result = githelper.git_checkout("target", str(r.repo))
+    assert result == "[ERROR] Active Git operations are unsupported"
+    assert snapshot(r) == before

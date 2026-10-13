@@ -54,10 +54,9 @@ assumed (rule 12):
     experimentally: a relative core.excludesfile continues to exclude a
     top-level path identically whether Git is invoked from the worktree
     root or from a subdirectory, i.e. real Git resolves these paths against
-    the top of the working tree, never the invoking cwd. This diverges from
-    core/git_commit_context.py:192, which resolves the same two keys against
-    self.cwd instead - a likely latent bug in that module, logged separately
-    (not fixed here; out of scope for this slice).
+    the top of the working tree, never the invoking cwd. core/git_commit_context.py
+    (fixed under NEW-885) now resolves the same two keys against self.root as
+    well, so the two modules agree here.
 """
 
 import os

@@ -17,6 +17,7 @@ from core.git_commit_context import (
     isolated_scoped_commit_context,
 )
 from core.git_execution import run_git
+from core.git_mutation_context import GitMutationError, isolated_mutation_context
 from core.git_query_context import metadata_query
 from core.git_worktree_context import worktree_query
 
@@ -256,6 +257,11 @@ def git_branch_create(name: str, path: str = None) -> str:
 
     Existing name validation precedes the gate; invalid names do not
     produce mutation audits. Git failure text is retained in audit reasons.
+    Runs inside core/git_mutation_context.py's isolated environment: ambient
+    hooks, filter/merge drivers, and other configured helpers are bounded
+    (see that module's docstring); an in-progress merge/cherry-pick/rebase
+    is rejected. A branch create writes no working-tree content, so no
+    filter probe applies here (unlike git_checkout).
     """
     path = path or os.getcwd()
     # Validate name (no spaces, no special chars, no leading dashes)
@@ -274,9 +280,14 @@ def git_branch_create(name: str, path: str = None) -> str:
     def execute():
         nonlocal output, original_error
         try:
-            result = run_git(
-                ["git", "checkout", "-b", name], capture_output=True, text=True, cwd=path
-            )
+            with isolated_mutation_context(path) as context:
+                result = context.run(
+                    ["git", "checkout", "-b", name], capture_output=True, text=True, cwd=path
+                )
+        except GitMutationError as exc:
+            extra = "; Git mutation context cleanup also failed" if getattr(exc, "_mutation_cleanup_failed", False) else ""
+            output = f"[ERROR] {exc}{extra}"
+            raise RuntimeError(output)
         except Exception as exc:
             # The gateway records failure instead of raising; preserve
             # the original subprocess exception for this helper's caller.
@@ -308,6 +319,18 @@ def git_checkout(name: str, path: str = None) -> str:
 
     A trailing path separator prevents filename-only targets from restoring
     files. The exact '-' target still selects the previous branch.
+    Runs inside core/git_mutation_context.py's isolated environment: ambient
+    hooks are bounded, an in-progress merge/cherry-pick/rebase is rejected,
+    and any path that would change content on this checkout and carries a
+    `filter` attribute is rejected before the real checkout runs (see that
+    module's docstring). If the target does not resolve to a commit, the
+    probe is skipped and the real checkout produces its own error text. The
+    real checkout runs with `--no-guess` so it cannot resolve a name via
+    Git's branch-name DWIM (auto-creating a local tracking branch from a
+    same-named remote-tracking ref) when the resolve_target() probe above
+    reports that name as unresolvable -- without this, such a name would
+    bypass the filter probe entirely while still succeeding against the
+    real worktree (see core/git_mutation_context.py's docstring).
     """
     if name.startswith("-") and name != "-":
         return f"[ERROR] Checkout options are not supported: '{name}'"
@@ -321,9 +344,17 @@ def git_checkout(name: str, path: str = None) -> str:
     def execute():
         nonlocal output, original_error
         try:
-            result = run_git(
-                ["git", "checkout", name, "--"], capture_output=True, text=True, cwd=path
-            )
+            with isolated_mutation_context(path) as context:
+                target = context.resolve_target(name)
+                if target is not None:
+                    context.reject_attribute(context.changed_paths(target), "filter", source=target)
+                result = context.run(
+                    ["git", "checkout", "--no-guess", name, "--"], capture_output=True, text=True, cwd=path
+                )
+        except GitMutationError as exc:
+            extra = "; Git mutation context cleanup also failed" if getattr(exc, "_mutation_cleanup_failed", False) else ""
+            output = f"[ERROR] {exc}{extra}"
+            raise RuntimeError(output)
         except Exception as exc:
             # Record failed execution, then preserve the caller's original
             # subprocess exception instead of replacing it with a decision.
@@ -354,6 +385,13 @@ def git_merge(branch: str, path: str = None) -> str:
 
     Failed merges can leave changed files, index entries, and MERGE_HEAD.
     Returns the existing OK:, [CONFLICT], or [ERROR] output strings.
+    Runs inside core/git_mutation_context.py's isolated environment: ambient
+    hooks are bounded, an in-progress merge/cherry-pick/rebase is rejected,
+    the merge commit's identity comes from Git's own default home/global
+    configuration lookup, and any path touched by the merge that carries a
+    `merge` attribute is rejected before the real merge runs (see that
+    module's docstring). If the target does not resolve to a commit, the
+    probe is skipped and the real merge produces its own error text.
     """
     if branch.startswith("-") and branch != "-":
         return f"[ERROR] Merge options are not supported: '{branch}'"
@@ -367,9 +405,17 @@ def git_merge(branch: str, path: str = None) -> str:
     def execute():
         nonlocal output, original_error
         try:
-            result = run_git(
-                ["git", "merge", "--", branch], capture_output=True, text=True, cwd=path
-            )
+            with isolated_mutation_context(path) as context:
+                target = context.resolve_target(branch)
+                if target is not None:
+                    context.reject_attribute(context.changed_paths(target), "merge")
+                result = context.run(
+                    ["git", "merge", "--", branch], capture_output=True, text=True, cwd=path
+                )
+        except GitMutationError as exc:
+            extra = "; Git mutation context cleanup also failed" if getattr(exc, "_mutation_cleanup_failed", False) else ""
+            output = f"[ERROR] {exc}{extra}"
+            raise RuntimeError(output)
         except Exception as exc:
             # Audit failed execution, then preserve the caller's original
             # subprocess exception instead of replacing it with a decision.

@@ -217,7 +217,13 @@ def test_real_merge_failures(repository, tmp_path, case):
     assert expected.returncode != 0
     before = snapshot(r)
     result = githelper.git_merge(name, str(cwd))
-    assert result == f"[ERROR] {(expected.stdout + expected.stderr).strip()}"
+    if case == "nonrepo":
+        # core/git_mutation_context.py's discover_worktree preflight rejects
+        # a non-repository cwd before any real git invocation (NEW slice31
+        # behavior, matching githelper.git_commit's existing short-circuit).
+        assert result == "[ERROR] Not a git repository"
+    else:
+        assert result == f"[ERROR] {(expected.stdout + expected.stderr).strip()}"
     assert snapshot(r) == before
     assert_audit(r, "failed", result)
 
@@ -228,10 +234,33 @@ def test_real_merge_failures(repository, tmp_path, case):
 )
 def test_exact_argv_output_and_audit(repository, monkeypatch, code, stdout, stderr, expected):
     r = repository
-    runner = Mock(return_value=SimpleNamespace(returncode=code, stdout=stdout, stderr=stderr))
+    git_bin = git_execution._trusted_git_executable()
+    final = SimpleNamespace(returncode=code, stdout=stdout, stderr=stderr)
+    # core/git_mutation_context.py's isolated_mutation_context runs its own
+    # preflight (split/sparse-index checks) and a merge-attribute probe
+    # before the real merge; only the final "merge -- target" invocation is
+    # the one this test cares about, so every other isolated query gets a
+    # benign canned response (NEW slice31 behavior change). "target" does
+    # not resolve to a real commit in this mocked repo, so the probe is
+    # skipped regardless.
+    benign = SimpleNamespace(returncode=0, stderr="", stdout=b"")
+    unresolved = SimpleNamespace(returncode=1, stderr="", stdout="")
+
+    def side_effect(argv, **kwargs):
+        if argv[1:4] == ["merge", "--", "target"]:
+            return final
+        if argv[1:3] == ["rev-parse", "--verify"]:
+            return unresolved
+        return benign
+
+    runner = Mock(side_effect=side_effect)
     monkeypatch.setattr(git_execution.subprocess, "run", runner)
     assert githelper.git_merge("target", str(r.repo)) == expected
-    runner.assert_called_once_with([git_execution._trusted_git_executable(), "merge", "--", "target"], capture_output=True, text=True, cwd=str(r.repo))
+    final_args, final_kwargs = runner.call_args_list[-1]
+    assert final_args[0] == [git_bin, "merge", "--", "target"]
+    assert final_kwargs["capture_output"] is True and final_kwargs["text"] is True
+    assert Path(final_kwargs["cwd"]) == r.repo
+    assert "env" in final_kwargs
     assert_audit(r, "failed" if code else "allowed", expected if code else "command executed")
 
 
@@ -368,3 +397,167 @@ def test_main_real_conflict_resolution_flow(repository, private_main, monkeypatc
     else:
         agent.assert_not_called()
         assert returned is history
+
+
+def test_post_merge_hook_does_not_fire(repository):
+    """WP2.1 slice31 discriminating test: core/git_mutation_context.py forces
+    core.hookspath to an empty directory via the highest-precedence
+    GIT_CONFIG_COUNT/KEY/VALUE env mechanism. Control case proves the hook
+    mechanism itself works (the real repository's own hookspath, restored to
+    .git/hooks, fires on an unmediated non-ff merge) before asserting the
+    mediated githelper.git_merge call does not trigger it.
+    """
+    r = repository
+    marker = r.repo / "hook-fired.txt"
+    (r.repo / ".git/hooks").mkdir(parents=True, exist_ok=True)
+    hook = r.repo / ".git/hooks/post-merge"
+    hook.write_text(f"#!/bin/sh\necho fired >> {marker}\n")
+    hook.chmod(0o755)
+    r.git("config", "core.hooksPath", ".git/hooks")
+    pre_merge_main = r.git("rev-parse", "HEAD").stdout.strip()
+    setup_target(r, diverged=True)
+    # Control: an unmediated merge with the real hookspath fires the hook.
+    r.git("merge", "--", "target")
+    assert marker.read_text() == "fired\n"
+    marker.unlink()
+    r.git("reset", "--hard", pre_merge_main)
+    r.git("branch", "-D", "target")
+    # Mediated: githelper.git_merge must not trigger the same hook.
+    setup_target(r, diverged=True)
+    result = githelper.git_merge("target", str(r.repo))
+    assert result.startswith("OK:")
+    assert not marker.exists()
+
+
+def test_merge_driver_rejected_for_changed_path(repository):
+    """WP2.1 slice31 discriminating test (no existing precedent in this
+    project): core/git_mutation_context.py probes the union of paths that
+    differ between HEAD and the incoming target for a `merge` attribute and
+    rejects if any is set -- verified experimentally this is a safe
+    conservative superset of the paths that actually invoke a configured
+    driver; see that module's docstring.
+
+    The `.gitattributes` commit is made on the CURRENT (main) side only,
+    strictly after the branches diverge, so the incoming `target` branch
+    never has the attribute in its own history. This discriminates the
+    "current HEAD visibility is what matters" claim from a weaker,
+    non-discriminating version of this test (code-reviewer finding during
+    this slice's review) where the attribute was committed before
+    divergence and therefore present on both sides -- that version could
+    not tell apart "current side matters" from "either side matters".
+    """
+    r = repository
+    r.git("checkout", "-b", "target")
+    (r.repo / "dirty.txt").write_text("target content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "target change")
+    r.git("checkout", "main")
+    (r.repo / "dirty.txt").write_text("main content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "main change")
+    # Attribute added to current HEAD only, after divergence; "target" never
+    # has this file in its history.
+    (r.repo / ".gitattributes").write_text("dirty.txt merge=custom\n")
+    r.git("add", "--", ".gitattributes")
+    r.git("commit", "-m", "add merge attribute to current side only")
+    before = snapshot(r)
+    result = githelper.git_merge("target", str(r.repo))
+    assert result == "[ERROR] Selected Git merge drivers are unsupported"
+    assert snapshot(r) == before
+
+
+def test_merge_driver_not_consulted_for_incoming_only_attribute(repository, tmp_path):
+    """WP2.1 slice31 discriminating control test for the risk case the
+    code-reviewer identified: a `merge` attribute defined ONLY on the
+    incoming branch, added strictly after divergence, with a real content
+    conflict on the same path on both sides. core/git_mutation_context.py's
+    merge probe deliberately omits `--source` and therefore cannot see this
+    attribute (it only reads the current worktree/index); this is safe only
+    if real Git's merge-driver dispatch also never consults the incoming
+    side for this attribute.
+
+    Control case proves the driver mechanism itself works (an unmediated
+    merge that DOES have the attribute visible on the current side invokes
+    the configured driver) before asserting that a real unmediated merge
+    with the SAME conflicting content but the attribute ONLY on the
+    incoming side does NOT invoke the driver -- confirmed experimentally
+    against the real git binary in this environment (2026-10-13, disposable
+    repo, git 2.56.0): the merge instead falls back to an ordinary content
+    conflict. The mediated githelper.git_merge call is then confirmed to
+    reach the same [CONFLICT] outcome (not rejected), matching real Git's
+    behavior for this exact case rather than falsely rejecting a merge the
+    unmediated command would complete.
+    """
+    r = repository
+    marker = tmp_path / "merge-driver-fired.txt"
+
+    def configure_driver():
+        r.git("config", "merge.marker.name", "test driver")
+        r.git("config", "merge.marker.driver", f"sh -c 'touch {marker}; exit 1'")
+
+    # Control: attribute visible on the CURRENT side invokes the driver on
+    # an unmediated merge.
+    configure_driver()
+    r.git("checkout", "-b", "control-target")
+    (r.repo / "dirty.txt").write_text("control target content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "control target change")
+    r.git("checkout", "main")
+    (r.repo / "dirty.txt").write_text("control main content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "control main change")
+    (r.repo / ".gitattributes").write_text("dirty.txt merge=marker\n")
+    r.git("add", "--", ".gitattributes")
+    r.git("commit", "-m", "control: attribute on current side")
+    r.git("merge", "control-target", check=False)
+    assert marker.exists()
+    marker.unlink()
+    r.git("merge", "--abort")
+    r.git("branch", "-D", "control-target")
+    (r.repo / ".gitattributes").unlink()
+    r.git("add", "--", ".gitattributes")
+    r.git("commit", "-m", "remove attribute from current side")
+
+    # Risk case: attribute defined ONLY on the incoming side, after
+    # divergence, with a real content conflict on both sides.
+    r.git("checkout", "-b", "target")
+    (r.repo / "dirty.txt").write_text("target content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "target change")
+    (r.repo / ".gitattributes").write_text("dirty.txt merge=marker\n")
+    r.git("add", "--", ".gitattributes")
+    r.git("commit", "-m", "incoming-only merge attribute, after divergence")
+    r.git("checkout", "main")
+    (r.repo / "dirty.txt").write_text("main content\n")
+    r.git("add", "--", "dirty.txt")
+    r.git("commit", "-m", "main change")
+    # Unmediated control: the real merge does not invoke the driver.
+    unmediated = r.git("merge", "target", check=False)
+    assert "CONFLICT" in unmediated.stdout.upper() + unmediated.stderr.upper()
+    assert not marker.exists()
+    r.git("merge", "--abort")
+    # Mediated: githelper.git_merge reaches the same [CONFLICT] outcome,
+    # not a rejection -- the probe correctly cannot see (and real Git does
+    # not consult) the incoming-only attribute. The preceding control
+    # sequence used r.git(...) directly (bypassing the gateway), so the
+    # audit ledger only has this one record, same as
+    # test_real_conflict_returns_conflict_and_failed_audit above.
+    result = githelper.git_merge("target", str(r.repo))
+    assert result.startswith("[CONFLICT]")
+    assert not marker.exists()
+    assert_audit(r, "failed", result)
+
+
+def test_active_merge_state_rejected(repository):
+    """WP2.1 slice31: a second merge must reject while a merge is already
+    mid-flight (deliberately the opposite of core/git_worktree_context.py's
+    tolerant worktree-READ case; see core/git_mutation_context.py's
+    docstring)."""
+    r = repository
+    setup_target(r, conflict=True)
+    r.git("merge", "--", "target", check=False)
+    assert (r.repo / ".git/MERGE_HEAD").exists()
+    before = snapshot(r)
+    result = githelper.git_merge("target", str(r.repo))
+    assert result == "[ERROR] Active Git operations are unsupported"
+    assert snapshot(r) == before
