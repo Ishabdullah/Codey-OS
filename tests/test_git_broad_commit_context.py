@@ -114,6 +114,22 @@ def test_add_all_from_subcwd_includes_whole_repository(repository):
     assert_record(r)
 
 
+def test_excludesfile_resolves_against_root_not_subcwd(repository):
+    """NEW-885 regression: a relative core.excludesFile must resolve against
+    the repository root (what GIT_WORK_TREE names), not against the
+    subdirectory the broad commit happens to be invoked from. A conflicting
+    (empty) excludes file at the subdirectory makes this positively
+    discriminate root-resolution from cwd-resolution."""
+    r = repository
+    (r.repo / "data excludes").write_text("ignored.py\n")
+    (r.repo / "core/data excludes").write_text("")
+    r.git("config", "core.excludesFile", "data excludes")
+    (r.repo / "ignored.py").write_text("should stay untracked\n")
+    assert not invoke(r, cwd=r.repo / "core").startswith("[ERROR]")
+    assert "ignored.py" not in r.git("ls-tree", "-r", "--name-only", "HEAD").stdout.splitlines()
+    assert_record(r)
+
+
 def test_staged_only_preserves_blobs_with_dirty_filtered_files(repository, tmp_path, monkeypatch):
     r = repository
     (r.repo / "core/example.py").write_text("already staged\n")

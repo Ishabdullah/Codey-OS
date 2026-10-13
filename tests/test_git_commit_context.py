@@ -434,7 +434,57 @@ def test_configured_attribute_data_paths(repository, source):
     r.git("config", "core.attributesFile", value)
     (r.repo / "core/example.py").write_bytes(b"native config data\r\n")
     assert not commit(r).startswith("[ERROR]")
-    assert r.git("show", "HEAD:core/example.py").stdout == "native config data\n"
+    blob = subprocess.run([git_execution._trusted_git_executable(), "show", "HEAD:core/example.py"], cwd=r.repo, capture_output=True, check=True)
+    assert blob.stdout == b"native config data\n"
+
+
+def test_attributesfile_resolves_against_root_not_subcwd(repository):
+    """NEW-885 regression: a relative core.attributesFile must resolve
+    against the repository root (what GIT_WORK_TREE names), not against the
+    subdirectory the commit happens to be invoked from. A conflicting
+    attributes file at the subdirectory makes this positively discriminate
+    root-resolution from cwd-resolution, rather than merely observing an
+    absent file."""
+    r = repository
+    (r.repo / "data attributes").write_text("core/example.py text eol=lf\n")
+    (r.repo / "core/data attributes").write_text("core/example.py -text\n")
+    r.git("config", "core.attributesFile", "data attributes")
+    (r.repo / "core/example.py").write_bytes(b"native config data\r\n")
+    result = githelper.git_commit_paths("subdir attributes", ["example.py"], str(r.repo / "core"))
+    assert not result.startswith("[ERROR]")
+    blob = subprocess.run([git_execution._trusted_git_executable(), "show", "HEAD:core/example.py"], cwd=r.repo, capture_output=True, check=True)
+    assert blob.stdout == b"native config data\n"
+    clean(r)
+
+
+def test_bare_tilde_attributesfile_resolves_against_child_home(repository, monkeypatch):
+    """A bare "~" (no trailing "/path") must resolve to the child home
+    directory itself, like "~/" does with an empty suffix - not fall
+    through to the relative-path branch and get joined as a literal "~"
+    path segment under the repository root. Pre-fix, that literal "~"
+    segment means a repo-controlled file actually named "~" at the
+    repository root would get read as the attributes file - a real
+    (if narrow) break of this module's isolation between what the repo
+    controls and what Git reads as metadata. Content-normalization
+    alone can't discriminate the fix for the common case (a directory
+    used as core.attributesFile is silently unreadable either way), so
+    this test instead captures the actual resolved config value git is
+    asked to write."""
+    r = repository
+    r.git("config", "core.attributesFile", "~")
+    original = git_execution.run_git
+    captured = []
+
+    def run(argv, **kwargs):
+        if "core.attributesfile" in argv:
+            captured.append(argv[-1])
+        return original(argv, **kwargs)
+
+    monkeypatch.setattr(git_execution, "run_git", run)
+    (r.repo / "core/example.py").write_bytes(b"native config data\r\n")
+    assert not commit(r).startswith("[ERROR]")
+    assert captured == [git_execution._local_commit_environment()["HOME"]]
+    clean(r)
 
 
 @pytest.mark.parametrize("state", ["custom", "nonfiles", "nonregular-index"])

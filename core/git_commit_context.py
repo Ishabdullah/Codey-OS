@@ -132,6 +132,15 @@ class _Context:
             raise ScopedCommitError("Isolated Git configuration is invalid")
 
     def configure(self, child_home, child_xdg):
+        """Import selected Git configuration data into the isolated config file.
+
+        Relative `core.attributesfile`/`core.excludesfile` values must resolve
+        against `self.root`, not `self.cwd` (NEW-885): `self.root` is the same
+        directory this context names as `GIT_WORK_TREE` for every Git
+        invocation it makes (see the environment assignment below), so a
+        relative data path has to agree with that worktree root or the
+        config this method writes contradicts the environment handed to Git.
+        """
         files = []
         if child_xdg:
             files.append(Path(child_xdg) / "git/config")
@@ -184,12 +193,16 @@ class _Context:
             structure.update({"core.repositoryformatversion": "1", "extensions.objectformat": "sha256"})
         for key, value in {**selected, **structure}.items():
             if key in ("core.attributesfile", "core.excludesfile"):
-                if value.startswith("~/"):
+                if value == "~":
+                    if not child_home:
+                        raise ScopedCommitError("Git data path requires a home directory")
+                    value = str(Path(child_home))
+                elif value.startswith("~/"):
                     if not child_home:
                         raise ScopedCommitError("Git data path requires a home directory")
                     value = str(Path(child_home) / value[2:])
                 elif not os.path.isabs(value):
-                    value = os.path.join(os.fspath(self.cwd), value)
+                    value = os.path.join(os.fspath(self.root), value)
             self._config(key, value)
 
     def preflight_paths(self):
