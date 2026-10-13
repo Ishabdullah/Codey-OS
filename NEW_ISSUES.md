@@ -21305,6 +21305,53 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Still open/next:** `git_push` (HIGH_IMPACT, needs real ambient SSH/credential-helper/remote config to function — its own future slice, deliberately not folded into this one) and `core/checkpoint.py:299,310`'s `rollback()` (different file, interleaves filesystem restore with `git checkout --detach`, has its own READ-nested-in-HIGH_IMPACT question slice30 left open for `_git_status`) remain unmediated. NEW-875/874/855/864 unchanged. Full WP2.1 DoD open.
 - **Cross-reference:** core/git_mutation_context.py, core/githelper.py, core/git_worktree_context.py, tests/test_git_branch_gateway.py, tests/test_git_checkout_gateway.py, tests/test_git_merge_gateway.py, blueprint §21, master §4.2/Appendix A, remaining census.
 
+## 2026-10-13 — WP2.1 slice 32: isolated Git mutation in checkpoint rollback
+
+### [NEW-877] partial resolution — checkpoint rollback now mediated (fourth caller)
+
+- **Status:** `d018442`, code-complete + code-reviewer-approved. `core/checkpoint.py`'s `rollback()` had two fully-ambient `run_git` calls (a `cat-file -t` commit-type validation and the actual `checkout --detach` mutation) with zero environment isolation — same exposure class slice31 fixed for `git_branch_create`/`git_checkout`/`git_merge`. Both now route through `core/git_mutation_context.py`'s `isolated_mutation_context` as a fourth caller.
+- **New `_Context.cat_file_type()` method, deliberately NOT reusing `resolve_target()`:** `resolve_target()` resolves via `<target>^{commit}`, which peels an annotated tag to the commit it points at — using it for checkpoint's commit-type validation would have wrongly accepted a tag object's own SHA (an existing test, `test_invalid_or_noncommit_hash_fails_before_copy[tag]`, expects rejection). `cat_file_type()` performs no peeling.
+- **`--detach <hex> --` argv extension needs no `--no-guess`**, verified experimentally: `cat_file_type()` already confirms the hex string names an existing commit object before the checkout call runs, and Git resolves a full-length hex OID as an object directly (before refname DWIM) even if a same-named ref exists — code-reviewer independently confirmed this via Git's object-id-first resolution order.
+- **Named behavior change:** `rollback()` can now be refused when Git sequencer state is active or the repo has an unsupported index/worktree layout — states it previously ignored. Since rollback is the recovery path for a botched self-modification, this means it can refuse in exactly some situations where it's most wanted (e.g. mid-rebase after a bad auto-commit). Intentional, same conservative posture as slice31.
+- **Evidence:** 140 tests passed across the 4 touched/dependent test files. `git_push` confirmed untouched.
+- **Cross-reference:** core/checkpoint.py, core/git_mutation_context.py, tests/test_checkpoint_rollback_gateway.py, NEW-877.
+
+### [NEW-888] resolution — Git mutation success no longer masked as failure by a cleanup error
+
+- **Status:** Found by code-reviewer during slice32's review, fixed same round (`4476440`), code-reviewer-approved. `core/git_mutation_context.py`'s `isolated_mutation_context` re-raised a `shutil.rmtree(admin)` cleanup failure unconditionally whenever `original_error is None` — including when the entire mutation body (branch create, checkout, merge, or checkpoint rollback) completed successfully with no exception. This made `gate_exec()` record a genuine success as `failed` in the audit ledger, and made `githelper.py`'s three callers raise an uncaught, unrelated `OSError` instead of returning their formatted success string. Affected all 4 callers across slices 31 and 32, not slice32-specific.
+- **Fix:** cleanup failure after a successful body now logs via `utils.logger.warning` and sets `context._mutation_cleanup_failed = True`, which callers check and append as a note to their own already-computed result string. The both-body-and-cleanup-failed case is unchanged (regression-guarded by a new direct test, `tests/test_git_mutation_context.py::test_body_failure_and_cleanup_failure_preserves_original_exception`).
+- **Evidence:** 146 tests passed across 5 touched/new test files (new `tests/test_git_mutation_context.py` plus one new discriminating test added to each of the 4 gateway files, monkeypatching `shutil.rmtree` to fail only on the `codey-mutate-*` admin dir while confirming the real operation still landed and the audit ledger still showed `allowed`).
+- **Cross-reference:** core/git_mutation_context.py, core/githelper.py, core/checkpoint.py, tests/test_git_mutation_context.py, NEW-877, NEW-889, NEW-890, NEW-891.
+
+### [NEW-889] LOW — checkpoint.rollback()'s native-failure path doesn't render the cleanup-failure note into its own message
+
+- **Certainty/status:** Confirmed by code-reviewer, open, not fixed — logged per the fix's narrowed docstring claim (NEW-888).
+- **Evidence:** NEW-888's fix covers both the success and native-git-failure (`[ERROR]`/`[CONFLICT]`) paths for `githelper.py`'s three callers, since both reach the `getattr(context, "_mutation_cleanup_failed", False)` check without raising a Python exception. `core/checkpoint.py::rollback()` doesn't share this: its native failure (nonzero checkout, or a non-commit hash) raises `RuntimeError`/`ValueError` *inside* the `with` block, so `original_error is not None` and the cleanup note lands on that exception's `__notes__` instead of being flagged on `context` — `rollback()`'s own error text does not include it.
+- **Risk:** Low — not a regression (the note is still attached to the exception, discoverable via `__notes__`), just not rendered into the message an operator actually sees for this one specific combination (checkpoint rollback fails for a real reason AND the admin-dir cleanup also fails).
+- **Fix direction:** Widening `rollback()`'s exception handling past `except GitMutationError` to inspect `__notes__`/`_mutation_cleanup_failed` on any exception type risks breaking `test_operation_exceptions_are_failed_without_success`'s exact-string assertion on a bare `OSError` — needs a more careful design pass than a one-line change, not attempted this round.
+- **Cross-reference:** core/checkpoint.py::rollback, core/git_mutation_context.py, NEW-888, NEW-877.
+
+### [NEW-890] LOW — leaked `codey-mutate-*` admin directories accumulate under `.git` on repeated cleanup failure
+
+- **Certainty/status:** Confirmed, open, not fixed — disk-hygiene issue, not a correctness one (the module's own docstring states this explicitly).
+- **Evidence:** When `shutil.rmtree(admin)` fails in `isolated_mutation_context`'s `finally` block (either outcome — body succeeded or both failed), the temp admin directory under the real `.git` is left behind. Nothing currently prunes these on a later successful run.
+- **Fix direction:** A future slice could add best-effort pruning of stale `codey-mutate-*` directories at the start of `isolated_mutation_context`, or leave it to normal `.git` housekeeping — low priority, flagged for whenever Git mutation work is next touched.
+- **Cross-reference:** core/git_mutation_context.py, NEW-888.
+
+### [NEW-891] CONFIRMED — core/git_commit_context.py has the identical cleanup-masks-success defect, deliberately not folded into NEW-888's fix
+
+- **Certainty/status:** Confirmed by direct code read (project-architect, scoping NEW-888's fix), open, explicitly NOT fixed this round.
+- **Evidence:** `core/git_commit_context.py`'s `finally` block (~lines 433-492) has the same shape as the pre-fix `git_mutation_context.py`: a successful commit (HEAD genuinely moves) whose only failure is the rmtree-only cleanup step gets reported as `outcome == "failed"` in the audit ledger. This is explicitly pinned by an existing test, `tests/test_git_commit_context.py::test_failures_preserve_original_and_truthful_audit[cleanup]` (lines 280-326), which asserts exactly that "failed" outcome today under its name — fixing it means deciding to flip a currently-intentional-looking, named test.
+- **Why not folded into NEW-888:** `git_commit_context.py`'s `finally` block interleaves HEAD publication and lock release — state-relevant work — with the same `rmtree` call, unlike `git_mutation_context.py`'s cleanup, which removes only an inert, already-unreferenced empty admin dir with no state correctness depending on it. Advisor-reviewed distinction (architect consulted advisor before treating this as settled, given the project's documented "fail closed is the safer default" culture): the two modules are not equivalent cases, and this one needs its own design pass to separate "cleanup-only failure" from the state-relevant work it's currently bundled with — not a mechanical copy of NEW-888's fix.
+- **Cross-reference:** core/git_commit_context.py, tests/test_git_commit_context.py::test_failures_preserve_original_and_truthful_audit, NEW-888.
+
+### [NEW-892] CONFIRMED, lower severity — core/git_query_context.py and core/git_worktree_context.py have the same cleanup-masking shape in their own READ contexts
+
+- **Certainty/status:** Confirmed by grep (same `original_error`-pattern shape in both modules' `finally` blocks), open, not fixed — lower severity than NEW-888/891 since both are read-only query contexts.
+- **Evidence:** Same `if original_error is None: raise` shape found in `core/git_query_context.py` and `core/git_worktree_context.py`. Because both are READ-only (metadata/worktree queries, never mutations), the consequence is milder: a query that found its real answer gets reported as a failed READ, rather than a mutation being mis-audited as failed after real state changed.
+- **Fix direction:** Same conceptual fix as NEW-888 (report cleanup failure without raising when the query body succeeded), scoped separately since these are different modules with their own callers/tests.
+- **Cross-reference:** core/git_query_context.py, core/git_worktree_context.py, NEW-888.
+
 ### [NEW-887] Suggestion — git_worktree_context.configure() bypasses self._run(), leaving a dead argv branch
 
 - **Certainty/status:** Confirmed by code-reviewer, non-blocking, code-hygiene only — no security consequence (no shell, argv is a list, target is the disposable admin/config path, values are hardcoded or read from the real repo's own trusted config).

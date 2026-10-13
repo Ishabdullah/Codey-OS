@@ -5735,6 +5735,31 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   checkout. Merge checked and found not to share the divergence. `git_push`
   and `checkpoint.rollback` remain unmediated (own future slices); NEW-875/
   874/855/864 unchanged.
+- [x] **WP2.1 slice 32 / checkpoint rollback mediation (`NEW-877` partial)**
+  — `d018442` + same-round cleanup fix `4476440`, reviewer-approved (one
+  Warning on first pass, fixed and re-approved). `core/checkpoint.py`'s
+  `rollback()` routes its `cat-file -t` validation and `checkout --detach`
+  mutation through `core/git_mutation_context.py` as a fourth caller. New
+  `_Context.cat_file_type()` deliberately avoids `resolve_target()`'s
+  tag-peeling (would have wrongly accepted an annotated tag's own SHA,
+  a real regression against an existing test). `--detach <hex> --` needs
+  no `--no-guess` (verified: a full-length hex OID resolves as an object
+  directly before refname DWIM). Named behavior change: rollback can now
+  refuse on active sequencer state or unsupported layout — intentional,
+  matches slice31's posture, means rollback (the recovery path for a
+  botched self-modification) can refuse in exactly some states where it's
+  most wanted. 140 passed. **Shared fix in the same round (NEW-888,
+  `4476440`):** code-reviewer found a `shutil.rmtree` cleanup-failure bug
+  in the shared context module affecting slice31's three callers too, not
+  just slice32 — a genuinely successful mutation got recorded as a failed
+  audit outcome, and `githelper.py`'s callers raised an uncaught OSError
+  instead of their success string. Fixed by logging instead of raising
+  when the body already succeeded. Deliberately NOT folded into
+  `core/git_commit_context.py`'s identical-shaped defect (NEW-891) — that
+  module's cleanup is entangled with state-relevant work and pinned by a
+  named test asserting today's outcome as correct; needs its own design
+  pass. 146 passed. `git_push` remains unmediated; NEW-889/890/891/892
+  logged, not fixed.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
@@ -5745,8 +5770,8 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   slice 25 commit environment and slice 26 literal operands NEW-879 covered;
   slices 27/28 scoped and broad commit configuration covered with explicit limits;
   slice 29 metadata READ, slice 30 working-tree status/diff/conflict READ,
-  and slice 31 branch-create/checkout/merge ACT mutations covered; `git_push`/
-  `checkpoint.rollback` remain next, then
+  slice 31 branch-create/checkout/merge ACT mutations, and slice 32
+  checkpoint.rollback covered; `git_push` remains next, then
   wrappers/embedded execution),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
@@ -5769,10 +5794,11 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   installation selection. Git mutation configuration effects still inherit repository/user
   configuration; slice 29 isolates metadata queries and no-path checkpoint READ,
   slice 30 isolates working-tree status/diff/conflict READ, slice 31 isolates
-  branch-create/checkout/merge mutations. Slice 25 bounds ambient
-  environment for complete commit/checkpoint sequences only; other calls retain it.
-  Slices 27/28 isolate scoped/checkpoint and broad commit configuration.
-  `git_push` and `checkpoint.rollback` remain open. Hooks/helpers
+  branch-create/checkout/merge mutations, slice 32 isolates
+  checkpoint.rollback as a fourth caller of the same context. Slice 25
+  bounds ambient environment for complete commit/checkpoint sequences only;
+  other calls retain it. Slices 27/28 isolate scoped/checkpoint and broad
+  commit configuration. `git_push` remains open. Hooks/helpers
   outside the commit and metadata query contracts can introduce unbounded effects; nominal local classification is insufficient.
   No exploit reproduced. Scope constrained execution preserving useful automatic
   checkpoint commits, or appropriate authorization; do not trust config by name.

@@ -1,3 +1,70 @@
+## 2026-10-13 — WP2.1 slice 32 + cleanup-masking fix: checkpoint rollback mediation
+
+**Pipeline:** project-architect scoped slice32 (checkpoint rollback was the
+better next target vs. `git_push`, which needs a new environment-construction
+primitive and a harder security-posture call — deferred to its own future
+round) → implementer built it → code-reviewer **APPROVED with one Warning**
+(non-blocking) → coordinator dispatched a focused follow-up fix for the
+Warning → implementer fixed it → code-reviewer **APPROVED**.
+
+**Slice32 change (`d018442`):** `core/checkpoint.py`'s `rollback()` had two
+fully-ambient `run_git` calls (a `cat-file -t` commit-type validation, the
+actual `checkout --detach` mutation) with zero environment isolation — same
+exposure class slice31 fixed. Both now route through `core/git_mutation_context.py`'s
+`isolated_mutation_context` as a fourth caller. New `_Context.cat_file_type()`
+method deliberately does NOT reuse `resolve_target()` — that method's
+`^{commit}` peeling would have wrongly accepted an annotated tag's own SHA,
+a real regression against an existing test expecting rejection. The
+`--detach <hex> --` argv extension needs no `--no-guess`: verified
+experimentally that Git resolves a full-length hex OID as an object directly
+(before refname DWIM) even if a same-named ref exists, and `cat_file_type()`
+already confirmed the hex string names a real commit before the call runs.
+Named behavior change: rollback can now be refused when Git sequencer state
+is active or the repo has an unsupported layout — states it previously
+ignored; since rollback is the recovery path for a botched self-modification,
+this means it can refuse in exactly some situations where it's most wanted
+(e.g. mid-rebase after a bad auto-commit). Intentional, same posture as
+slice31. 140 tests passed.
+
+**Review's one Warning, fixed same round (`4476440`):** code-reviewer found
+a real bug in the shared context module while reviewing slice32: a
+`shutil.rmtree(admin)` cleanup failure in `isolated_mutation_context`'s
+`finally` block re-raised unconditionally whenever the mutation body had
+already succeeded — `gate_exec()` recorded a genuine branch-create/checkout/
+merge/rollback success as `failed` in the audit ledger, and `githelper.py`'s
+three callers raised an uncaught, unrelated `OSError` instead of returning
+their formatted success string. project-architect corrected the initial
+framing (nothing crashes uncaught — `gate_exec` catches generic `Exception`;
+the real bug is audit dishonesty, not a crash) and, after consulting advisor
+on whether this should mirror `core/git_commit_context.py`'s identical-shaped
+`finally` block, determined the two are NOT equivalent: `git_commit_context.py`'s
+cleanup is entangled with state-relevant HEAD-publication/lock-release work
+and is explicitly pinned by a named test (`test_failures_preserve_original_and_truthful_audit[cleanup]`)
+asserting the current "failed" outcome as correct — fixing it needs its own
+design pass, logged separately (NEW-891) rather than folded in. Fix: cleanup
+failure after a successful body now logs via `utils.logger.warning` and sets
+`context._mutation_cleanup_failed = True`, which all 4 callers check and
+append as a note to their own result string. The both-failed case is
+unchanged (regression-guarded by a new direct test). Review's one residual
+Warning (checkpoint.rollback's own native-failure path doesn't render the
+note into its message, since that path raises inside the `with` block
+before reaching the `context`-based check) was addressed by narrowing the
+fix's docstring claim to be accurate rather than widening exception handling
+into territory that risked an existing exact-string regression guard —
+logged as NEW-889. 146 tests passed across 5 touched/new test files.
+
+**Findings logged (NEW_ISSUES.md), none fixed this round:** NEW-889 (checkpoint's
+native-failure note not rendered), NEW-890 (leaked `codey-mutate-*` admin dirs
+accumulate — disk hygiene only), NEW-891 (`git_commit_context.py`'s identical
+defect, deliberately not folded in — needs its own design pass, would flip a
+pinned test), NEW-892 (`git_query_context.py`/`git_worktree_context.py` have
+the same shape in their own READ contexts, lower severity since queries not
+mutations).
+
+**Ledgers updated:** `NEW_ISSUES.md` (NEW-877 slice32 entry, NEW-888..892).
+`CODEY_OS_MASTER_BLUEPRINT.md` §21 and `CODEY_MASTER_PLAN.md` Appendix A
+updated next.
+
 ## 2026-10-13 — WP2.1 slice 31: isolated Git ref mutations (branch/checkout/merge)
 
 **Context:** continuing WP2.1 slice-by-slice per explicit user instruction to

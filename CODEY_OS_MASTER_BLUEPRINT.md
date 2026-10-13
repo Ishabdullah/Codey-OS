@@ -3781,11 +3781,35 @@ reviewed by `/root/code_reviewer`, APPROVED).
   passed across 8 touched/dependent test files. `git_push` and
   `core/checkpoint.py::rollback` remain unmediated (own future slices).
   NEW-877 partial; NEW-875/874/855/864 unchanged.
+- **Slice 32 (2026-10-13, isolated checkpoint rollback, `d018442` + cleanup
+  fix `4476440`):** `core/checkpoint.py`'s `rollback()` routes its two bare
+  `run_git` calls (`cat-file -t` validation, `checkout --detach` mutation)
+  through `core/git_mutation_context.py` as a fourth caller. New
+  `_Context.cat_file_type()` deliberately avoids `resolve_target()`'s tag-
+  peeling, which would have wrongly accepted an annotated tag's own SHA.
+  `--detach <hex> --` needs no `--no-guess`: a full-length hex OID resolves
+  as an object directly before refname DWIM, verified experimentally.
+  Named behavior change: rollback can now refuse on active sequencer state
+  or unsupported layout, states it previously ignored — intentional, matches
+  slice31's posture. 140 passed. Review found and this round fixed a shared
+  bug (not slice32-specific — also affects slice31's three callers): a
+  `shutil.rmtree` cleanup failure after a genuinely successful mutation used
+  to get reported as a failed audit outcome and raised an uncaught OSError
+  past `githelper.py`'s callers. Fixed by logging the cleanup failure instead
+  of raising it when the body already succeeded, flagged on `context` for
+  callers to append as a note. Deliberately NOT folded into
+  `core/git_commit_context.py`'s identical-shaped defect (NEW-891) — that
+  module's cleanup is entangled with state-relevant HEAD-publication work
+  and is pinned by a named test asserting today's "failed" outcome as
+  correct; needs its own design pass. 146 passed. `git_push` remains
+  unmediated. NEW-877 partial; NEW-888 resolution; NEW-889/890/891/892
+  logged, not fixed.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all thirty-one slices** (slices 3, 5, 25, 27 and 31 took 2 rounds).
+  **APPROVED, all thirty-two slices** (slices 3, 5, 25, 27 and 31 took 2 rounds;
+  slice32 took a same-round follow-up fix after one Warning).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-31 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-32 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3810,7 +3834,10 @@ reviewed by `/root/code_reviewer`, APPROVED).
   covers five working-tree status/diff/conflict helpers READ. Slice 31
   covers branch-create/checkout/merge ACT mutations, including a filter-
   driver bypass found and fixed during review (see NEW-877's slice31
-  entry). `git_push` and `checkpoint.rollback` remain unmediated; other
+  entry). Slice 32 covers checkpoint.rollback as a fourth caller of the
+  same mutation context, plus a shared cleanup-masks-success fix
+  (NEW-888) affecting slices 31 and 32 alike. `git_push` remains
+  unmediated; other
   helper configuration/mutation effects NEW-877 remain.
   Broader wrappers/scripts/opaque NEW-875 and failed-execution NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
