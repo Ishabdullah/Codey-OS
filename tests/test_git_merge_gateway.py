@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, git_execution, githelper
+from core import action_gateway, git_execution, git_mutation_context, githelper
 from core.action_gateway import ACT, ActionGateway, GatewayDecision
 
 
@@ -546,6 +546,30 @@ def test_merge_driver_not_consulted_for_incoming_only_attribute(repository, tmp_
     assert result.startswith("[CONFLICT]")
     assert not marker.exists()
     assert_audit(r, "failed", result)
+
+
+def test_success_survives_admin_dir_cleanup_failure(repository, monkeypatch):
+    """2026-10-13 fix: a successful merge must not be reported as failed
+    (nor raise) merely because the admin-dir cleanup afterward fails."""
+    r = repository
+    target = setup_target(r, diverged=True)
+    original_rmtree = git_mutation_context.shutil.rmtree
+    leaked = []
+
+    def rmtree(path, **kwargs):
+        if Path(path).name.startswith("codey-mutate-"):
+            leaked.append(Path(path))
+            raise OSError("cleanup failed")
+        return original_rmtree(path, **kwargs)
+
+    monkeypatch.setattr(git_mutation_context.shutil, "rmtree", rmtree)
+    result = githelper.git_merge("target", str(r.repo))
+    assert result.startswith("OK:")
+    assert result.endswith("; Git mutation context cleanup also failed")
+    assert r.git("merge-base", "--is-ancestor", target, "HEAD").returncode == 0
+    assert_audit(r)
+    for path in leaked:
+        original_rmtree(path)
 
 
 def test_active_merge_state_rejected(repository):

@@ -293,10 +293,11 @@ def git_branch_create(name: str, path: str = None) -> str:
             # the original subprocess exception for this helper's caller.
             original_error = exc
             raise
+        extra = "; Git mutation context cleanup also failed" if getattr(context, "_mutation_cleanup_failed", False) else ""
         if result.returncode == 0:
-            output = f"Created and switched to branch '{name}'."
+            output = f"Created and switched to branch '{name}'.{extra}"
             return output
-        output = f"[ERROR] {result.stderr.strip()}"
+        output = f"[ERROR] {result.stderr.strip()}{extra}"
         # Preserve the helper's error string while recording failed execution.
         raise RuntimeError(output)
 
@@ -360,10 +361,11 @@ def git_checkout(name: str, path: str = None) -> str:
             # subprocess exception instead of replacing it with a decision.
             original_error = exc
             raise
+        extra = "; Git mutation context cleanup also failed" if getattr(context, "_mutation_cleanup_failed", False) else ""
         if result.returncode == 0:
-            output = result.stderr.strip() or result.stdout.strip() or f"Switched to branch '{name}'."
+            output = (result.stderr.strip() or result.stdout.strip() or f"Switched to branch '{name}'.") + extra
             return output
-        output = f"[ERROR] {result.stderr.strip()}"
+        output = f"[ERROR] {result.stderr.strip()}{extra}"
         raise RuntimeError(output)
 
     decision = get_action_gateway().gate_exec(
@@ -422,13 +424,14 @@ def git_merge(branch: str, path: str = None) -> str:
             original_error = exc
             raise
         combined = (result.stdout + result.stderr).strip()
+        extra = "; Git mutation context cleanup also failed" if getattr(context, "_mutation_cleanup_failed", False) else ""
         if result.returncode == 0:
-            output = f"OK: {combined or 'Merged successfully.'}"
+            output = f"OK: {combined or 'Merged successfully.'}{extra}"
             return output
         if "CONFLICT" in combined.upper():
-            output = f"[CONFLICT] {combined}"
+            output = f"[CONFLICT] {combined}{extra}"
         else:
-            output = f"[ERROR] {combined}"
+            output = f"[ERROR] {combined}{extra}"
         # A conflicted merge was attempted but did not complete successfully.
         raise RuntimeError(output)
 

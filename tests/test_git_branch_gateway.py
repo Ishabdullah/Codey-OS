@@ -15,7 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, git_execution, githelper
+from core import action_gateway, git_execution, git_mutation_context, githelper
 from core.action_gateway import ACT, ActionGateway, GatewayDecision
 
 
@@ -276,6 +276,30 @@ def test_post_checkout_hook_does_not_fire(repository):
     result = githelper.git_branch_create("mediated-branch", path=str(r.repo))
     assert result == "Created and switched to branch 'mediated-branch'."
     assert not marker.exists()
+
+
+def test_success_survives_admin_dir_cleanup_failure(repository, monkeypatch):
+    """2026-10-13 fix: a successful branch create must not be reported as
+    failed (nor raise) merely because the admin-dir cleanup afterward fails."""
+    r = repository
+    original_rmtree = git_mutation_context.shutil.rmtree
+    leaked = []
+
+    def rmtree(path, **kwargs):
+        if Path(path).name.startswith("codey-mutate-"):
+            leaked.append(Path(path))
+            raise OSError("cleanup failed")
+        return original_rmtree(path, **kwargs)
+
+    monkeypatch.setattr(git_mutation_context.shutil, "rmtree", rmtree)
+    head = r.git("rev-parse", "HEAD").stdout.strip()
+    result = githelper.git_branch_create("cleanup-fail-branch", path=str(r.repo))
+    assert result == "Created and switched to branch 'cleanup-fail-branch'.; Git mutation context cleanup also failed"
+    assert r.git("rev-parse", "HEAD").stdout.strip() == head
+    assert r.git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "cleanup-fail-branch"
+    assert_audit(r)
+    for path in leaked:
+        original_rmtree(path)
 
 
 def test_active_merge_state_rejected(repository):

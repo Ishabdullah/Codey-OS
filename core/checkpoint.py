@@ -299,6 +299,7 @@ def rollback(checkpoint_id: str, *, confirm: Optional[Callable[[], bool]] = None
         state = get_state_store()
         checkpoint_data = state.get_checkpoint(checkpoint_id)
         git_hash = checkpoint_data.get("git_commit_hash") if checkpoint_data else None
+        cleanup_extra = ""
         if git_hash is not None:
             if not isinstance(git_hash, str) or re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", git_hash) is None:
                 raise ValueError("Checkpoint commit ID is malformed")
@@ -314,6 +315,8 @@ def rollback(checkpoint_id: str, *, confirm: Optional[Callable[[], bool]] = None
                     )
                     if result.returncode != 0:
                         raise RuntimeError(f"Rollback git checkout failed: {result.stderr.strip()}")
+                if getattr(context, "_mutation_cleanup_failed", False):
+                    cleanup_extra = "; Git mutation context cleanup also failed"
             except GitMutationError as exc:
                 extra = "; Git mutation context cleanup also failed" if getattr(exc, "_mutation_cleanup_failed", False) else ""
                 raise RuntimeError(f"{exc}{extra}") from exc
@@ -321,7 +324,7 @@ def rollback(checkpoint_id: str, *, confirm: Optional[Callable[[], bool]] = None
             _copy_backup_files(files)
 
         state.log_action("rollback", f"Restored from checkpoint {checkpoint_id}")
-        return f"restored {len(files)} files"
+        return f"restored {len(files)} files{cleanup_extra}"
 
     decision = get_action_gateway().gate_exec(
         authority=HIGH_IMPACT,

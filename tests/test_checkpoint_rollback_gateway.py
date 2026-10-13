@@ -8,7 +8,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, checkpoint, git_execution
+from pathlib import Path
+
+from core import action_gateway, checkpoint, git_execution, git_mutation_context
 from core.action_gateway import HIGH_IMPACT, ActionGateway
 from core.state import StateStore
 
@@ -503,6 +505,50 @@ def test_newer_committed_backup_file_can_block_checked_checkout(checkpoint_repo)
     assert r.state.get_recent_actions() == []
     checkpoint.success.assert_not_called()
     assert "would be overwritten by checkout" in audit_outcome(r, "failed")["reason"]
+
+
+def test_success_survives_admin_dir_cleanup_failure(checkpoint_repo, monkeypatch):
+    """2026-10-13 fix: a successful rollback must not be reported as failed
+    (nor return False) merely because the admin-dir cleanup afterward fails."""
+    r = checkpoint_repo
+    saved = r.git("rev-parse", "HEAD").stdout.strip()
+    # Mirror test_create_checkpoint_and_full_repository_detached_restore:
+    # create_checkpoint backs up the real current file content (consistent
+    # with the saved commit), then a later commit changes it, so the
+    # subsequent checkout --detach to `saved` is a genuine clean restore,
+    # not blocked by git's own "would be overwritten" safety check.
+    checkpoint_id = checkpoint.create_checkpoint("private reason", [])
+    assert r.state.get_checkpoint(checkpoint_id)["git_commit_hash"] == saved
+    # core/example.py (the backed-up trigger file) is left untouched so the
+    # checkout below is a clean, non-dirty change -- only other.txt (not
+    # part of the backup set) differs between HEAD and the saved commit.
+    (r.repo / "other.txt").write_text("later committed\n")
+    r.git("add", "--", "other.txt")
+    r.git("commit", "-m", "later version")
+    original_rmtree = git_mutation_context.shutil.rmtree
+    leaked = []
+
+    def rmtree(path, **kwargs):
+        if Path(path).name.startswith("codey-mutate-"):
+            leaked.append(Path(path))
+            raise OSError("cleanup failed")
+        return original_rmtree(path, **kwargs)
+
+    monkeypatch.setattr(git_mutation_context.shutil, "rmtree", rmtree)
+    checkpoint.success.reset_mock()
+    outcome = checkpoint.rollback(checkpoint_id, confirm=lambda: True)
+    assert outcome is True
+    assert r.git("rev-parse", "HEAD").stdout.strip() == saved
+    assert r.git("symbolic-ref", "HEAD", check=False).returncode != 0
+    assert r.trigger.read_text() == "baseline = True\n"
+    assert r.state.get_recent_actions()[0]["action"] == "rollback"
+    checkpoint.success.assert_called_once()
+    assert checkpoint.success.call_args.args[0].endswith(
+        f"; Git mutation context cleanup also failed from checkpoint '{checkpoint_id}'"
+    )
+    audit_outcome(r, "allowed", preflight=True)
+    for path in leaked:
+        original_rmtree(path)
 
 
 def test_backup_enumeration_error_precedes_any_copy(checkpoint_repo, monkeypatch):

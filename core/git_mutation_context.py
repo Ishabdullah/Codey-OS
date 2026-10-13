@@ -153,6 +153,37 @@ concurrent changes. No index, object, ref, or HEAD copy is made; the real
 worktree's refs/HEAD/index are mutated directly, by design -- that is the
 entire purpose of these three operations.
 
+Cleanup-failure-after-success (found by code-reviewer, fixed 2026-10-13):
+the admin-dir `shutil.rmtree(admin)` cleanup in this context manager's
+`finally` block used to re-raise unconditionally whenever `original_error`
+was `None` -- including when the entire mutation body (branch create,
+checkout, merge, or checkpoint rollback) completed with no exception at
+all. That turned a genuinely successful operation into a reported failure:
+`gate_exec()` (core/action_gateway.py) would record the audit outcome as
+`failed` instead of `allowed`, and githelper.py's three callers would raise
+an uncaught, unrelated `OSError` instead of returning their formatted
+success string. This case is now handled separately from the
+both-body-and-cleanup-failed case (which is unchanged): the cleanup OSError
+is logged via `utils.logger.warning` and flagged on `context` as
+`_mutation_cleanup_failed = True`, which callers check and append as a note
+to their own already-computed success/failure string -- this covers both
+the success and native-git-failure (`[ERROR]`/`[CONFLICT]`) return paths
+for githelper.py's three callers, since both reach the `getattr(context, ...)`
+check without raising a Python exception. It does NOT cover
+core/checkpoint.py's rollback() on its own native-failure path (a nonzero
+checkout or a non-commit hash raises inside the `with` block, so
+`original_error is not None` and the note lands on that exception's
+`__notes__` instead of on `context` -- rollback()'s own RuntimeError/ValueError
+text does not include it). Not a regression -- the note is still attached
+to the exception, just not rendered into rollback()'s message -- logged as
+NEW-### in NEW_ISSUES.md rather than fixed here, since fixing it would mean
+widening rollback()'s exception handling past `GitMutationError` in a way
+that risks the exact-string regression guard
+(`test_operation_exceptions_are_failed_without_success`) rather than a
+one-line change. The leaked admin temp directory itself (left behind under
+`real`, inside the repo's `.git`, on every cleanup failure) is a disk-hygiene
+issue, not a correctness one, and is also not addressed here.
+
 Fourth caller (slice32): core/checkpoint.py's rollback() routes its two
 bare `run_git` calls (a `cat-file -t` validation of the stored checkpoint
 hash, then the actual `git checkout --detach <hash> --` restore) through
@@ -187,6 +218,7 @@ from pathlib import Path
 
 from core import git_execution
 from core.git_commit_context import _ACTIVE, discover_worktree
+from utils.logger import warning
 
 
 class GitMutationError(RuntimeError):
@@ -453,7 +485,29 @@ def isolated_mutation_context(cwd):
         try:
             shutil.rmtree(admin)
         except Exception as exc:  # noqa: BLE001 - report cleanup failure without masking a real mutation error
-            if original_error is None:
-                raise
-            original_error.add_note("Git mutation context cleanup also failed")
-            original_error._mutation_cleanup_failed = True
+            if original_error is not None:
+                original_error.add_note("Git mutation context cleanup also failed")
+                original_error._mutation_cleanup_failed = True
+            else:
+                # The mutation body (and setup/preflight above it) ran to
+                # completion with no exception -- this is a genuinely
+                # successful branch create, checkout, merge, or checkpoint
+                # rollback. Re-raising this admin-dir cleanup OSError here
+                # would make it the ONLY exception the caller sees: found
+                # by code-reviewer 2026-10-13, it made gate_exec()
+                # (core/action_gateway.py) record a real HIGH_IMPACT/ACT
+                # success as "failed" in the audit ledger, and for
+                # githelper.py's three callers, replaced their formatted
+                # success string with an uncaught, unrelated OSError. Report
+                # it without raising. `context` is still the object bound in
+                # the caller's `with ... as context:` (the thrown-in
+                # exception path was never taken), so flag it there and let
+                # each caller append the existing cleanup-failed note to its
+                # own already-computed result string. The leaked admin temp
+                # dir under `real` (inside the repo's .git) is a
+                # disk-hygiene issue, not a correctness one.
+                warning(
+                    f"Git mutation context cleanup failed after a successful "
+                    f"operation; admin directory not removed ({admin}): {exc}"
+                )
+                context._mutation_cleanup_failed = True
