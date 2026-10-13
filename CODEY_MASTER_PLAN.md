@@ -5715,6 +5715,26 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   untouched by design. Caller adapters abort on query failure. NEW-881..887
   logged (pre-existing/adjacent, not fixed this round; see NEW_ISSUES.md).
   Remaining Git mutation configured effects open; no whole-gateway closure.
+- [x] **WP2.1 slice 31 / Git ref mutations (`NEW-877` partial)** —
+  `d14cc0b`, reviewer-approved after one CHANGES-REQUESTED round; 415 tests
+  passed across 8 touched/dependent files. `git_branch_create`/`git_checkout`/
+  `git_merge` each run inside new `core/git_mutation_context.py` instead of
+  calling `run_git()` directly with zero isolation. Structurally different
+  from slices 25-30: `GIT_DIR` stays real (these mutate real refs/worktree/
+  index on purpose); isolation via `GIT_CONFIG_COUNT`/`KEY`/`VALUE` env
+  overrides forcing `core.hookspath` empty plus gpgsign/`gc.auto`/related
+  keys. Filter-driver rejection (checkout) probes the target commit's
+  attributes; merge-driver rejection deliberately omits `--source`, verified
+  experimentally Git's merge-driver dispatch never consults the incoming
+  side. Active sequencer state rejected for all three (opposite of slice30's
+  tolerant case). **Critical bypass found and fixed during review, before
+  commit:** `resolve_target()`'s strict probe and real `git checkout`'s DWIM
+  resolution diverged for a remote-tracking-only branch name, letting a
+  configured filter driver execute unchecked; fixed with `--no-guess`,
+  verified to close the gap without breaking local-branch/`-`/detached-HEAD
+  checkout. Merge checked and found not to share the divergence. `git_push`
+  and `checkpoint.rollback` remain unmediated (own future slices); NEW-875/
+  874/855/864 unchanged.
 - [ ] **WP2.1 remaining scope** — full gateway DoD stays open. Provisional
   source census in `docs/census-2026-10-09/WP2.1_remaining_scope.md` and TSVs:
   201 searched files, 1,384 unresolved candidates in 122 files, including false
@@ -5724,8 +5744,9 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   search_files `NEW-878` fixed; `NEW-877` absolute selection foundation covered,
   slice 25 commit environment and slice 26 literal operands NEW-879 covered;
   slices 27/28 scoped and broad commit configuration covered with explicit limits;
-  slice 29 metadata READ and slice 30 working-tree status/diff/conflict READ
-  covered; remaining Git mutation configured effects next, then
+  slice 29 metadata READ, slice 30 working-tree status/diff/conflict READ,
+  and slice 31 branch-create/checkout/merge ACT mutations covered; `git_push`/
+  `checkpoint.rollback` remain next, then
   wrappers/embedded execution),
   execution-error fidelity (`NEW-874`), import isolation, then CCOS/resources,
   device/business/notification/HTTP/file/backup/internal/lifecycle/promotion
@@ -5747,10 +5768,11 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   slice 24 replaces initial PATH lookup in all 28 dedicated calls with absolute
   installation selection. Git mutation configuration effects still inherit repository/user
   configuration; slice 29 isolates metadata queries and no-path checkpoint READ,
-  slice 30 isolates working-tree status/diff/conflict READ. Slice 25 bounds ambient
+  slice 30 isolates working-tree status/diff/conflict READ, slice 31 isolates
+  branch-create/checkout/merge mutations. Slice 25 bounds ambient
   environment for complete commit/checkpoint sequences only; other calls retain it.
-  Slices 27/28 isolate scoped/checkpoint and broad commit configuration. Other
-  mutation helpers remain open. Hooks/helpers
+  Slices 27/28 isolate scoped/checkpoint and broad commit configuration.
+  `git_push` and `checkpoint.rollback` remain open. Hooks/helpers
   outside the commit and metadata query contracts can introduce unbounded effects; nominal local classification is insufficient.
   No exploit reproduced. Scope constrained execution preserving useful automatic
   checkpoint commits, or appropriate authorization; do not trust config by name.

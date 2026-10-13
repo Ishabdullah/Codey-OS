@@ -1,3 +1,79 @@
+## 2026-10-13 — WP2.1 slice 31: isolated Git ref mutations (branch/checkout/merge)
+
+**Context:** continuing WP2.1 slice-by-slice per explicit user instruction to
+keep working without stopping. project-architect read the real code (not
+doc claims) to find the next genuine gap: `git_branch_create`, `git_checkout`,
+`git_merge` in `core/githelper.py` called `run_git()` directly with zero
+environment isolation — ambient hooks/filters/merge-drivers fully exposed,
+the exact gap NEW-877 names. Also resolved a suspected blueprint-vs-Appendix-A
+discrepancy the architect initially flagged, then correctly walked back after
+re-reading: the blueprint's DoD line was a coverage inventory, not a
+negation — no doc fix was needed there.
+
+**Pipeline:** project-architect scoped slice31 → implementer built it →
+code-reviewer returned **CHANGES REQUESTED** on first pass, finding a real,
+critical bypass → implementer fixed it and the one warning-level item →
+code-reviewer **APPROVED** on re-review.
+
+**Change (`d14cc0b`):** New `core/git_mutation_context.py` mediates the three
+functions. Structurally different from slices 25-30: `GIT_DIR` stays pointed
+at the real `.git` (no redirect/index copy) since these operations mutate
+real refs/worktree/index on purpose. Isolation via `GIT_CONFIG_COUNT`/
+`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` env overrides, verified
+higher-precedence than repo/global/system config, forcing `core.hookspath`
+to empty plus `fsmonitor`/`gc.auto`/`maintenance.auto`/gpgsign/
+`submodule.recurse`/related keys. Filter-driver rejection (checkout) probes
+the target commit's attributes via `--source`; merge-driver rejection
+deliberately omits `--source`, verified by direct experiment (attribute
+present only on the incoming branch, real content conflict both sides) that
+Git's merge-driver dispatch never consults the incoming side. Active
+sequencer state is rejected for all three (opposite of slice30's tolerant
+worktree-READ case, since this module writes new state rather than only
+reading it). Deviated from the architect's spec (skipped importing
+`_DATA_KEYS` for merge-commit identity) after verifying experimentally it's
+unnecessary — documented as a correct-the-record deviation per rule 6, not a
+silent omission.
+
+**Critical finding caught during review, fixed before commit (never
+shipped):** code-reviewer found `resolve_target()`'s strict probe and the
+real `git checkout`'s resolution diverged — a name with no local branch but
+a same-named remote-tracking ref (e.g. freshly-cloned `origin/feature`, no
+local `feature`) skipped the filter-driver probe (unresolvable by the
+strict check) but still succeeded via Git's DWIM, smudging content through
+a configured filter driver with zero rejection check. Verbatim pre-fix
+reproduction: DWIM fired, filter marker created. Fixed with `--no-guess` on
+the real checkout call. Verbatim post-fix: `[ERROR] fatal: invalid
+reference`, no local branch created, no marker. Verified this doesn't break
+local-branch, `-`, or detached-HEAD/SHA checkout. Merge was separately
+checked for the same divergence class and found not to have it (verified:
+no DWIM auto-vivification on merge operands). **Accepted trade-off:**
+`--no-guess` removes "checkout a freshly-fetched remote branch by bare
+name" convenience; coordinator accepted this over building a more complex
+DWIM-aware probe to preserve it, consistent with this module's "reject when
+you can't safely distinguish" posture used throughout.
+
+**Also fixed:** a stale cross-reference in `core/git_worktree_context.py`'s
+docstring describing `core/git_commit_context.py`'s pre-NEW-885 (cwd-based)
+resolution after it had already been fixed to root-based.
+
+**Noted, intentional behavior change:** non-repo paths for `git_checkout`/
+`git_merge` now return static `"[ERROR] Not a git repository"` instead of
+native git stderr, matching `git_commit`'s existing precedent.
+
+**Evidence:** 415 passed across the 8 touched/dependent test files (19+34+
+35+32+85+98+89+23). `git_push`/`core/checkpoint.py` confirmed untouched
+(zero diff); `install.sh` needs no update (stdlib + existing internal
+imports only).
+
+**Still open/next:** `git_push` (HIGH_IMPACT, needs real ambient SSH/
+credential-helper/remote config — deliberately not folded into this slice)
+and `core/checkpoint.py`'s `rollback()` remain unmediated. NEW-875/874/855/
+864 unchanged.
+
+**Ledgers updated:** `NEW_ISSUES.md` (NEW-877 partial resolution, slice31
+entry). `CODEY_OS_MASTER_BLUEPRINT.md` §21 and `CODEY_MASTER_PLAN.md`
+Appendix A updated next.
+
 ## 2026-10-13 — NEW-885 fix: attributesfile/excludesfile resolve against worktree root
 
 **Context:** found during slice30 verification (previous entry below); logged

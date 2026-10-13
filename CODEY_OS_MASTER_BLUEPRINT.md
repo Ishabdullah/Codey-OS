@@ -3759,11 +3759,33 @@ reviewed by `/root/code_reviewer`, APPROVED).
   SIGABRT in `tests/test_restoricon_core/` unrelated to this diff, and one
   code-hygiene dead-branch suggestion) — none fixed in this slice, all out of
   its exact scope per the architect's spec.
+- **Slice 31 (2026-10-13, isolated Git ref mutations, `d14cc0b`):**
+  `git_branch_create`/`git_checkout`/`git_merge` each run inside new
+  `core/git_mutation_context.py` instead of calling `run_git()` directly
+  with zero environment isolation. Structurally different from slices
+  25-30: `GIT_DIR` stays pointed at the real `.git` (these operations
+  mutate real refs/worktree/index on purpose); isolation via
+  `GIT_CONFIG_COUNT`/`KEY`/`VALUE` env overrides forcing `core.hookspath`
+  to empty plus gpgsign/`gc.auto`/`submodule.recurse`/related keys.
+  Filter-driver rejection (checkout) probes the target commit's
+  attributes; merge-driver rejection deliberately omits `--source`,
+  verified experimentally that Git's merge-driver dispatch never consults
+  the incoming side. Active sequencer state rejected for all three
+  (opposite of slice30's tolerant worktree-READ case). Code-reviewer
+  found and this fixes a critical bypass before commit: `resolve_target()`'s
+  strict probe and real `git checkout`'s DWIM resolution diverged for a
+  remote-tracking-only branch name, letting a configured filter driver
+  execute with no rejection check having run; fixed with `--no-guess`,
+  verified to close the gap while preserving local-branch/`-`/detached-HEAD
+  checkout. Merge checked and found not to share the divergence. 415
+  passed across 8 touched/dependent test files. `git_push` and
+  `core/checkpoint.py::rollback` remain unmediated (own future slices).
+  NEW-877 partial; NEW-875/874/855/864 unchanged.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all thirty slices** (slices 3, 5, 25 and 27 took 2 rounds).
+  **APPROVED, all thirty-one slices** (slices 3, 5, 25, 27 and 31 took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-30 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-31 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3785,9 +3807,11 @@ reviewed by `/root/code_reviewer`, APPROVED).
   slice 27 isolates scoped commit/checkpoint configuration with explicit unsupported
   states; slice 28 migrates broad commits with bounded merge/squash continuation.
   Slice 29 covers five metadata helpers and no-path checkpoint READ. Slice 30
-  covers five working-tree status/diff/conflict helpers READ. Other helper
-  configuration/mutation effects NEW-877 remain; those dedicated Git calls
-  still inherit environment.
+  covers five working-tree status/diff/conflict helpers READ. Slice 31
+  covers branch-create/checkout/merge ACT mutations, including a filter-
+  driver bypass found and fixed during review (see NEW-877's slice31
+  entry). `git_push` and `checkpoint.rollback` remain unmediated; other
+  helper configuration/mutation effects NEW-877 remain.
   Broader wrappers/scripts/opaque NEW-875 and failed-execution NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,
