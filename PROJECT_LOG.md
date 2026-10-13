@@ -1,3 +1,50 @@
+## 2026-10-13 — NEW-885 fix: attributesfile/excludesfile resolve against worktree root
+
+**Context:** found during slice30 verification (previous entry below); logged
+as NEW-885 (MEDIUM) and fixed immediately in the next round rather than
+deferred, per standing instruction to fix closely-related findings in the
+same round when they're not genuinely far removed from current work.
+
+**Pipeline:** project-architect scoped the fix (confirmed reachability by
+tracing `main.py`'s `/cwd` command — the only `os.chdir` call site — through
+to `core/agent.py`'s auto-commit call, which passes no explicit path) →
+implementer built it → code-reviewer **APPROVED**, independently reproducing
+both the fix (by reverting it locally and re-running) and the claimed real-Git
+behavior (a separate `git check-ignore` experiment from a subdirectory with
+conflicting root/subdir excludes files).
+
+**Change (`a3fc8a2`):** `core/git_commit_context.py:192`'s `_Context.configure()`
+now resolves relative `core.attributesfile`/`core.excludesfile` against
+`self.root` instead of `self.cwd` — matching `GIT_WORK_TREE`, which this
+context already sets to root for every Git invocation it makes. Two
+discriminating regression tests added (conflicting attributes/excludes files
+at root vs. subdirectory, so each test fails for a wrong-file-chosen reason
+pre-fix, not mere absence): `test_attributesfile_resolves_against_root_not_subcwd`,
+`test_excludesfile_resolves_against_root_not_subcwd`. Verbatim pre-fix: 2
+failed (CRLF byte mismatch; `ignored.py` present in `ls-tree`). Post-fix: 2
+passed in 4.25s. Full suites: `test_git_commit_context.py` 98 passed,
+`test_git_broad_commit_context.py` 85 passed, `test_git_commit_gateway.py` 19
+passed, `test_git_literal_paths.py` 37 passed, `test_git_worktree_queries.py`
+23 passed.
+
+**Two closely-related findings fixed in the same round, both reviewer-approved:**
+bare `~` (no trailing `/path`) for the same two config keys previously
+resolved to a literal `~` path segment under root instead of the child home
+directory — fixed with a new branch mirroring the existing `~/` branch's
+handling, verified via a config-value-capture test since content-based proof
+can't discriminate (a directory-valued `attributesFile` is silently inert to
+Git either way — independently reproduced by both implementer and reviewer).
+And a vacuous CRLF-normalization assertion in the pre-existing
+`test_configured_attribute_data_paths` (the `r.git()` test helper's
+`text=True` universal-newline translation masked whether `\r\n` actually got
+normalized) — switched to a raw-bytes check, verified discriminating by
+temporarily breaking the attribute rule and confirming the new assertion
+catches it.
+
+**Ledgers updated:** `NEW_ISSUES.md` (NEW-885 resolution). This is a single
+small fix plus two closely-related one-liners, not a new slice — no
+blueprint/master-plan slice-count change needed.
+
 ## 2026-10-13 — WP2.1 slice 30: isolated Git worktree READ (status/diff/conflicts)
 
 **User direction:** explicit resume after the 2026-10-10 pause — "continue with

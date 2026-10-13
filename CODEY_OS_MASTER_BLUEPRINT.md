@@ -3741,7 +3741,8 @@ reviewed by `/root/code_reviewer`, APPROVED).
   diff invocations; native CRLF/text conversion preserved. `info/grafts`
   copied for ancestry fidelity; relative `core.attributesfile`/`core.excludesfile`
   resolve against worktree root (contrast NEW-885, the same bug the other way
-  in the existing commit-context module, found and logged not fixed this round).
+  in the existing commit-context module, found this round and fixed in a
+  same-day follow-up, `a3fc8a2` — see PROJECT_LOG.md's 2026-10-13 NEW-885 entry).
   Internal `_git_status`/`_git_status_paths` used inside active ACT commit
   gates left untouched by design. Caller adapters in `main.py`/`core/agent.py`
   abort on query failure with a static diagnostic, mirroring `is_git_repo()`.

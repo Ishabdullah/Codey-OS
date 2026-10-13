@@ -5754,6 +5754,9 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
   outside the commit and metadata query contracts can introduce unbounded effects; nominal local classification is insufficient.
   No exploit reproduced. Scope constrained execution preserving useful automatic
   checkpoint commits, or appropriate authorization; do not trust config by name.
+  `NEW-885` (relative attributesfile/excludesfile resolved against cwd not
+  worktree root, found during slice30) is now **fixed** (`a3fc8a2`,
+  reviewer-approved) — see `NEW_ISSUES.md`'s resolution entry.
 - [ ] **CCOS Git manifest/export alignment (`NEW-864`)** — source-confirmed
   16 declared capabilities versus one exported helper; standalone plugin
   test also imports missing names. Architect-scope registry/export/test
