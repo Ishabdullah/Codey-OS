@@ -15,9 +15,10 @@ from core.action_gateway import (
     get_action_gateway,
 )
 from core.git_execution import shell_git_environment
-from utils.config import AGENT_CONFIG
+from utils.config import AGENT_CONFIG, CODE_DIR
 from utils.logger import confirm as ask_confirm
 from utils.logger import warning
+import utils.config as _config
 
 SHELL_METACHARACTERS = {
     ";",
@@ -255,6 +256,123 @@ def classify_shell_command(command: str) -> str:
     return ACT
 
 
+_GIT_METADATA_SCANNED_READ = {"sort", "uniq", "tree", "file"}  # READ_COMMANDS members
+# with a verified file-write option (sort -o/--output=, uniq's positional
+# OUTPUT arg, tree -o, file -C -m, each confirmed via --help); every other
+# READ_COMMANDS member has no write-capable flag (verified via --help on
+# every member, not assumed) and keeps the existing read exemption.
+
+
+def _shell_command_targets_git_metadata(command: str, *, cwd: Path, roots) -> bool:
+    """Detect whether a non-git shell command's argv references a path
+    under the workspace or CODE_DIR's own `.git` directory (NEW-894
+    follow-up). Used to escalate the command's authority to HIGH_IMPACT
+    (not deny outright: a shell
+    command's argv token can equally be a write target, a legitimate
+    read source, an exclusion pattern, or crash-recovery cleanup like
+    `rm .git/index.lock`, so only Filesystem's own single-target mutation
+    path (core/filesystem.py::_reject_git_metadata_mutation) can safely
+    deny outright; this generic argv scan cannot).
+
+    Exemptions:
+    - git/git-* basenames: already HIGH_IMPACT and environment-isolated
+      (NEW-893) via a separate mechanism; this scan is a no-op for them.
+    - find/xargs/argument-bearing env: already HIGH_IMPACT from
+      classify_shell_command(); this scan running on them changes
+      nothing (HIGH_IMPACT -> HIGH_IMPACT), so no special exemption is
+      carved out for the legitimate `find . -path ./.git -prune` idiom.
+    - Ordinary READ_COMMANDS members minus _GIT_METADATA_SCANNED_READ:
+      verified via --help to have no write-capable option; exempted so
+      `cat .git/config`/`grep .git x`/`ls .git` stay frictionless reads.
+
+    Named residuals (documented, not silently claimed covered):
+    - A READ_COMMANDS member wrapped in a non-exempt basename
+      (`timeout 5 cat .git/config`) loses its read exemption -- same
+      argv[0]-only blind spot classify_shell_command() already has for
+      `timeout N git push` (NEW-875). Directionally safe here (over-
+      escalates a read) rather than unsafe.
+    - sort/uniq/tree/file are scanned on every argument, not just their
+      specific output-option value -- a .git-path read source given to
+      one of them is escalated too. Accepted; confirm-gated, not blocked.
+    - Attached short options with no separator (`-o.git/x`) and
+      sed/awk script-embedded secondary writes (`sed -n 'w .git/config'`,
+      an awk `print > ".git/x"` inside a script argument) are not
+      inspected -- only literal argv path tokens (and their `=`-split
+      RHS) are. Same trade-off classify_shell_command() already accepts
+      for find/xargs (not a full argument-grammar parser per tool).
+    - Interpreter-internal writes (`python3 -c "open('.git/config','w')"`)
+      are invisible to argv inspection by construction.
+    - Nested/submodule .git elsewhere in the tree: out of scope, same
+      caveat already logged against NEW-894.
+    - `.git` used as an exclusion/archival pattern (`tar --exclude=.git`)
+      is escalated to require confirmation even though it's common and
+      harmless -- the accepted cost of a generic scan; adds a prompt,
+      doesn't block.
+    """
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    if not parts:
+        return False
+
+    base = Path(parts[0]).name
+    if _is_git_basename(base):
+        return False
+    if base in READ_COMMANDS and base not in _GIT_METADATA_SCANNED_READ:
+        return False
+
+    resolved_roots = [Path(r).resolve() for r in roots]
+
+    def _hits_git(path_obj) -> bool:
+        for root in resolved_roots:
+            try:
+                rel = path_obj.relative_to(root)
+            except ValueError:
+                continue
+            if rel.parts and rel.parts[0] == ".git":
+                return True
+        return False
+
+    for token in parts:
+        candidates = [token]
+        if "=" in token:
+            candidates.append(token.split("=", 1)[1])  # dd of=/if=, --output=, --exclude=, etc.
+        for candidate in candidates:
+            if not candidate:
+                continue
+            # Path() itself does not validate content (e.g. an embedded
+            # NUL constructs fine); the known failure mode is
+            # resolve()/lstat() below, not construction, so there is no
+            # construction-stage try/except here.
+            base_path = Path(candidate)
+            base_path = base_path if base_path.is_absolute() else cwd / base_path
+            # Lexical form first: catches an already-planted symlink AT the
+            # .git-rooted path itself, without following it.
+            lexical = Path(os.path.normpath(str(base_path)))
+            if _hits_git(lexical):
+                return True
+            try:
+                # Resolved form: catches an indirect symlink elsewhere that
+                # redirects INTO .git/.
+                resolved = base_path.resolve(strict=False)
+            except (OSError, ValueError):
+                # resolve() can fail on pathological input -- confirmed on
+                # this device: an embedded NUL raises ValueError
+                # ("embedded null character in path") from the underlying
+                # lstat(); other platforms may raise OSError for a symlink
+                # loop or an over-length component (neither reproduces a
+                # raise on this device's resolve(), per round testing). The
+                # lexical check above already ruled out a direct .git
+                # match; a resolve() failure here means an indirect
+                # symlink redirect cannot be verified, so fail closed
+                # (escalate) rather than silently treating it as safe.
+                return True
+            if _hits_git(resolved):
+                return True
+    return False
+
+
 def _parse_command(command: str) -> list:
     """Safely parse a shell command into arguments using shlex."""
     try:
@@ -343,6 +461,12 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
         return "[ERROR] Empty command"
 
     authority = classify_shell_command(command)
+    git_metadata_escalation = False
+    if authority != HIGH_IMPACT and _shell_command_targets_git_metadata(
+        command, cwd=Path(os.getcwd()), roots=(_config.WORKSPACE_ROOT, CODE_DIR)
+    ):
+        authority = HIGH_IMPACT
+        git_metadata_escalation = True
     # Both conditions matter here, not `not yolo` alone: TOOLS["shell"]'s
     # lambda never forwards yolo (always False there), so confirm_shell is
     # what's actually set to False in every "nobody's watching" context
@@ -358,6 +482,8 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
             def confirm():
                 if is_dangerous(command):
                     warning(f"Potentially dangerous command: `{command}`")
+                if git_metadata_escalation:
+                    warning(f"Command targets this repository's own Git metadata directory: `{command}`")
                 return ask_confirm(f"Run shell command: `{command}`?")
     else:
         # Preserve READ/ACT UI choices before mediation, so cancellation is
