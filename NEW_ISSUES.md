@@ -21305,6 +21305,24 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Still open/next:** `git_push` (HIGH_IMPACT, needs real ambient SSH/credential-helper/remote config to function — its own future slice, deliberately not folded into this one) and `core/checkpoint.py:299,310`'s `rollback()` (different file, interleaves filesystem restore with `git checkout --detach`, has its own READ-nested-in-HIGH_IMPACT question slice30 left open for `_git_status`) remain unmediated. NEW-875/874/855/864 unchanged. Full WP2.1 DoD open.
 - **Cross-reference:** core/git_mutation_context.py, core/githelper.py, core/git_worktree_context.py, tests/test_git_branch_gateway.py, tests/test_git_checkout_gateway.py, tests/test_git_merge_gateway.py, blueprint §21, master §4.2/Appendix A, remaining census.
 
+## 2026-10-13 — git_push scoping: two findings outside this chain's scope
+
+### [NEW-893] HIGH — tools/shell_tools.py has an independent, fully-ambient git push execution path
+
+- **Certainty/status:** Confirmed by direct code read (project-architect, scoping git_push mediation), open, not fixed — out of scope for the githelper.py mediation chain (NEW-877), since this is a different call path entirely.
+- **Evidence:** `tools/shell_tools.py::classify_shell_command` (~line 212) classifies any direct `git`/`git-*` shell invocation as `HIGH_IMPACT`, routed through the same `gate_exec()` fail-closed confirm rule as `core/githelper.py::git_push` — so a human still has to approve it. But its execution primitive, `_execute_shell_command()` (~line 277), calls `subprocess.run(args, capture_output=True, text=True, timeout=timeout)` with **no `env=` at all** — fully ambient — and never touches `core/githelper.py` or `core/git_execution.py`. Mediating `githelper.git_push` (whichever option is chosen) closes exactly one of two reachable `git push` paths; this one stays fully unmediated regardless.
+- **Risk:** Same hook/reference-transaction execution risk class as the rest of this chain, reachable via the generic shell tool even after `git_push` itself is fixed.
+- **Fix direction:** Needs its own slice, scoped against the broader NEW-875 "wrappers/scripts" work this chain's remaining-scope notes already flag, not folded into the `git_push`-specific fix.
+- **Cross-reference:** tools/shell_tools.py::classify_shell_command, tools/shell_tools.py::_execute_shell_command, core/githelper.py::git_push, NEW-877, NEW-875.
+
+### [NEW-894] CONFIRMED — `.git/config` is writable at plain ACT authority with no `.git/`-path exclusion
+
+- **Certainty/status:** Confirmed by direct code read (project-architect), open, not fixed. One sub-claim from the same investigation (planting an executable `pre-push` hook this way) was checked and found **false** — `Filesystem.write()` calls `path.write_text(...)`, which never sets the executable bit, and non-executable hooks are ignored per `githooks(5)` — do not treat that variant as real.
+- **Evidence:** `tools/file_tools.py::tool_write_file` → `core/filesystem.py::Filesystem.write()` → `_validate_path()` has no `.git/`-specific exclusion — it only checks the path resolves within `self.workspace`, or within `CODE_DIR` under the self-mod flag. `WORKSPACE_ROOT == CODE_DIR` in this repo, so `.git/config` resolves inside workspace and is writable at plain **ACT** authority (not even `HIGH_IMPACT` — `.git/` isn't in `is_core_file`'s prefix set).
+- **Risk:** Writing new `credential.helper`/`core.sshCommand`/`remote.origin.url` lines into `.git/config` needs no executable bit and takes effect immediately on the next Git invocation — a real, reachable path to planting exactly the config-based execution vectors (`credential.helper`'s arbitrary `!command`, `core.sshCommand`'s SSH-replacement) that no Git-mutation-context env override touches, since they're config keys, not env vars.
+- **Fix direction:** `_validate_path()` (or `is_core_file`) could exclude `.git/` from plain-ACT-writable workspace paths, requiring a higher authority tier for any write under `.git/`. Needs its own scoping pass — not part of the git_push decision, since this path is reachable independent of how `git_push` itself is mediated.
+- **Cross-reference:** tools/file_tools.py::tool_write_file, core/filesystem.py::Filesystem.write/_validate_path, core/filesystem.py::is_core_file, NEW-877.
+
 ## 2026-10-13 — WP2.1 slice 32: isolated Git mutation in checkpoint rollback
 
 ### [NEW-877] partial resolution — checkpoint rollback now mediated (fourth caller)
