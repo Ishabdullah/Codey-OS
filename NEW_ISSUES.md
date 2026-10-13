@@ -21305,6 +21305,38 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Still open/next:** `git_push` (HIGH_IMPACT, needs real ambient SSH/credential-helper/remote config to function — its own future slice, deliberately not folded into this one) and `core/checkpoint.py:299,310`'s `rollback()` (different file, interleaves filesystem restore with `git checkout --detach`, has its own READ-nested-in-HIGH_IMPACT question slice30 left open for `_git_status`) remain unmediated. NEW-875/874/855/864 unchanged. Full WP2.1 DoD open.
 - **Cross-reference:** core/git_mutation_context.py, core/githelper.py, core/git_worktree_context.py, tests/test_git_branch_gateway.py, tests/test_git_checkout_gateway.py, tests/test_git_merge_gateway.py, blueprint §21, master §4.2/Appendix A, remaining census.
 
+## 2026-10-13 — git_push environment isolation (chain closeout)
+
+### [NEW-877] partial resolution — git_push environment isolated; chain's githelper.py portion closed
+
+- **Status:** `7ab4f47`, code-complete + code-reviewer-approved. User decided among four real options (A/B/C/D, each with honest trade-offs scoped first) presented via explicit escalation per CLAUDE.md's product-direction rule — chose **Option D**: the same narrow allowlist (`_local_commit_environment()`) used for commit/checkout/merge/rollback, verified empirically against this repo's actual GitHub-over-HTTPS remote (real `git push --dry-run` + `GIT_TRACE=1`, confirmed `gh`'s credential helper authenticates successfully), layered with `core.hookspath`-neutralization.
+- **New `core/git_execution.py::push_environment()`** — deliberately does NOT reuse `core/git_mutation_context.py` (confirmed untouched): that module's preflight (split/sparse index, linked-worktree, active-sequencer-state rejection) is either meaningless for push (never reads the index/worktree) or an unrequested behavior change. `core.hookspath=/dev/null` neutralizes `pre-push`/`reference-transaction` hooks with **no temp-dir/cleanup machinery needed at all** — a genuine simplification verified experimentally, and avoids the NEW-888 bug class by construction (no filesystem resource to leak). `push.gpgSign=false` neutralizes signed-push GPG even when repo-local config demands it (verified: control case fails with real git's `"failed to sign the push certificate"` text). `submodule.recurse=false` prevents an unmediated recursive git invocation against a submodule's own hooks/config.
+- **Accepted trade-off:** strips `SSH_AUTH_SOCK`/`GIT_SSH_COMMAND`/`GIT_ASKPASS`/`HTTP(S)_PROXY` — would silently fail (not cleanly refuse) against a future SSH-agent or proxied remote. Accepted because this repo's actual remote doesn't need any of them.
+- **Evidence:** 25 passed. Two trivial post-review fixes applied directly by the coordinator (no logic change, not process-lifecycle): removed a leftover debug `print()` in a test, dropped the vestigial/redundant `GIT_ATTR_NOSYSTEM` key (base environment already sets `GIT_CONFIG_NOSYSTEM`) with a one-line comment explaining `GIT_NO_LAZY_FETCH`'s relevance instead. Re-ran full file after (25 passed) before committing.
+- **Still open:** `tools/shell_tools.py`'s independent, fully-ambient `git push` path (NEW-893) and `.git/config`'s ACT-authority writability (NEW-894) are **separate findings, not closed by this fix** — the WP2.1 Git-mutation chain's `core/githelper.py`-specific portion (slices 24-32 plus this fix) is closed; the broader chain (NEW-875 wrappers/scripts, NEW-874 shell fidelity, NEW-855 startup isolation, NEW-864 plugin export) remains open.
+- **Cross-reference:** core/git_execution.py::push_environment, core/githelper.py::git_push, tests/test_git_push_gateway.py, NEW-893, NEW-894, NEW-895, NEW-896, NEW-897.
+
+### [NEW-895] Suspected, low priority — core/git_mutation_context.py's temp-dir hookspath pattern could be simplified to /dev/null, removing the NEW-888/890 bug classes entirely
+
+- **Certainty/status:** Suspected (a real simplification opportunity, not a bug), open, not fixed — explicitly deferred per the coordinator's instruction not to reopen that module's four-caller review surface during the push round.
+- **Evidence:** This round verified `core.hookspath=/dev/null` fully neutralizes hooks with zero `tempfile.mkdtemp()`/`shutil.rmtree()` lifecycle — no filesystem resource is created, so there is nothing to leak (NEW-890) or fail cleanup on after a success (NEW-888's root cause). `core/git_mutation_context.py`'s four existing callers (branch-create/checkout/merge/rollback) still use the temp-dir pattern and therefore still carry both bug classes (NEW-888 fixed the symptom; NEW-890 — the leaked-dir disk-hygiene issue — is still open).
+- **Fix direction:** A future consolidation pass could switch all four callers to the `/dev/null` pattern, removing the admin-dir cleanup step entirely. Needs its own scoping round — touches 4 already-shipped, already-reviewed call sites across 2 slices.
+- **Cross-reference:** core/git_mutation_context.py, core/git_execution.py::push_environment (reference implementation of the simpler pattern), NEW-888, NEW-890.
+
+### [NEW-896] Suspected, policy question for Ish — git_push does not refuse during an active local sequencer operation
+
+- **Certainty/status:** Suspected (may be correct as-is), open, not fixed — a product-direction question, not a bug.
+- **Evidence:** `git_branch_create`/`git_checkout`/`git_merge`/`checkpoint.rollback` all reject via `_ACTIVE` when a local merge/cherry-pick/revert/rebase is mid-flight. `git_push` does not (and this fix deliberately did not add that check) — push only transmits already-committed refs/objects and doesn't touch the in-progress sequencer state, so arguably correct as-is.
+- **Fix direction:** None needed unless Ish wants pushes blocked during an unfinished local rebase for workflow-safety reasons (e.g. to prevent a user from publishing while mid-rebase, even though the specific push wouldn't technically be affected by it). Flagging for a policy call, not implementing speculatively.
+- **Cross-reference:** core/git_execution.py::push_environment, core/git_mutation_context.py's `_ACTIVE` precedent, NEW-877.
+
+### [NEW-897] Confirmed, pre-existing — real-subprocess Git tests across slices 25-32 depend on the real on-device ~/.gitconfig
+
+- **Certainty/status:** Confirmed, open, not fixed — explicitly out of scope for any single slice's test file (would require retroactively touching every prior slice's test fixtures).
+- **Evidence:** `push_environment()`/`_local_commit_environment()` forward only `HOME`/`XDG_CONFIG_HOME`, not the various `repository` test fixtures' `GIT_CONFIG_GLOBAL=os.devnull` override — so every real-subprocess test across slices 25-32 (not just this round's new ones) reads the actual `~/.gitconfig` on whatever device runs the suite. Harmless today (this machine's `~/.gitconfig` only has `gh`'s credential helpers for github.com/gist.github.com, verified not to interfere), but makes those tests' results machine-dependent in principle.
+- **Fix direction:** A future pass could make the shared `repository`-style fixtures (or `_local_commit_environment()`/`push_environment()` themselves) forward a test-scoped `GIT_CONFIG_GLOBAL` override consistently — needs its own scoping round since it touches every real-subprocess test fixture in the chain, not one slice.
+- **Cross-reference:** core/git_execution.py, tests/test_git_push_gateway.py and every other real-subprocess Git test file in slices 25-32.
+
 ## 2026-10-13 — git_push scoping: two findings outside this chain's scope
 
 ### [NEW-893] HIGH — tools/shell_tools.py has an independent, fully-ambient git push execution path

@@ -141,6 +141,56 @@ and `core/checkpoint.py`'s `rollback()` remain unmediated. NEW-875/874/855/
 entry). `CODEY_OS_MASTER_BLUEPRINT.md` §21 and `CODEY_MASTER_PLAN.md`
 Appendix A updated next.
 
+## 2026-10-13 — git_push environment isolation (chain closeout) — PAUSED after this round
+
+**User direction:** chose Option D (narrow allowlist + hook-neutralization,
+same approach as every other slice) among four real options the architect
+scoped with honest trade-offs, presented via explicit escalation since this
+was a genuine security-posture decision, not an implementation detail. After
+this commit, the user asked to pause — this entry is the clean stopping
+point; see updated `HANDOFF.md` for the resume pointer.
+
+**Change (`7ab4f47`):** New `core/git_execution.py::push_environment()`
+isolates `core/githelper.py::git_push()`'s subprocess environment —
+previously fully ambient. Deliberately does NOT reuse
+`core/git_mutation_context.py` (confirmed untouched): that module's
+preflight/active-sequencer checks are either meaningless for push or an
+unrequested behavior change. `core.hookspath=/dev/null` neutralizes
+`pre-push`/`reference-transaction` hooks with **no temp-dir/cleanup
+machinery at all** — verified experimentally, and a genuine simplification
+over the pattern used elsewhere in this chain (avoids the NEW-888 bug class
+by construction). `push.gpgSign=false` and `submodule.recurse=false` round
+out the forced overrides. Verified empirically against this repo's real
+GitHub-over-HTTPS remote (via `gh`'s credential helper) that the mediated
+environment still authenticates and pushes successfully. Accepted trade-off:
+strips SSH-agent/custom-SSH/proxy env vars, so a future SSH or proxied
+remote would see a silent auth failure, not a clean refusal — acceptable
+since this repo's current remote needs none of them.
+
+**Two trivial post-review fixes applied directly by the coordinator** (no
+logic change, not process-lifecycle — a leftover debug `print()` removed
+from a test, and a vestigial redundant env key dropped with a clarifying
+comment added for the one that stayed): re-ran the full test file after
+(25 passed) before committing.
+
+**This closes the `core/githelper.py`-specific portion of the WP2.1
+Git-mutation mediation chain** (slices 24-32 plus this push fix) — NOT the
+whole chain. Still open: `tools/shell_tools.py`'s independent ambient
+`git push` path (NEW-893), `.git/config`'s ACT-authority writability
+(NEW-894), a possible future simplification of the other four mutation-
+context callers to the same `/dev/null` hook pattern (NEW-895), a policy
+question about push refusing during active sequencer state (NEW-896), and
+a pre-existing shared test-environment dependency on the real
+`~/.gitconfig` across every real-subprocess test in slices 25-32 (NEW-897).
+None of these were fixed this round — all logged in `NEW_ISSUES.md`.
+
+**Ledgers updated:** `NEW_ISSUES.md` (NEW-877 closeout entry, NEW-895..897).
+`CODEY_OS_MASTER_BLUEPRINT.md` §21 and `CODEY_MASTER_PLAN.md` Appendix A
+left for the next resumed round to update alongside whatever comes next —
+flagging this explicitly rather than silently deferring: the blueprint/
+master-plan slice-count bump for this round is still pending as of the
+pause.
+
 ## 2026-10-13 — NEW-885 fix: attributesfile/excludesfile resolve against worktree root
 
 **Context:** found during slice30 verification (previous entry below); logged
