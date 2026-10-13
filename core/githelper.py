@@ -16,7 +16,7 @@ from core.git_commit_context import (
     isolated_broad_commit_context,
     isolated_scoped_commit_context,
 )
-from core.git_execution import run_git
+from core.git_execution import push_environment, run_git
 from core.git_mutation_context import GitMutationError, isolated_mutation_context
 from core.git_query_context import metadata_query
 from core.git_worktree_context import worktree_query
@@ -204,6 +204,18 @@ def git_push(path: str = None, *, confirm=None) -> str:
 
     No callback means no confirmation path and no Git execution. Git
     error strings and subprocess exception identity are preserved.
+
+    The child process runs under core/git_execution.py::push_environment(),
+    which strips ambient ssh/proxy/credential/config-override variables and
+    forces core.hookspath, push.gpgSign, submodule.recurse, gc.auto, and
+    maintenance.auto to safe values at the highest config precedence. This
+    push does NOT inherit core/git_mutation_context.py's preflight() or
+    active-sequencer-state checks: push transmits already-committed refs
+    and objects, so it never reads the index (the split/sparse-index and
+    linked-worktree checks are meaningless here) and does not care about
+    local sequencer state (refusing to push finished commits just because
+    an unrelated local rebase is mid-flight would be a real, unrequested
+    behavior change — see NEW_ISSUES.md).
     """
     from core.action_gateway import HIGH_IMPACT, get_action_gateway
 
@@ -214,7 +226,10 @@ def git_push(path: str = None, *, confirm=None) -> str:
     def execute():
         nonlocal output, original_error
         try:
-            result = run_git(["git", "push"], capture_output=True, text=True, cwd=path)
+            result = run_git(
+                ["git", "push"], capture_output=True, text=True, cwd=path,
+                env=push_environment(),
+            )
         except Exception as exc:
             # Audit execution failure, then restore the caller's original
             # subprocess exception instead of replacing it with a decision.

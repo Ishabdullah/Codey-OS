@@ -87,8 +87,108 @@ def test_real_local_push_decline_then_approve(repository, gateway, tmp_path):
     assert "local content" not in gateway.audit.read_text()
 
 
+def _write_marker_hook(hooks_dir, name, marker):
+    script = hooks_dir / name
+    script.write_text(f"#!/bin/sh\necho {name} >> {marker}\ncat >/dev/null\n")
+    script.chmod(0o755)
+    return script
+
+
+def test_real_push_bypasses_local_hooks(repository, gateway, tmp_path):
+    r = repository
+    hooks_dir = tmp_path / "marker-hooks"
+    hooks_dir.mkdir()
+    marker = tmp_path / "hooks-fired.txt"
+    _write_marker_hook(hooks_dir, "pre-push", marker)
+    _write_marker_hook(hooks_dir, "reference-transaction", marker)
+    r.git("config", "core.hooksPath", str(hooks_dir))
+
+    def fresh_bare_remote(name):
+        remote = tmp_path / name
+        r.git("init", "--bare", str(remote))
+        r.git("config", "core.hooksPath", str(r.empty), cwd=remote)
+        return remote
+
+    # Control: fully-ambient push genuinely fires both hooks.
+    control_remote = fresh_bare_remote("control.git")
+    r.git("remote", "add", "control", str(control_remote))
+    control_result = r.git("push", "control", "main", check=False)
+    assert control_result.returncode == 0
+    assert marker.exists()
+    fired = marker.read_text()
+    # reference-transaction can fire more than once per push (prepared +
+    # committed); confirm both distinct hooks genuinely ran, not just one.
+    assert "pre-push" in fired
+    assert "reference-transaction" in fired
+
+    # Mediated push: reset the marker and target a fresh remote, then assert
+    # neither hook fires AND the push actually landed (ruling out a false
+    # pass where mediation just made the push silently fail).
+    marker.unlink()
+    mediated_remote = fresh_bare_remote("mediated.git")
+    r.git("remote", "add", "origin", str(mediated_remote))
+    r.git("config", "branch.main.remote", "origin")
+    r.git("config", "branch.main.merge", "refs/heads/main")
+    result = githelper.git_push(str(r.repo), confirm=lambda: True)
+    assert result == "Pushed successfully."
+    assert not marker.exists()
+    assert r.git("rev-parse", "refs/heads/main", cwd=mediated_remote).stdout == r.git("rev-parse", "HEAD").stdout
+
+
+def test_real_push_bypasses_signed_push_gpg(repository, gateway, tmp_path):
+    r = repository
+    marker = tmp_path / "gpg-fired.txt"
+    fake_gpg = tmp_path / "fake-gpg.sh"
+    fake_gpg.write_text(
+        f"#!/bin/sh\n"
+        f"echo fired >> {marker}\n"
+        f"echo '-----BEGIN PGP SIGNATURE-----' \n"
+        f"echo 'fake-signature-block'\n"
+        f"echo '-----END PGP SIGNATURE-----'\n"
+    )
+    fake_gpg.chmod(0o755)
+    r.git("config", "gpg.program", str(fake_gpg))
+    r.git("config", "push.gpgSign", "true")
+    r.git("config", "user.signingKey", "dummy")
+
+    def fresh_signed_remote(name):
+        remote = tmp_path / name
+        r.git("init", "--bare", str(remote))
+        r.git("config", "core.hooksPath", str(r.empty), cwd=remote)
+        r.git("config", "receive.certNonceSeed", "fixed-nonce-seed", cwd=remote)
+        return remote
+
+    # Control: fully-ambient signed push genuinely invokes the fake gpg and
+    # fails certificate signing against the nonce-seeded remote. Verified
+    # verbatim (2026-10-13, disposable repo) that real git emits "failed to
+    # sign the push certificate" here -- pin that substring rather than
+    # asserting a bare nonzero exit, which could mean anything.
+    control_remote = fresh_signed_remote("control-signed.git")
+    r.git("remote", "add", "control", str(control_remote))
+    control_result = r.git("push", "control", "main", check=False)
+    assert control_result.returncode != 0
+    assert "failed to sign the push certificate" in control_result.stderr
+    assert marker.exists()
+
+    # Mediated push: push.gpgSign is forced false, so the fake gpg never
+    # fires and the push succeeds against an otherwise-identical remote.
+    marker.unlink()
+    mediated_remote = fresh_signed_remote("mediated-signed.git")
+    r.git("remote", "add", "origin", str(mediated_remote))
+    r.git("config", "branch.main.remote", "origin")
+    r.git("config", "branch.main.merge", "refs/heads/main")
+    result = githelper.git_push(str(r.repo), confirm=lambda: True)
+    assert result == "Pushed successfully."
+    assert not marker.exists()
+    assert r.git("rev-parse", "refs/heads/main", cwd=mediated_remote).stdout == r.git("rev-parse", "HEAD").stdout
+
+
 def test_real_no_destination_preserves_failure(repository, gateway, monkeypatch):
     r = repository
+    # push_environment() forces LC_ALL=C; compute the ambient-locale baseline
+    # under the same locale so a locale-sensitive Git message can't make the
+    # two sides diverge for a reason unrelated to this change.
+    monkeypatch.setenv("LC_ALL", "C")
     expected = r.git("push", check=False)
     assert expected.returncode != 0
     monkeypatch.chdir(r.repo)
@@ -103,9 +203,55 @@ def test_exact_push_argv_result(gateway, monkeypatch, stdout):
     runner = Mock(return_value=SimpleNamespace(returncode=0, stdout=stdout, stderr="private stderr"))
     monkeypatch.setattr(git_execution.subprocess, "run", runner)
     assert githelper.git_push("/temporary/repo", confirm=lambda: True) == (stdout.strip() or "Pushed successfully.")
-    runner.assert_called_once_with([git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd="/temporary/repo")
+    runner.assert_called_once_with(
+        [git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd="/temporary/repo",
+        env=git_execution.push_environment(),
+    )
     assert record(gateway)["outcome"] == "allowed"
     assert "private stderr" not in gateway.audit.read_text()
+
+
+def test_push_environment_rejects_ambient_leak(gateway, monkeypatch):
+    runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr(git_execution.subprocess, "run", runner)
+    injected = {
+        "SSH_AUTH_SOCK": "/tmp/fake-agent.sock",
+        "GIT_SSH_COMMAND": "ssh -o StrictHostKeyChecking=no",
+        "GIT_ASKPASS": "/tmp/fake-askpass",
+        "HTTPS_PROXY": "http://fake-proxy.invalid:8080",
+        "GIT_CONFIG_GLOBAL": "/tmp/fake-global-gitconfig",
+        "GIT_CONFIG_PARAMETERS": "'injected.key=value'",
+    }
+    for name, value in injected.items():
+        monkeypatch.setenv(name, value)
+    assert githelper.git_push("/temporary/repo", confirm=lambda: True) == "Pushed successfully."
+    runner.assert_called_once_with(
+        [git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd="/temporary/repo",
+        env=git_execution.push_environment(),
+    )
+    # Recomputing push_environment() under the same monkeypatched os.environ
+    # cannot, by itself, prove nothing leaked -- if push_environment() leaked
+    # a var, both sides of that comparison would contain it too. Assert each
+    # injected name is actually absent from the child env, and pin the forced
+    # override block to literal values so a silent change to the override set
+    # (e.g. dropping submodule.recurse) would also be caught here.
+    env = runner.call_args.kwargs["env"]
+    for name in injected:
+        assert name not in env
+    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert env["LC_ALL"] == "C"
+    assert env["GIT_NO_LAZY_FETCH"] == "1"
+    assert env["GIT_CONFIG_COUNT"] == "5"
+    forced = {
+        env[f"GIT_CONFIG_KEY_{i}"]: env[f"GIT_CONFIG_VALUE_{i}"] for i in range(5)
+    }
+    assert forced == {
+        "core.hookspath": "/dev/null",
+        "push.gpgSign": "false",
+        "submodule.recurse": "false",
+        "gc.auto": "0",
+        "maintenance.auto": "false",
+    }
 
 
 def test_no_callback_never_executes(gateway, monkeypatch):
@@ -207,7 +353,10 @@ def test_main_push_confirmation(private_main, gateway, monkeypatch, answer, exce
         prompt.assert_called_once_with("Publish this repository's commits to its configured remote? [y/N]: ")
     assert runner.call_count == int(allowed)
     if allowed:
-        runner.assert_called_once_with([git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd=os.getcwd())
+        runner.assert_called_once_with(
+            [git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd=os.getcwd(),
+            env=git_execution.push_environment(),
+        )
         main.success.assert_called_once_with("Pushed successfully.")
         main.error.assert_not_called()
     else:
@@ -239,7 +388,10 @@ def test_main_result_with_blocked_audit(private_main, gateway, monkeypatch, tmp_
     handled, returned = main.handle_command("/git push", history)
     assert handled is True and returned is history and history == []
     prompt.assert_called_once()
-    runner.assert_called_once_with([git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd=os.getcwd())
+    runner.assert_called_once_with(
+        [git_execution._trusted_git_executable(), "push"], capture_output=True, text=True, cwd=os.getcwd(),
+        env=git_execution.push_environment(),
+    )
     if failed:
         main.error.assert_called_once_with("[ERROR] original Git failure")
         main.success.assert_not_called()

@@ -91,3 +91,55 @@ def local_commit_runner():
         return run_git(argv, env=dict(environment), **kwargs)
 
     return run
+
+
+_PUSH_FORCED_OVERRIDES = {
+    "core.hookspath": "/dev/null",
+    "push.gpgSign": "false",
+    "submodule.recurse": "false",
+    "gc.auto": "0",
+    "maintenance.auto": "false",
+}
+
+
+def push_environment():
+    """Snapshot one child environment for a single `git push` invocation.
+
+    Base allowlist is identical to _local_commit_environment() (HOME and
+    XDG_CONFIG_HOME are forwarded so the gh credential helper and global
+    identity/config still resolve; everything else ambient is stripped).
+    On top of that, the structural keys above are forced via the same
+    highest-precedence GIT_CONFIG_COUNT/GIT_CONFIG_KEY_<n>/
+    GIT_CONFIG_VALUE_<n> mechanism core/git_mutation_context.py uses,
+    verified experimentally against the real git binary (2026-10-13,
+    disposable repos): core.hookspath=/dev/null neutralizes `pre-push` and
+    `reference-transaction` hooks with no filesystem resource to create or
+    clean up (deliberately not the temp-hooks-dir pattern used elsewhere in
+    this project -- a real character device needs no mkdtemp/rmtree and
+    therefore cannot leak a cleanup-failure-after-success bug); push.gpgSign
+    neutralizes signed-push GPG invocation even when repository-local
+    config sets gpg.program/user.signingkey/push.gpgSign=true; submodule.
+    recurse neutralizes push.recurseSubmodules=on-demand, which would
+    otherwise run an unmediated git process against each submodule's own,
+    unmediated hooks/config. gc.auto/maintenance.auto are carried over from
+    core/git_mutation_context.py's established ref-mutation precedent, not
+    independently re-verified here. This function has no side effects and
+    is safe to call once per push attempt.
+
+    Deliberately NOT reused from core/git_mutation_context.py: that
+    module's preflight() (split/sparse index), linked-worktree rejection,
+    and active-sequencer-state rejection are either meaningless for push
+    (it never reads the index or working tree) or a real, unrequested
+    behavior change (refusing to push already-committed refs because an
+    unrelated local rebase is in progress) -- see NEW_ISSUES.md.
+    """
+    environment = dict(_local_commit_environment())
+    # Stops pack-objects on a partial clone's remote from spawning a lazy
+    # fetch during this push (GIT_ATTR_NOSYSTEM is redundant here -- the
+    # base environment already sets GIT_CONFIG_NOSYSTEM -- and is omitted).
+    environment["GIT_NO_LAZY_FETCH"] = "1"
+    environment["GIT_CONFIG_COUNT"] = str(len(_PUSH_FORCED_OVERRIDES))
+    for index, (key, value) in enumerate(_PUSH_FORCED_OVERRIDES.items()):
+        environment[f"GIT_CONFIG_KEY_{index}"] = key
+        environment[f"GIT_CONFIG_VALUE_{index}"] = value
+    return environment
