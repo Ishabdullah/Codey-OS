@@ -141,7 +141,73 @@ and `core/checkpoint.py`'s `rollback()` remain unmediated. NEW-875/874/855/
 entry). `CODEY_OS_MASTER_BLUEPRINT.md` §21 and `CODEY_MASTER_PLAN.md`
 Appendix A updated next.
 
-## 2026-10-13 — git_push environment isolation (chain closeout) — PAUSED after this round
+## 2026-10-13 — NEW-893/894: shell-tool git env isolation; .git/ write denial
+
+**Context:** resumed per user request after the git_push pause, to work on
+the two findings that pause's handoff flagged as the most concrete next
+candidates, plus investigate two unexplained untracked directories noticed
+in the working tree. Both directories were benign and resolved without
+code changes: `astral-sprig/` is a Claude Code terminal companion-pet asset
+(harness feature, predates this session, not project content); a nested
+`.claude/agents/.claude/agent-memory/...` directory was caused by this same
+session navigating into `.claude/agents/` earlier to copy the global agent
+definitions — a code-reviewer subagent dispatched around then wrote its
+memory file via a relative path while cwd was still there. Content was real
+(slice31 review patterns, not duplicated elsewhere) and was moved to the
+correct `.claude/agent-memory/code-reviewer/` location with the index fixed;
+the stray directory was removed.
+
+**NEW-893 scope correction:** investigation showed this was bigger than its
+original one-line finding — `tools/shell_tools.py`'s raw git execution has
+zero environment isolation for ANY git subcommand typed through the shell
+tool, not just push. Presented four real options (A: full command router,
+B: generic hook/GPG/submodule isolation, C: leave as-is, D: block shell-git
+entirely) with honest trade-offs; user chose **Option B**.
+
+**Pipeline:** project-architect scoped both NEW-893 (Option B) and NEW-894
+together (independent findings, same investigation) → implementer built
+both → code-reviewer **APPROVED** both (Part B's code; ledger must not
+claim NEW-894 fully closed) with two minor test-tightening requests, fixed
+directly by the coordinator (no logic change) → re-ran 592 tests clean →
+committed.
+
+**NEW-893 change (`459e84e`):** New `core/git_execution.py::shell_git_environment()`
+— full-ambient base (not `push_environment()`'s allowlist, since this tool
+runs arbitrary non-git commands too), forces 8 keys (`core.hookspath`,
+`core.fsmonitor`, `commit.gpgsign`, `tag.gpgsign`, `push.gpgSign`,
+`submodule.recurse`, `gc.auto`, `maintenance.auto`). New shared
+`_is_git_basename()` keeps classification and execution from diverging.
+Four real residuals documented and tested, not hidden: command-line
+`-c core.hooksPath=...` defeats the env override entirely (verified
+experimentally); an explicit `git commit -S` bypasses `commit.gpgsign=false`
+(Git's own documented behavior — found when the first test design couldn't
+discriminate at all, fixed with a config-driven test instead, plus a
+separate test pinning the `-S` bypass); `credential.helper`/`core.sshCommand`/
+filter-driver programs remain live if configured; indirect wrappers
+(`env`/`xargs`/`find -exec`) still require confirmation but run ambient
+once approved. New NEW-875 evidence: `timeout N git ...` is classified ACT
+(not HIGH_IMPACT) and isolated by neither the confirm-gate nor this fix.
+
+**NEW-894 change (same commit):** New `Filesystem._reject_git_metadata_mutation()`
+denies `write()`/`patch()`/`append()` under the workspace/`CODE_DIR`'s own
+`.git` (root-only, first-path-component match). Read access unaffected by
+design. Code-reviewer's highest-consequence check: confirmed every new test
+uses a disposable temp directory, never the real repo's `.git/config`.
+**Not fully closed** — the shell tool's `_execute_shell_command()` still
+writes `.git/config` unmediated via `cp`/`sed -i`/`tee -a`/etc. at plain ACT
+authority; NEW-894 stays partially resolved in the ledger. Also corrected
+the original "executable hook via write() is impossible" sub-claim: true
+only for newly-created files — an existing, already-executable hook file's
+content can still be overwritten with its mode bits intact.
+
+**Evidence:** 30 new tests, 592 passed across all touched/dependent files.
+
+**Ledgers updated:** NEW_ISSUES.md (NEW-893/894/875 entries). Blueprint/
+master-plan slice registers not touched this round — this work sits outside
+the slice-24-32 WP2.1 chain's own numbering (it's NEW-893/894, found during
+that chain's closeout, not new slices in it).
+
+## 2026-10-13 — git_push environment isolation (chain closeout)
 
 **User direction:** chose Option D (narrow allowlist + hook-neutralization,
 same approach as every other slice) among four real options the architect
