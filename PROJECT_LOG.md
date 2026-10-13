@@ -141,6 +141,35 @@ and `core/checkpoint.py`'s `rollback()` remain unmediated. NEW-875/874/855/
 entry). `CODEY_OS_MASTER_BLUEPRINT.md` §21 and `CODEY_MASTER_PLAN.md`
 Appendix A updated next.
 
+## 2026-10-13 — NEW-894 fully closed: shell-tool `.git/` escalation
+
+**Pipeline:** project-architect scoped (and corrected the implied "deny
+outright" framing after real evidence — `rm .git/index.lock` is legitimate
+crash-recovery cleanup, directly tied to this project's RAM-crash history;
+a shell argv token can't be assumed to always be a write target the way
+`Filesystem`'s single mutation-target path can) → implementer built it →
+code-reviewer found a real gap on first pass (scan covered only `argv[1:]`,
+missing the command's own executable path — `./.git/hooks/pre-commit`
+classified ACT and ran unprompted under `yolo=True`) → coordinator applied
+the one-line fix plus two required tests directly → code-reviewer
+**APPROVED** on re-review.
+
+**Change (`88a4ae9`):** New `tools/shell_tools.py::_shell_command_targets_git_metadata()`
+scans a non-git command's full argv (plus `key=value`-split RHS for `dd
+of=`/`--output=`-shaped flags) for any token resolving under the workspace's
+or `CODE_DIR`'s own `.git`, root-only. Escalates to `HIGH_IMPACT` rather than
+denying outright — reuses the existing confirm-or-fail-closed gate machinery
+with no new plumbing. 44 new tests; 535 passed across the wider regression
+set.
+
+**This closes NEW-894 fully** — both the dedicated write-tool path
+(`459e84e`, earlier today) and the shell-tool path are now covered. Two new
+findings logged, not fixed: NEW-898 (a daemon-refusal audit-label accuracy
+gap, low severity) and NEW-899 (a separately-discovered, more serious bug —
+`core/filesystem.py`'s `WORKSPACE_ROOT` import goes stale after `/cwd`,
+silently enforcing the wrong workspace boundary on every subsequent write —
+needs its own round).
+
 ## 2026-10-13 — NEW-893/894: shell-tool git env isolation; .git/ write denial
 
 **Context:** resumed per user request after the git_push pause, to work on
