@@ -3726,11 +3726,43 @@ reviewed by `/root/code_reviewer`, APPROVED).
   Ruff clean, tracked production 136 unchanged (seven focused F/E9 legacy findings).
   Full suite excluded NEW-791; type checkers unavailable. Orchestrator/CCOS probe
   source-traced; no latent export activation.
+- **Slice 30 (2026-10-13, isolated Git worktree READ, `497e049`):**
+  `git_status`, public `git_status_paths`, `git_diff_stat`, `detect_conflicts`,
+  `git_diff_for_commit` each use one READ gate_exec via new
+  `core/git_worktree_context.py`. Admin dir copies the real index (verified
+  experimentally: a fabricated empty index silently drops real merge-conflict
+  status/diff output) rather than the metadata-only slices' nonexistent-file
+  pattern. Two named contract inversions vs. prior slices: sparse/split index
+  now fails explicitly (previously tolerated for metadata-only reads); active
+  merge/cherry-pick/revert/rebase state is now explicitly SUPPORTED, not
+  rejected, since `detect_conflicts` exists to report mid-merge unmerged paths.
+  Filter-attribute execution blocked via a filter-inert name-only check-attr
+  probe before every content command; `--no-ext-diff --no-textconv` on all
+  diff invocations; native CRLF/text conversion preserved. `info/grafts`
+  copied for ancestry fidelity; relative `core.attributesfile`/`core.excludesfile`
+  resolve against worktree root (contrast NEW-885, the same bug the other way
+  in the existing commit-context module, found and logged not fixed this round).
+  Internal `_git_status`/`_git_status_paths` used inside active ACT commit
+  gates left untouched by design. Caller adapters in `main.py`/`core/agent.py`
+  abort on query failure with a static diagnostic, mirroring `is_git_repo()`.
+  23 new cases; touched-file set 226 passed (203.19s implementer / 195.38s
+  independent reviewer re-run, matching); wider 14-file git batch 954 passed/
+  264.35s. Module docstring's parity claim narrowed after code-reviewer found
+  it didn't cover `status.*`/`diff.*` presentation config keys (e.g.
+  `status.showUntrackedFiles`) — fixed same round, not a defect in the gate
+  logic itself. NEW-877 partial: remaining Git mutation configured effects
+  next. NEW-875/874/855 and full DoD open. NEW-881..887 logged for pre-existing/
+  adjacent findings surfaced during verification (detect_conflicts fallback
+  prefix gap, dead `git_diff_stat` caller, diff truncation, skip-worktree
+  under-reporting, the commit-context cwd/root bug, a pre-existing full-suite
+  SIGABRT in `tests/test_restoricon_core/` unrelated to this diff, and one
+  code-hygiene dead-branch suggestion) — none fixed in this slice, all out of
+  its exact scope per the architect's spec.
 - *Gate:* code-reviewer (mandatory — security + process control) —
-  **APPROVED, all twenty-nine slices** (slices 3, 5, 25 and 27 took 2 rounds).
+  **APPROVED, all thirty slices** (slices 3, 5, 25 and 27 took 2 rounds).
 - *Rollback:* rollback tag; the gateway is additive until the old paths are removed.
 - *DoD:* no destructive call site bypasses the gateway; the §16.1 three-surface
-  split is gone. **Not yet met — slices 1-29 cover 4 of 42 known
+  split is gone. **Not yet met — slices 1-30 cover 4 of 42 known
   write-primitive files (`core/preferences.py`, `tools/file_tools.py`,
   `tools/patch_tools.py`, `core/notes.py`), the one shell-exec chokepoint, three peer
   dispatch sites (`tool_peer_delegate`, `run_agent()`'s natural-language
@@ -3751,9 +3783,10 @@ reviewed by `/root/code_reviewer`, APPROVED).
   sequences. Slice 26 fixes literal-path scope NEW-879 for scoped helpers/checkpoints;
   slice 27 isolates scoped commit/checkpoint configuration with explicit unsupported
   states; slice 28 migrates broad commits with bounded merge/squash continuation.
-  Slice 29 covers five metadata helpers and no-path checkpoint READ. Working-tree
-  query effects and other helper configuration NEW-877 remain; those dedicated
-  Git calls still inherit environment.
+  Slice 29 covers five metadata helpers and no-path checkpoint READ. Slice 30
+  covers five working-tree status/diff/conflict helpers READ. Other helper
+  configuration/mutation effects NEW-877 remain; those dedicated Git calls
+  still inherit environment.
   Broader wrappers/scripts/opaque NEW-875 and failed-execution NEW-874 remain. `/peer` bypass
   `NEW-849` is closed, while `NEW-850`
   (missing teacher capture) and `NEW-845` (fallback attribution) remain,

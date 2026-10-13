@@ -1,3 +1,131 @@
+## 2026-10-13 — WP2.1 slice 30: isolated Git worktree READ (status/diff/conflicts)
+
+**User direction:** explicit resume after the 2026-10-10 pause — "continue with
+slice30 ... keep working unless i tell you to stop or pause," fix related
+NEW-### findings in the same round unless genuinely out of scope (log and
+defer those), use the mandatory agent pipeline, keep docs updated, commit/push
+when it makes sense. HANDOFF.md and this file are both updated to mark the
+pause superseded, not retracted.
+
+**Pipeline:** project-architect scoped slice30 (read HANDOFF.md, master plan
+§2/§4/Appendix A, blueprint §1/§21, the 2026-10-09 census TSVs, PROJECT_LOG
+slices24-29, and NEW_ISSUES.md NEW-877/878/879/880 directly rather than
+trusting the census counts) → implementer built it → code-reviewer
+**APPROVED** after independently re-verifying the diff (not just re-reading
+the summary), including a live re-run of the touched-file test set.
+
+**Change (`497e049`):** New `core/git_worktree_context.py` mediates
+`git_status`, public `git_status_paths`, `git_diff_stat`, `detect_conflicts`,
+and `git_diff_for_commit` through one READ `gate_exec` each, following the
+established pattern of `core/git_query_context.py` (slice29) and
+`core/git_commit_context.py`. Key design decision verified by direct
+experiment, not inference (rule 12): the admin dir **copies** the real index
+rather than fabricating an empty one, because a disposable-repo test with a
+real forced merge conflict showed a fresh empty index silently drops real
+`UU` status/diff output — the exact false-empty failure class slice29 fixed
+for HEAD queries, reintroduced here if not handled. Two deliberate contract
+inversions, named in the module docstring: (1) sparse/split index now fails
+explicitly (previously tolerable for metadata-only reads); (2) active
+merge/cherry-pick/revert/rebase state is now explicitly **supported**, not
+rejected, since `detect_conflicts` exists to report mid-merge unmerged paths
+— `core/git_commit_context.py`'s `_ACTIVE` rejection list is deliberately not
+imported here. Filter-attribute execution is blocked via a filter-inert
+name-only `check-attr` probe gating every content command, plus
+`--no-ext-diff --no-textconv` on all diff invocations; native CRLF/text
+conversion is preserved (that's the actual fidelity this module protects).
+`info/grafts` is copied for ancestry fidelity; relative
+`core.attributesfile`/`core.excludesfile` resolve against the worktree root
+(verified: identical behavior invoked from root vs. a subdirectory) — this is
+the mirror-image fix of a real bug the implementer found in the *existing*
+`core/git_commit_context.py:192`, which resolves the same two keys against
+`self.cwd` instead (logged as NEW-885, not fixed in this module). Internal
+`_git_status`/`_git_status_paths`, called with an injected runner from inside
+active ACT commit gates, are left completely untouched by design — routing
+them through the new READ gate would nest a READ gate inside an ACT gate.
+Caller adapters in `main.py` (5 call sites) and
+`core/agent.py::check_git_and_offer_commit` now catch query failure and abort
+the dependent prompt/commit/inference with a static diagnostic, mirroring
+`core/agent.py:1069-1073`'s existing `is_git_repo()` pattern — no raw
+traceback or raw Git error text leaks into audit/console.
+
+**Code-reviewer findings, independently verified not just re-read:** symlink
+safety for every admin-dir copy (`lstat`+`S_ISREG` before copy), admin-dir
+cleanup try/finally including the double-failure path, `_ACTIVE` genuinely
+absent from this module (grepped), filter-check ordering has no gap (the one
+branch that skips the check-attr probe never runs a content command on those
+names), and a chased-down advisor concern about `core/checkpoint.py` calling
+the now-raising `git_status()` internally was **refuted** by reading
+`checkpoint.py:135-175` directly — `_create_git_commit` has zero references
+to `git_status` anywhere in the file; the test in question makes two
+independent top-level calls, not one nested call. One new Warning found and
+fixed same round: the module docstring originally claimed copied-index parity
+was "identical output... for every operation this module performs," but
+`_DATA_KEYS` omits `status.*`/`diff.*` presentation keys (e.g.
+`status.showUntrackedFiles`) — confirmed by direct experiment that a repo
+configured with `status.showUntrackedFiles=no` diverges from this module's
+output. Docstring narrowed to scope the parity claim correctly; the fixed
+config surface itself is an intentional auditability choice, not a defect.
+
+**Evidence:** 23 new cases in `tests/test_git_worktree_queries.py`. Implementer
+touched-file-set run: `226 passed in 203.19s (0:03:23)`. Code-reviewer
+independent live re-run of the same set (RAM recorded first per rule 2:
+6.2Gi used / 3.1Gi free): `226 passed in 195.38s (0:03:15)` — matches exactly.
+Wider 14-file git-related batch: `954 passed in 264.35s (0:04:24)`. Existing
+`tests/test_git_execution.py:220` worktree-fidelity assertion stayed green.
+Test-assertion changes across five existing files were all behavior-driven,
+not loosened — one test in `tests/test_git_literal_paths.py` was deleted
+because its underlying mechanism (env-popping a copied `os.environ`) no
+longer exists under the fixed-literal-dict environment design; the implementer
+caught mid-review that this deletion also silently dropped the only coverage
+of bytes-type path operands, and restored it as a new test plus widened
+`_valid_worktree_argv`'s path-prefix check to accept `(str, bytes)` so
+NEW-879's verbatim-operand guarantee wasn't narrowed.
+
+**Full-suite caveat (pre-existing, confirmed unrelated):** `pytest tests/`
+reproducibly SIGABRTs inside `tests/test_restoricon_core/`'s own
+traceback-rendering code (`_pytest/pathlib.py:bestrelpath` →
+`pathlib.relative_to`); reproduces running that directory alone; code-reviewer
+independently grepped the directory and found zero genuine references to this
+slice's touched surface (one substring false-positive). Logged as NEW-886.
+
+**In-task incident, logged honestly per rule 5/6:** mid-verification the
+implementer ran a careless combined `git stash; pytest ...` one-liner that
+stashed this slice's own tracked edits; caught immediately via the next tool
+call's automatic diff-of-changed-files reminder, ran `git stash pop`, and
+verified via `git status`/grep that every edit (including a just-made fix)
+was intact before continuing. Code-reviewer independently confirmed via
+`git status`/`git stash list` at review time that nothing was actually
+stashed or lost, rather than trusting the implementer's own claim.
+
+**Findings logged (NEW_ISSUES.md), none fixed this round — all genuinely
+out of slice30's exact scope per rule 8:**
+- `NEW-881` LOW — `detect_conflicts` fallback prefix list misses DU/UD/AU/UA/DD.
+- `NEW-882` LOW — `git_diff_stat` has no production caller (dead code).
+- `NEW-883` LOW — `git_diff_for_commit` `max_chars` truncation can cut mid-hunk
+  (the implementer's "mid-UTF-8" sub-claim was reviewed and refuted — `str`
+  slicing can't split a multi-byte sequence at this layer).
+- `NEW-884` LOW — skip-worktree/assume-unchanged under-reporting (standard
+  Git behavior, cross-cutting, pre-existing).
+- `NEW-885` MEDIUM — `core/git_commit_context.py:192` resolves relative
+  `attributesfile`/`excludesfile` against cwd instead of worktree root; real
+  latent bug, confirmed by two independent direct experiments (implementer
+  and reviewer), fix deferred because it's process-lifecycle-adjacent (rule 4)
+  and needs its own disposable-repo regression test before touching an
+  ACT-gated module.
+- `NEW-886` MEDIUM — full-suite `pytest tests/` SIGABRT, see above.
+- `NEW-887` Suggestion — `configure()`'s dead `--replace-all` argv branch in
+  the new module; no security consequence, code-hygiene only.
+
+**Ledgers updated this round:** `NEW_ISSUES.md` (slice30 section + NEW-881..887),
+`CODEY_OS_MASTER_BLUEPRINT.md` §21 (slice30 entry, DoD slice-count bump),
+`CODEY_MASTER_PLAN.md` §4/Appendix A (slice30 checkbox + remaining-scope/NEW-877
+cross-references), `HANDOFF.md` (marked superseded by this resumption, kept
+verbatim below as the historical pause record). Committed code separately from
+docs per the established slice29 two-commit pattern; push pending coordinator's
+final step this round.
+
+Previous log entries are preserved verbatim below.
+
 ## 2026-10-10 — Documentation maintenance: HANDOFF and explicit pause
 
 **User direction:** finish slice29, create/update HANDOFF.md, then pause. Slice29

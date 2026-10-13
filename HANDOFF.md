@@ -1,6 +1,16 @@
-# PAUSED — continuation handoff, 2026-10-10
+# RESUMED 2026-10-13 — superseded snapshot, kept for the pause's own record
 
-Latest user direction: **finish slice29, create/update HANDOFF.md, then pause**.
+**Superseded.** On 2026-10-13 the user explicitly resumed work ("continue with
+slice30 ... keep working unless i tell you to stop or pause"), which overrides
+this file's 2026-10-10 pause. Slice30 is now **complete and published**
+(`497e049`) — see `PROJECT_LOG.md`'s 2026-10-13 entry and `NEW_ISSUES.md`'s
+slice30 section (NEW-877 partial, NEW-881..887). Work continues slice-by-slice
+per the resumed authorization; this file is retained below verbatim as the
+historical record of the 2026-10-10 pause's own terms, not as current status.
+
+---
+
+Latest user direction *as of 2026-10-10*: **finish slice29, create/update HANDOFF.md, then pause**.
 Slice29 is complete and published. The later explicit pause overrides prior
 continuous sequential commit/push authorization. **Slice30 is NOT SCOPED or
 BUILT. Do not resume automatically; wait for new user direction.**
