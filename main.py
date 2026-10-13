@@ -913,7 +913,12 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         arg = parts[2].strip() if len(parts) > 2 else ""
 
         if sub_low == "status" or sub == "":
-            console.print(git_status())
+            try:
+                output = git_status()
+            except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                error("Git worktree query failed.")
+                return True, history
+            console.print(output)
 
         elif sub_low == "log":
             try:
@@ -968,7 +973,11 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 elif result.startswith("[CONFLICT]"):
                     warning(result)
                     # Conflict resolution flow
-                    conflict_files = detect_conflicts()
+                    try:
+                        conflict_files = detect_conflicts()
+                    except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                        error("Git worktree query failed.")
+                        return True, history
                     if conflict_files:
                         console.print(
                             f"\n[bold red]Conflicts in {len(conflict_files)} file(s):[/bold red]"
@@ -1003,7 +1012,11 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     error(result)
 
         elif sub_low == "diff":
-            diff = git_diff_for_commit()
+            try:
+                diff = git_diff_for_commit()
+            except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                error("Git worktree query failed.")
+                return True, history
             console.print(diff or "(no diff)")
 
         elif sub_low == "commit":
@@ -1013,7 +1026,11 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 result = git_commit(arg)
             else:
                 # Generate message from diff
-                diff = git_diff_for_commit()
+                try:
+                    diff = git_diff_for_commit()
+                except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                    error("Git worktree query failed.")
+                    return True, history
                 if diff == "(no diff available)":
                     info("Nothing to commit — working tree clean.")
                     return True, history
@@ -1061,7 +1078,11 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
             success(result) if not result.startswith("[ERROR]") else error(result)
 
         elif sub_low == "conflicts":
-            conflict_files = detect_conflicts()
+            try:
+                conflict_files = detect_conflicts()
+            except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+                error("Git worktree query failed.")
+                return True, history
             if not conflict_files:
                 success("No conflicts detected.")
             else:

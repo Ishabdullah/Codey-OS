@@ -602,9 +602,12 @@ def test_private_main_resolution_then_explicit_commit(repository, monkeypatch):
     assert r.git("show", "-s", "--format=%P", "HEAD").stdout.strip().split() == [old, incoming]
     assert r.git("show", "HEAD:core/example.py").stdout == "resolved without inference\n"
     ledger = records(r)
-    assert [record["outcome"] for record in ledger] == ["allowed", "failed", "allowed", "allowed"]
-    assert [record["authority"] for record in ledger] == ["READ", "ACT", "READ", "ACT"]
-    assert [record["action"] for record in ledger] == ["githelper.is_git_repo", "githelper.git_merge", "githelper.is_git_repo", "githelper.git_commit"]
+    # The /git merge [CONFLICT] flow now calls the READ-gated detect_conflicts()
+    # (WP2.1 slice30, core/git_worktree_context.py), adding one allowed READ
+    # row between the merge's own failed ACT row and the explicit commit.
+    assert [record["outcome"] for record in ledger] == ["allowed", "failed", "allowed", "allowed", "allowed"]
+    assert [record["authority"] for record in ledger] == ["READ", "ACT", "READ", "READ", "ACT"]
+    assert [record["action"] for record in ledger] == ["githelper.is_git_repo", "githelper.git_merge", "githelper.detect_conflicts", "githelper.is_git_repo", "githelper.git_commit"]
 
 
 @pytest.mark.parametrize("name", ["MERGE_HEAD", "MERGE_MSG", "MERGE_MODE", "AUTO_MERGE", "SQUASH_MSG"])

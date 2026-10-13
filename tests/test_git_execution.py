@@ -222,8 +222,13 @@ def test_fake_path_git_never_used_by_queries_and_local_commit(repository):
     assert r.git("show", "HEAD:core/example.py").stdout == "updated = True\n"
     assert not r.marker.exists()
     ledger = [json.loads(line) for line in r.audit.read_text().splitlines()]
-    assert [row["authority"] for row in ledger] == ["READ", "READ", "READ", "ACT"]
-    assert [row["action"] for row in ledger] == ["githelper.is_git_repo", "githelper.git_current_branch", "githelper.git_log", "githelper.git_commit_paths"]
+    # git_status/git_diff_stat became READ-gated worktree queries in WP2.1
+    # slice30 (core/git_worktree_context.py); both now add a ledger row.
+    assert [row["authority"] for row in ledger] == ["READ", "READ", "READ", "READ", "READ", "ACT"]
+    assert [row["action"] for row in ledger] == [
+        "githelper.is_git_repo", "githelper.git_current_branch", "githelper.git_status",
+        "githelper.git_log", "githelper.git_diff_stat", "githelper.git_commit_paths",
+    ]
     assert all(row["outcome"] == "allowed" for row in ledger)
 
 
@@ -277,8 +282,16 @@ def test_missing_git_preserves_helper_exception_checkpoint_none_without_old_head
     assert checkpoint._create_git_commit("missing", [str(r.trigger)]) is None
     checkpoint.warning.assert_called_once_with("Checkpoint: git commit failed: trusted Git missing")
     rows = [json.loads(line) for line in r.audit.read_text().splitlines()]
-    assert len(rows) == 1 and rows[0]["outcome"] == "failed" and rows[0]["authority"] == "ACT"
-    assert rows[0]["reason"] == str(original) and not r.marker.exists()
+    # git_status is now a READ-gated worktree query (WP2.1 slice30) and adds
+    # its own failed row ahead of the checkpoint's ACT row.
+    assert len(rows) == 2
+    assert rows[0]["outcome"] == "failed" and rows[0]["authority"] == "READ"
+    assert rows[1]["outcome"] == "failed" and rows[1]["authority"] == "ACT"
+    # READ worktree queries log a static diagnostic, not the original error
+    # text (mirrors core/git_query_context.py); the ACT checkpoint path still
+    # retains the original Git error text in its own reason.
+    assert rows[0]["reason"] == "Git worktree query failed"
+    assert rows[1]["reason"] == str(original) and not r.marker.exists()
 
 
 def test_preferred_inspection_error_does_not_silently_fall_back(tmp_path, monkeypatch):

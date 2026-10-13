@@ -58,12 +58,19 @@ def snapshot(r):
     )
 
 
-def assert_audit(r, outcome="allowed", reason="command executed", preflight=False):
+def assert_audit(r, outcome="allowed", reason="command executed", preflight=False, conflicts=False):
     records = [json.loads(line) for line in r.audit.read_text().splitlines()]
     if preflight:
         query = records.pop(0)
         assert isinstance(query.pop("ts"), float)
         assert query == {"authority": "READ", "action": "githelper.is_git_repo", "command": "git metadata query", "outcome": "allowed", "reason": "command executed"}
+    if conflicts:
+        # The /git merge [CONFLICT] resolution flow now calls the READ-gated
+        # detect_conflicts() (WP2.1 slice30, core/git_worktree_context.py),
+        # adding one more allowed READ row after the merge's own ACT row.
+        query = records.pop()
+        assert isinstance(query.pop("ts"), float)
+        assert query == {"authority": "READ", "action": "githelper.detect_conflicts", "command": "git worktree query", "outcome": "allowed", "reason": "command executed"}
     assert len(records) == 1
     record = records[0]
     assert isinstance(record.pop("ts"), float)
@@ -345,7 +352,7 @@ def test_main_real_conflict_resolution_flow(repository, private_main, monkeypatc
     main.error.assert_not_called()
     main.success.assert_not_called()
     assert_conflict_state(r, target)
-    assert_audit(r, "failed", result, preflight=True)
+    assert_audit(r, "failed", result, preflight=True, conflicts=True)
     if accepted:
         agent.assert_called_once()
         arguments = agent.call_args

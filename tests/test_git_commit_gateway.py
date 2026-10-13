@@ -73,12 +73,15 @@ def records(r):
     return [json.loads(line) for line in r.audit.read_text().splitlines()]
 
 
+_QUERY_COMMAND = {"githelper.git_status_paths": "git worktree query"}
+
+
 def assert_audit(r, action, outcome="allowed", reason="command executed", queries=()):
     ledger = records(r)
     assert len(ledger) == len(queries) + 1
     for row, action_name in zip(ledger[:len(queries)], queries):
         assert isinstance(row.pop("ts"), float)
-        assert row == {"authority": "READ", "action": action_name, "command": "git metadata query", "outcome": "allowed", "reason": "command executed"}
+        assert row == {"authority": "READ", "action": action_name, "command": _QUERY_COMMAND.get(action_name, "git metadata query"), "outcome": "allowed", "reason": "command executed"}
     ledger = ledger[len(queries):]
     assert len(ledger) == 1
     record = ledger[0]
@@ -268,11 +271,16 @@ def test_real_agent_commit_offer(repository, monkeypatch, accept):
     if accept:
         assert r.git("log", "-1", "--format=%s").stdout.strip() == "Codey: fix a bug..."
         assert r.git("show", "HEAD:one.txt").stdout == "one changed\n"
-        assert_audit(r, "githelper.git_commit_paths", queries=("githelper.is_git_repo",))
+        # git_status_paths became a READ-gated worktree query in WP2.1
+        # slice30 (core/git_worktree_context.py); check_git_and_offer_commit
+        # now calls it before the confirm prompt, adding one more READ row.
+        assert_audit(r, "githelper.git_commit_paths", queries=("githelper.is_git_repo", "githelper.git_status_paths"))
     else:
         assert r.git("rev-parse", "HEAD").stdout == before
         ledger = records(r)
-        assert len(ledger) == 1 and ledger[0]["authority"] == "READ" and ledger[0]["action"] == "githelper.is_git_repo" and ledger[0]["outcome"] == "allowed"
+        assert len(ledger) == 2
+        assert ledger[0]["authority"] == "READ" and ledger[0]["action"] == "githelper.is_git_repo" and ledger[0]["outcome"] == "allowed"
+        assert ledger[1]["authority"] == "READ" and ledger[1]["action"] == "githelper.git_status_paths" and ledger[1]["outcome"] == "allowed"
 
 
 def test_private_main_explicit_commit_handler(repository, monkeypatch):

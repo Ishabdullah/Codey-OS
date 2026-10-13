@@ -217,7 +217,14 @@ def test_public_status_is_literal_under_each_ambient_mode(repository, monkeypatc
     monkeypatch.setenv(mode, "1")
     result = githelper.git_status_paths(["Case*.py"], str(r.repo))
     assert "Case*.py" in result and "caseNeighbor.py" not in result
-    assert os.environ[mode] == "1" and not r.audit.exists()
+    assert os.environ[mode] == "1"
+    # git_status_paths became a READ-gated worktree query in WP2.1 slice30
+    # (core/git_worktree_context.py); its fixed environment allowlist
+    # excludes GIT_*_PATHSPECS by construction rather than popping them from
+    # a copied os.environ at call time, so one allowed READ row is expected.
+    rows = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    assert len(rows) == 1 and rows[0]["authority"] == "READ" and rows[0]["outcome"] == "allowed"
+    assert rows[0]["action"] == "githelper.git_status_paths"
 
 
 def test_public_status_empty_list_retains_unrestricted_status(repository):
@@ -226,27 +233,20 @@ def test_public_status_empty_list_retains_unrestricted_status(repository):
     (r.repo / "unrelated.txt").write_text("changed\n")
     result = githelper.git_status_paths([], str(r.repo))
     assert "core/example.py" in result and "unrelated.txt" in result
-    assert not r.audit.exists()
+    rows = [json.loads(line) for line in r.audit.read_text().splitlines()]
+    assert len(rows) == 1 and rows[0]["authority"] == "READ" and rows[0]["outcome"] == "allowed"
 
 
-def test_public_status_removes_exactly_four_env_keys_and_preserves_operands(monkeypatch):
-    for key in MODE_KEYS:
-        monkeypatch.setenv(key, "1")
-    monkeypatch.setenv("PRESERVE_QUERY_SENTINEL", "unchanged")
-    before = dict(os.environ)
-    runner = Mock(return_value=SimpleNamespace(stdout="original status\n"))
-    monkeypatch.setattr(githelper, "run_git", runner)
-    operands = ["*.py", ":(glob)*", b"raw?bytes"]
-    assert githelper.git_status_paths(operands, "/temporary cwd") == "original status"
-    argv = runner.call_args.args[0]
-    assert argv == ["git", "--literal-pathspecs", "status", "--short", "--", *operands]
-    assert runner.call_args.kwargs.keys() == {"env", "capture_output", "text", "cwd"}
-    child = runner.call_args.kwargs["env"]
-    assert child is not os.environ and not child.keys() & MODE_KEYS
-    preserved = child == {key: value for key, value in before.items() if key not in MODE_KEYS}
-    unchanged = dict(os.environ) == before
-    assert preserved and unchanged
-    assert runner.call_args.kwargs["cwd"] == "/temporary cwd"
+# test_public_status_removes_exactly_four_env_keys_and_preserves_operands was
+# removed in WP2.1 slice30: it asserted on git_status_paths calling
+# githelper.run_git directly with an os.environ copy that had the four
+# GIT_*_PATHSPECS keys popped. That mechanism no longer exists -
+# git_status_paths is now READ-gated through core/git_worktree_context.py,
+# whose _Worktree.environment is a fixed, literal allowlist dict that never
+# contains those keys (or any other os.environ-derived value) in the first
+# place. The substantive guarantee (ambient pathspec-mode env vars cannot
+# change literal-path behavior) is still exercised end-to-end, under the real
+# gate, by test_public_status_is_literal_under_each_ambient_mode above.
 
 
 @pytest.mark.parametrize("operation", ["scoped", "broad", "checkpoint"])

@@ -18,6 +18,7 @@ from core.git_commit_context import (
 )
 from core.git_execution import run_git
 from core.git_query_context import metadata_query
+from core.git_worktree_context import worktree_query
 
 # ── Basic repo queries ─────────────────────────────────────────────────────────
 
@@ -39,15 +40,17 @@ def _git_status(path, runner):
 
 
 def git_status(path: str = None) -> str:
-    return _git_status(path, run_git)
+    """READ-gated worktree status; see core/git_worktree_context.py."""
+    return worktree_query(path, action="githelper.git_status", operation="status")
 
 
 def git_diff_stat(path: str = None) -> str:
-    path = path or os.getcwd()
-    result = run_git(
-        ["git", "diff", "--stat", "HEAD"], capture_output=True, text=True, cwd=path
-    )
-    return result.stdout.strip()
+    """READ-gated diff --stat; see core/git_worktree_context.py.
+
+    No production caller as of this slice (test-only; HANDOFF.md names this
+    as possible dead code — not fixed here, see handoff).
+    """
+    return worktree_query(path, action="githelper.git_diff_stat", operation="diff_stat")
 
 
 def git_log(n: int = 5, path: str = None) -> str:
@@ -149,21 +152,12 @@ def _git_status_paths(paths, path, runner):
 def git_status_paths(paths: List[str], path: str = None) -> str:
     """Status of literal paths; directories select subtrees, including '.'.
 
-    An empty path list retains historical unrestricted status. This provides no
-    single-file or workspace containment. Only ambient pathspec mode overrides
-    are removed; other query environment/configuration behavior is unchanged.
+    An empty path list retains historical unrestricted status (NEW-879). This
+    provides no single-file or workspace containment. READ-gated through
+    core/git_worktree_context.py, whose fixed environment allowlist excludes
+    GIT_*_PATHSPECS by construction (not popped at call time as before).
     """
-    environment = os.environ.copy()
-    for name in (
-        "GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS",
-        "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS",
-    ):
-        environment.pop(name, None)
-
-    def runner(argv, **kwargs):
-        return run_git(argv, env=environment, **kwargs)
-
-    return _git_status_paths(paths, path, runner)
+    return worktree_query(path, action="githelper.git_status_paths", operation="status_paths", paths=paths)
 
 
 def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
@@ -414,21 +408,14 @@ def detect_conflicts(path: str = None) -> List[str]:
     Return a list of files that currently have merge conflict markers
     in the working tree.  Uses 'git diff --name-only --diff-filter=U'
     which is the authoritative way to find unmerged paths.
+
+    READ-gated through core/git_worktree_context.py, which explicitly
+    supports active merge/cherry-pick/revert/rebase state (detect_conflicts
+    exists precisely to report unmerged paths). The UU/AA-only fallback
+    prefix check (misses DU/UD/AU/UA/DD) is preserved verbatim — a known,
+    separately-logged gap, not fixed in this slice.
     """
-    cwd = path or os.getcwd()
-    result = run_git(
-        ["git", "diff", "--name-only", "--diff-filter=U"], capture_output=True, text=True, cwd=cwd
-    )
-    files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
-    # Fallback: grep for conflict markers (catches edge cases)
-    if not files:
-        result2 = run_git(
-            ["git", "status", "--short"], capture_output=True, text=True, cwd=cwd
-        )
-        for line in result2.stdout.splitlines():
-            if line.startswith("UU ") or line.startswith("AA "):
-                files.append(line[3:].strip())
-    return files
+    return worktree_query(path, action="githelper.detect_conflicts", operation="detect_conflicts")
 
 
 def get_conflict_sections(filepath: str) -> dict:
@@ -502,25 +489,15 @@ def git_diff_for_commit(path: str = None, max_chars: int = 3000) -> str:
     Get a diff suitable for generating a commit message.
     Tries staged diff first, then unstaged.
     Truncates to `max_chars` to stay within context window.
+
+    READ-gated through core/git_worktree_context.py. Staged/unstaged diffs
+    succeed on unborn HEAD (vs the empty tree); the HEAD~1..HEAD fallback
+    fails on unborn AND on a single-commit (no-parent) repository — both
+    map explicitly to the existing "(no diff available)" sentinel.
+    Truncation can still cut mid-UTF-8/mid-hunk (pre-existing, not fixed
+    in this slice — see handoff).
     """
-    cwd = path or os.getcwd()
-
-    for args in (["git", "diff", "--cached"], ["git", "diff"]):
-        result = run_git(args, capture_output=True, text=True, cwd=cwd)
-        if result.stdout.strip():
-            diff = result.stdout.strip()
-            if len(diff) > max_chars:
-                diff = diff[:max_chars] + "\n... (truncated)"
-            return diff
-
-    # Nothing staged or unstaged — use HEAD diff
-    result = run_git(
-        ["git", "diff", "HEAD~1", "HEAD"], capture_output=True, text=True, cwd=cwd
-    )
-    diff = result.stdout.strip()
-    if len(diff) > max_chars:
-        diff = diff[:max_chars] + "\n... (truncated)"
-    return diff or "(no diff available)"
+    return worktree_query(path, action="githelper.git_diff_for_commit", operation="diff_for_commit", max_chars=max_chars)
 
 
 def git_commit_log_messages(n: int = 10, path: str = None) -> List[str]:

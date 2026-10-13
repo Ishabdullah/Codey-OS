@@ -1077,7 +1077,11 @@ def check_git_and_offer_commit(user_message, tools_used, files_touched=None):
     if not files_touched:
         return
 
-    status = git_status_paths(files_touched)
+    try:
+        status = git_status_paths(files_touched)
+    except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
+        error("Git worktree query failed.")
+        return
     if status == "Nothing to commit.":
         return
 
