@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, agent, task_executor
+from core import action_gateway, agent, git_execution, task_executor
 from core.action_gateway import HIGH_IMPACT, ActionGateway
 from tools import shell_tools
 from utils.config import AGENT_CONFIG
@@ -78,7 +78,7 @@ def test_strict_confirmation_and_exact_execution(gateway, monkeypatch, answer):
     prompt.assert_called_once_with(f"Run shell command: `{command}`?")
     if answer is True:
         assert result == "original stdout\n\n[stderr]\noriginal stderr"
-        runner.assert_called_once_with(shlex.split(command), capture_output=True, text=True, timeout=47)
+        runner.assert_called_once_with(shlex.split(command), capture_output=True, text=True, timeout=47, env=git_execution.shell_git_environment())
         assert_record(gateway, command, "allowed")
     else:
         assert result == "[CANCELLED] User declined to run command."

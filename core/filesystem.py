@@ -76,6 +76,36 @@ class Filesystem:
         except Exception as e:
             raise FilesystemAccessError(f"Failed to create checkpoint: {e}")
 
+    def _reject_git_metadata_mutation(self, path: Path) -> None:
+        """Deny write/patch/append under the repository's own `.git` directory
+        at the workspace or CODE_DIR root (NEW-894). Read access is
+        intentionally unaffected -- see read()/exists()/is_file()/is_dir()/
+        list_dir(), which still resolve these paths via _validate_path() alone
+        -- inspecting `.git/config` has a legitimate introspection use and
+        poses no injection risk by itself; only mutation does, since writing
+        new credential.helper/core.sshCommand/remote.origin.url lines (or
+        rewriting a worktree/submodule `.git` gitfile's `gitdir:` redirect)
+        takes effect on Git's next invocation with no executable bit needed.
+
+        Matches only the exact `.git` entry at the workspace or CODE_DIR root
+        (first path component after relative_to() succeeds against one of
+        those two roots), not any path containing the literal string ".git"
+        (so `.github/`, `.gitignore`, `foo.git.txt` are unaffected) and not a
+        nested repository's or submodule's own `.git` elsewhere in the tree
+        (a distinct directory, out of scope for this check -- see
+        NEW_ISSUES.md for the scope caveat on this).
+        """
+        for root in (self.workspace, CODE_DIR):
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                continue
+            if rel.parts and rel.parts[0] == ".git":
+                raise FilesystemAccessError(
+                    f"Access denied: {path} is inside a Git metadata directory "
+                    f"({root / '.git'}) and cannot be modified."
+                )
+
     def _validate_path(self, path: Union[str, Path]) -> Path:
         """
         Validate and resolve path.
@@ -187,6 +217,7 @@ class Filesystem:
         """
         try:
             path = self._validate_path(path)
+            self._reject_git_metadata_mutation(path)
 
             # Check if modifying Codey's own code (requires checkpoint)
             is_core = _is_core_file(str(path))
@@ -237,6 +268,7 @@ class Filesystem:
         """
         try:
             path = self._validate_path(path)
+            self._reject_git_metadata_mutation(path)
 
             if not path.exists():
                 raise FilesystemAccessError(f"File not found: {path}")
@@ -295,6 +327,7 @@ class Filesystem:
         """
         try:
             path = self._validate_path(path)
+            self._reject_git_metadata_mutation(path)
 
             # Check if modifying core files (requires checkpoint)
             is_core = _is_core_file(str(path))

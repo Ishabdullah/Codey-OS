@@ -9,6 +9,7 @@ environment only; repository/global configuration and helpers remain unbounded.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -140,6 +141,128 @@ def push_environment():
     environment["GIT_NO_LAZY_FETCH"] = "1"
     environment["GIT_CONFIG_COUNT"] = str(len(_PUSH_FORCED_OVERRIDES))
     for index, (key, value) in enumerate(_PUSH_FORCED_OVERRIDES.items()):
+        environment[f"GIT_CONFIG_KEY_{index}"] = key
+        environment[f"GIT_CONFIG_VALUE_{index}"] = value
+    return environment
+
+
+_SHELL_GIT_FORCED_OVERRIDES = {
+    "core.hookspath": "/dev/null",
+    "core.fsmonitor": "false",
+    "commit.gpgsign": "false",
+    "tag.gpgsign": "false",
+    "push.gpgSign": "false",
+    "submodule.recurse": "false",
+    "gc.auto": "0",
+    "maintenance.auto": "false",
+}
+
+
+def shell_git_environment():
+    """Snapshot one environment for a generic shell-tool git invocation.
+
+    Unlike push_environment(), whose base is _local_commit_environment()'s
+    narrow allowlist, this starts from the full ambient os.environ --
+    tools/shell_tools.py's _execute_shell_command() runs arbitrary non-git
+    commands with no env= override at all, and must not change that for
+    anything except the structural keys below.
+
+    Any ambient GIT_CONFIG_COUNT/GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n>/
+    GIT_CONFIG_PARAMETERS is removed before adding ours. This base is
+    untrusted ambient process environment, not a controlled allowlist like
+    push_environment()'s -- leaving a pre-existing block in place would
+    either let it survive underneath ours at a lower, harmless index, or
+    (worse) depend on index arithmetic staying correct if this function is
+    changed later. Removing it outright keeps the index trivial to audit.
+
+    Covers (planted in repo-local, global, or system Git config): hook
+    execution via core.hookspath; fsmonitor hook execution via
+    core.fsmonitor; GPG-signing subprocess invocation for commit/tag/push
+    via gpg.program (commit.gpgsign/tag.gpgsign/push.gpgSign); submodule
+    recursion into an unmediated child Git process via submodule.recurse;
+    background gc/maintenance subprocess spawning via gc.auto/
+    maintenance.auto.
+
+    Named residual, NOT covered, by design (Option B is a generic env
+    layer, not an operation-specific router -- see NEW_ISSUES.md NEW-893):
+      - `git -c core.hooksPath=<path>` or `--config-env=...` on the
+        command line take precedence over GIT_CONFIG_COUNT/KEY/VALUE and
+        defeat this entirely. Verified experimentally against the real
+        git binary (2026-10-13, disposable repo): with this function's
+        exact override set forced via env and a repository-local
+        core.hooksPath pointing at a hook that writes a marker file --
+        (a) no override: hook fires; (b) env override only: hook does
+        NOT fire; (c) env override plus `git -c core.hooksPath=<real
+        hooks dir>`: hook fires again, identically to (a). Mitigated
+        only by classify_shell_command() already requiring human
+        confirmation on every direct git invocation -- the residual risk
+        is a human approving a command whose -c/--config-env clause they
+        didn't notice, not silent unconfirmed execution.
+      - credential.helper (arbitrary `!command`), core.sshCommand,
+        core.editor, diff.external/textconv filter-driver programs, and
+        `!`-prefixed aliases remain live if planted in repo-local or
+        global config -- none of these are forced here.
+      - Ambient GIT_EXEC_PATH/GIT_SSH_COMMAND/GIT_ASKPASS pass through
+        unchanged by design (this is a generic shell tool; stripping a
+        user's own legitimate SSH/exec configuration would be an
+        unrequested behavior change for ordinary git usage).
+      - A git invocation reached indirectly through `env git ...`,
+        `xargs ... git ...`, or `find ... -exec git ...` is still
+        classified HIGH_IMPACT by classify_shell_command() (env/find/
+        xargs are each forced HIGH_IMPACT directly) and so still
+        requires human confirmation, but the inner git process it
+        eventually spawns is not the direct argv[0] `_execute_shell_
+        command()` inspects, so it still runs under full ambient env
+        once approved -- see NEW_ISSUES.md NEW-875.
+      - A `timeout 5 git push`-style wrapper is a DIFFERENT, worse case,
+        not covered by the paragraph above: `timeout` is not git/git-*,
+        not find/xargs/env, and not in READ_COMMANDS, so
+        classify_shell_command() falls through to ACT, not HIGH_IMPACT.
+        Verified (2026-10-13): `classify_shell_command("timeout 5 git
+        push")` returns `"ACT"`. ACT has no fail-closed rule, so with
+        `confirm_shell=False` (--yolo, fixmode, tdd, or the daemon's own
+        prior check) this runs with NO human confirmation at all, and
+        `_execute_shell_command()` also applies no env isolation (its
+        argv[0] is `timeout`, not a git basename) -- an unconfirmed,
+        fully ambient real git invocation. This is NEW-875's existing
+        "indirect shell execution" finding, not a new one; recorded as
+        an additional evidence line under that ID, not a new finding.
+      - An explicit `-S`/`--gpg-sign` on the command line (e.g. `git
+        commit -S -m msg`) bypasses commit.gpgsign entirely regardless
+        of this function's commit.gpgsign=false override -- Git's own
+        documentation says `-S` "countermand[s] both the commit.gpgSign
+        configuration variable, and earlier --gpg-sign", i.e. it does
+        not consult the config variable at all when passed explicitly.
+        Verified experimentally (2026-10-13, disposable repo): with
+        this function's exact override set forced via env and
+        gpg.program pointed at a script that writes a marker file,
+        `git commit -S -m x` still invokes the fake gpg and the marker
+        fires -- identically to the fully-ambient case. tag.gpgsign and
+        push.gpgSign are not independently re-verified here for the
+        same explicit-flag bypass (`git tag -s`, `git push --signed`),
+        but the same Git precedent (an explicit per-invocation flag
+        overriding a config default) makes the same gap plausible for
+        both; treat this residual as applying to all three until each
+        is checked.
+
+    Deliberately excludes diff.ignoresubmodules/status.submodulesummary/
+    rerere.enabled (present in git_mutation_context.py::_FORCED_OVERRIDES
+    for mutation operations): those three change what `git status`/`git
+    diff`/a merge *reports*, they do not spawn a subprocess, and this
+    function must not silently change the output of a plain `git status`
+    or `git diff` the agent runs through the shell tool to read real
+    repository state. Also excludes GIT_NO_LAZY_FETCH (push_environment()
+    only, prevents lazy-fetch during transmission; would break a
+    partial-clone `checkout`/`log -p` here, where lazy fetch may be
+    required for correct results).
+    """
+    environment = os.environ.copy()
+    environment.pop("GIT_CONFIG_PARAMETERS", None)
+    for name in list(environment):
+        if name == "GIT_CONFIG_COUNT" or re.fullmatch(r"GIT_CONFIG_(KEY|VALUE)_\d+", name):
+            del environment[name]
+    environment["GIT_CONFIG_COUNT"] = str(len(_SHELL_GIT_FORCED_OVERRIDES))
+    for index, (key, value) in enumerate(_SHELL_GIT_FORCED_OVERRIDES.items()):
         environment[f"GIT_CONFIG_KEY_{index}"] = key
         environment[f"GIT_CONFIG_VALUE_{index}"] = value
     return environment

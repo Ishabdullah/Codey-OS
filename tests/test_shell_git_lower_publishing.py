@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from core import action_gateway, agent, task_executor
+from core import action_gateway, agent, git_execution, task_executor
 from core.action_gateway import ACT, HIGH_IMPACT, ActionGateway
 from tools import shell_tools
 from utils.config import AGENT_CONFIG
@@ -111,7 +111,7 @@ def test_approved_family_preserves_argv_output_timeout(gateway, monkeypatch, fam
     monkeypatch.setattr(shell_tools.subprocess, "run", runner)
     assert shell_tools.shell(command, timeout=41) == "original stdout\n\n[stderr]\noriginal stderr"
     prompt.assert_called_once_with(f"Run shell command: `{command}`?")
-    runner.assert_called_once_with(shlex.split(command), capture_output=True, text=True, timeout=41)
+    runner.assert_called_once_with(shlex.split(command), capture_output=True, text=True, timeout=41, env=git_execution.shell_git_environment())
     assert_record(gateway, command, "allowed")
 
 

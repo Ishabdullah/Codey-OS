@@ -14,6 +14,7 @@ from core.action_gateway import (
     READ,
     get_action_gateway,
 )
+from core.git_execution import shell_git_environment
 from utils.config import AGENT_CONFIG
 from utils.logger import confirm as ask_confirm
 from utils.logger import warning
@@ -185,6 +186,16 @@ READ_COMMANDS = {
     "tree",
 }
 
+def _is_git_basename(base: str) -> bool:
+    """True if a parsed argv[0] basename names git or a git-<subcommand>
+    helper executable (e.g. git-upload-pack). Shared between
+    classify_shell_command()'s HIGH_IMPACT check and
+    _execute_shell_command()'s environment-isolation check so the two
+    can never classify and execute a command differently.
+    """
+    return base == "git" or base.startswith("git-")
+
+
 def _direct_high_impact_after_quote_error(command: str) -> bool:
     """Recognize an identifiable restricted executable despite malformed quoting."""
     lexer = shlex.shlex(command, posix=True)
@@ -197,7 +208,7 @@ def _direct_high_impact_after_quote_error(command: str) -> bool:
         raw = command.split(maxsplit=1)
         executable = raw[0].strip("\"'") if raw else ""
     base = Path(executable).name
-    return base in {"git", "find", "xargs", "env"} or base.startswith("git-")
+    return _is_git_basename(base) or base in {"find", "xargs", "env"}
 
 
 def classify_shell_command(command: str) -> str:
@@ -235,7 +246,7 @@ def classify_shell_command(command: str) -> str:
         return ACT
 
     base = Path(parts[0]).name
-    if base in {"git", "find", "xargs"} or base.startswith("git-"):
+    if _is_git_basename(base) or base in {"find", "xargs"}:
         return HIGH_IMPACT
     if base == "env":
         return READ if len(parts) == 1 else HIGH_IMPACT
@@ -286,12 +297,10 @@ def _execute_shell_command(command: str, timeout: int) -> str:
         if not args:
             return "[ERROR] Empty command"
 
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        kwargs = {"capture_output": True, "text": True, "timeout": timeout}
+        if _is_git_basename(Path(args[0]).name):
+            kwargs["env"] = shell_git_environment()
+        result = subprocess.run(args, **kwargs)
         output = ""
         if result.stdout:
             output += result.stdout
