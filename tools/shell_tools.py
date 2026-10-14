@@ -189,17 +189,31 @@ READ_COMMANDS = {
 
 # Executables that dispatch their own trailing argv as a child process
 # (find -exec/-ok..., xargs, and the process-control/tracing wrappers
-# added for NEW-875's next slice). Unconditionally HIGH_IMPACT at both
-# classification sites below -- content of the wrapped command is never
-# parsed or evaluated, matching the pre-existing find/xargs precedent.
-# `env` is handled by its own bare-vs-argument-bearing check at both
-# sites and is deliberately NOT folded into this set. Known-incomplete
-# (su, script, unshare, taskset, setarch, ltrace, doas, unbuffer,
-# catchsegv deferred; su specifically needs a product decision, not a
-# code change, since it's privilege elevation, not just dispatch).
+# added for NEW-875's next slice, plus the WP2.1 group 1 closeout slice).
+# Unconditionally HIGH_IMPACT at both classification sites below --
+# content of the wrapped command is never parsed or evaluated, matching
+# the pre-existing find/xargs precedent. `env` is handled by its own
+# bare-vs-argument-bearing check at both sites and is deliberately NOT
+# folded into this set. Known-incomplete -- `su`, `doas`, `proot`
+# deliberately deferred: privilege-elevation-shaped wrappers are a
+# different risk category than plain command dispatch and need a
+# product-direction decision from Ish, not just a wider enumeration.
+# `busybox` IS included despite being a multi-call binary -- a
+# code-reviewer round for this change initially excluded it under a
+# "closer to interpreter dispatch than a fixed wrapper" rationale that
+# turned out to be false on direct probe: `busybox nice/env/timeout/
+# chroot git push` all dispatch exactly like this set's other members,
+# not like `sh -c`. Corrected rather than left standing (rule 6).
+# This set is a known-incomplete enumeration, not an exhaustive
+# classification of every process-dispatching wrapper on a Linux system
+# -- see NEW-904 for the long tail of same-class binaries (numactl,
+# prlimit, setpriv, firejail, proxychains, systemd-run, pkexec, etc.)
+# identified but not added this round.
 _EXEC_WRAPPER_BASENAMES = frozenset({
     "find", "xargs", "timeout", "nice", "nohup", "setsid", "stdbuf",
     "chrt", "ionice", "strace", "flock", "watch",
+    "script", "unshare", "taskset", "setarch", "ltrace", "unbuffer",
+    "catchsegv", "time", "chroot", "nsenter", "busybox",
 })
 
 
@@ -243,9 +257,11 @@ def classify_shell_command(command: str) -> str:
          every invocation is destructive; no discovery is performed.
       3. Direct exec-wrapper basenames (_EXEC_WRAPPER_BASENAMES: find,
          xargs, timeout, nice, nohup, setsid, stdbuf, chrt, ionice,
-         strace, flock, watch) and argument-bearing env -> HIGH_IMPACT.
-         These can dispatch children or produce other effects. Only a
-         successfully tokenized bare env remains READ; no child is parsed.
+         strace, flock, watch, script, unshare, taskset, setarch,
+         ltrace, unbuffer, catchsegv, time, chroot, nsenter, busybox)
+         and argument-bearing env -> HIGH_IMPACT. These can dispatch
+         children or produce other effects. Only a successfully
+         tokenized bare env remains READ; no child is parsed.
       4. Other executables retain their previous READ/ACT labels.
          Wrappers and arbitrary scripts still require separate assessment.
     """
@@ -306,11 +322,11 @@ def _shell_command_targets_git_metadata(command: str, *, cwd: Path, roots) -> bo
 
     Named residuals (documented, not silently claimed covered):
     - A READ_COMMANDS member wrapped in a non-exempt basename
-      (`taskset -c 0 cat .git/config`) loses its read exemption -- same
+      (`proot cat .git/config`) loses its read exemption -- same
       argv[0]-only blind spot classify_shell_command() already has for
       wrapper basenames outside _EXEC_WRAPPER_BASENAMES (NEW-875;
       `timeout`/`nice`/etc. are now covered unconditionally by that set
-      instead; `taskset` itself remains one of the deliberately-deferred
+      instead; `proot` itself remains one of the deliberately-deferred
       names, see _EXEC_WRAPPER_BASENAMES's comment). Directionally safe
       here (over-escalates a read) rather than unsafe.
     - sort/uniq/tree/file are scanned on every argument, not just their
@@ -426,6 +442,33 @@ def _validate_command(command: str) -> tuple:
     return True, "OK"
 
 
+def _argv_token_hits_git(token: str) -> bool:
+    """True if `token` (one already-parsed argv element) is itself a
+    git/git-* basename, or -- for a `-c`/single-string wrapper dispatch
+    shape where the whole wrapped command arrives as one already-quoted
+    token (`flock /tmp/l -c 'git push'`, `watch 'git push'`, `script -c
+    'git push' /dev/null`) -- shlex-splitting the token reveals a
+    git/git-* basename among ITS OWN sub-tokens. The plain-token check
+    always runs first and is unconditional; the shlex.split() attempt on
+    the token only adds coverage on top of it. On malformed quoting
+    inside the token, falls back to a bare whitespace .split() -- the
+    same fallback this module's other shlex.split() call sites use on a
+    ValueError (e.g. _parse_command(), _validate_command()) -- rather
+    than giving up, since a malformed-but-identifiable token (e.g.
+    `"git push 'unterminated"`) must still be found: this check only
+    ever adds coverage on top of the plain-token result, never
+    suppresses it, so it cannot regress detection below the pre-fix
+    baseline.
+    """
+    if _is_git_basename(Path(token).name):
+        return True
+    try:
+        sub_tokens = shlex.split(token)
+    except ValueError:
+        sub_tokens = token.split()
+    return any(_is_git_basename(Path(t).name) for t in sub_tokens)
+
+
 def _execute_shell_command(command: str, timeout: int) -> str:
     """Actually run `command` via subprocess and return its output as a
     string. No confirmation, classification, or gating logic here — this
@@ -442,21 +485,41 @@ def _execute_shell_command(command: str, timeout: int) -> str:
         if _is_git_basename(base0):
             kwargs["env"] = shell_git_environment()
         elif base0 in _EXEC_WRAPPER_BASENAMES or base0 == "env":
-            # NEW-875 follow-up: a git/git-* command wrapped by one of
+            # NEW-875 follow-up, extended for the WP2.1 group 1 closeout
+            # (NEW-875 follow-on): a git/git-* command wrapped by one of
             # these exec wrappers (e.g. `timeout 5 git push`) is already
             # HIGH_IMPACT via classify_shell_command(), but args[0] here
             # is the wrapper's own basename, not git's -- without this,
             # an approved wrapped git command would run fully ambient,
             # unlike a direct `git push`. Scans every remaining argv
-            # token (not just the first) since the wrapped command's
-            # position varies by wrapper; this also means a git basename
-            # appearing anywhere in argv (e.g. as a plain argument to
-            # `find`/`grep`, not the command being wrapped) triggers the
-            # same env isolation. Accepted as benign over-application --
+            # token (not just the first) via _argv_token_hits_git(),
+            # which checks both the token itself AND (for a `-c`/
+            # single-string dispatch shape like `flock /tmp/l -c 'git
+            # push'`, `watch 'git push'`, `script -c 'git push'
+            # /dev/null`, where the wrapped command arrives as one
+            # already-quoted argv token) that token's own shlex-split
+            # sub-tokens, since a plain Path(token).name check alone
+            # never matches a multi-word quoted token. Position varies
+            # by wrapper; this also means a git basename appearing
+            # anywhere in argv (e.g. as a plain argument to `find`/
+            # `grep`, not the command being wrapped) triggers the same
+            # env isolation. Accepted as benign over-application --
             # these commands are already HIGH_IMPACT, and env isolation
             # only sets environment variables, it doesn't change what
             # runs.
-            if any(_is_git_basename(Path(a).name) for a in args[1:]):
+            #
+            # Still-named residuals (not claimed covered by this scan):
+            # - Only one level of shlex-splitting is attempted per
+            #   token, so a doubly-nested dispatch shape
+            #   (`watch "sh -c 'git push'"`) still misses -- the outer
+            #   token's sub-tokens are `sh`, `-c`, `git push`, and
+            #   `git push` itself is never re-split again.
+            # - The benign over-application noted above now also
+            #   extends to a single-string token's sub-tokens: a
+            #   non-git single-string payload that happens to embed a
+            #   bare `git` word (e.g. `watch 'echo git status later'`)
+            #   also picks up env isolation, same accepted trade-off.
+            if any(_argv_token_hits_git(a) for a in args[1:]):
                 kwargs["env"] = shell_git_environment()
         result = subprocess.run(args, **kwargs)
         output = ""

@@ -24,7 +24,18 @@ from utils.config import AGENT_CONFIG
     "ionice", "ionice -c3 git push", "ionice -c3 helper",
     "strace", "strace git push", "strace helper",
     "flock", "flock /temporary/lock git push", "flock /temporary/lock helper",
-    "watch", "watch git push", "watch helper"])
+    "watch", "watch git push", "watch helper",
+    "script", "script -c 'git push' /temporary/typescript", "script -c helper /temporary/typescript",
+    "unshare", "unshare -r git push", "unshare -r helper",
+    "taskset", "taskset -c 0 git push", "taskset -c 0 helper",
+    "setarch", "setarch linux64 git push", "setarch linux64 helper",
+    "ltrace", "ltrace git push", "ltrace helper",
+    "unbuffer", "unbuffer git push", "unbuffer helper",
+    "catchsegv", "catchsegv git push", "catchsegv helper",
+    "time", "time git push", "time helper",
+    "chroot", "chroot /newroot git push", "chroot /newroot helper",
+    "nsenter", "nsenter -t 1 git push", "nsenter -t 1 helper",
+    "busybox", "busybox nice git push", "busybox nice helper"])
 @pytest.mark.parametrize("form", ["{}", "/temporary/bin/{}", "'./path with spaces/{}'"])
 def test_restricted_utility_forms(command, form):
     executable, separator, arguments = command.partition(" ")
@@ -36,7 +47,7 @@ def test_only_bare_env_is_read(command):
     assert shell_tools.classify_shell_command(command) == READ
 
 
-@pytest.mark.parametrize("executable", ["git", "git-custom", "find", "xargs", "env", "timeout", "nice", "nohup", "setsid", "stdbuf", "chrt", "ionice", "strace", "flock", "watch"])
+@pytest.mark.parametrize("executable", ["git", "git-custom", "find", "xargs", "env", "timeout", "nice", "nohup", "setsid", "stdbuf", "chrt", "ionice", "strace", "flock", "watch", "script", "unshare", "taskset", "setarch", "ltrace", "unbuffer", "catchsegv", "time", "chroot", "nsenter", "busybox"])
 @pytest.mark.parametrize("form", ["{} 'unterminated", "'{} argument", "'/temporary/path with spaces/{}' 'unterminated"])
 def test_identifiable_malformed_restricted_quotes(executable, form):
     assert shell_tools.classify_shell_command(form.format(executable)) == HIGH_IMPACT
@@ -45,6 +56,61 @@ def test_identifiable_malformed_restricted_quotes(executable, form):
 @pytest.mark.parametrize(("command", "expected"), [("pwd", READ), ("printenv", READ), ("ls -la", READ), ("grep x file", READ), ("echo safe", ACT), ("python3 arbitrary.py", ACT), ("python3 'unterminated", ACT), ("rm -rf /temporary", HIGH_IMPACT)])
 def test_unrelated_classifications_unchanged(command, expected):
     assert shell_tools.classify_shell_command(command) == expected
+
+
+@pytest.mark.parametrize("command", ["doas git push", "su -c 'git push'", "proot git push"])
+def test_deliberately_deferred_wrappers_pin_act_pending_ish_decision(command):
+    """Pins the deliberately-deferred state (as of this round, WP2.1
+    group 1 closeout): `doas`/`su`/`proot` are privilege-elevation-shaped
+    wrappers, a different risk category than plain command dispatch, and
+    are NOT in _EXEC_WRAPPER_BASENAMES pending a product-direction
+    decision from Ish -- see that set's comment. If a future change adds
+    any of these, this test should be updated deliberately (to assert
+    HIGH_IMPACT), not left silently failing."""
+    assert shell_tools.classify_shell_command(command) == ACT
+
+
+def test_busybox_applet_wrapped_git_is_high_impact():
+    """`busybox` was initially excluded under a since-corrected rationale
+    (see _EXEC_WRAPPER_BASENAMES's comment, rule 6) that treated it as
+    interpreter-like rather than a plain applet dispatcher; a
+    code-reviewer round found that false on direct probe
+    (`busybox nice/env/timeout/chroot git push` all dispatch exactly like
+    this set's other members) and it was added, not deferred."""
+    assert shell_tools.classify_shell_command("busybox nice git push") == HIGH_IMPACT
+
+
+def test_time_wrapped_git_is_high_impact():
+    """`time` is one of the basenames newly added to
+    _EXEC_WRAPPER_BASENAMES this round -- unlike doas/su/proot above,
+    it is covered, not deferred."""
+    assert shell_tools.classify_shell_command("time git push") == HIGH_IMPACT
+
+
+def test_chroot_and_nsenter_wrapped_git_are_high_impact():
+    """`chroot`/`nsenter` were added alongside `unshare` (same
+    namespace/root-entry category, not the su/doas/proot
+    privilege-elevation-decision category) after code-reviewer flagged
+    them as an unlisted, unpinned gap in the first pass of this round."""
+    assert shell_tools.classify_shell_command("chroot /newroot git push") == HIGH_IMPACT
+    assert shell_tools.classify_shell_command("nsenter -t 1 git push") == HIGH_IMPACT
+
+
+def test_time_wrapped_benign_command_now_refused_without_confirmation(gateway, monkeypatch):
+    """Documents the functional behavior change code-reviewer flagged
+    (W2): adding `time` to _EXEC_WRAPPER_BASENAMES makes every
+    `time <cmd>` HIGH_IMPACT, so under confirm_shell=False (yolo/fixmode/
+    tdd) a previously-unconfirmed, benign `time pytest` is now refused
+    fail-closed rather than executed ambiently."""
+    runner, prompt = Mock(), Mock()
+    monkeypatch.setattr(shell_tools.subprocess, "run", runner)
+    monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
+    monkeypatch.setitem(AGENT_CONFIG, "confirm_shell", False)
+    result = shell_tools.shell("time pytest", timeout=53)
+    assert result.startswith("[BLOCKED]")
+    runner.assert_not_called()
+    prompt.assert_not_called()
+    assert_record(gateway, "time pytest", "refused")
 
 
 def test_classifier_does_not_discover_or_parse_children(monkeypatch):
@@ -147,6 +213,64 @@ def test_approved_non_git_wrapped_command_executes_without_git_env_isolation(gat
     up git environment isolation just because it's a wrapper -- only
     when the wrapped command itself is git/git-*."""
     command = "timeout 5 helper"
+    prompt = Mock(return_value=True)
+    runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="ok\n", stderr=""))
+    monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
+    monkeypatch.setattr(shell_tools.subprocess, "run", runner)
+    result = shell_tools.shell(command, timeout=53)
+    assert result == "ok"
+    runner.assert_called_once_with(shlex.split(command), capture_output=True, text=True, timeout=53)
+    assert_record(gateway, command, "allowed")
+
+
+@pytest.mark.parametrize("command", [
+    "flock /temporary/lock -c 'git push'",
+    "watch 'git push'",
+    "script -c 'git push' /temporary/typescript",
+    "watch \"git push 'unterminated\"",
+])
+def test_approved_quoted_single_string_wrapped_git_gets_isolation(gateway, monkeypatch, command):
+    """Fix for the residual bug found during WP2.1 group 1 closeout
+    scoping: a `-c`/single-string wrapper dispatch shape hands the
+    wrapped git command to the wrapper as ONE already-quoted argv token
+    (e.g. `'git push'`), so a plain Path(token).name check on args[1:]
+    never matches it (`Path('git push').name == 'git push'`, not
+    `'git'`). These commands already classify HIGH_IMPACT (confirmation
+    required either way), but without this fix executed with no git-env
+    isolation (hooks/gpgsign/fsmonitor not neutralized). The last case
+    has malformed quoting inside the single-string token itself (its own
+    shlex.split() raises ValueError), pinning _argv_token_hits_git()'s
+    whitespace-.split() fallback -- without that fallback (an earlier,
+    narrower version of the fix that returned False on ValueError
+    instead) this specific case stays un-isolated even after the main
+    fix. Discriminating: asserts the exact env object the mocked
+    shell_git_environment() returns is what's passed through, not just
+    that some `env` kwarg is present.
+    """
+    sentinel = {"SENTINEL": "1"}
+    prompt = Mock(return_value=True)
+    runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="ok\n", stderr=""))
+    monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
+    monkeypatch.setattr(shell_tools.subprocess, "run", runner)
+    monkeypatch.setattr(shell_tools, "shell_git_environment", lambda: sentinel)
+    result = shell_tools.shell(command, timeout=53)
+    assert result == "ok"
+    call_kwargs = runner.call_args.kwargs
+    assert runner.call_args.args == (shlex.split(command),)
+    assert call_kwargs["env"] is sentinel
+    assert_record(gateway, command, "allowed")
+
+
+@pytest.mark.parametrize("command", [
+    "flock /temporary/lock -c 'helper push'",
+    "watch 'helper push'",
+])
+def test_approved_quoted_single_string_wrapped_non_git_gets_no_isolation(gateway, monkeypatch, command):
+    """Negative companion to the fix above: a single-string wrapped
+    command that does NOT contain a git/git-* basename among its
+    sub-tokens must not pick up env isolation -- guards against the new
+    shlex-split-the-token path over-applying beyond actual git
+    basenames."""
     prompt = Mock(return_value=True)
     runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="ok\n", stderr=""))
     monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
