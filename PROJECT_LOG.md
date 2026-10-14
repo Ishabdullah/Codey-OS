@@ -1,3 +1,73 @@
+## 2026-10-14 — WP2.1 group 3 closeout: import/state isolation foundation (NEW-855, closes NEW-425/NEW-812); live-DB test-pollution purged; NEW-907/908/909 logged
+
+**Scope:** per explicit instruction ("continue all the way through 3-15 without
+stopping"), moved to WP2.1 group 3, "Import/state isolation foundation" — the
+census doc gives this only a one-line name, so project-architect derived the
+actual scope from the codebase and found it maps onto the existing, still-open
+**NEW-855** finding (with **NEW-812** sharing the same mechanism). Confirmed
+live, not theoretical: `core/memory_v2.py`'s module-level `get_memory()` call
+cascades into `core.state`/`core.checkpoint`/`core.model_registry`/
+`core.symbolic_graph` all computing their DB paths from `utils/config.py`'s
+hardcoded `CODEY_STATE_DIR` at **import time** — `pytest --collect-only` alone,
+with zero tests executed, already created a real on-disk `~/.codeyOS/state.db`.
+
+**This was not a hypothetical hazard — it had already polluted real production
+state for months.** A read-only query of this device's actual
+`~/.codeyOS/state.db` found 37,998 `episodic_log` rows, of which 37,763 were
+confirmed test-run artifacts by direct content inspection: `patch_file` rows
+were 100% literal `"[PATCH_FAILED] old_str not found..."` test-fixture text;
+`write_file` was 997/1008 literally `"Created test.py"`; `shell` rows included
+`"[BLOCKED] shell disabled in this test harness"` and
+`"BACKGROUND_DISPATCH_TEST_197"`; `tick` rows showed an unmistakable
+test-harness "Turn N" exponential-decay signature across 43 distinct days from
+2026-07-29 to 2026-10-14 (today) — versus only 235 genuine daemon-lifecycle
+rows. The `state` table's `strategy_tracker`/`error_database`/
+`user_preferences` keys and both `task_queue` rows were similarly fabricated
+test content.
+
+**Fix (test-side only, zero production behavior change):** `utils/config.py`'s
+`CODEY_STATE_DIR` now honors an env var override (closes NEW-425, matching
+`lib/service_manager.sh`'s existing `$DAEMON_DIR` convention); the root
+`conftest.py` sets that env var at collection time, before any test module
+import reaches the affected modules, to a fresh per-session temp dir — closing
+NEW-855 and, as a consequence, NEW-812 (same import-time-schema-init pattern
+in `core/model_registry.py`). Production import-time semantics deliberately
+untouched — this is a precollection test bootstrap, not a rewrite of
+`get_memory()`'s eager singleton or `StateStore.__init__`'s timing.
+
+**Code-reviewer approved with two warnings, both fixed by the coordinator
+directly:** a leaked `codeyos-test-state-*` temp dir per pytest session (fixed
+with `atexit.register(shutil.rmtree, ...)`, verified 43→44→43 across one
+import/exit cycle, and the 43 pre-existing leaked dirs cleaned up); and
+`os.environ.setdefault()` not overriding an already-exported empty
+`CODEY_STATE_DIR=""` (fixed by checking falsiness explicitly instead).
+
+**Live-data cleanup, separate from the code fix, done with Ish's explicit
+authorization (2026-10-14):** backed up `~/.codeyOS/state.db` first
+(`state.db.bak-pre-new855-purge-20261014`, confirmed byte-identical before any
+write), then deleted the confirmed-polluted `episodic_log`/`state`/
+`task_queue` rows and 5 of 6 `checkpoints` rows, leaving the one checkpoint
+referencing a real production file (`patch_tools.py`) deliberately untouched
+as genuinely ambiguous rather than guessed at, then `VACUUM`ed. No daemon was
+running at the time (checked `ps aux` first). This is one-time; the code fix
+above prevents recurrence.
+
+**Three new findings logged, not fixed (NEW-907/908/909):** `restoricon_core/
+database.py`'s `DEFAULT_DB_PATH` independently re-derives `~/.codeyOS`
+rather than reading the new `CODEY_STATE_DIR` override (latent, same class as
+NEW-455); a pre-existing `tests/test_restoricon_core/` crash (resource
+exhaustion suspected) and pre-existing order-dependent `test_file_tools.py`
+failures, both confirmed to reproduce identically on an unmodified baseline —
+not caused by this round's changes, surfaced only because a full-suite
+verification run was attempted.
+
+**Commit:** `11f2d52`. Files: `utils/config.py`, `conftest.py`,
+`tests/test_new107_new109_observability_daemon_pid_uptime.py`,
+`tests/test_service_manager_config.py`,
+`tests/test_new855_codey_state_dir_isolation.py` (new), `NEW_ISSUES.md`.
+
+---
+
 ## 2026-10-14 — WP2.1 group 2 closeout: shell execution-error fidelity, audit-ledger portion (NEW-874); NEW-905/NEW-906 logged
 
 **Scope:** per explicit instruction ("do group 2"), moved to WP2.1's
