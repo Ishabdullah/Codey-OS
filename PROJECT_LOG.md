@@ -1,3 +1,72 @@
+## 2026-10-14 — WP2.1 group 4 closeout: CCOS dispatch and permissions (NEW-910/911/912); NEW-913/914 logged, NEW-908 reconfirmed
+
+**Scope:** per explicit instruction ("continue all the way through 3-15
+without stopping"), moved to WP2.1 group 4. The census doc names this only
+"CCOS dispatch and permissions" — project-architect derived the real scope
+from the codebase: `ccos/core/plugin_manager.py::PluginManager.call_capability()`
+is the ONE production-reachable CCOS dispatch point (unlike most of `ccos/`,
+confirmed dormant by NEW-769), and it had zero safety mediation. Production
+callers: `main.py`/`core/task_executor.py` (both dispatch `coding.run_agent`
+— the entire coding-agent loop runs through this with no outer audit trail),
+`core/agent.py` (`tool_crm_query`, whitelisted to 12 names), `core/
+dashboard_data.py` (`system.monitor_snapshot`), `restoricon_core/api/
+routes.py` (7 `crm.*` reads). Manifest `permissions`/`resource_limits` were
+validated as schema fields but read by nothing anywhere — written in 4
+places, read in none.
+
+**Fix:** mediated all three `call_capability()` dispatch branches (handler,
+HTTP/remote_bridge, in-process module) through the existing `core/
+action_gateway.py` `gate_exec()`/`refuse_exec()` mechanism — unmodified,
+only consumed, same mechanism groups 1-3 already built for shell/peer-
+delegate. Added a core-owned `CAPABILITY_AUTHORITY` table (built by reading
+each capability's actual implementation, coverage enforced by an AST-
+derived test that fails, not skips, on any unclassified call site) and a
+manifest-tag raise-only floor (`device:telephony`/`device:control`/
+`device:write`/`fs:private`/`audio:record` → HIGH_IMPACT, can only raise a
+classification, never lower one). Any unclassified capability name is now
+refused (`CapabilityRefused`), not allowed through — fail-closed default,
+the first time this dispatch point has had one. `register_capability_
+handler()` now requires an explicit `authority=` kwarg with no default
+(the NEW-763 `allow_dangerous`-defect pattern, avoided). Exception identity
+(`exc_holder[0]` re-raise, not a stringified rebuild) and `__cause__`
+preserved on both in-process and HTTP paths. `record_use` bookkeeping moved
+to fire only on ALLOWED/FAILED, never on REFUSED (the NEW-844 lesson).
+
+**Code-reviewer approved with warnings, all addressed or logged:** a missing
+negative-assertion test for `record_use` on REFUSED (added directly); a
+leaked temp dir in one standalone test script (fixed with the same
+`atexit`-cleanup pattern group 3 established); the "pre-existing" framing
+of a full-suite crash claim lacked a baseline run — verified directly by
+the coordinator with a clean `git worktree` at HEAD (zero group-4 changes):
+crashed again at the same ~82% mark as the implementer's run, this time as
+a `MemoryError` cascade through pytest's own teardown rather than a hard
+SQLite abort — two different failure manifestations at the same location
+on two separate unmodified-baseline runs, consistent with genuine resource
+exhaustion, not a bug tied to this diff. Filed as corroborating evidence
+under NEW-908 (already tracking this exact crash from group 3's round)
+rather than duplicated.
+
+**Two findings logged, not fixed (NEW-913/914):** dormant `ccos/core/
+planner.py`/`lifecycle_manager.py` call `call_capability()` with a
+non-literal (runtime-computed) name, outside the AST coverage test's scope
+— zero risk today since both callers are themselves dormant, but would
+silently fail-closed-refuse any uncovered name if that subgraph is ever
+activated. And: `gate_exec()`'s pre-existing generic `except Exception:
+reason=str(e)` path (shared by every `gate_exec()` caller, not unique to
+CCOS) can now write CRM customer text or HTTP endpoint URLs into the
+on-disk audit ledger via this round's newly-mediated paths — `core/
+action_gateway.py` itself was explicitly out of scope for this round
+(reuse, don't modify), so this needs its own scoped round.
+
+**Commit:** `b187422`. Files: `ccos/core/plugin_manager.py`, `conftest.py`,
+`ccos/tests/test_multi_domain.py`, `ccos/tests/
+test_external_plugin_supervision.py`, `tests/test_context_passing.py`,
+`ccos/plugins/coding/agent/test.py`, `tests/
+test_ccos_capability_authority_coverage.py` (new), `tests/
+test_ccos_capability_authority_gating.py` (new), `NEW_ISSUES.md`.
+
+---
+
 ## 2026-10-14 — WP2.1 group 3 closeout: import/state isolation foundation (NEW-855, closes NEW-425/NEW-812); live-DB test-pollution purged; NEW-907/908/909 logged
 
 **Scope:** per explicit instruction ("continue all the way through 3-15 without
