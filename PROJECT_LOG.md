@@ -1,3 +1,77 @@
+## 2026-10-14 — WP2.1 group 6 closeout: device boundaries (NEW-918) — a real LIVE gap, plus NEW-750's naming-bug class recurring 4x; NEW-786 follow-up logged
+
+**Scope:** per explicit instruction ("continue all the way through 3-15
+without stopping"), moved to WP2.1 group 6. Unlike groups 4/5 (both
+"mostly dormant, one small real thing"), this one is different in kind:
+project-architect found a genuinely live, unmediated gap, not just a
+dormant one.
+
+**The live gap:** `tools/shell_tools.py::classify_shell_command()` had no
+basename check for the `termux-` family. `termux-sms-send`,
+`termux-telephony-call`, `termux-camera-photo`, `termux-torch` — all real,
+installed Termux:API binaries, confirmed resolvable via `command -v` on
+this exact device — classified `ACT`, not `HIGH_IMPACT`. In `--yolo` mode
+(a real, already-used mode), human confirmation is skipped entirely, and
+`gate_exec()` runs `ACT` commands unconditionally. **Reproduced live
+before the fix:** `shell("termux-sms-send ...", yolo=True)` called
+`subprocess.run` with the real argv, unmediated — would have sent a real
+SMS with zero confirmation and zero audit record.
+
+**Fix:** added `_is_termux_basename()` (whole-family basename-prefix
+check, mirroring the existing git-basename check's style), wired into
+both `classify_shell_command()` and the malformed-quote fallback path.
+After the fix: refused-and-audited in any no-confirmation context, still
+runnable with explicit human confirmation in an ordinary interactive
+session, unchanged for that case.
+
+**Second sub-task, same round: NEW-750's naming-mismatch bug class
+recurred 3 more times, found by a class-closing invariant test.**
+`ccos/core/plugin_manager.py::_discover()` keys `self._modules` by a
+manifest's own `"name"` field; `call_capability()`'s in-process dispatch
+parses the `implementation` string's module prefix and looks it up
+directly — NEW-750 (`device/bridge`) already named one mismatch; this
+round's invariant test (built to scan ALL real manifests, not just the
+named one) found `device/termux_api`, `device/termux_api_extended`, and
+`vision/camera_capture` (this last one found mid-round, fixed in the same
+round per rule 8) had the identical mismatch — 70 capabilities across 4
+manifests total were falling through to a bare, unaudited `RuntimeError`
+instead of a properly-audited `CapabilityRefused`. All 4 plugins remain
+dormant after the fix (device_bridge: HIGH_IMPACT + no confirmation path;
+the other 3: no manifest permissions at all, refused at group 4's earlier
+unclassified gate) — this only changes HOW they're unreachable.
+
+**Code-reviewer approved with three warnings:** one (dead-code behavior
+claim for `termux-open`/`termux-clipboard-*`) was independently
+re-verified and found factually incorrect — `ALLOWED_COMMANDS`/
+`_validate_command` has zero callers anywhere (NEW-786's already-known
+dormant validator), so there was no actual behavior change; corrected the
+record rather than "fixing" a non-bug. The other two (missing
+malformed-quote test coverage; a manifest-count discrepancy, 19 not 18)
+were real and fixed/corrected directly.
+
+**Open product-direction question for Ish, flagged not decided:** is
+"HIGH_IMPACT + human confirmation" the right ceiling for
+`termux-sms-send`/`termux-telephony-call` specifically (they contact real
+third parties, unlike torch/wallpaper/volume), or should Ish want those
+two blocked outright with no confirmation path at all? Not resolved.
+
+**Also logged, not fixed:** a follow-up note on NEW-786 (this round found
+the concrete, device-specific instance of its previously-abstract
+"ACT/READ bypassable via yolo" finding); two Suspected findings about
+incomplete `dangerous` flag coverage in the termux_api/extended plugins
+(moot for the shell-tool path, would matter only if CCOS were activated).
+
+**Commit:** `9a930ac` (blueprint status update committed separately,
+`e4ec358`). Files: `tools/shell_tools.py`, `tests/test_shell_tools.py`,
+`ccos/plugins/device/bridge/manifest.json`, `ccos/plugins/device/
+termux_api/manifest.json`, `ccos/plugins/device/
+termux_api_extended/manifest.json`, `ccos/plugins/vision/
+camera_capture/manifest.json`, `tests/
+test_ccos_device_plugin_naming_fix.py` (new), `tests/
+test_ccos_plugin_manifest_naming_invariant.py` (new), `NEW_ISSUES.md`.
+
+---
+
 ## 2026-10-14 — WP2.1 group 5 closeout: capability resource enforcement (NEW-915), "no live gap" finding + dormant-path fix anyway; NEW-916/917 logged
 
 **Scope:** per explicit instruction ("continue all the way through 3-15
