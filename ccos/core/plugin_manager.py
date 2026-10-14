@@ -37,6 +37,7 @@ from ccos.core.capability_registry import (
     get_capability_registry,
 )
 from ccos.core.manifest_schema_v2 import normalize_manifest
+from ccos.core.sandbox import MAX_TIMEOUT as _SANDBOX_MAX_TIMEOUT
 from ccos.core.task_context import TaskContext
 from core.action_gateway import (
     ACT,
@@ -184,6 +185,42 @@ class CapabilityRefused(RuntimeError):
 def _max_authority(authorities: List[str]) -> str:
     """Highest-ranked authority among `authorities` (see _AUTHORITY_RANK)."""
     return max(authorities, key=lambda a: _AUTHORITY_RANK[a])
+
+
+# WP2.1 group 5 (dormant remote_bridge/external_process HTTP dispatch
+# timeout enforcement). Mirrors group 4's raise-only-floor pattern,
+# inverted: there a manifest tag could only RAISE authority above the
+# core floor, never lower it; here _DISPATCH_TIMEOUT_CEILING is a
+# core-owned ceiling a manifest/capability can only request something
+# TIGHTER than, never looser. Reuses ccos.core.sandbox's existing
+# MAX_TIMEOUT constant rather than duplicating the number -- sandbox.py
+# has no imports back into this module or capability_registry/
+# manifest_schema_v2, so this import carries no circular-import risk.
+_DISPATCH_TIMEOUT_CEILING = _SANDBOX_MAX_TIMEOUT
+_DEFAULT_DISPATCH_TIMEOUT = 10.0
+
+
+def _merge_capability_resource_limits(
+    cap_def: Dict[str, Any], plugin_manifest: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Build the `resource_limits` dict for a `Capability` constructed from
+    `cap_def`, folding in the capability's own `timeout_seconds` override.
+
+    normalize_manifest() (manifest_schema_v2.py) places a per-capability
+    `timeout_seconds` as a *sibling* key directly on each capability dict
+    (defaulted to 0 when absent) -- it is never nested under that same
+    capability's `resource_limits`. Reading `cap.resource_limits` alone
+    therefore only ever sees the plugin-level `resource_limits` dict
+    (or a capability-level one if a manifest author wrote one by hand);
+    a per-capability `timeout_seconds` override is silently dropped
+    unless folded in here. A falsy cap-level value (0 or absent) does not
+    shadow a real plugin-level default.
+    """
+    limits = dict(cap_def.get("resource_limits", plugin_manifest.get("resource_limits", {})))
+    cap_timeout = cap_def.get("timeout_seconds")
+    if cap_timeout:
+        limits["timeout_seconds"] = cap_timeout
+    return limits
 
 # NEW-278: manifests may specify a bare/relative `pid_file` (e.g.
 # "aigentik.pid"). Resolve those against the runtime state dir, not the
@@ -443,6 +480,44 @@ class PluginManager:
         self._handlers[cap_name] = handler
         self._handler_authority[cap_name] = authority
 
+    def _resolve_dispatch_timeout(self, cap: Optional[Capability], plugin: Plugin) -> float:
+        """Resolve the `urlopen()` timeout for an external_process/
+        remote_bridge HTTP dispatch call (WP2.1 group 5).
+
+        Precedence: the capability's own `resource_limits.timeout_seconds`
+        (folded in by `_merge_capability_resource_limits()` at load() time,
+        so a per-capability override already wins over the plugin-level
+        value there) > the plugin's `resource_limits.timeout_seconds` >
+        `_DEFAULT_DISPATCH_TIMEOUT`. A candidate is only used if it is a
+        real positive number -- 0 is "unset" (not "no timeout";
+        `urlopen(timeout=0)` is a non-blocking socket that fails near-
+        instantly), and a negative, NaN, non-numeric, or bool value is
+        treated the same as unset rather than raising or being passed
+        through, since `_discover()` never runs manifests through
+        `validate_manifest_v2()` -- a malformed value must fall back to
+        the default, not blow up before `call_capability()`'s fail-closed
+        authority gate even gets a chance to refuse/audit the call. The
+        chosen value is clamped to `_DISPATCH_TIMEOUT_CEILING`: a
+        manifest/capability may only request something TIGHTER than the
+        core ceiling, never looser.
+        """
+
+        def _is_valid(value: Any) -> bool:
+            return (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and value == value  # excludes NaN
+                and value > 0
+            )
+
+        for raw in (
+            cap.resource_limits.get("timeout_seconds") if cap is not None else None,
+            plugin.resource_limits.get("timeout_seconds"),
+        ):
+            if _is_valid(raw):
+                return min(float(raw), float(_DISPATCH_TIMEOUT_CEILING))
+        return _DEFAULT_DISPATCH_TIMEOUT
+
     def _authority_for(self, cap_name: str, cap: Optional[Capability]) -> Optional[str]:
         """Classify cap_name's effective dispatch authority, or None if
         unclassified (the fail-closed default then applies in
@@ -560,7 +635,7 @@ class PluginManager:
                     status=CapabilityStatus.ACTIVE,
                     version=plugin.version,
                     execution_mode=cap_def.get("execution_mode", exec_mode),
-                    resource_limits=cap_def.get("resource_limits", plugin.manifest.get("resource_limits", {})),
+                    resource_limits=_merge_capability_resource_limits(cap_def, plugin.manifest),
                     permissions=cap_def.get("permissions", plugin.manifest.get("permissions", [])),
                     inputs_schema=cap_def.get("inputs_schema", {}),
                     outputs_schema=cap_def.get("outputs_schema", {}),
@@ -612,7 +687,7 @@ class PluginManager:
                     status=CapabilityStatus.ACTIVE,
                     version=plugin.version,
                     execution_mode=cap_def.get("execution_mode", exec_mode),
-                    resource_limits=cap_def.get("resource_limits", plugin.manifest.get("resource_limits", {})),
+                    resource_limits=_merge_capability_resource_limits(cap_def, plugin.manifest),
                     permissions=cap_def.get("permissions", plugin.manifest.get("permissions", [])),
                     inputs_schema=cap_def.get("inputs_schema", {}),
                     outputs_schema=cap_def.get("outputs_schema", {}),
@@ -797,6 +872,15 @@ class PluginManager:
 
                         def _execute() -> Any:
                             try:
+                                # Resolved inside the gated execute() callback,
+                                # not before gate_exec() runs: a malformed
+                                # manifest value must never raise ahead of
+                                # the fail-closed authority refusal/audit
+                                # trail above, and (though
+                                # _resolve_dispatch_timeout() itself never
+                                # raises) this keeps the HIGH_IMPACT-refused
+                                # case from doing this work at all.
+                                dispatch_timeout = self._resolve_dispatch_timeout(cap, plugin)
                                 payload = {
                                     "capability": cap_name,
                                     "args": list(args),
@@ -809,7 +893,7 @@ class PluginManager:
                                     headers={"Content-Type": "application/json"},
                                     method="POST",
                                 )
-                                with urllib.request.urlopen(req, timeout=10.0) as resp:
+                                with urllib.request.urlopen(req, timeout=dispatch_timeout) as resp:
                                     data = json.loads(resp.read().decode("utf-8"))
                                     return data.get("result", data)
                             except Exception as e:
