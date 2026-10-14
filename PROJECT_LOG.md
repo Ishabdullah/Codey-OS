@@ -1,3 +1,75 @@
+## 2026-10-14 — WP2.1 group 1 closeout: exec-wrapper basename extension, git-env-isolation gap fix (NEW-875); NEW-904 logged
+
+**Scope:** per explicit instruction ("finish group 1"), closed out WP2.1's
+"remaining shell classification/publishing-policy bypasses" work group
+(`docs/census-2026-10-09/WP2.1_remaining_scope.md`). project-architect
+re-scoped first and found the doc stale on two of its three named items:
+working-tree status/diff/conflict READ contracts were already closed by
+slice 30, and NEW-877's `githelper.py`/`checkpoint.py` call-site chain was
+already fully routed through gated context modules (its remaining
+sub-items are a separate audit-fidelity bug class, correctly left queued).
+The real remaining work was the deferred exec-wrapper basename set.
+
+**Fix:** `_EXEC_WRAPPER_BASENAMES` (`tools/shell_tools.py`) extended with
+`script`/`unshare`/`taskset`/`setarch`/`ltrace`/`unbuffer`/`catchsegv`/
+`time`/`chroot`/`nsenter`/`busybox` (11 basenames, added across three
+rounds — see below). Also fixed a real residual bug found mid-round: a
+`-c`/single-string wrapper dispatch shape (`flock /tmp/l -c 'git push'`,
+`watch 'git push'`, `script -c 'git push' ...`) delivers the wrapped git
+command as one already-quoted argv token, which the existing git-env-
+isolation reach-through's plain `Path(token).name` check could never
+match — these commands were already HIGH_IMPACT (no security hole), but
+ran with hooks/gpgsign/fsmonitor ambient instead of neutralized. New
+`_argv_token_hits_git()` helper also `shlex.split()`s each remaining
+token (with a whitespace-`.split()` fallback on malformed quoting) and
+checks its sub-tokens too.
+
+**Three code-reviewer rounds, not one** — the kind of thing this project's
+rule 6 exists for: round 1 approved the core mechanism but independently
+probed for unlisted real binaries in the same dispatch class and found
+`chroot`/`nsenter`/`busybox` all gap-classified ACT, overstating the
+"closeout" claim. The coordinator's direct fix (small, well-specified,
+applied without a new implementer round per this session's established
+pattern) added `chroot`/`nsenter` correctly, but initially deferred
+`busybox` under a stated rationale that round 2's reviewer then found
+flatly false by direct probe (`busybox nice/env/timeout/chroot git push`
+all dispatch exactly like the set's other members) — corrected, not left
+standing. Round 3 approved the correction and caught one more honest
+incidental fix: a docstring example (`taskset -c 0 cat .git/config`) had
+gone stale in the very commit that covered `taskset`, swapped for `proot`.
+
+**`su`/`doas`/`proot` remain deliberately deferred** — privilege-elevation
+is a different risk category from plain command dispatch, needs Ish's
+product-direction call, not a code change. **NEW-904 logged**: round 2's
+reviewer found 15 MORE real binaries in the same plain-dispatch class on
+one targeted probe (`numactl`, `prlimit`, `setpriv`, `chpst`, `firejail`,
+`proxychains`, `torsocks`, `tsocks`, `cgexec`, `xvfb-run`,
+`dbus-run-session`, `systemd-run`, `fakeroot`, `runuser`, `pkexec`) — a
+structural signal that basename enumeration for this risk class has no
+natural convergence. Logged rather than continuing an unbounded
+whack-a-mole sweep; flagged to Ish as a direction question (keep
+enumerating opportunistically vs. invert the policy to default-escalate
+multi-token commands) alongside the `su`/`doas`/`proot` decision.
+
+**Commit:** `9211b39`. Files: `tools/shell_tools.py`,
+`tests/test_shell_wrapper_boundaries.py`, `NEW_ISSUES.md`. Test run: 398
+passed (`tests/test_shell_wrapper_boundaries.py` alone, final state);
+1137 passed across the 15-file targeted set touching shell_tools.py
+(round-2 reviewer's independent re-run). Full `tests/` suite not run
+(RAM discipline — `free -h` showed 328Mi free / 3.7Gi available before
+the implementer's attempt; tracked PIDs killed cleanly, no name-pattern
+kill).
+
+**Next for WP2.1:** groups 2-15 of the remaining-scope doc's dependency
+chain (shell execution-error fidelity/NEW-874, CCOS dispatch/permissions,
+device/business/notification/HTTP boundaries, user-facing filesystem ops,
+checkpoints/persistence/lifecycle, self-improvement artifacts, final
+closure census) are still essentially untouched — see the doc for the
+full ordering. Two product-direction questions now queued for Ish:
+(1) su/doas/proot/runuser/pkexec/setpriv privilege-elevation-shaped
+wrappers, (2) the NEW-904 enumeration-ceiling direction. Group 1 itself
+is closed as far as basename enumeration can close it.
+
 ## 2026-10-14 — NEW-840/901/902/875 close; NEW-903 logged (follow-up round after NEW-900)
 
 **Scope:** per explicit instruction, moved the untracked `astral-sprig/` directory
