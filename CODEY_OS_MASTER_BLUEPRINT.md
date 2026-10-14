@@ -5,9 +5,18 @@ Census: 8 parallel read-only agents + coordinator. All 22 directive §16 section
 written. Per-task census reports retained in the session scratchpad; their findings
 are folded in below with `file:line` citations.
 **Nothing was implemented, moved, deleted, or archived this round** (directive §17).
-**Authority:** This document does **not** yet supersede `CODEY_MASTER_PLAN.md`.
-It becomes the primary execution document only on Ish's explicit approval.
-Until then `CODEY_MASTER_PLAN.md` remains authoritative.
+**Authority (Ish, 2026-10-14 — explicit approval given):** this document is
+now the **primary execution plan** — the authoritative current-state
+architecture and work register — superseding `CODEY_MASTER_PLAN.md`'s §4
+current-state snapshot and §6/Appendix A work register in full (not merely
+"partially superseded," as an earlier draft of this banner said). This is a
+roadmap/work-register supersession only. `CODEY_MASTER_PLAN.md` §2's
+numbered operating rules (RAM discipline, no name-pattern kills, mandatory
+code-reviewer on process-lifecycle changes, etc.) are **not** superseded,
+are **not** migrated here, and remain fully in force exactly as written —
+this document's own references to "rule N" throughout continue to mean
+`CODEY_MASTER_PLAN.md` §2's rule N. `CODEY_MASTER_PLAN.md` itself stays in
+place (not archived), carrying a banner stating the same split.
 
 **Update 2026-10-07 — long-term vision integrated (§23; new, additive).**
 Ish's statement of long-term direction (a persistent personal AI that lives on the

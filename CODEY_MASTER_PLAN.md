@@ -1,7 +1,22 @@
-# Codey Master Plan — the single authoritative plan
+# Codey Master Plan — the rules document; roadmap authority moved to the blueprint
 
-**Status: AUTHORITATIVE. Start here, every new chat/context window, for
-every agent (Claude Code, Qwen CLI, Gemini CLI, or a human).**
+**Status update (Ish, 2026-10-14):** `CODEY_OS_MASTER_BLUEPRINT.md` is now
+the **primary execution plan** — the authoritative current-state
+architecture and work register, superseding this document's §4
+current-state snapshot and §6/Appendix A work register **in full**. Start
+there for "what to build next" / "what is the current state."
+
+**This document remains authoritative for §2's numbered operating rules**
+(RAM discipline, no name-pattern kills, mandatory code-reviewer on
+process-lifecycle changes, and the rest) — those are **not** superseded,
+**not** migrated anywhere, and remain fully in force exactly as written.
+Every "rule N" reference anywhere in this repo (including in the
+blueprint) means §2's rule N in this document. §0 (how to read this
+document) and §3 (product scope/direction, still largely accurate
+background) also remain useful reading; §4/§6/Appendix A are the
+specifically-superseded sections — read the blueprint for those instead
+of this document's copies, which are frozen at the point of supersession
+and no longer updated.
 
 Created 2026-08-21 by merging, and superseding, six previously-separate
 documents:

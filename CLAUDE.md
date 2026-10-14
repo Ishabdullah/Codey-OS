@@ -2,12 +2,14 @@
 
 ## Start here (read this first, every new chat/context window)
 
-0. **`CODEY_OS_MASTER_BLUEPRINT.md`** — **the current work register and the
-   verified current-state architecture** (census of 2026-10-06, commits
-   `ff1fe43` → `b7de2ab`). Read §1 (executive summary), then §21 (the
-   dependency-ordered roadmap and the resolved-decision table). All 8 open
-   decisions were resolved by Ish on 2026-10-06, so the roadmap is ready to
-   execute; implementation had **not** started as of that date.
+0. **`CODEY_OS_MASTER_BLUEPRINT.md`** — **the primary execution plan: the
+   current work register and the verified current-state architecture**
+   (census of 2026-10-06, commits `ff1fe43` → `b7de2ab`; promoted to primary
+   execution plan by Ish, 2026-10-14, superseding `CODEY_MASTER_PLAN.md`'s
+   §4/§6/Appendix A **in full**, not partially). Read §1 (executive
+   summary), then §21 (the dependency-ordered roadmap and the
+   resolved-decision table). All 8 open decisions were resolved by Ish on
+   2026-10-06, so the roadmap is ready to execute.
    **Work §21's roadmap, not `CODEY_MASTER_PLAN.md` §6 / Appendix A, for
    anything the census touched.** Evidence with `file:line` citations is in
    `docs/census-2026-10-06/`; findings are `NEW-761`…`NEW-790`.
@@ -19,14 +21,17 @@
    restarted during development after checking `ps`/`ss`, but **never write
    to the live store** (`RESTORICON_DB_PATH` points at a copy in every
    dev/test configuration).
-1. **`CODEY_MASTER_PLAN.md`** — **the authoritative rules and project
-   history.** Its §2 numbered rules remain fully in force and are not
-   superseded by anything. Read §0 (how to read it) and §2 (rules) always.
-   Its §4 current-state snapshot and §6/Appendix A work register are
-   **partially superseded** by the blueprint above — both now carry banners
-   saying so, and where they disagree with the blueprint's §2/§5, **the
-   blueprint is the verified one** (it was traced from source; §4 predates
-   the census). Don't contradict either without an explicit, logged
+1. **`CODEY_MASTER_PLAN.md`** — **the rules document.** Its §2 numbered
+   rules remain fully in force, are not superseded by anything, and are
+   **not** migrated into the blueprint — every "rule N" reference anywhere
+   (including in the blueprint) means this document's §2 rule N. Read §0
+   (how to read it) and §2 (rules) always. Its §4 current-state snapshot and
+   §6/Appendix A work register are now **fully superseded** by the
+   blueprint above (as of 2026-10-14 — previously only "partially," both
+   docs now carry banners saying so) — read the blueprint for current
+   state/roadmap, this document is frozen there, not updated further.
+   §3 (product scope/direction) remains useful background. Don't contradict
+   §2's rules or the blueprint's roadmap without an explicit, logged
    decision from Ish.
 2. **`PROJECT_LOG.md`** — reverse-chronological record of every round.
    Read the top few entries for what just happened. The top entry names
