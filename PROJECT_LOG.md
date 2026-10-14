@@ -1,3 +1,88 @@
+## 2026-10-14 — WP2.1 group 2 closeout: shell execution-error fidelity, audit-ledger portion (NEW-874); NEW-905/NEW-906 logged
+
+**Scope:** per explicit instruction ("do group 2"), moved to WP2.1's
+"shell execution-error fidelity" work group (NEW-874). project-architect
+re-scoped against current code first (not the stale census doc) and
+confirmed group 1's work had NOT touched this bug: `_execute_shell_command`
+ignored `subprocess.run()`'s `returncode` entirely, and its three `except`
+branches (timeout/not-found/generic exception) caught and returned
+`"[ERROR] ..."` strings instead of raising — so `shell()`'s thunk never
+raised, and `gate_exec` audited `outcome="allowed"/reason="command
+executed"` for every shell invocation regardless of success, nonzero
+exit, timeout, or missing binary.
+
+**Fix:** split `_execute_shell_command` into `_run_shell_command_
+structured()`, returning a frozen `_ShellExecResult(text, kind, code)`
+with `kind`/`code` sourced directly from `subprocess.run()`'s real
+`returncode`/exception type. `shell()`'s `execute()` closure (mirroring
+`core/githelper.py::_gate_local_commit`'s nonlocal-capture-before-raise
+pattern) now classifies on `kind`/`code` and raises fixed, bounded
+`RuntimeError` reasons — never literal exception text or command output,
+which must never reach the on-disk audit ledger. Nonzero-exit output now
+gets a `"[EXIT N] "` prefix on the model-facing return (an intentional,
+disclosed change: a no-match `grep` is no longer indistinguishable from
+success to the model). `_execute_shell_command` itself was deleted in
+round 3 once it had no remaining callers; its name is updated in every
+docstring/comment that referenced it (`core/git_execution.py`,
+`tests/test_shell_wrapper_boundaries.py`).
+
+**Three code-reviewer rounds — round 1's own classification approach was
+unsound and had to be redesigned, not patched.** Round 1 classified by
+`.startswith()`-sniffing the same text string handed back to the model.
+The reviewer disproved this with a live probe: a genuinely successful
+(`returncode == 0`) command whose own stdout happened to start with
+`"[ERROR]"`/`"[EXIT 1] "` (e.g. `echo '[ERROR] hi'`) got misclassified as
+a failure in the ledger — exactly backwards — and an unbounded digit run
+in spoofed stdout could leak unbounded text into the audit `reason`
+field. Round 2 fixed this properly with the structured `kind`/`code`
+split above (verified independently against the exact spoof probe), but
+round 2's reviewer then caught a SECOND instance of the same text-
+sniffing bug class, this one left over from round 1 in `core/agent.py`'s
+episodic-memory-skip gate (`and not (name == "shell" and
+result.startswith("[EXIT "))`) — the round-2 implementer's "agent.py
+unchanged" claim was accurate for round 2's own diff, but the live
+round-1 hunk was still unsound and still there. The coordinator's direct
+fix (small, well-specified, no new implementer round) reverted that hunk
+rather than compound the bug, and pinned the resulting known gap with
+`test_execute_tool_shell_exit_failure_known_gap_slips_into_episodic_
+memory` so a future round can't silently "fix" it with the same
+shortcut. Round 3 approved the revert, plus two small coordinator-applied
+cleanups the reviewer flagged (W2: deleted the now-dead
+`_execute_shell_command` wrapper rather than leaving a stale "kept for
+callers" claim; W3: gave the empty-command case its own `kind="empty"`
+rather than lumping it under `"error"`).
+
+**Causation check on a separate, pre-existing issue:** a full `tests/`
+run (4788 tests) hung at a 600s/exit-124 timeout during this round's
+implementation. Reproduced identically on a plain `git worktree` at HEAD
+with none of this round's changes present (same ~19% mark, same two
+unrelated `F` failures around 12%) — confirmed pre-existing, not caused
+by this fix. **Logged as NEW-906** (suspected, not root-caused) rather
+than silently assumed-unrelated or silently ignored.
+
+**Episodic-memory/display-layer fidelity NOT closed this round** — only
+the audit-ledger portion of NEW-874's original scope. `execute_tool()`'s
+episodic-memory gate and `is_error()`/`show_shell()`'s display layer
+still classify by text-sniffing (or deliberately don't, for `is_error()`
+— it also drives auto-retry, so adding `"[EXIT "` there would auto-retry
+every grep/test/diff/failing-pytest call). **Logged as NEW-905**: the
+real fix needs `_ShellExecResult`'s structured signal threaded out
+through `TOOLS["shell"]`'s return contract, a larger, separate,
+architect-scoped change — not decided or attempted this round.
+
+**Evidence:** 510 passed, `tests/test_shell_refusal_accounting.py
+tests/test_shell_tools.py tests/test_shell_wrapper_boundaries.py
+tests/test_action_gateway.py tests/test_action_gateway_audit_failure.py
+tests/test_action_gateway_confirmation.py`, confirmed independently by
+the coordinator and by code-reviewer in all three rounds (509 passed
+before the coordinator's round-3 W2/W3 cleanup added one more test).
+
+**Commit:** `e3e969d`. Files: `tools/shell_tools.py`, `core/agent.py`,
+`core/git_execution.py`, `tests/test_shell_refusal_accounting.py`,
+`tests/test_shell_wrapper_boundaries.py`, `NEW_ISSUES.md`.
+
+---
+
 ## 2026-10-14 — WP2.1 group 1 closeout: exec-wrapper basename extension, git-env-isolation gap fix (NEW-875); NEW-904 logged
 
 **Scope:** per explicit instruction ("finish group 1"), closed out WP2.1's
