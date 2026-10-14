@@ -6,17 +6,36 @@ written. Per-task census reports retained in the session scratchpad; their findi
 are folded in below with `file:line` citations.
 **Nothing was implemented, moved, deleted, or archived this round** (directive §17).
 **Authority (Ish, 2026-10-14 — explicit approval given):** this document is
-now the **primary execution plan** — the authoritative current-state
-architecture and work register — superseding `CODEY_MASTER_PLAN.md`'s §4
-current-state snapshot and §6/Appendix A work register in full (not merely
-"partially superseded," as an earlier draft of this banner said). This is a
-roadmap/work-register supersession only. `CODEY_MASTER_PLAN.md` §2's
-numbered operating rules (RAM discipline, no name-pattern kills, mandatory
-code-reviewer on process-lifecycle changes, etc.) are **not** superseded,
-are **not** migrated here, and remain fully in force exactly as written —
-this document's own references to "rule N" throughout continue to mean
+now the **primary execution plan** for **Track A / Codey-OS core** (coding
+agent, CCOS, the Action Gateway, model loading,
+measurement/self-improvement) — the scope this census actually covered —
+superseding `CODEY_MASTER_PLAN.md`'s §4 current-state snapshot and the
+Track-A/WP-numbered portions of §6/Appendix A work register in full for
+that scope (not merely "partially superseded," as an earlier draft of this
+banner said). This is a roadmap/work-register supersession only, scoped to
+what the census reached. `CODEY_MASTER_PLAN.md` §2's numbered operating
+rules (RAM discipline, no name-pattern kills, mandatory code-reviewer on
+process-lifecycle changes, etc.) are **not** superseded, are **not**
+migrated here, and remain fully in force exactly as written — this
+document's own references to "rule N" throughout continue to mean
 `CODEY_MASTER_PLAN.md` §2's rule N. `CODEY_MASTER_PLAN.md` itself stays in
 place (not archived), carrying a banner stating the same split.
+
+**Track B — the Restoricon business-layer phases (`CODEY_MASTER_PLAN.md`
+§6.3-§6.13, B1-B9: CRM/sales, the web-facing dashboard/portals, backup/DR,
+the Sales Rep Portal, Codey-Estimator) — is a separate track this census
+did NOT cover**, and is explicitly **not** superseded by this document.
+`CODEY_MASTER_PLAN.md` remains the live, currently-updated tracker for
+Track B status, except where a specific item is separately reconciled
+here — currently only **§14 below** (Codey-Estimator / Phase B9), which
+duplicates nothing but tracks real drift/status this census found while
+scanning that code. **Open, flagged, not resolved:** Phase B8 (the Sales
+Rep Portal, `sales_rep_portal.md`, PLAN ONLY per `CODEY_MASTER_PLAN.md`
+§6.12) and the rest of Track B have no section here at all — where Track
+B should sit relative to this document's P0-P6 roadmap (a separate track
+entirely? folded into P5 "Cleanup and restructure"? left solely in
+`CODEY_MASTER_PLAN.md` indefinitely?) is an open reconciliation question
+for Ish, not decided by this approval.
 
 **Update 2026-10-07 — long-term vision integrated (§23; new, additive).**
 Ish's statement of long-term direction (a persistent personal AI that lives on the

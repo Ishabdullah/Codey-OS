@@ -6,9 +6,13 @@ live-verified.** Live verification requires the actual device
 section at the end for exactly what still needs to run there before this is
 "done" per rule 7.
 
-This is a spoke, not a second hub — `CODEY_MASTER_PLAN.md` remains the single
-authoritative plan (§0). Registered there as **Phase B9** (§6.13, Appendix A)
-with a one-line pointer back to this file. Reconciles the standalone
+This is a spoke, not a second hub — `CODEY_MASTER_PLAN.md` remains the
+authoritative plan for this Track B item (§0). Registered there as
+**Phase B9** (§6.13, Appendix A) with a one-line pointer back to this file.
+As of 2026-10-14, this phase's drift/status is also tracked in
+`CODEY_OS_MASTER_BLUEPRINT.md` §14 (found incidentally during that
+document's repo-wide census) — check both, and don't let any of the three
+drift apart. Reconciles the standalone
 [`Codey-Estimator`](https://github.com/Ishabdullah/Codey-Estimator) library's
 own `docs/ARCHITECTURE_PLAN.md` §14–24 design against the real current schema
 and RBAC in this repo — where they conflict, the real `database.py`/

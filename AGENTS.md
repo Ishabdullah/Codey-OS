@@ -1,9 +1,31 @@
 # Agent instructions — start here
 
-**Read [`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) first, every
-session.** It is the single authoritative document for this project: what
-it is, the non-negotiable rules, the architecture, where things actually
-stand today, and every outstanding item in dependency order.
+**Status update (Ish, 2026-10-14):** the roadmap authority split in two.
+Read [`CODEY_OS_MASTER_BLUEPRINT.md`](CODEY_OS_MASTER_BLUEPRINT.md) first,
+every session — it is now the **primary execution plan for Track A /
+Codey-OS core** (coding agent, CCOS, the Action Gateway, model loading,
+measurement/self-improvement — the scope its 2026-10-06 census actually
+covered): the current-state architecture and ordered work-package roadmap
+for that track (its own "Status update (2026-10-14)" note inside the
+WP2.1 entry marks exactly what's done so far, so you don't restart
+finished work). Read §1 (executive summary) then §21 (the
+dependency-ordered roadmap).
+
+**[`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) §2 remains the single
+authoritative source for the non-negotiable operating rules** — RAM
+discipline, no name-pattern kills, mandatory adversarial review on
+process-lifecycle changes, and the rest — unchanged, not superseded, not
+migrated anywhere. §0 (how to read it) and §3 (product scope/direction)
+are also still useful background. §4's current-state snapshot and the
+Track-A/WP-numbered portions of §6/Appendix A's work register are
+**superseded in full for that scope** by the blueprint above — they're
+frozen, not updated further; don't plan from them. **§6.3-§6.13/Appendix
+A's Track B items (Restoricon business phases B1-B9) are NOT
+superseded** — this census didn't cover them, so `CODEY_MASTER_PLAN.md`
+remains the live tracker for that work, except Phase B9/Codey-Estimator
+(also tracked in blueprint §14). Phase B8 (Sales Rep Portal) and the
+rest of Track B have no blueprint equivalent yet — flagged as an open
+reconciliation question for Ish, not resolved.
 
 Then, for context on what just happened and what's known-broken:
 - `PROJECT_LOG.md` — reverse-chronological record of every round (read
@@ -50,5 +72,6 @@ of it, which is exactly the drift the 2026-09-02 consolidation removed.
 In one line: architect scopes → implementer builds and unit-tests →
 **code-reviewer approves before every commit** → live-verifier confirms
 on-device when the change needs real (not mocked) evidence → coordinator
-updates `CODEY_MASTER_PLAN.md` §4 + Appendix A, `PROJECT_LOG.md`,
-`NEW_ISSUES.md`, and commits.
+updates `CODEY_OS_MASTER_BLUEPRINT.md`'s relevant roadmap entry (status
+update, not `CODEY_MASTER_PLAN.md` §4/Appendix A — that's now frozen),
+`PROJECT_LOG.md`, `NEW_ISSUES.md`, and commits.

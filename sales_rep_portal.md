@@ -2,9 +2,13 @@
 
 **Status: PLAN ONLY, nothing in this document is built.** Written
 2026-09-16. This is a spoke, not a second hub — `CODEY_MASTER_PLAN.md`
-remains the single authoritative plan (per its own front matter and
-`CLAUDE.md` rule "start here"). This document is registered there as
-**Phase B8** (§6, Appendix A) with a one-line pointer back to this file;
+remains the authoritative plan **for this Track B item** (per its own
+front matter and `CLAUDE.md` rule "start here"; `CODEY_OS_MASTER_
+BLUEPRINT.md`, the primary execution plan as of 2026-10-14, covers Track
+A / Codey-OS core and does not yet have a section for this phase — see
+its own authority note for that open reconciliation question). This
+document is registered in `CODEY_MASTER_PLAN.md` as
+**Phase B8** (§6.12, Appendix A) with a one-line pointer back to this file;
 do not let the two documents' status claims drift apart. Field lists
 already defined in `CODEY_MASTER_PLAN.md` Appendix C are **not repeated
 here** — this document only enumerates fields for genuinely net-new

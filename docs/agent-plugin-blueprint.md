@@ -1,9 +1,17 @@
 > [← Back to README](../README.md)
 
-> **Pointer note, 2026-08-21:** the current authoritative plan is
-> `CODEY_MASTER_PLAN.md` in the repo root. This document is still live
-> and still the design source for the manifest-schema and
-> agent-integration work (master plan §6.8, items 9.3/9.4). Its
+> **Pointer note, 2026-08-21, updated 2026-10-14:** the current roadmap
+> authority for Track A / Codey-OS core (which this document's
+> agent-integration/CCOS design work belongs to) is
+> `CODEY_OS_MASTER_BLUEPRINT.md` in the repo root, superseding
+> `CODEY_MASTER_PLAN.md` §4 and the Track-A portions of §6/Appendix A in
+> full for that scope; `CODEY_MASTER_PLAN.md` §2 remains authoritative
+> for the operating rules, and its Track B (Restoricon business-layer)
+> sections remain live and unaffected by this. This document is still
+> live and still the design source for the
+> manifest-schema and agent-integration work (master plan §6.8, items
+> 9.3/9.4 — historical citation, unaffected by the roadmap-authority
+> move). Its
 > references to `CODEY_OS_MASTER_VISION.md` and `WORK_QUEUE.md` section
 > numbers now resolve against the archived copies in `docs/archive/`,
 > which keep their original numbering.

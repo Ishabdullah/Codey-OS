@@ -2,17 +2,29 @@
 
 ## Start here (read this first, every new chat/context window)
 
-0. **`CODEY_OS_MASTER_BLUEPRINT.md`** — **the primary execution plan: the
-   current work register and the verified current-state architecture**
-   (census of 2026-10-06, commits `ff1fe43` → `b7de2ab`; promoted to primary
-   execution plan by Ish, 2026-10-14, superseding `CODEY_MASTER_PLAN.md`'s
-   §4/§6/Appendix A **in full**, not partially). Read §1 (executive
-   summary), then §21 (the dependency-ordered roadmap and the
-   resolved-decision table). All 8 open decisions were resolved by Ish on
-   2026-10-06, so the roadmap is ready to execute.
+0. **`CODEY_OS_MASTER_BLUEPRINT.md`** — **the primary execution plan for
+   Track A / Codey-OS core** (coding agent, CCOS, the Action Gateway, model
+   loading, measurement/self-improvement) — **the current work register
+   and verified current-state architecture for that scope** (census of
+   2026-10-06, commits `ff1fe43` → `b7de2ab`; promoted to primary execution
+   plan by Ish, 2026-10-14, superseding `CODEY_MASTER_PLAN.md`'s §4 and the
+   Track-A/WP-numbered portions of §6/Appendix A **in full for that scope**,
+   not partially). Read §1 (executive summary), then §21 (the
+   dependency-ordered roadmap and the resolved-decision table). All 8 open
+   decisions were resolved by Ish on 2026-10-06, so the roadmap is ready to
+   execute. Its WP2.1 entry carries a running "Status update" note marking
+   exactly what's done so far — check it before starting work, so you don't
+   redo something already closed.
    **Work §21's roadmap, not `CODEY_MASTER_PLAN.md` §6 / Appendix A, for
    anything the census touched.** Evidence with `file:line` citations is in
    `docs/census-2026-10-06/`; findings are `NEW-761`…`NEW-790`.
+   **Track B (the Restoricon business-layer phases, `CODEY_MASTER_PLAN.md`
+   §6.3-§6.13/B1-B9) is a separate track this census did not cover and is
+   NOT superseded** — `CODEY_MASTER_PLAN.md` remains the live tracker for
+   that work, except Phase B9/Codey-Estimator, which also has a status
+   section in blueprint §14. Phase B8 (Sales Rep Portal) and the rest of
+   Track B have no blueprint equivalent yet — an open reconciliation
+   question for Ish, not resolved.
    *Two things not to get wrong:* (a) **do not enable `CODEY_TRAJECTORY=1`
    and run the bench** until WP0.5 lands — that documented step is what
    triggers `NEW-761`'s evaluation leak, and the symptom is scores going
@@ -25,13 +37,17 @@
    rules remain fully in force, are not superseded by anything, and are
    **not** migrated into the blueprint — every "rule N" reference anywhere
    (including in the blueprint) means this document's §2 rule N. Read §0
-   (how to read it) and §2 (rules) always. Its §4 current-state snapshot and
-   §6/Appendix A work register are now **fully superseded** by the
-   blueprint above (as of 2026-10-14 — previously only "partially," both
-   docs now carry banners saying so) — read the blueprint for current
-   state/roadmap, this document is frozen there, not updated further.
-   §3 (product scope/direction) remains useful background. Don't contradict
-   §2's rules or the blueprint's roadmap without an explicit, logged
+   (how to read it) and §2 (rules) always. Its §4 current-state snapshot
+   and the Track-A/WP-numbered portions of §6/Appendix A work register are
+   now **fully superseded** by the blueprint above for that scope (as of
+   2026-10-14 — previously only "partially," both docs now carry banners
+   saying so) — read the blueprint for Track-A current state/roadmap, this
+   document is frozen there, not updated further. §3 (product scope/
+   direction) remains useful background. **§6.3-§6.13/Appendix A's Track B
+   items (the Restoricon business-layer phases, B1-B9) are NOT superseded**
+   — this document remains the live tracker for those, same as always,
+   except Phase B9/Codey-Estimator (also tracked in blueprint §14). Don't
+   contradict §2's rules or either roadmap without an explicit, logged
    decision from Ish.
 2. **`PROJECT_LOG.md`** — reverse-chronological record of every round.
    Read the top few entries for what just happened. The top entry names

@@ -254,7 +254,7 @@ PYTHONDONTWRITEBYTECODE=1 CODEY_TELEMETRY=0 python3 -m pytest -q -p no:cacheprov
 
 [`pytest.ini`](pytest.ini) excludes the benchmark's hidden task fixtures from ordinary collection: the benchmark harness runs those in isolated task copies. See [`bench/README.md`](bench/README.md) for evaluator mechanics. Before broad test runs, inspect fixtures and state paths: some integration paths can reach local services or inference. Tests involving business data must use copies or temporary stores.
 
-Contributors should read [`AGENTS.md`](AGENTS.md), the rules in [`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md), and [`CLAUDE.md`](CLAUDE.md). Follow the repository's architect → implementer → reviewer → live-verifier workflow. For live model tests, record `free -h`, run only one model-load cycle at a time, and stop only the specific processes the test spawned. Process-lifecycle changes require explicit adversarial review.
+Contributors should read [`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md), [`CODEY_OS_MASTER_BLUEPRINT.md`](CODEY_OS_MASTER_BLUEPRINT.md) for the current Track-A/Codey-OS-core roadmap, and [`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) §2 for the mandatory, still-fully-in-force operating rules (RAM discipline, no name-pattern kills, mandatory adversarial review on process-lifecycle changes, etc.) — see the table below for the full split, including Track B (Restoricon business work), which `CODEY_MASTER_PLAN.md` still tracks live. Follow the repository's architect → implementer → reviewer → live-verifier workflow. For live model tests, record `free -h`, run only one model-load cycle at a time, and stop only the specific processes the test spawned. Process-lifecycle changes require explicit adversarial review.
 
 ## Known limitations and direction
 
@@ -266,8 +266,8 @@ The broader vision remains a persistent personal companion and multi-domain AI o
 
 | Document | Use |
 |---|---|
-| [`CODEY_OS_MASTER_BLUEPRINT.md`](CODEY_OS_MASTER_BLUEPRINT.md) | October 6 architecture census and ordered work packages; later source changes supersede parts of that snapshot |
-| [`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) | Project vision, mandatory rules, architectural decisions, and historical plan |
+| [`CODEY_OS_MASTER_BLUEPRINT.md`](CODEY_OS_MASTER_BLUEPRINT.md) | **Primary execution plan for Track A / Codey-OS core** (2026-10-14): current-state architecture and ordered work-package roadmap for the coding agent/CCOS/Action Gateway, superseding `CODEY_MASTER_PLAN.md` §4 and the Track-A portions of §6/Appendix A in full for that scope |
+| [`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) | §2's mandatory operating rules (not superseded — read this for the rules); §0/§3 background also still useful; §4/Track-A §6/Appendix A are frozen, superseded by the blueprint above; **Track B (Restoricon business phases B1-B9, §6.3-§6.13) remains live here**, not superseded |
 | [`PROJECT_LOG.md`](PROJECT_LOG.md), [`NEW_ISSUES.md`](NEW_ISSUES.md) | Recent changes, recorded live evidence, limitations, and per-finding status |
 | [`AGI_AUDIT_PLAN.md`](AGI_AUDIT_PLAN.md), [`bench/README.md`](bench/README.md) | Improvement research direction and evaluation design |
 | [`docs/agent-plugin-blueprint.md`](docs/agent-plugin-blueprint.md) | Domain-agent and plugin integration direction |

@@ -1,10 +1,13 @@
 # Codey Master Plan — the rules document; roadmap authority moved to the blueprint
 
 **Status update (Ish, 2026-10-14):** `CODEY_OS_MASTER_BLUEPRINT.md` is now
-the **primary execution plan** — the authoritative current-state
-architecture and work register, superseding this document's §4
-current-state snapshot and §6/Appendix A work register **in full**. Start
-there for "what to build next" / "what is the current state."
+the **primary execution plan** for the work its 2026-10-06 census
+actually covered — the authoritative current-state architecture and work
+register for **Track A / Codey-OS core** (coding agent, CCOS, the Action
+Gateway, model loading, measurement/self-improvement), superseding this
+document's §4 current-state snapshot and the Track-A/WP-numbered portions
+of §6/Appendix A **in full** for that scope. Start there for "what to
+build next" on Codey-OS core.
 
 **This document remains authoritative for §2's numbered operating rules**
 (RAM discipline, no name-pattern kills, mandatory code-reviewer on
@@ -13,10 +16,23 @@ process-lifecycle changes, and the rest) — those are **not** superseded,
 Every "rule N" reference anywhere in this repo (including in the
 blueprint) means §2's rule N in this document. §0 (how to read this
 document) and §3 (product scope/direction, still largely accurate
-background) also remain useful reading; §4/§6/Appendix A are the
-specifically-superseded sections — read the blueprint for those instead
-of this document's copies, which are frozen at the point of supersession
-and no longer updated.
+background) also remain useful reading.
+
+**Track B — the Restoricon business-layer phases (§6.3-§6.13, B1-B9) —
+is NOT covered by the blueprint's census and is NOT superseded.** This
+document remains the live, currently-updated tracker for Track B's
+status (B1-B5 done; B6/B7 extensively built; B8 "Sales Rep Portal" is
+PLAN ONLY; B9 "Codey-Estimator Integration" is code-complete/reviewed/
+not-live-verified), **except** where a specific item has been separately
+reconciled into the blueprint — currently only B9/Codey-Estimator, which
+also has a live status section in blueprint §14. **Flagged, not
+resolved (2026-10-14):** B8 (`sales_rep_portal.md`) and the rest of
+Track B have no equivalent section in the blueprint at all yet; where
+Track B should sit in the blueprint's P0-P6 roadmap is an open
+reconciliation question for Ish, not decided here. §4/§6/Appendix A's
+**Track-A/WP-numbered content only** is the specifically-superseded,
+now-frozen material — Track B's sections keep being the live source for
+Track B status until reconciled.
 
 Created 2026-08-21 by merging, and superseding, six previously-separate
 documents:
@@ -5571,11 +5587,18 @@ Every open item from the superseded `TODO.md`, re-homed. IDs are kept
 unchanged so the archived evidence stays findable. `[ ]` = open,
 `[x]` = done (kept only where the note carries live information).
 
-> **⚠ 2026-10-06 — this register is now partially superseded.** The census
-> (commit `ff1fe43`) found that several items here are blocked by, or
-> invalidated by, prerequisites no prior plan recorded. For anything the
-> census touched, work **`CODEY_OS_MASTER_BLUEPRINT.md` §21** instead; this
-> register remains valid for items the census did not reach.
+> **⚠ 2026-10-06, updated 2026-10-14 — this register's Track-A/WP-numbered
+> items are now FULLY superseded, not merely "partially."** Ish gave
+> explicit approval (2026-10-14) for the blueprint to be the primary
+> execution plan for Track A / Codey-OS core, strengthening this note from
+> its original conditional "the census found several items blocked/
+> invalidated" framing. For anything the census touched (Track A), work
+> **`CODEY_OS_MASTER_BLUEPRINT.md` §21** instead — this register's
+> Track-A entries are frozen there, not updated further. **This register
+> remains the live, currently-updated source for Track B** (the business-
+> layer phases below — §6.3-§6.13/B1-B9, e.g. Phase B8 "Sales Rep Portal"
+> and Phase B9 "Codey-Estimator"), which the census did not cover; keep
+> updating those sections as before.
 >
 > Specifically, the blueprint's §21 **P0** must land before the AGI
 > workstream below proceeds any further:

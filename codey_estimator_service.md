@@ -7,8 +7,10 @@ round's build does not start until a session with device access confirms
 B9.1 and merges it — this document scopes the *next* round so that work is
 ready to route through the pipeline the moment B9.1 unblocks.
 
-This is a spoke, not a second hub — `CODEY_MASTER_PLAN.md` remains the single
-authoritative plan (§0). Registered there as an extension of **Phase B9**
+This is a spoke, not a second hub — `CODEY_MASTER_PLAN.md` remains the
+authoritative plan for this Track B item (§0; `CODEY_OS_MASTER_
+BLUEPRINT.md` §14 also tracks Phase B9's status as of 2026-10-14 — check
+both). Registered there as an extension of **Phase B9**
 (§6.13, Appendix A), same pattern as `sales_rep_portal.md` (B8) and
 `codey_estimator_schema.md` (B9.1). Field lists already defined in
 `codey_estimator_schema.md` are **not repeated here** — this document adds
