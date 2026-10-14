@@ -38,8 +38,152 @@ from ccos.core.capability_registry import (
 )
 from ccos.core.manifest_schema_v2 import normalize_manifest
 from ccos.core.task_context import TaskContext
+from core.action_gateway import (
+    ACT,
+    AUTHORITY_CLASSES,
+    HIGH_IMPACT,
+    OUTCOME_ALLOWED,
+    OUTCOME_FAILED,
+    READ,
+    get_action_gateway,
+)
 from utils.config import CODEY_STATE_DIR
 from utils.logger import warning
+
+# WP2.1 group 4 (NEW-910/911/912). Rank used to resolve the "raise-only
+# floor" rule below -- a manifest permission tag or a handler-supplied
+# authority can only move a capability's effective authority UP this
+# ranking, never down.
+_AUTHORITY_RANK = {READ: 0, ACT: 1, HIGH_IMPACT: 2}
+
+# Manifest `permissions` tags that force HIGH_IMPACT regardless of what
+# CAPABILITY_AUTHORITY says for that capability name -- device actuation,
+# privileged device control, private-filesystem access, and audio
+# recording are all treated as inherently high-impact even if a future
+# capability under one of these tags is never individually added to the
+# core table below. Matched by exact tag string. This can only RAISE a
+# classification (see _authority_for), never lower one set by the core
+# table.
+_MANIFEST_RAISE_TAGS: Dict[str, str] = {
+    "device:telephony": HIGH_IMPACT,
+    "device:control": HIGH_IMPACT,
+    "device:write": HIGH_IMPACT,
+    "fs:private": HIGH_IMPACT,
+    "audio:record": HIGH_IMPACT,
+}
+
+# Core-owned capability-name -> authority (READ/ACT/HIGH_IMPACT) table,
+# consulted at the top of call_capability() (WP2.1 group 4, NEW-910/911/
+# 912). Built by reading each capability's actual implementation, not
+# guessed -- see ccos/plugins/*/*/manifest.json + their .py modules.
+# Coverage for every literal call_capability() argument in core/, tools/,
+# main.py, restoricon_core/, plus core/agent.py's _CRM_QUERY_CAPABILITIES
+# dict values is enforced by an AST-derived test
+# (tests/test_ccos_capability_authority_coverage.py) rather than trusted
+# by inspection -- a hand-typed list is exactly the drift class
+# core/agent.py's own _CRM_QUERY_CAPABILITIES comment warns about
+# (NEW-750).
+#
+# Any capability name NOT in this table (and not covered by a manifest
+# raise-tag or an explicit handler authority, see _authority_for) is
+# refused at dispatch -- fail-closed default, not fail-open.
+CAPABILITY_AUTHORITY: Dict[str, str] = {
+    # coding/agent (ccos/plugins/coding/agent/manifest.json). run_agent's
+    # own internal shell/write safety is already handled inside
+    # core/agent.py's own gating (confirm_shell/confirm_write, the shell
+    # classifier) -- this just adds an outer audit trail at the CCOS
+    # dispatch boundary. run_recursive is pure draft/critique/refine LLM
+    # inference (core/recursive.py) with no file/shell side effects, so
+    # it is treated like a pure computation rather than a mutation.
+    # classify_breadth is a pure text classifier.
+    "coding.run_agent": ACT,
+    "coding.run_recursive": READ,
+    "coding.classify_breadth": READ,
+
+    # crm/core_query (ccos/plugins/crm/core_query/manifest.json) -- the
+    # twelve read-only CRM/sales query capabilities confirmed read-only
+    # via client.py; also the only names core/agent.py's tool_crm_query()
+    # whitelist (_CRM_QUERY_CAPABILITIES) is ever allowed to dispatch to.
+    "crm.count_open_leads": READ,
+    "crm.list_leads": READ,
+    "crm.get_lead": READ,
+    "crm.list_opportunities": READ,
+    "crm.get_opportunity": READ,
+    "crm.get_pipeline_summary": READ,
+    "crm.list_customers": READ,
+    "crm.get_customer": READ,
+    "crm.list_tasks": READ,
+    "crm.list_properties": READ,
+    "crm.list_estimates": READ,
+    "crm.list_communications": READ,
+
+    # system/thermal_monitor (ccos/plugins/system/thermal_monitor/
+    # manifest.json + thermal_monitor.py). monitor_snapshot/
+    # monitor_render_text/thermal_status/thermal_is_throttled/
+    # thermal_current_threads are pure getters; thermal_start_inference/
+    # thermal_end_inference/thermal_reset each call a `-> None` mutator
+    # in core/thermal.py.
+    "system.monitor_snapshot": READ,
+    "system.monitor_render_text": READ,
+    "system.thermal_status": READ,
+    "system.thermal_is_throttled": READ,
+    "system.thermal_current_threads": READ,
+    "system.thermal_start_inference": ACT,
+    "system.thermal_end_inference": ACT,
+    "system.thermal_reset": ACT,
+
+    # system/observability (ccos/plugins/system/observability/
+    # manifest.json + observability.py). Every property except
+    # reset_state is a read-only computed value per that module's own
+    # docstring; reset_state drops the process-wide State singleton
+    # (a `-> None` mutation).
+    "system.observability_tokens_used": READ,
+    "system.observability_memory_loaded": READ,
+    "system.observability_tasks_pending": READ,
+    "system.observability_tasks_running": READ,
+    "system.observability_model_active": READ,
+    "system.observability_model_state": READ,
+    "system.observability_temperature": READ,
+    "system.observability_context_size": READ,
+    "system.observability_memory_usage": READ,
+    "system.observability_cpu_usage": READ,
+    "system.observability_uptime": READ,
+    "system.observability_daemon_pid": READ,
+    "system.observability_health": READ,
+    "system.observability_full_status": READ,
+    "system.observability_reset_state": ACT,
+
+    # system/system_info (ccos/plugins/system/system_info/manifest.json +
+    # system_info.py) -- real registered capabilities exercised by
+    # ccos/tests/test_improvement_loop.py's real (non-mocked)
+    # PluginManager dispatch. Not in this round's required AST-coverage
+    # scope (core/, tools/, main.py, restoricon_core/) but classified
+    # anyway, disclosed beyond that list, because leaving them
+    # unclassified would fail-closed-refuse a pre-existing passing test
+    # for a capability that reads system info only (confirmed via its
+    # implementation: platform/*proc* reads and a `ps aux` listing, no
+    # mutation).
+    "system.info": READ,
+    "system.processes": READ,
+}
+
+
+class CapabilityRefused(RuntimeError):
+    """Raised when call_capability() refuses to dispatch a capability.
+
+    Covers both the fail-closed "no authority classification" default
+    and an ordinary HIGH_IMPACT-with-no-confirmation-path refusal.
+    Distinguishable in logs/except clauses from the pre-existing
+    "Capability '...' not found" RuntimeError (unregistered capability
+    name) raised earlier in call_capability() -- that case means nothing
+    with this name exists at all; this one means something exists but
+    dispatch was not permitted.
+    """
+
+
+def _max_authority(authorities: List[str]) -> str:
+    """Highest-ranked authority among `authorities` (see _AUTHORITY_RANK)."""
+    return max(authorities, key=lambda a: _AUTHORITY_RANK[a])
 
 # NEW-278: manifests may specify a bare/relative `pid_file` (e.g.
 # "aigentik.pid"). Resolve those against the runtime state dir, not the
@@ -278,12 +422,62 @@ class PluginManager:
         self._modules: Dict[str, Any] = {}  # loaded Python modules
         self._registry = registry or get_capability_registry()
         self._handlers: Dict[str, Callable] = {}
+        self._handler_authority: Dict[str, str] = {}
         self.supervisor = ProcessSupervisor()
         self._discover()
 
-    def register_capability_handler(self, cap_name: str, handler: Callable):
-        """Register an in-memory direct handler for a capability."""
+    def register_capability_handler(self, cap_name: str, handler: Callable, *, authority: str):
+        """Register an in-memory direct handler for a capability.
+
+        `authority` (one of READ/ACT/HIGH_IMPACT, see core.action_gateway)
+        is required and keyword-only, with no default -- a defaulted
+        kwarg acting as a safety boundary is exactly NEW-763's already-
+        logged `allow_dangerous` defect class. Effective authority for
+        `cap_name` is max(core-table-if-present, this value): a handler
+        registration can only raise the classification CAPABILITY_AUTHORITY
+        already assigns that name, never shadow it downward (see
+        _authority_for).
+        """
+        if authority not in AUTHORITY_CLASSES:
+            raise ValueError(f"Unknown authority class: {authority!r}")
         self._handlers[cap_name] = handler
+        self._handler_authority[cap_name] = authority
+
+    def _authority_for(self, cap_name: str, cap: Optional[Capability]) -> Optional[str]:
+        """Classify cap_name's effective dispatch authority, or None if
+        unclassified (the fail-closed default then applies in
+        call_capability()).
+
+        The core table (CAPABILITY_AUTHORITY) is the floor. Two sources
+        can only RAISE it, never lower it: a registry-backed capability's
+        manifest `permissions` tags (_MANIFEST_RAISE_TAGS) -- checked
+        whenever `cap` is not None, including for a name that is also
+        handler-registered -- and, for a handler-registered name, the
+        authority supplied to register_capability_handler(). This means a
+        test-registered handler can never shadow a core classification
+        downward, and a handler-only capability (cap is None, the
+        _handlers-dict path with zero production callers) still gets a
+        real classification from its required registration argument.
+        """
+        candidates: List[str] = []
+
+        base = CAPABILITY_AUTHORITY.get(cap_name)
+        if base is not None:
+            candidates.append(base)
+
+        if cap is not None:
+            for tag in cap.permissions:
+                raised = _MANIFEST_RAISE_TAGS.get(tag)
+                if raised is not None:
+                    candidates.append(raised)
+
+        handler_authority = self._handler_authority.get(cap_name)
+        if handler_authority is not None:
+            candidates.append(handler_authority)
+
+        if not candidates:
+            return None
+        return _max_authority(candidates)
 
     def _discover(self):
         """Scan plugin directories for available plugins."""
@@ -482,6 +676,25 @@ class PluginManager:
 
         return func(*args, **kwargs)
 
+    def _build_call_kwargs(
+        self, func: Callable, kwargs: Dict[str, Any], context: Optional[TaskContext]
+    ) -> Dict[str, Any]:
+        """Inject `context` into kwargs when `func` accepts it (by name or **kwargs)."""
+        call_kwargs = dict(kwargs)
+        if context is not None:
+            try:
+                sig = inspect.signature(func)
+                accepts_context = "context" in sig.parameters
+                accepts_varkw = any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                )
+                if accepts_context or accepts_varkw:
+                    call_kwargs["context"] = context
+            except (ValueError, TypeError):
+                pass
+        return call_kwargs
+
     def call_capability(
         self,
         cap_name: str,
@@ -492,37 +705,77 @@ class PluginManager:
         """
         Execute a capability by its registered name.
         Supports in-process functions, direct handlers, and external process HTTP/IPC dispatch.
+
+        WP2.1 group 4 (NEW-910/911/912): every dispatch path below is
+        mediated through core.action_gateway's gate_exec()/refuse_exec(),
+        the same mechanism already used for shell/peer-delegate gating.
+        This is the first authority classification + audit trail at this
+        single, production-reachable dispatch point. A capability with no
+        classification (see _authority_for) is refused, not allowed
+        through -- fail-closed default. HIGH_IMPACT capabilities always
+        fail closed this round: no confirmation path exists yet for CCOS
+        dispatch (confirm_available=False unconditionally below).
         """
         cap = self._registry.get(cap_name)
         if not cap and cap_name not in self._handlers:
             raise RuntimeError(f"Capability '{cap_name}' not found")
 
+        gateway = get_action_gateway()
+        action_label = f"ccos.call_capability:{cap_name}"
+        authority = self._authority_for(cap_name, cap)
+
+        if authority is None:
+            decision = gateway.refuse_exec(
+                authority=HIGH_IMPACT,
+                action=action_label,
+                command=cap_name,
+                reason=(
+                    "capability has no authority classification; refusing "
+                    "per fail-closed default"
+                ),
+            )
+            raise CapabilityRefused(decision.reason)
+
+        # HIGH_IMPACT fails closed unconditionally this round -- no
+        # confirmation path exists yet for CCOS dispatch (see module-level
+        # docs above). READ/ACT are unaffected by this value.
+        confirm_available = False
+
         # Direct/mock handler registered
         if cap_name in self._handlers:
             func = self._handlers[cap_name]
-            start = time.time()
-            call_kwargs = dict(kwargs)
-            if context is not None:
+            call_kwargs = self._build_call_kwargs(func, kwargs, context)
+            exc_holder: List[BaseException] = []
+
+            def _execute() -> Any:
                 try:
-                    sig = inspect.signature(func)
-                    accepts_context = "context" in sig.parameters
-                    accepts_varkw = any(
-                        p.kind == inspect.Parameter.VAR_KEYWORD
-                        for p in sig.parameters.values()
-                    )
-                    if accepts_context or accepts_varkw:
-                        call_kwargs["context"] = context
-                except (ValueError, TypeError):
-                    pass
-            try:
-                result = func(*args, **call_kwargs)
-                duration = (time.time() - start) * 1000
+                    return func(*args, **call_kwargs)
+                except Exception as e:
+                    exc_holder.append(e)
+                    raise
+
+            start = time.time()
+            decision = gateway.gate_exec(
+                authority=authority,
+                action=action_label,
+                command=cap_name,
+                confirm_available=confirm_available,
+                execute=_execute,
+            )
+            duration = (time.time() - start) * 1000
+            if decision.outcome == OUTCOME_ALLOWED:
                 self._registry.record_use(cap_name, True, duration)
-                return result
-            except Exception as e:
-                duration = (time.time() - start) * 1000
+                return decision.detail["result"]
+            if decision.outcome == OUTCOME_FAILED:
                 self._registry.record_use(cap_name, False, duration)
-                raise
+                if exc_holder:
+                    raise exc_holder[0]
+                raise RuntimeError(decision.reason)
+            # OUTCOME_REFUSED (HIGH_IMPACT, no confirmation path): nothing
+            # was attempted -- do not record_use, it would corrupt
+            # success_rate and erase the refused-vs-failed distinction the
+            # gateway exists to preserve.
+            raise CapabilityRefused(decision.reason)
 
         # Find which plugin owns this capability
         for plugin in self._plugins.values():
@@ -540,30 +793,51 @@ class PluginManager:
                         endpoint = proc_spec.get("endpoint") or proc_spec.get("health_endpoint")
 
                     if endpoint and endpoint.startswith("http"):
-                        # Forward request via HTTP POST
+                        exc_holder = []
+
+                        def _execute() -> Any:
+                            try:
+                                payload = {
+                                    "capability": cap_name,
+                                    "args": list(args),
+                                    "kwargs": kwargs,
+                                    "context": context.to_dict() if context else None,
+                                }
+                                req = urllib.request.Request(
+                                    endpoint,
+                                    data=json.dumps(payload).encode("utf-8"),
+                                    headers={"Content-Type": "application/json"},
+                                    method="POST",
+                                )
+                                with urllib.request.urlopen(req, timeout=10.0) as resp:
+                                    data = json.loads(resp.read().decode("utf-8"))
+                                    return data.get("result", data)
+                            except Exception as e:
+                                wrapped = RuntimeError(
+                                    f"External capability dispatch to {endpoint} failed: {e}"
+                                )
+                                wrapped.__cause__ = e
+                                exc_holder.append(wrapped)
+                                raise wrapped from e
+
                         start = time.time()
-                        try:
-                            payload = {
-                                "capability": cap_name,
-                                "args": list(args),
-                                "kwargs": kwargs,
-                                "context": context.to_dict() if context else None,
-                            }
-                            req = urllib.request.Request(
-                                endpoint,
-                                data=json.dumps(payload).encode("utf-8"),
-                                headers={"Content-Type": "application/json"},
-                                method="POST",
-                            )
-                            with urllib.request.urlopen(req, timeout=10.0) as resp:
-                                data = json.loads(resp.read().decode("utf-8"))
-                                duration = (time.time() - start) * 1000
-                                self._registry.record_use(cap_name, True, duration)
-                                return data.get("result", data)
-                        except Exception as e:
-                            duration = (time.time() - start) * 1000
+                        decision = gateway.gate_exec(
+                            authority=authority,
+                            action=action_label,
+                            command=cap_name,
+                            confirm_available=confirm_available,
+                            execute=_execute,
+                        )
+                        duration = (time.time() - start) * 1000
+                        if decision.outcome == OUTCOME_ALLOWED:
+                            self._registry.record_use(cap_name, True, duration)
+                            return decision.detail["result"]
+                        if decision.outcome == OUTCOME_FAILED:
                             self._registry.record_use(cap_name, False, duration)
-                            raise RuntimeError(f"External capability dispatch to {endpoint} failed: {e}") from e
+                            if exc_holder:
+                                raise exc_holder[0]
+                            raise RuntimeError(decision.reason)
+                        raise CapabilityRefused(decision.reason)
 
                 # In-process module function lookup
                 impl = cap.implementation if cap else ""
@@ -577,29 +851,34 @@ class PluginManager:
                 if module:
                     func = getattr(module, func_name, None)
                     if func:
-                        start = time.time()
-                        call_kwargs = dict(kwargs)
-                        if context is not None:
+                        call_kwargs = self._build_call_kwargs(func, kwargs, context)
+                        exc_holder = []
+
+                        def _execute() -> Any:
                             try:
-                                sig = inspect.signature(func)
-                                accepts_context = "context" in sig.parameters
-                                accepts_varkw = any(
-                                    p.kind == inspect.Parameter.VAR_KEYWORD
-                                    for p in sig.parameters.values()
-                                )
-                                if accepts_context or accepts_varkw:
-                                    call_kwargs["context"] = context
-                            except (ValueError, TypeError):
-                                pass
-                        try:
-                            result = func(*args, **call_kwargs)
-                            duration = (time.time() - start) * 1000
+                                return func(*args, **call_kwargs)
+                            except Exception as e:
+                                exc_holder.append(e)
+                                raise
+
+                        start = time.time()
+                        decision = gateway.gate_exec(
+                            authority=authority,
+                            action=action_label,
+                            command=cap_name,
+                            confirm_available=confirm_available,
+                            execute=_execute,
+                        )
+                        duration = (time.time() - start) * 1000
+                        if decision.outcome == OUTCOME_ALLOWED:
                             self._registry.record_use(cap_name, True, duration)
-                            return result
-                        except Exception as e:
-                            duration = (time.time() - start) * 1000
+                            return decision.detail["result"]
+                        if decision.outcome == OUTCOME_FAILED:
                             self._registry.record_use(cap_name, False, duration)
-                            raise
+                            if exc_holder:
+                                raise exc_holder[0]
+                            raise RuntimeError(decision.reason)
+                        raise CapabilityRefused(decision.reason)
 
         raise RuntimeError(f"No loaded plugin implements '{cap_name}'")
 

@@ -14,9 +14,24 @@ import pytest
 
 from ccos.core.capability_registry import Capability, CapabilityStatus
 from ccos.core.planner import Plan, PlanStep, StepStatus, StepType, Planner
-from ccos.core.plugin_manager import Plugin, PluginManager, PluginStatus
+from ccos.core.plugin_manager import CAPABILITY_AUTHORITY, Plugin, PluginManager, PluginStatus
 from ccos.core.task_blackboard import TaskBlackboard
 from ccos.core.task_context import TaskContext
+from core.action_gateway import READ
+
+
+@pytest.fixture(autouse=True)
+def _classify_test_capabilities(monkeypatch):
+    """WP2.1 group 4 (NEW-910/911/912): call_capability() now fail-closed-
+    refuses any name not in CAPABILITY_AUTHORITY. These three names are
+    synthetic test-only capabilities (MockPluginModule, below) rather than
+    real production ones, so they don't belong in the core table itself --
+    classify them for the duration of this module only. All three are
+    pure functions with no side effects (see MockPluginModule), so READ.
+    """
+    monkeypatch.setitem(CAPABILITY_AUTHORITY, "test.legacy", READ)
+    monkeypatch.setitem(CAPABILITY_AUTHORITY, "test.aware", READ)
+    monkeypatch.setitem(CAPABILITY_AUTHORITY, "test.varkw", READ)
 
 
 @pytest.fixture

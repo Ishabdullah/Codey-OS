@@ -10,7 +10,14 @@ import sys
 from unittest import mock
 
 from ccos.core.capability_registry import CapabilityRegistry
-from ccos.core.plugin_manager import Plugin, PluginManager, PluginStatus, ProcessSupervisor
+from ccos.core.plugin_manager import (
+    CAPABILITY_AUTHORITY,
+    Plugin,
+    PluginManager,
+    PluginStatus,
+    ProcessSupervisor,
+)
+from core.action_gateway import READ
 
 
 def test_supervisor_start_and_stop_external_plugin(tmp_path):
@@ -65,8 +72,14 @@ def test_supervisor_start_and_stop_external_plugin(tmp_path):
         pass
 
 
-def test_plugin_manager_external_process_lifecycle(tmp_path):
+def test_plugin_manager_external_process_lifecycle(tmp_path, monkeypatch):
     """Verify PluginManager loads, registers capabilities, and unloads external plugins."""
+    # WP2.1 group 4 (NEW-910/911/912): call_capability() now fail-closed-
+    # refuses any name not in CAPABILITY_AUTHORITY. "voice.mock_transcribe"
+    # is this test's own synthetic manifest capability (a mock transcribe
+    # HTTP endpoint), not a real production one, so classify it for the
+    # duration of this test only rather than add it to the core table.
+    monkeypatch.setitem(CAPABILITY_AUTHORITY, "voice.mock_transcribe", READ)
     cat_dir = tmp_path / "voice"
     cat_dir.mkdir(parents=True)
     plugin_dir = cat_dir / "mock_voice"

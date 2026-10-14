@@ -42,6 +42,7 @@ from ccos.core.domain_router import (
 from ccos.core.performance_tracker import PerformanceTracker
 from ccos.core.planner import Plan, Planner, PlanStep, StepStatus, StepType
 from ccos.core.plugin_manager import PluginManager
+from core.action_gateway import ACT, READ
 from ccos.core.task_blackboard import TaskBlackboard
 from ccos.core.task_context import (
     ContextPayloadTooLargeError,
@@ -195,9 +196,13 @@ def test_cross_domain_blackboard_handoff_live_execution():
         def mock_coding_report(summary_text: str = "", customer_count: int = 0, context: Optional[TaskContext] = None, **kwargs):
             return {"report_file": f"/tmp/report_{customer_count}.txt", "content": f"REPORT: {summary_text}"}
 
-        pm.register_capability_handler("crm.query_leads", mock_crm_query)
-        pm.register_capability_handler("data.aggregate_metrics", mock_data_agg)
-        pm.register_capability_handler("coding.generate_report", mock_coding_report)
+        # WP2.1 group 4 (NEW-910/911/912): register_capability_handler()
+        # now requires an explicit authority -- these mocks are read-only
+        # (crm.query_leads/data.aggregate_metrics) or produce report
+        # content (coding.generate_report), so READ/READ/ACT.
+        pm.register_capability_handler("crm.query_leads", mock_crm_query, authority=READ)
+        pm.register_capability_handler("data.aggregate_metrics", mock_data_agg, authority=READ)
+        pm.register_capability_handler("coding.generate_report", mock_coding_report, authority=ACT)
 
         reg.register(Capability(name="crm.query_leads", description="Query CRM", implementation="builtin", category="crm"))
         reg.register(Capability(name="data.aggregate_metrics", description="Aggregate metrics", implementation="builtin", category="data"))
@@ -504,8 +509,19 @@ def test_orchestrator_multi_domain_deliberation_and_execution():
         global_reg.register(cap_crm)
         global_reg.register(cap_coding)
 
-        local_pm.register_capability_handler("crm.customer_query", lambda **kw: {"crm_output_1": [{"id": 1, "name": "Test Account"}]})
-        local_pm.register_capability_handler("coding.run_agent", lambda crm_output_1=None, **kw: {"code": "print('Report')" if crm_output_1 else "print('No data')"})
+        # WP2.1 group 4 (NEW-910/911/912): register_capability_handler()
+        # now requires an explicit authority. "coding.run_agent" matches
+        # the core table's own ACT classification for that name.
+        local_pm.register_capability_handler(
+            "crm.customer_query",
+            lambda **kw: {"crm_output_1": [{"id": 1, "name": "Test Account"}]},
+            authority=READ,
+        )
+        local_pm.register_capability_handler(
+            "coding.run_agent",
+            lambda crm_output_1=None, **kw: {"code": "print('Report')" if crm_output_1 else "print('No data')"},
+            authority=ACT,
+        )
 
         orch = get_agent_orchestrator()
 

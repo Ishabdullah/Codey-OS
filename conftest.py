@@ -19,6 +19,7 @@ import atexit
 import os
 import shutil
 import tempfile
+from pathlib import Path
 
 for _var in (
     "HTTP_PROXY", "http_proxy",
@@ -53,3 +54,22 @@ if not os.environ.get("CODEY_STATE_DIR"):
     _codey_test_state_dir = tempfile.mkdtemp(prefix="codeyos-test-state-")
     os.environ["CODEY_STATE_DIR"] = _codey_test_state_dir
     atexit.register(shutil.rmtree, _codey_test_state_dir, ignore_errors=True)
+
+# WP2.1 group 4 (NEW-910/911/912). core/action_gateway.py's audit_path()
+# falls back to CODEY_STATE_DIR when CODEY_ACTION_GATEWAY_AUDIT isn't set,
+# so the block above already redirects it in the common case -- but a
+# developer who explicitly exports a real CODEY_STATE_DIR (e.g. a live-
+# verification session) while also running the test suite would otherwise
+# have ccos/core/plugin_manager.py's new call_capability() gating append
+# real rows to the real on-device ~/.codeyOS/action_gateway_audit.jsonl.
+# Setting this explicitly, independent of CODEY_STATE_DIR, closes that
+# gap the same way core/trajectory.py's db_path() env-override pattern is
+# already mirrored by action_gateway.py itself. Same only-when-unset
+# rationale as the CODEY_STATE_DIR block above (os.environ.setdefault()
+# would not override an already-exported empty string).
+if not os.environ.get("CODEY_ACTION_GATEWAY_AUDIT"):
+    _codey_test_audit_dir = tempfile.mkdtemp(prefix="codeyos-test-audit-")
+    os.environ["CODEY_ACTION_GATEWAY_AUDIT"] = str(
+        Path(_codey_test_audit_dir) / "action_gateway_audit.jsonl"
+    )
+    atexit.register(shutil.rmtree, _codey_test_audit_dir, ignore_errors=True)

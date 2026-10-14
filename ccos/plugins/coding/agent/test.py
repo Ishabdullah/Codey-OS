@@ -1,9 +1,32 @@
 #!/usr/bin/env python3
 """Test for agent plugin."""
+import atexit
 import importlib.util
 import json
+import os
+import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
+# WP2.1 group 4 (NEW-910/911/912). This file's name ("test.py", not
+# "test_*.py") means pytest's default python_files glob never collects it
+# -- it only runs standalone (`python ccos/plugins/coding/agent/test.py`,
+# see its own __main__ block below), which bypasses the root conftest.py
+# entirely (that redirect only runs at pytest collection time). Without
+# this, test_call_capabilities_via_plugin_manager()'s real (non-mocked)
+# PluginManager.call_capability() dispatch would append to the real
+# on-device ~/.codeyOS/action_gateway_audit.jsonl when this file is run
+# directly. Guarded the same only-if-unset way conftest.py's own blocks
+# are, so a pytest-collected run (were that ever set up) or an explicit
+# live-verification env still wins. atexit-cleaned (code-reviewer W5),
+# same as conftest.py's own blocks.
+if not os.environ.get("CODEY_ACTION_GATEWAY_AUDIT"):
+    _codey_test_agent_plugin_dir = tempfile.mkdtemp(prefix="codeyos-test-agent-plugin-")
+    os.environ["CODEY_ACTION_GATEWAY_AUDIT"] = str(
+        Path(_codey_test_agent_plugin_dir) / "action_gateway_audit.jsonl"
+    )
+    atexit.register(shutil.rmtree, _codey_test_agent_plugin_dir, ignore_errors=True)
 
 # Resolve repo root using _pathutil
 _pathutil_path = Path(__file__).resolve().parent.parent.parent / "_pathutil.py"
