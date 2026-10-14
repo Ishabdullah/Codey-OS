@@ -1,3 +1,51 @@
+## 2026-10-14 — NEW-900 close: `patch_tools.py`'s `allow_self_modification` omission
+
+**Pipeline:** project-architect scoped NEW-900 (found incidentally during
+NEW-899's scoping) → implementer built it, self-caused and self-reverted a
+real-commit incident during its own mutation testing (`git reset HEAD~1`
+after an unmocked `create_checkpoint` call actually committed to this
+repo's HEAD during a mutation run — caught via `git log`/`git status`,
+confirmed nothing else was staged, undone cleanly) → coordinator verified
+the implementer's cleanup claims directly (`git log`, `git status`, `free
+-h`) and killed a leftover full-suite `pytest` background process (PID
+16566, explicitly tracked, not a name-pattern kill — RAM was down to
+952Mi free) → code-reviewer round 1 **CHANGES REQUESTED** (Critical: the
+new "still blocked" mirror test didn't mock `create_checkpoint`, so a
+future regression of the fix would make it perform a REAL git checkpoint
+against this repo — the same incident class the implementer had just
+self-caught) → coordinator fixed directly (one mock added, same pattern
+as the sibling test), personally re-ran the mutation test to confirm it
+non-vacuously fails with the checkpoint going through the mock → code-
+reviewer round 2 **APPROVED**, independently re-ran the same mutation.
+
+**Bug (corrected from the original ledger entry, rule 6):** `tools/patch_tools.py`'s
+`get_filesystem()` call omitted `allow_self_modification`, defaulting to
+`False`, while `tools/file_tools.py`'s `_get_fs()` passes the live
+`AGENT_CONFIG` value. Scoping found this is only actually observable once
+`WORKSPACE_ROOT` has been narrowed below `CODE_DIR` (e.g. after `/cwd`) —
+`Filesystem._validate_path()`'s self-mod branch is only reached in that
+configuration, which is why the existing `allow_self_modification` test
+already passed despite the bug.
+
+**Fix (`tools/patch_tools.py:115`):** now passes
+`allow_self_modification=AGENT_CONFIG.get("allow_self_modification", False)`,
+matching `file_tools.py` exactly. Two new tests in `tests/test_patch_tools.py`
+drive the narrowed-workspace scenario directly; the "still blocked" mirror
+test forces the gateway's confirm gate open so a block can only come from
+`Filesystem._validate_path()`, not an earlier gateway-level refusal —
+confirmed non-vacuous by mutation testing both rounds.
+
+**New findings logged during scoping, not fixed:** NEW-901 (Suspected —
+`core/preferences.py`'s `CODEY.md` write has the same omission pattern, no
+confirmed repro) and NEW-902 (Confirmed — `tools/file_tools.py` has a
+second, dead, ungated `tool_patch_file` definition that bypasses all
+HIGH_IMPACT gating; unreachable from production but a latent trap).
+
+**Status:** code-complete + code-reviewer-approved (both rounds), ready to
+commit. Not live-verified on-device (pure Python logic, no model load).
+
+---
+
 ## 2026-10-14 — NEW-899 close: `/cwd` WORKSPACE_ROOT staleness (two independent cache sites)
 
 **Pipeline:** project-architect scoped NEW-899 (found at a side-effect of the

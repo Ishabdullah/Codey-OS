@@ -112,7 +112,9 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
             path=str(p),
             content=new_content,
             confirm_available=confirm_available,
-            filesystem=get_filesystem(),
+            filesystem=get_filesystem(
+                allow_self_modification=AGENT_CONFIG.get("allow_self_modification", False)
+            ),
         )
         if decision.outcome == OUTCOME_REFUSED:
             return f"[BLOCKED] {decision.reason}"
