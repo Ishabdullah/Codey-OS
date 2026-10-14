@@ -230,6 +230,18 @@ def _is_git_basename(base: str) -> bool:
     return base == "git" or base.startswith("git-")
 
 
+def _is_termux_basename(base: str) -> bool:
+    """True if a parsed argv[0] basename names any Termux:API executable
+    (e.g. termux-sms-send, termux-telephony-call, termux-camera-photo,
+    termux-torch). Whole-family conservative classification via basename
+    prefix, mirroring _is_git_basename's style -- these binaries actuate
+    real device hardware/telephony (confirmed present and resolvable via
+    `command -v` on this device), and none of their variants is
+    enumerated individually; the family as a whole is HIGH_IMPACT.
+    """
+    return base.startswith("termux-")
+
+
 def _direct_high_impact_after_quote_error(command: str) -> bool:
     """Recognize an identifiable restricted executable despite malformed quoting."""
     lexer = shlex.shlex(command, posix=True)
@@ -242,7 +254,12 @@ def _direct_high_impact_after_quote_error(command: str) -> bool:
         raw = command.split(maxsplit=1)
         executable = raw[0].strip("\"'") if raw else ""
     base = Path(executable).name
-    return _is_git_basename(base) or base in _EXEC_WRAPPER_BASENAMES or base == "env"
+    return (
+        _is_git_basename(base)
+        or _is_termux_basename(base)
+        or base in _EXEC_WRAPPER_BASENAMES
+        or base == "env"
+    )
 
 
 def classify_shell_command(command: str) -> str:
@@ -258,6 +275,12 @@ def classify_shell_command(command: str) -> str:
          configuration, hooks, and helpers can introduce opaque effects,
          including for queries. This conservative boundary does not claim
          every invocation is destructive; no discovery is performed.
+      2b. Every direct termux-* executable (the whole Termux:API family --
+         e.g. termux-sms-send, termux-telephony-call, termux-camera-photo,
+         termux-torch) -> HIGH_IMPACT. Whole-family conservative
+         classification via basename prefix, matching the git check's
+         style, not a hand-picked dangerous subset: these actuate real
+         device hardware/telephony and none is individually enumerated.
       3. Direct exec-wrapper basenames (_EXEC_WRAPPER_BASENAMES: find,
          xargs, timeout, nice, nohup, setsid, stdbuf, chrt, ionice,
          strace, flock, watch, script, unshare, taskset, setarch,
@@ -284,7 +307,7 @@ def classify_shell_command(command: str) -> str:
         return ACT
 
     base = Path(parts[0]).name
-    if _is_git_basename(base) or base in _EXEC_WRAPPER_BASENAMES:
+    if _is_git_basename(base) or _is_termux_basename(base) or base in _EXEC_WRAPPER_BASENAMES:
         return HIGH_IMPACT
     if base == "env":
         return READ if len(parts) == 1 else HIGH_IMPACT

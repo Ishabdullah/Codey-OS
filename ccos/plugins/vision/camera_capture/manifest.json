@@ -8,7 +8,7 @@
     {
       "name": "vision.camera_capture",
       "description": "Capture a photo from the device camera",
-      "implementation": "camera:capture_image",
+      "implementation": "camera_capture:capture_image",
       "category": "vision",
       "dependencies": ["opencv-python"],
       "hardware_requirements": ["camera"]
@@ -16,7 +16,7 @@
     {
       "name": "vision.camera_list",
       "description": "List available camera devices",
-      "implementation": "camera:list_cameras",
+      "implementation": "camera_capture:list_cameras",
       "category": "vision",
       "dependencies": [],
       "hardware_requirements": []

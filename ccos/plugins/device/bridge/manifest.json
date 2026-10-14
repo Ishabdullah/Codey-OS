@@ -17,7 +17,7 @@
     {
       "name": "device.inspect_ui",
       "description": "Inspect the Android device UI hierarchy and active application",
-      "implementation": "bridge:inspect_ui_capability",
+      "implementation": "device_bridge:inspect_ui_capability",
       "category": "device",
       "dependencies": [],
       "hardware_requirements": [],
@@ -40,7 +40,7 @@
     {
       "name": "device.perform_gesture",
       "description": "Execute touch gestures (tap, swipe, long-press) on the Android screen",
-      "implementation": "bridge:perform_gesture_capability",
+      "implementation": "device_bridge:perform_gesture_capability",
       "category": "device",
       "dependencies": [],
       "hardware_requirements": [],
@@ -64,7 +64,7 @@
     {
       "name": "device.send_sms",
       "description": "Send SMS to a destination phone number with emergency shortcode veto protection",
-      "implementation": "bridge:send_sms_capability",
+      "implementation": "device_bridge:send_sms_capability",
       "category": "device",
       "dependencies": [],
       "hardware_requirements": [],
@@ -88,7 +88,7 @@
     {
       "name": "device.make_call",
       "description": "Initiate phone call to a destination phone number with emergency shortcode veto protection",
-      "implementation": "bridge:make_call_capability",
+      "implementation": "device_bridge:make_call_capability",
       "category": "device",
       "dependencies": [],
       "hardware_requirements": [],
@@ -111,7 +111,7 @@
     {
       "name": "device.launch_app",
       "description": "Launch an installed Android app package",
-      "implementation": "bridge:launch_app_capability",
+      "implementation": "device_bridge:launch_app_capability",
       "category": "device",
       "dependencies": [],
       "hardware_requirements": [],
@@ -134,7 +134,7 @@
     {
       "name": "device.read_notifications",
       "description": "Read recent system and application notifications",
-      "implementation": "bridge:read_notifications_capability",
+      "implementation": "device_bridge:read_notifications_capability",
       "category": "device",
       "dependencies": [],
       "hardware_requirements": [],
@@ -154,7 +154,7 @@
     {
       "name": "device.third_party_message",
       "description": "Send messaging through third-party apps (WhatsApp, Messenger, Instagram) with safety vetoes",
-      "implementation": "bridge:third_party_message_capability",
+      "implementation": "device_bridge:third_party_message_capability",
       "category": "device",
       "dependencies": [],
       "hardware_requirements": [],
@@ -182,7 +182,7 @@
     {
       "name": "device.execute_task",
       "description": "Execute multi-step screen automation task via Android accessibility engine",
-      "implementation": "bridge:execute_task_capability",
+      "implementation": "device_bridge:execute_task_capability",
       "category": "device",
       "dependencies": [],
       "hardware_requirements": [],
