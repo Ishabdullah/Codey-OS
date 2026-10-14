@@ -187,6 +187,22 @@ READ_COMMANDS = {
     "tree",
 }
 
+# Executables that dispatch their own trailing argv as a child process
+# (find -exec/-ok..., xargs, and the process-control/tracing wrappers
+# added for NEW-875's next slice). Unconditionally HIGH_IMPACT at both
+# classification sites below -- content of the wrapped command is never
+# parsed or evaluated, matching the pre-existing find/xargs precedent.
+# `env` is handled by its own bare-vs-argument-bearing check at both
+# sites and is deliberately NOT folded into this set. Known-incomplete
+# (su, script, unshare, taskset, setarch, ltrace, doas, unbuffer,
+# catchsegv deferred; su specifically needs a product decision, not a
+# code change, since it's privilege elevation, not just dispatch).
+_EXEC_WRAPPER_BASENAMES = frozenset({
+    "find", "xargs", "timeout", "nice", "nohup", "setsid", "stdbuf",
+    "chrt", "ionice", "strace", "flock", "watch",
+})
+
+
 def _is_git_basename(base: str) -> bool:
     """True if a parsed argv[0] basename names git or a git-<subcommand>
     helper executable (e.g. git-upload-pack). Shared between
@@ -209,7 +225,7 @@ def _direct_high_impact_after_quote_error(command: str) -> bool:
         raw = command.split(maxsplit=1)
         executable = raw[0].strip("\"'") if raw else ""
     base = Path(executable).name
-    return _is_git_basename(base) or base in {"find", "xargs", "env"}
+    return _is_git_basename(base) or base in _EXEC_WRAPPER_BASENAMES or base == "env"
 
 
 def classify_shell_command(command: str) -> str:
@@ -225,7 +241,9 @@ def classify_shell_command(command: str) -> str:
          configuration, hooks, and helpers can introduce opaque effects,
          including for queries. This conservative boundary does not claim
          every invocation is destructive; no discovery is performed.
-      3. Direct find/xargs and argument-bearing env -> HIGH_IMPACT.
+      3. Direct exec-wrapper basenames (_EXEC_WRAPPER_BASENAMES: find,
+         xargs, timeout, nice, nohup, setsid, stdbuf, chrt, ionice,
+         strace, flock, watch) and argument-bearing env -> HIGH_IMPACT.
          These can dispatch children or produce other effects. Only a
          successfully tokenized bare env remains READ; no child is parsed.
       4. Other executables retain their previous READ/ACT labels.
@@ -247,7 +265,7 @@ def classify_shell_command(command: str) -> str:
         return ACT
 
     base = Path(parts[0]).name
-    if _is_git_basename(base) or base in {"find", "xargs"}:
+    if _is_git_basename(base) or base in _EXEC_WRAPPER_BASENAMES:
         return HIGH_IMPACT
     if base == "env":
         return READ if len(parts) == 1 else HIGH_IMPACT
@@ -277,20 +295,24 @@ def _shell_command_targets_git_metadata(command: str, *, cwd: Path, roots) -> bo
     Exemptions:
     - git/git-* basenames: already HIGH_IMPACT and environment-isolated
       (NEW-893) via a separate mechanism; this scan is a no-op for them.
-    - find/xargs/argument-bearing env: already HIGH_IMPACT from
-      classify_shell_command(); this scan running on them changes
-      nothing (HIGH_IMPACT -> HIGH_IMPACT), so no special exemption is
-      carved out for the legitimate `find . -path ./.git -prune` idiom.
+    - _EXEC_WRAPPER_BASENAMES members/argument-bearing env: already
+      HIGH_IMPACT from classify_shell_command(); this scan running on
+      them changes nothing (HIGH_IMPACT -> HIGH_IMPACT), so no special
+      exemption is carved out for the legitimate
+      `find . -path ./.git -prune` idiom.
     - Ordinary READ_COMMANDS members minus _GIT_METADATA_SCANNED_READ:
       verified via --help to have no write-capable option; exempted so
       `cat .git/config`/`grep .git x`/`ls .git` stay frictionless reads.
 
     Named residuals (documented, not silently claimed covered):
     - A READ_COMMANDS member wrapped in a non-exempt basename
-      (`timeout 5 cat .git/config`) loses its read exemption -- same
+      (`taskset -c 0 cat .git/config`) loses its read exemption -- same
       argv[0]-only blind spot classify_shell_command() already has for
-      `timeout N git push` (NEW-875). Directionally safe here (over-
-      escalates a read) rather than unsafe.
+      wrapper basenames outside _EXEC_WRAPPER_BASENAMES (NEW-875;
+      `timeout`/`nice`/etc. are now covered unconditionally by that set
+      instead; `taskset` itself remains one of the deliberately-deferred
+      names, see _EXEC_WRAPPER_BASENAMES's comment). Directionally safe
+      here (over-escalates a read) rather than unsafe.
     - sort/uniq/tree/file are scanned on every argument, not just their
       specific output-option value -- a .git-path read source given to
       one of them is escalated too. Accepted; confirm-gated, not blocked.
@@ -416,8 +438,26 @@ def _execute_shell_command(command: str, timeout: int) -> str:
             return "[ERROR] Empty command"
 
         kwargs = {"capture_output": True, "text": True, "timeout": timeout}
-        if _is_git_basename(Path(args[0]).name):
+        base0 = Path(args[0]).name
+        if _is_git_basename(base0):
             kwargs["env"] = shell_git_environment()
+        elif base0 in _EXEC_WRAPPER_BASENAMES or base0 == "env":
+            # NEW-875 follow-up: a git/git-* command wrapped by one of
+            # these exec wrappers (e.g. `timeout 5 git push`) is already
+            # HIGH_IMPACT via classify_shell_command(), but args[0] here
+            # is the wrapper's own basename, not git's -- without this,
+            # an approved wrapped git command would run fully ambient,
+            # unlike a direct `git push`. Scans every remaining argv
+            # token (not just the first) since the wrapped command's
+            # position varies by wrapper; this also means a git basename
+            # appearing anywhere in argv (e.g. as a plain argument to
+            # `find`/`grep`, not the command being wrapped) triggers the
+            # same env isolation. Accepted as benign over-application --
+            # these commands are already HIGH_IMPACT, and env isolation
+            # only sets environment variables, it doesn't change what
+            # runs.
+            if any(_is_git_basename(Path(a).name) for a in args[1:]):
+                kwargs["env"] = shell_git_environment()
         result = subprocess.run(args, **kwargs)
         output = ""
         if result.stdout:

@@ -144,7 +144,7 @@ def reset_fs():
     core.filesystem.reset_filesystem() only clears that module's own
     singleton -- it does nothing to this module's independent _fs cache,
     so main.py's /cwd handler must call both. Without this, every tool
-    in this file (tool_write_file, tool_patch_file, tool_append_file,
+    in this file (tool_write_file, tool_append_file,
     tool_read_file, tool_list_dir, etc.) keeps using the Filesystem built
     against the pre-/cwd workspace.
     """
@@ -306,24 +306,6 @@ def tool_write_file(path: str, content: str) -> str:
     if decision.outcome == OUTCOME_FAILED:
         return f"[ERROR] {decision.reason}"
     return decision.detail.get("result", f"Written {path}")
-
-
-def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
-    """
-    Patch file content (replace old_str with new_str).
-
-    Args:
-        path: Path to file
-        old_str: String to find and replace
-        new_str: Replacement string
-
-    Returns:
-        Diff of changes or error message
-    """
-    try:
-        return _get_fs().patch(path, old_str, new_str)
-    except FilesystemAccessError as e:
-        return f"[ERROR] {e}"
 
 
 def tool_append_file(path: str, content: str) -> str:

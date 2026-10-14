@@ -14,7 +14,17 @@ from tools import shell_tools
 from utils.config import AGENT_CONFIG
 
 
-@pytest.mark.parametrize("command", ["find", "find --help", "find . -name '*.py'", "find . -exec git status ;", "find . -execdir helper {} +", "find . -ok helper {} ;", "find . -okdir helper {} ;", "find . -delete", "find . -fprint /temporary/output", "xargs", "xargs --help", "xargs -a /temporary/input", "xargs -I {} helper {}", "xargs -P 2 helper", "xargs -p helper", "xargs -- helper", "env X=value", "env ''", "env --help", "env -i", "env --", "env -- git status", "env env", "env helper"])
+@pytest.mark.parametrize("command", ["find", "find --help", "find . -name '*.py'", "find . -exec git status ;", "find . -execdir helper {} +", "find . -ok helper {} ;", "find . -okdir helper {} ;", "find . -delete", "find . -fprint /temporary/output", "xargs", "xargs --help", "xargs -a /temporary/input", "xargs -I {} helper {}", "xargs -P 2 helper", "xargs -p helper", "xargs -- helper", "env X=value", "env ''", "env --help", "env -i", "env --", "env -- git status", "env env", "env helper",
+    "timeout", "timeout 5 git push", "timeout 5 helper",
+    "nice", "nice git push", "nice helper",
+    "nohup", "nohup git push", "nohup helper",
+    "setsid", "setsid git push", "setsid helper",
+    "stdbuf", "stdbuf -oL git push", "stdbuf -oL helper",
+    "chrt", "chrt -f 1 git push", "chrt -f 1 helper",
+    "ionice", "ionice -c3 git push", "ionice -c3 helper",
+    "strace", "strace git push", "strace helper",
+    "flock", "flock /temporary/lock git push", "flock /temporary/lock helper",
+    "watch", "watch git push", "watch helper"])
 @pytest.mark.parametrize("form", ["{}", "/temporary/bin/{}", "'./path with spaces/{}'"])
 def test_restricted_utility_forms(command, form):
     executable, separator, arguments = command.partition(" ")
@@ -26,7 +36,7 @@ def test_only_bare_env_is_read(command):
     assert shell_tools.classify_shell_command(command) == READ
 
 
-@pytest.mark.parametrize("executable", ["git", "git-custom", "find", "xargs", "env"])
+@pytest.mark.parametrize("executable", ["git", "git-custom", "find", "xargs", "env", "timeout", "nice", "nohup", "setsid", "stdbuf", "chrt", "ionice", "strace", "flock", "watch"])
 @pytest.mark.parametrize("form", ["{} 'unterminated", "'{} argument", "'/temporary/path with spaces/{}' 'unterminated"])
 def test_identifiable_malformed_restricted_quotes(executable, form):
     assert shell_tools.classify_shell_command(form.format(executable)) == HIGH_IMPACT
@@ -68,7 +78,7 @@ def assert_record(gateway, command, outcome):
     assert row == {"authority": HIGH_IMPACT, "action": "shell_tools.shell", "command": command, "outcome": outcome, "reason": row["reason"]}
 
 
-@pytest.mark.parametrize("command", ["find . -delete", "xargs helper", "env X=value helper"])
+@pytest.mark.parametrize("command", ["find . -delete", "xargs helper", "env X=value helper", "timeout 5 git push"])
 @pytest.mark.parametrize("mode", ["no-path", "yolo"])
 def test_refusal_before_warning_prompt_spawn_preserves_marker(gateway, tmp_path, monkeypatch, command, mode):
     marker = tmp_path / "marker"
@@ -104,6 +114,47 @@ def test_confirmation_and_execution_contract(gateway, monkeypatch, command, answ
         assert result == "[CANCELLED] User declined to run command."
         runner.assert_not_called()
         assert_record(gateway, command, "refused")
+
+
+def test_approved_timeout_wrapped_git_executes_with_git_env_isolation(gateway, monkeypatch):
+    """Named-residual fix (NEW-875 follow-up, same round): `timeout 5 git
+    push` is unconditionally HIGH_IMPACT and, once approved, executes.
+    `_execute_shell_command()` now scans argv beyond args[0] for a git
+    basename when args[0] is itself an exec-wrapper basename, so
+    `shell_git_environment()` IS applied here -- unlike the find/xargs/
+    env cases in `test_confirmation_and_execution_contract` above, which
+    never wrap git and so correctly execute without it (no `env=` kwarg
+    in that test's `assert_called_once_with`).
+    """
+    command = "timeout 5 git push"
+    prompt = Mock(return_value=True)
+    runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="ok\n", stderr=""))
+    monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
+    monkeypatch.setattr(shell_tools.subprocess, "run", runner)
+    result = shell_tools.shell(command, timeout=53)
+    assert result == "ok"
+    call_kwargs = runner.call_args.kwargs
+    assert runner.call_args.args == (shlex.split(command),)
+    assert call_kwargs["capture_output"] is True
+    assert call_kwargs["text"] is True
+    assert call_kwargs["timeout"] == 53
+    assert "env" in call_kwargs
+    assert_record(gateway, command, "allowed")
+
+
+def test_approved_non_git_wrapped_command_executes_without_git_env_isolation(gateway, monkeypatch):
+    """Regression guard: a wrapper around a NON-git command must not pick
+    up git environment isolation just because it's a wrapper -- only
+    when the wrapped command itself is git/git-*."""
+    command = "timeout 5 helper"
+    prompt = Mock(return_value=True)
+    runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="ok\n", stderr=""))
+    monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
+    monkeypatch.setattr(shell_tools.subprocess, "run", runner)
+    result = shell_tools.shell(command, timeout=53)
+    assert result == "ok"
+    runner.assert_called_once_with(shlex.split(command), capture_output=True, text=True, timeout=53)
+    assert_record(gateway, command, "allowed")
 
 
 @pytest.mark.parametrize("command", ["find . -name '*.py'", "env helper", "xargs helper"])

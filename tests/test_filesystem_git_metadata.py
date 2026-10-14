@@ -16,7 +16,9 @@ from unittest.mock import Mock
 import pytest
 
 import core.filesystem as filesystem_module
+import tools.patch_tools
 from core.filesystem import Filesystem, FilesystemAccessError
+from utils.config import AGENT_CONFIG
 
 
 @pytest.fixture
@@ -257,15 +259,33 @@ def test_gate_append_outcome_failed_on_git_metadata(gated):
     assert target.read_text() == "[core]\n"
 
 
-def test_tool_patch_file_errors_with_no_audit_record(gated):
-    """tool_patch_file() calls Filesystem.patch() directly (no gateway
-    mediation) -- this is pre-existing behavior for every
-    FilesystemAccessError, not a regression from this fix."""
+def test_patch_tools_tool_patch_file_outcome_failed_on_git_metadata(gated, monkeypatch):
+    """The REAL, registered tools.patch_tools.tool_patch_file -- unlike the
+    now-deleted dead tools.file_tools.tool_patch_file -- is routed through
+    the gateway and so must produce an audit row, exactly like the
+    write/append gated tests above.
+
+    tools.patch_tools.tool_patch_file calls core.filesystem.get_filesystem()
+    DIRECTLY (not via tools.file_tools._get_fs()), and that function is a
+    process-wide singleton that defaults to the real on-device
+    utils.config.WORKSPACE_ROOT when no workspace is passed. We must
+    monkeypatch core.filesystem.get_filesystem itself so this test can never
+    construct a real Filesystem against the real repo -- same invariant this
+    whole file exists to guarantee (see module docstring).
+    """
+    monkeypatch.setattr(filesystem_module, "get_filesystem", lambda *_a, **_k: gated.fs)
+    # Avoid tool_patch_file's interactive confirm_write prompt (patch_tools
+    # binds ask_confirm from utils.logger at import time, so patching
+    # utils.logger.confirm wouldn't reach it -- AGENT_CONFIG is the same
+    # dict object both modules share, so this does).
+    monkeypatch.setitem(AGENT_CONFIG, "confirm_write", False)
     target = gated.workspace / ".git" / "config"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("[core]\n")
-    result = gated.file_tools.tool_patch_file(str(target), "core", "CORE")
-    assert result.startswith("[ERROR]")
+    result = tools.patch_tools.tool_patch_file(str(target), "core", "CORE")
+    assert result.startswith("[ERROR] Access denied:")
     assert "is inside a Git metadata directory" in result
-    assert not gated.audit.exists() or gated.audit.read_text() == ""
     assert target.read_text() == "[core]\n"
+    rows = [json.loads(line) for line in gated.audit.read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["outcome"] == "failed"
