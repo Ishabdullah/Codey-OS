@@ -1270,10 +1270,16 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 import utils.config as _cfg
 
                 _cfg.WORKSPACE_ROOT = _Path(new_cwd).resolve()
-                # Reset Filesystem singleton so next tool call picks up new workspace
+                # Reset both Filesystem singletons (core.filesystem's own
+                # instance and tools.file_tools' independent _fs cache --
+                # NEW-899 Site B) so the next tool call picks up new workspace
                 from core.filesystem import reset_filesystem
 
                 reset_filesystem()
+
+                from tools.file_tools import reset_fs as _reset_file_tools_fs
+
+                _reset_file_tools_fs()
                 # Invalidate project cache (repo map, project type)
                 from core.project import invalidate_cache
 

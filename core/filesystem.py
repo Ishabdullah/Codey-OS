@@ -19,7 +19,8 @@ from typing import List, Optional, Union
 from core.checkpoint import create_checkpoint
 from core.checkpoint import is_core_file as _is_core_file
 from core.filehistory import snapshot as _snapshot
-from utils.config import CODE_DIR, WORKSPACE_ROOT
+from utils.config import CODE_DIR
+import utils.config as _config
 from utils.logger import info, success
 
 
@@ -45,11 +46,12 @@ class Filesystem:
 
         Args:
             workspace: Root directory for file operations.
-                      Defaults to current working directory.
+                      Defaults to utils.config.WORKSPACE_ROOT (not
+                      necessarily os.getcwd()).
             allow_self_modification: If True, allow writes to CODE_DIR with
                                     checkpoint enforcement. Default False.
         """
-        self.workspace = workspace or WORKSPACE_ROOT
+        self.workspace = workspace or _config.WORKSPACE_ROOT
         self.allow_self_modification = allow_self_modification
         self._last_diff: Optional[str] = None
         self._checkpoint_created: bool = False
@@ -468,7 +470,11 @@ def get_filesystem(workspace: Path = None, allow_self_modification: bool = False
 
 
 def reset_filesystem():
-    """Reset the global filesystem instance (for testing)."""
+    """Reset the global filesystem instance.
+
+    Used in tests, and also in production by main.py's /cwd handler so
+    the next tool call picks up the new workspace.
+    """
     global _filesystem
     if _filesystem:
         _filesystem = None

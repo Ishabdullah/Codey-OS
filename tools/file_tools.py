@@ -138,6 +138,21 @@ def _get_fs() -> Filesystem:
     return _fs
 
 
+def reset_fs():
+    """Reset this module's cached Filesystem instance (NEW-899 Site B).
+
+    core.filesystem.reset_filesystem() only clears that module's own
+    singleton -- it does nothing to this module's independent _fs cache,
+    so main.py's /cwd handler must call both. Without this, every tool
+    in this file (tool_write_file, tool_patch_file, tool_append_file,
+    tool_read_file, tool_list_dir, etc.) keeps using the Filesystem built
+    against the pre-/cwd workspace.
+    """
+    global _fs, _fs_allow_self_mod
+    _fs = None
+    _fs_allow_self_mod = False
+
+
 def tool_read_file(path: str) -> str:
     """
     Read file content.

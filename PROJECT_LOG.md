@@ -1,3 +1,61 @@
+## 2026-10-14 — NEW-899 close: `/cwd` WORKSPACE_ROOT staleness (two independent cache sites)
+
+**Pipeline:** project-architect scoped NEW-899 (found at a side-effect of the
+prior round's NEW-894 shell-tool fix) → implementer built it, self-corrected
+three issues via advisor before reporting (a permanent test that would have
+encoded the bug as spec; an invalid Site-B-necessity check; unisolated audit
+sink writing to the real `~/.codeyOS/audit.jsonl`) → code-reviewer **APPROVED
+with two Warnings** (test didn't exercise `main.py`'s real `/cwd` wiring; an
+unsourced claim in a test comment) → coordinator fixed both directly (no new
+implementer round, per this session's established pattern for small,
+well-specified, non-logic-risk fixes) → code-reviewer re-confirmed
+**APPROVED**, including a direct mutation test (commented out `main.py`'s new
+`reset_fs()` call, confirmed the test fails, restored it, confirmed it passes
+again).
+
+**What NEW-899 actually was:** two independent stale-reference sites, not
+one. Site A (originally logged): `core/filesystem.py:22`'s one-time
+`from utils.config import WORKSPACE_ROOT` import never saw later mutations
+to `utils.config.WORKSPACE_ROOT` (e.g. from `main.py`'s `/cwd` handler).
+Site B (found during scoping, NOT in the original NEW-899 text):
+`tools/file_tools.py`'s own module-level `_fs` Filesystem cache was never
+invalidated by `/cwd` at all — `main.py` only called
+`core.filesystem.reset_filesystem()`, which clears that module's own
+singleton, not `file_tools`'s independent one. Every real write/read/
+patch/append/list tool (`tool_write_file`, `tool_read_file`, etc.) goes
+through `file_tools._get_fs()`, so Site A alone would NOT have fixed the
+reported production symptom — confirmed by the architect via direct REPL
+experiment before any code was written.
+
+**Fix:** `core/filesystem.py` reads `utils.config.WORKSPACE_ROOT` live via
+`import utils.config as _config` (Site A). `tools/file_tools.py` gained a
+`reset_fs()` function (Site B). `main.py`'s `/cwd` handler now calls both
+resets. `CODE_DIR`'s import was deliberately left as a direct (non-live)
+import — confirmed never reassigned anywhere in the repo, and changing it
+would have broken `tests/test_filesystem_git_metadata.py::test_code_dir_git_metadata_also_denied`'s
+existing monkeypatch for no benefit. New test
+`tests/test_filesystem_workspace_root_live.py` drives the real production
+path end to end (`main.handle_command("/cwd ...")` → `tool_write_file()`),
+not a hand-copy of the reset calls. 28 tests pass across the new file plus
+the three existing files it's required to stay compatible with.
+
+**New finding logged, not fixed:** NEW-900 (`tools/patch_tools.py`'s
+`get_filesystem()` call omits `allow_self_modification`, so it can silently
+get handed a different `Filesystem` instance than `file_tools.py`'s writes
+use in a self-modification-enabled session) — unrelated to `/cwd` staleness,
+found incidentally during NEW-899's scoping, flagged per rule 8.
+
+**Status:** code-complete + code-reviewer-approved, not yet live-verified
+on-device (no model load involved, so live-verifier wasn't dispatched — this
+is a pure Python-logic fix). Ready to commit.
+
+**Not touched this round, still open:** NEW-900 (above), NEW-875's broader
+"wrappers/scripts beyond git" scope, the astral-sprig/ and nested
+`.claude/agents/.claude/` untracked paths flagged two rounds ago (still
+unexplained, still left alone per the don't-touch-unfamiliar-state rule).
+
+---
+
 ## 2026-10-13 — WP2.1 slice 32 + cleanup-masking fix: checkpoint rollback mediation
 
 **Pipeline:** project-architect scoped slice32 (checkpoint rollback was the
