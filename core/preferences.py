@@ -470,6 +470,8 @@ class PreferenceManager:
 
         try:
             from core.codeymd import find_codeymd
+            from core.filesystem import get_filesystem
+            from utils.config import AGENT_CONFIG
 
             codeymd_path = find_codeymd()
             if not codeymd_path:
@@ -529,12 +531,32 @@ class PreferenceManager:
                 new_content = text.rstrip() + f"\n\n# Conventions\n{entry}\n"
 
             gateway = get_action_gateway()
+            # `filesystem=` is deliberately lazy (a conditional expression,
+            # not an eager call) because keyword arguments are evaluated
+            # before gate_write() runs. An eager get_filesystem() call here
+            # would replace the process-wide Filesystem singleton on EVERY
+            # call to this method, even one gate_write() refuses before
+            # ever touching the filesystem argument (NEW-901 round 2) —
+            # this is only safe to skip when `confirm_available` is False
+            # because `authority` above is the hardcoded HIGH_IMPACT
+            # literal, which is exactly gate_write()'s fail-closed
+            # condition; if authority here ever became a variable, this
+            # would need re-deriving, not just copying.
             decision = gateway.gate_write(
                 authority=HIGH_IMPACT,
                 action="preferences.sync_to_codeymd",
                 path=str(codeymd_path),
                 content=new_content,
                 confirm_available=confirm_available,
+                filesystem=(
+                    get_filesystem(
+                        allow_self_modification=AGENT_CONFIG.get(
+                            "allow_self_modification", False
+                        )
+                    )
+                    if confirm_available
+                    else None
+                ),
             )
             if not decision.allowed:
                 # Fail-closed (no confirmation path) or a real write

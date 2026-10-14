@@ -1,3 +1,93 @@
+## 2026-10-14 — NEW-840/901/902/875 close; NEW-903 logged (follow-up round after NEW-900)
+
+**Scope:** per explicit instruction, moved the untracked `astral-sprig/` directory
+(unrelated sprite asset, not part of Codey-OS) out of the repo to the home
+directory, then worked three items in parallel through the full pipeline:
+NEW-901 (preferences.py sibling of NEW-900), NEW-902 (dead `tool_patch_file`,
+found during NEW-900's scoping), and NEW-875 (the long-open indirect-shell-
+execution finding).
+
+**NEW-840/902 (same bug, independently found twice, now one closure):**
+`tools/file_tools.py` had a dead, ungated `tool_patch_file` bypassing all
+HIGH_IMPACT gating. Scoping found it WAS exercised by one existing test
+(`test_tool_patch_file_errors_with_no_audit_record`) — which meant the real,
+registered `tools.patch_tools.tool_patch_file` had ZERO `.git/` metadata-
+denial test coverage, a real gap the dead function's test was accidentally
+masking. Deleted the dead function and its docstring reference; replaced the
+test with one exercising the real gated function (opposite assertion — the
+real path DOES write an audit row on denial, the dead one didn't).
+Code-reviewer approved after mutation-testing the replacement test's
+isolation monkeypatch; flagged that the only thing keeping that mutation
+test safe was the tmp target falling outside `WORKSPACE_ROOT`, not any
+structural isolation — noted in the ledger for future readers. Committed
+`97b83cb` (code), ledger text finalized in this entry's commit.
+
+**NEW-875 (long-open, re-scoped — original text was stale):** re-checked all
+three originally-named candidates (`env`+git retaining READ, `find -exec`
+retaining READ, git aliases falling through to ACT) and found all three
+already fixed by slices 21/22 — not rediscovered. The real remaining gap,
+already flagged as "additional evidence" in a 2026-10-13 sub-entry: a whole
+class of exec-wrapper basenames (`timeout`, `nice`, `nohup`, `setsid`,
+`stdbuf`, `chrt`, `ionice`, `strace`, `flock`, `watch`) fell through to plain
+`ACT` — e.g. `timeout 5 git push` required zero confirmation, worse than the
+already-mitigated `env`/`find`/`xargs` cases. Fixed via one shared
+`_EXEC_WRAPPER_BASENAMES` frozenset (also closing a pre-existing drift
+between two independently-written copies of the same set — same bug class
+as this session's earlier NEW-893 `_is_git_basename` lesson). Code-reviewer
+approved but flagged a related gap in the same pass: an approved wrapped-git
+command still executed without NEW-893's git-env isolation. Fixed in the
+same round per Ish's "fix related findings immediately" rule — extended
+`_execute_shell_command()`'s isolation check to scan argv beyond `args[0]`
+for a git basename when the wrapper itself occupies that position; a
+regression-guard test confirms non-git wrapped commands don't pick up git
+env isolation. `su` and the other non-exhaustive deferred names remain
+un-escalated; `su` specifically needs Ish's product-direction call on
+privilege elevation, not a code change — not raised to Ish yet, flagged for
+a future check-in. Committed `97b83cb` (code), ledger text finalized here.
+
+**NEW-901 (preferences.py sibling of NEW-900) — two review rounds, the
+second catching a real bug the first missed entirely:** `core/preferences.py`'s
+`_sync_to_codeymd` had the identical `get_filesystem()`-default omission as
+NEW-900. Round-1 scoping concluded this was Confirmed-as-mechanism but
+DORMANT — unreachable in production because `confirm_available` is
+hardcoded `False` at the only call site, which hits `gate_write()`'s
+fail-closed branch before the vulnerable code path is ever reached. That
+reasoning was WRONG in a way nobody caught until code-reviewer's round-1
+pass: round 1's fix passed `filesystem=get_filesystem(...)` as a plain,
+eagerly-evaluated keyword argument — Python evaluates kwargs before the
+call runs, so `get_filesystem()` executed on EVERY call regardless of the
+fail-closed branch, and `get_filesystem()` has a real side effect (it
+replaces the process-wide `Filesystem` singleton whenever the requested
+`allow_self_modification` differs from the cached instance's). So every
+automated `_sync_to_codeymd` call — even a correctly-refused one — silently
+flipped the shared singleton, discarding an operator's `--allow-self-mod`
+state. The round-1 "zero calls" spy that seemed to support the dormant
+claim was also vacuous: it never reached `gate_write()` at all, because
+`find_codeymd()` returned `None` in that test and the function returned
+early. Round 2 fixed it properly: made the `filesystem=` argument a lazy
+conditional expression, only calling `get_filesystem()` when
+`confirm_available` is True (the only branch where it's ever used), with a
+new regression test (`test_confirm_unavailable_leaves_singleton_untouched`)
+using the REAL production call shape and proving the singleton is left
+alone on a refused write. Mutation-tested both ways. Code-reviewer approved
+the code; ledger-scope concern about committing other rounds' NEW-840/875/
+902/903 edits alongside was checked and found to be based on a diff taken
+before this round's separate `97b83cb` commit had already landed that code
+— all ledger text in this round's final commit accurately reflects already-
+committed or about-to-be-committed state, nothing premature.
+
+**New finding logged, not fixed:** NEW-903 (`tests/test_patch_tools.py`
+mutates `AGENT_CONFIG["confirm_write"]` at module import time with no
+teardown, leaking across the pytest session — test-isolation hygiene only,
+no production impact).
+
+**Status:** all four (NEW-840/875/901/902) code-complete + code-reviewer-
+approved. NEW-840/875/902's code already committed/pushed (`97b83cb`);
+NEW-901's code + this round's full ledger update land together in the next
+commit.
+
+---
+
 ## 2026-10-14 — NEW-900 close: `patch_tools.py`'s `allow_self_modification` omission
 
 **Pipeline:** project-architect scoped NEW-900 (found incidentally during
