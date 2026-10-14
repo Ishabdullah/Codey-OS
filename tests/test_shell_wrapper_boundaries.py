@@ -185,8 +185,8 @@ def test_confirmation_and_execution_contract(gateway, monkeypatch, command, answ
 def test_approved_timeout_wrapped_git_executes_with_git_env_isolation(gateway, monkeypatch):
     """Named-residual fix (NEW-875 follow-up, same round): `timeout 5 git
     push` is unconditionally HIGH_IMPACT and, once approved, executes.
-    `_execute_shell_command()` now scans argv beyond args[0] for a git
-    basename when args[0] is itself an exec-wrapper basename, so
+    `_run_shell_command_structured()` now scans argv beyond args[0] for a
+    git basename when args[0] is itself an exec-wrapper basename, so
     `shell_git_environment()` IS applied here -- unlike the find/xargs/
     env cases in `test_confirmation_and_execution_contract` above, which
     never wrap git and so correctly execute without it (no `env=` kwarg

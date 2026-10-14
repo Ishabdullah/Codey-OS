@@ -2,9 +2,11 @@ import os
 import shlex
 import stat
 import subprocess
+from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
 from time import monotonic
+from typing import Optional
 
 from core.action_gateway import (
     ACT,
@@ -221,8 +223,9 @@ def _is_git_basename(base: str) -> bool:
     """True if a parsed argv[0] basename names git or a git-<subcommand>
     helper executable (e.g. git-upload-pack). Shared between
     classify_shell_command()'s HIGH_IMPACT check and
-    _execute_shell_command()'s environment-isolation check so the two
-    can never classify and execute a command differently.
+    _run_shell_command_structured()'s environment-isolation check (the
+    execution primitive shell() calls) so the two can never classify and
+    execute a command differently.
     """
     return base == "git" or base.startswith("git-")
 
@@ -469,16 +472,52 @@ def _argv_token_hits_git(token: str) -> bool:
     return any(_is_git_basename(Path(t).name) for t in sub_tokens)
 
 
-def _execute_shell_command(command: str, timeout: int) -> str:
-    """Actually run `command` via subprocess and return its output as a
-    string. No confirmation, classification, or gating logic here — this
-    is the execution primitive `ActionGateway.gate_exec()` delegates to,
-    the same role `Filesystem.write()` plays for `gate_write()`.
+@dataclass(frozen=True)
+class _ShellExecResult:
+    """Structured companion to `_execute_shell_command()`'s plain-text
+    return value.
+
+    `kind`/`code` are set directly from what `subprocess.run()` (or the
+    exception it raised) actually reported — never by re-parsing `text` —
+    so a command that legitimately succeeds (`returncode == 0`) but whose
+    own stdout/stderr happens to start with something that looks like one
+    of our own markers (e.g. `echo '[ERROR] hi'`, `echo '[EXIT 1] x'`)
+    cannot spoof a caller's status classification. `text` is unchanged
+    from before this split and remains the thing shown to the user/model;
+    only classification moved off it (NEW-874 follow-up).
+
+    `kind` is one of "ok", "exit", "timeout", "not_found", "empty", "error".
+    `code` is the real OS exit status (only set for "exit"; may be
+    negative for a signal-terminated process) — always a bounded int from
+    `subprocess.CompletedProcess.returncode`, never attacker/output
+    controlled, so formatting it into a reason string can't itself
+    reintroduce an unbounded-length audit value.
+    """
+
+    text: str
+    kind: str
+    code: Optional[int] = None
+
+
+def _run_shell_command_structured(command: str, timeout: int) -> _ShellExecResult:
+    """Actually run `command` via subprocess and report both the
+    human-facing text and a structured, non-text-derived status.
+
+    This is the sole execution primitive `shell()`'s `execute()` closure
+    calls; classification decisions must use `kind`/`code`, never parse
+    `text` (NEW-874 — text-sniffing the return string is exactly the bug
+    this split fixes).
     """
     try:
         args = shlex.split(command)
         if not args:
-            return "[ERROR] Empty command"
+            # shell() already short-circuits a blank/whitespace-only
+            # command before reaching here; this remains reachable only
+            # for a command string that shlex.split() reduces to no
+            # tokens despite passing that check (e.g. a lone quote pair).
+            # Its own "kind" so callers don't lump it in with "error"
+            # ([ERROR] Empty command is not an unexpected exception).
+            return _ShellExecResult("[ERROR] Empty command", "empty")
 
         kwargs = {"capture_output": True, "text": True, "timeout": timeout}
         base0 = Path(args[0]).name
@@ -527,13 +566,20 @@ def _execute_shell_command(command: str, timeout: int) -> str:
             output += result.stdout
         if result.stderr:
             output += f"\n[stderr]\n{result.stderr}"
-        return output.strip() if output.strip() else "(no output)"
+        output = output.strip() if output.strip() else "(no output)"
+        if result.returncode != 0:
+            # NEW-874: a nonzero exit is a real execution failure, not a
+            # successful run that merely printed something. The `kind`/
+            # `code` fields (not this string) are what a caller must use
+            # to tell the two apart — see _ShellExecResult's docstring.
+            return _ShellExecResult(f"[EXIT {result.returncode}] {output}", "exit", result.returncode)
+        return _ShellExecResult(output, "ok")
     except subprocess.TimeoutExpired:
-        return f"[ERROR] Command timed out after {timeout}s"
+        return _ShellExecResult(f"[ERROR] Command timed out after {timeout}s", "timeout")
     except FileNotFoundError:
-        return f"[ERROR] Command not found: {command.split()[0]}"
+        return _ShellExecResult(f"[ERROR] Command not found: {command.split()[0]}", "not_found")
     except Exception as e:
-        return f"[ERROR] {e}"
+        return _ShellExecResult(f"[ERROR] {e}", "error")
 
 
 def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
@@ -614,24 +660,61 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
                     return "[CANCELLED] User declined to run command."
                 return f"[BLOCKED] {reason}"
 
+    # NEW-874: capture the real result via `nonlocal` before deciding
+    # whether to raise, mirroring core/githelper.py::_gate_local_commit's
+    # precedent for this exact pattern. gate_exec()'s audit `reason` field
+    # is written to an on-disk ledger (action_gateway.py:470-474 explains
+    # why command output never goes there), so only fixed, bounded reason
+    # strings are raised here — never the literal exception text or any
+    # of the command's own output.
+    #
+    # Classification is read from _run_shell_command_structured()'s
+    # `kind`/`code` fields, never by string-sniffing `exec_result` (the
+    # text ultimately returned to the agent/model, unchanged from
+    # before) — a real success whose own stdout happens to start with
+    # "[ERROR]"/"[EXIT 1] " etc. would otherwise be misclassified as a
+    # failure by a text check, exactly backwards (this was a real,
+    # reviewer-caught bug in the prior string-sniffing version of this
+    # closure; see NEW-874 code-reviewer notes).
+    exec_result = None
+
+    def execute():
+        nonlocal exec_result
+        structured = _run_shell_command_structured(command, timeout)
+        exec_result = structured.text
+        if structured.kind == "timeout":
+            raise RuntimeError("command execution timed out")
+        if structured.kind == "not_found":
+            raise RuntimeError("command executable not found")
+        if structured.kind == "empty":
+            raise RuntimeError("command was empty")
+        if structured.kind == "error":
+            raise RuntimeError("command execution raised an unexpected exception")
+        if structured.kind == "exit":
+            raise RuntimeError(f"command exited with status {structured.code}")
+        return exec_result
+
     decision = gateway.gate_exec(
         authority=authority,
         action="shell_tools.shell",
         command=command,
         confirm_available=confirm_available,
         confirm=confirm,
-        execute=lambda: _execute_shell_command(command, timeout),
+        execute=execute,
     )
     if decision.outcome == OUTCOME_REFUSED:
         if decision.reason == "Human confirmation declined; command not attempted.":
             return "[CANCELLED] User declined to run command."
         return f"[BLOCKED] {decision.reason}"
     if decision.outcome == OUTCOME_FAILED:
-        # Not reachable in practice today — _execute_shell_command()
-        # catches ordinary execution exceptions internally and returns an "[ERROR] ..."
-        # string rather than raising — but handled explicitly rather than
-        # silently falling through to the ALLOWED-shaped return below.
-        return f"[ERROR] {decision.reason}"
+        # Live now (NEW-874): _run_shell_command_structured() reporting a
+        # timeout/not-found/exception/nonzero-exit `kind` makes execute()
+        # raise above, so this branch is reached whenever the command
+        # itself failed. Return the original string captured via
+        # `nonlocal` — it already carries the real "[ERROR] ..."/
+        # "[EXIT N] ..." text — rather than reconstructing one from
+        # decision.reason, which is only the bounded, ledger-safe label.
+        return exec_result
     return decision.detail.get("result", "(no output)")
 
 

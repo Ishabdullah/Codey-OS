@@ -823,6 +823,17 @@ def execute_tool(tool_dict):
             and not result.startswith("[ERROR]")
             and not result.startswith("[BLOCKED]")
             and not (name == "shell" and result.startswith("[CANCELLED]"))
+            # NEW-874 follow-up (logged, not fixed here): a nonzero shell
+            # exit ("[EXIT N] ...") still slips through this filter and
+            # gets logged into episodic memory as an apparent success. A
+            # prior attempt matched on result.startswith("[EXIT ") here,
+            # but that is exactly the unsound text-sniffing this round's
+            # audit-ledger fix exists to eliminate — a real success whose
+            # own stdout happens to start with "[EXIT " would be wrongly
+            # excluded. Closing this properly requires threading
+            # shell_tools._ShellExecResult's structured kind/code out
+            # through TOOLS["shell"]/execute_tool, not a text check. See
+            # the logged NEW_ISSUES entry for this gap.
         ):
             from core.memory_v2 import memory as _mem
 
@@ -885,6 +896,13 @@ def is_error(result, tool_name):
     # and gets recorded as if the command had actually run.
     if result.startswith("[ERROR]") or result.startswith("[BLOCKED]"):
         return True
+    # NEW-874: "[EXIT " (nonzero shell exit) is deliberately NOT matched
+    # here, unlike [ERROR]/[BLOCKED] above. This function also drives the
+    # auto-retry gate and error_log, not just display/episodic-memory
+    # exclusion (handled separately in execute_tool()); adding it here
+    # would auto-retry every grep/test/diff/failing-pytest call up to
+    # max_retries, a much bigger behavior change than NEW-874 intends.
+    # Do not "fix" this by adding it without a separate, deliberate change.
     # Shell-specific: detect Python tracebacks and command failures
     if tool_name == "shell":
         error_signals = [

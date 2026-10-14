@@ -163,8 +163,8 @@ def shell_git_environment():
 
     Unlike push_environment(), whose base is _local_commit_environment()'s
     narrow allowlist, this starts from the full ambient os.environ --
-    tools/shell_tools.py's _execute_shell_command() runs arbitrary non-git
-    commands with no env= override at all, and must not change that for
+    tools/shell_tools.py's _run_shell_command_structured() runs arbitrary
+    non-git commands with no env= override at all, and must not change that for
     anything except the structural keys below.
 
     Any ambient GIT_CONFIG_COUNT/GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n>/
@@ -211,22 +211,21 @@ def shell_git_environment():
         classified HIGH_IMPACT by classify_shell_command() (env/find/
         xargs are each forced HIGH_IMPACT directly) and so still
         requires human confirmation, but the inner git process it
-        eventually spawns is not the direct argv[0] `_execute_shell_
-        command()` inspects, so it still runs under full ambient env
+        eventually spawns is not the direct argv[0] `_run_shell_command_
+        structured()` inspects, so it still runs under full ambient env
         once approved -- see NEW_ISSUES.md NEW-875.
-      - A `timeout 5 git push`-style wrapper is a DIFFERENT, worse case,
-        not covered by the paragraph above: `timeout` is not git/git-*,
-        not find/xargs/env, and not in READ_COMMANDS, so
-        classify_shell_command() falls through to ACT, not HIGH_IMPACT.
-        Verified (2026-10-13): `classify_shell_command("timeout 5 git
-        push")` returns `"ACT"`. ACT has no fail-closed rule, so with
-        `confirm_shell=False` (--yolo, fixmode, tdd, or the daemon's own
-        prior check) this runs with NO human confirmation at all, and
-        `_execute_shell_command()` also applies no env isolation (its
-        argv[0] is `timeout`, not a git basename) -- an unconfirmed,
-        fully ambient real git invocation. This is NEW-875's existing
-        "indirect shell execution" finding, not a new one; recorded as
-        an additional evidence line under that ID, not a new finding.
+      - A `timeout 5 git push`-style wrapper was this paragraph's
+        previously-documented gap (`timeout` not forced HIGH_IMPACT,
+        running fully ambient and unconfirmed under confirm_shell=False)
+        -- NEW-875's WP2.1 group 1 closeout (2026-10-14) fixed this:
+        `timeout` is now in `_EXEC_WRAPPER_BASENAMES`, so
+        `classify_shell_command("timeout 5 git push")` returns
+        `"HIGH_IMPACT"` (verified directly against current code), and
+        `_run_shell_command_structured()`'s `_argv_token_hits_git()` scan
+        applies env isolation to the wrapped git invocation once
+        approved. The general class this paragraph warns about (an
+        exec-wrapper basename not yet added to the set) remains open for
+        any basename not yet enumerated -- see NEW-904.
       - An explicit `-S`/`--gpg-sign` on the command line (e.g. `git
         commit -S -m msg`) bypasses commit.gpgsign entirely regardless
         of this function's commit.gpgsign=false override -- Git's own

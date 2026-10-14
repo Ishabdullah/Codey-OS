@@ -73,7 +73,7 @@ def test_decline_is_one_refusal_not_execution(gateway, monkeypatch, command, ans
     prompt = Mock(return_value=answer)
     execute = Mock(side_effect=AssertionError("decline cannot execute"))
     monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
-    monkeypatch.setattr(shell_tools, "_execute_shell_command", execute)
+    monkeypatch.setattr(shell_tools, "_run_shell_command_structured", execute)
     monkeypatch.setattr(shell_tools, "warning", Mock())
     assert shell_tools.shell(command) == CANCELLED
     prompt.assert_called_once_with(f"Run shell command: `{command}`?")
@@ -97,9 +97,9 @@ def test_approval_once_and_execution_only_thunk(gateway, monkeypatch, command):
     def execute(actual, timeout):
         assert actual == command and timeout == 23
         order.append("execute")
-        return "original result"
+        return shell_tools._ShellExecResult("original result", "ok")
 
-    monkeypatch.setattr(shell_tools, "_execute_shell_command", execute)
+    monkeypatch.setattr(shell_tools, "_run_shell_command_structured", execute)
     assert shell_tools.shell(command, timeout=23) == "original result"
     if shell_tools.classify_shell_command(command) == HIGH_IMPACT:
         assert order == ["gate", "warning", "prompt", "execute"]
@@ -116,7 +116,7 @@ def test_prompt_errors_are_static_refusals(gateway, monkeypatch, command, except
     prompt = Mock(side_effect=exception)
     execute = Mock(side_effect=AssertionError("prompt failure cannot execute"))
     monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
-    monkeypatch.setattr(shell_tools, "_execute_shell_command", execute)
+    monkeypatch.setattr(shell_tools, "_run_shell_command_structured", execute)
     monkeypatch.setattr(shell_tools, "warning", Mock())
     reason = INTERRUPTED if isinstance(exception, (EOFError, KeyboardInterrupt)) else FAILED
     assert shell_tools.shell(command) == f"[BLOCKED] {reason}"
@@ -135,7 +135,7 @@ def test_high_impact_without_path_refuses_before_warning(gateway, monkeypatch, y
     execute = Mock()
     monkeypatch.setattr(shell_tools, "warning", warning)
     monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
-    monkeypatch.setattr(shell_tools, "_execute_shell_command", execute)
+    monkeypatch.setattr(shell_tools, "_run_shell_command_structured", execute)
     command = "git reset --hard HEAD"
     result = shell_tools.shell(command, yolo=yolo)
     assert result.startswith("[BLOCKED]") and "no confirmation path available" in result
@@ -153,10 +153,10 @@ def test_existing_read_act_prompt_choices(gateway, monkeypatch, command, config,
     monkeypatch.setitem(AGENT_CONFIG, "confirm_shell", config)
     prompt = Mock(return_value=True)
     warning = Mock()
-    execute = Mock(return_value="original output")
+    execute = Mock(return_value=shell_tools._ShellExecResult("original output", "ok"))
     monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
     monkeypatch.setattr(shell_tools, "warning", warning)
-    monkeypatch.setattr(shell_tools, "_execute_shell_command", execute)
+    monkeypatch.setattr(shell_tools, "_run_shell_command_structured", execute)
     assert shell_tools.shell(command, yolo=yolo, timeout=37) == "original output"
     assert prompt.call_count == int(prompted)
     assert warning.call_count == int(warned)
@@ -204,9 +204,9 @@ def test_each_daemon_refusal_one_audit_no_shell(gateway, monkeypatch, command, r
 def test_accepted_daemon_delegates_once_single_shell_audit(gateway, monkeypatch):
     real_shell = shell_tools.shell
     delegate = Mock(wraps=real_shell)
-    execute = Mock(return_value="original output")
+    execute = Mock(return_value=shell_tools._ShellExecResult("original output", "ok"))
     monkeypatch.setattr(shell_tools, "shell", delegate)
-    monkeypatch.setattr(shell_tools, "_execute_shell_command", execute)
+    monkeypatch.setattr(shell_tools, "_run_shell_command_structured", execute)
     monkeypatch.setattr(shell_tools, "ask_confirm", Mock(side_effect=AssertionError("YOLO must not prompt")))
     executor = task_executor.TaskExecutor.__new__(task_executor.TaskExecutor)
     command = "  pwd  "
@@ -228,7 +228,7 @@ def test_execute_tool_cancelled_is_not_episodic_success(gateway, monkeypatch, ap
     monkeypatch.setattr(agent, "show_shell", display)
     monkeypatch.setitem(agent.TOOLS, "shell", lambda args: shell_tools.shell(args["command"]))
     monkeypatch.setattr(shell_tools, "ask_confirm", Mock(return_value=approved))
-    monkeypatch.setattr(shell_tools, "_execute_shell_command", Mock(return_value="original output"))
+    monkeypatch.setattr(shell_tools, "_run_shell_command_structured", Mock(return_value=shell_tools._ShellExecResult("original output", "ok")))
     command = "pwd"
     result = agent.execute_tool({"name": "shell", "args": {"command": command}})
     assert result == ("original output" if approved else CANCELLED)
@@ -240,3 +240,177 @@ def test_execute_tool_cancelled_is_not_episodic_success(gateway, monkeypatch, ap
     else:
         log.assert_not_called()
     record(gateway, authority=READ, action="shell_tools.shell", command=command, outcome="allowed" if approved else "refused", reason="command executed" if approved else DECLINED)
+
+
+# ── NEW-874: shell execution-error fidelity ─────────────────────────────────
+
+
+def test_real_nonzero_exit_is_exit_marked_and_audited_failed(gateway):
+    command = "false"
+    assert shell_tools.shell(command, yolo=True, timeout=5) == "[EXIT 1] (no output)"
+    record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command exited with status 1")
+
+
+def test_real_nonzero_exit_stderr_reaches_caller_not_ledger(gateway, tmp_path):
+    # The sentinel lives in the *script's* stderr output, not in the
+    # command text itself (the command text is legitimately audited —
+    # that's the existing, unrelated "command" field) -- so this isolates
+    # the leak check to exactly what NEW-874 changes: command OUTPUT must
+    # stay out of the ledger, only the bounded reason string goes there.
+    sentinel = "SENTINEL_NEW874_STDERR_ONLY"
+    script = tmp_path / "fail.sh"
+    script.write_text(f"#!/bin/sh\necho {sentinel} 1>&2\nexit 7\n")
+    script.chmod(0o755)
+    command = str(script)
+    result = shell_tools.shell(command, yolo=True, timeout=5)
+    assert result.startswith("[EXIT 7]")
+    assert sentinel in result
+    assert sentinel not in gateway.audit.read_text()
+    record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command exited with status 7")
+
+
+def test_real_missing_binary_unchanged_message_no_doubled_prefix(gateway):
+    command = "definitely_not_a_real_binary_new874"
+    result = shell_tools.shell(command, yolo=True, timeout=5)
+    assert result == f"[ERROR] Command not found: {command}"
+    record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command executable not found")
+
+
+def test_real_timeout_unchanged_message(gateway):
+    command = "sleep 5"
+    result = shell_tools.shell(command, yolo=True, timeout=1)
+    assert result == "[ERROR] Command timed out after 1s"
+    record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command execution timed out")
+
+
+def test_unexpected_exception_reason_bounded_no_leak(gateway, monkeypatch):
+    sentinel_message = "SENTINEL_NEW874_OSERROR_TEXT"
+    monkeypatch.setattr(
+        shell_tools.subprocess, "run", Mock(side_effect=OSError(sentinel_message))
+    )
+    command = "echo irrelevant"
+    result = shell_tools.shell(command, yolo=True, timeout=5)
+    assert result == f"[ERROR] {sentinel_message}"
+    ledger_text = gateway.audit.read_text()
+    assert sentinel_message not in ledger_text
+    record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command execution raised an unexpected exception")
+
+
+# ── NEW-874 follow-up: classification must come from the structured
+# side channel, never from sniffing the returned text. A real success
+# (returncode == 0) whose own stdout happens to start with one of our
+# own markers must NOT be reclassified as a failure. These reproduce the
+# code-reviewer's exact probe lines (spoof-exit-ok / spoof-error-ok /
+# spoof-timeout-ok / spoof-not-found-ok) against real subprocess runs,
+# not mocks -- the whole point is that classification is now derived
+# from subprocess.run()'s actual returncode, not from this text.
+@pytest.mark.parametrize(
+    "spoofed_text",
+    [
+        "[ERROR] hi",
+        "[EXIT 1] fake",
+        "[ERROR] Command timed out after 5s",
+        "[ERROR] Command not found: nope",
+    ],
+)
+def test_successful_command_with_spoofed_marker_stdout_is_not_misclassified(gateway, spoofed_text):
+    command = f"echo '{spoofed_text}'"
+    result = shell_tools.shell(command, yolo=True, timeout=5)
+    assert result == spoofed_text
+    record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="allowed", reason="command executed")
+
+
+def test_successful_command_with_huge_digit_lookalike_stdout_stays_bounded(gateway, tmp_path):
+    # Bug 2 regression: the prior string-sniffing version sliced an
+    # unbounded digit run out of stdout into the audit `reason` field.
+    # The structured helper never parses stdout at all for classification,
+    # so this is bounded by construction -- but kept as an explicit
+    # regression test per the reviewer's ask rather than relying on that
+    # being "obviously" true.
+    payload = "[EXIT " + ("9" * 100_000) + "] not a real marker"
+    huge_file = tmp_path / "huge.txt"
+    huge_file.write_text(payload)
+    command = f"cat {huge_file}"
+    result = shell_tools.shell(command, yolo=True, timeout=5)
+    assert result == payload
+    ledger_text = gateway.audit.read_text()
+    assert len(ledger_text) < 1000
+    record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="allowed", reason="command executed")
+
+
+def test_negative_exit_status_from_signal_kill_is_recognized(gateway, tmp_path):
+    script = tmp_path / "selfkill.sh"
+    script.write_text("#!/bin/sh\nkill -9 $$\n")
+    script.chmod(0o755)
+    command = str(script)
+    result = shell_tools.shell(command, yolo=True, timeout=5)
+    assert result.startswith("[EXIT -9]")
+    record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command exited with status -9")
+
+
+def test_high_impact_approved_exit_failure_is_failed_not_refused(gateway, monkeypatch):
+    monkeypatch.setattr(shell_tools, "ask_confirm", Mock(return_value=True))
+    monkeypatch.setattr(shell_tools, "warning", Mock())
+    monkeypatch.setattr(
+        shell_tools, "_run_shell_command_structured",
+        Mock(return_value=shell_tools._ShellExecResult("[EXIT 1] original output", "exit", 1)),
+    )
+    command = "git reset --hard HEAD"
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
+    result = shell_tools.shell(command)
+    assert result == "[EXIT 1] original output"
+    record(gateway, authority=HIGH_IMPACT, action="shell_tools.shell", command=command, outcome="failed", reason="command exited with status 1")
+
+
+def test_structured_empty_args_has_its_own_kind_not_lumped_with_error():
+    # shlex.split() reducing a non-blank command to zero tokens is not
+    # reachable through shell()'s own public entry point (it already
+    # short-circuits any blank/whitespace-only command before reaching
+    # _run_shell_command_structured()), but the structured helper is
+    # exercised directly here since its "empty" kind must stay distinct
+    # from "error" (code-reviewer W3, NEW-874 round 3) — a blank command
+    # is not an "unexpected exception".
+    result = shell_tools._run_shell_command_structured("", timeout=5)
+    assert result.kind == "empty"
+    assert result.text == "[ERROR] Empty command"
+
+
+def test_execute_tool_shell_exit_failure_known_gap_slips_into_episodic_memory(gateway, monkeypatch):
+    """NEW-874 closed the audit-ledger fidelity gap (see
+    test_high_impact_approved_exit_failure_is_failed_not_refused and the
+    real-exit tests above: a nonzero shell exit is now truthfully audited
+    outcome="failed"). It did NOT close the episodic-memory/display-layer
+    gap this test pins: execute_tool() still logs a nonzero-exit shell
+    result into episodic memory as if it succeeded, and is_error()/
+    show_shell() still display it as a non-error. A round-2 attempt at
+    closing this by matching result.startswith("[EXIT ") in execute_tool()
+    was reverted on code-reviewer feedback — that is the same unsound
+    text-sniffing class the audit-ledger fix exists to eliminate (a real
+    success whose own stdout starts with "[EXIT " would be wrongly
+    excluded). A real fix needs shell_tools._ShellExecResult's structured
+    kind/code threaded out through TOOLS["shell"]/execute_tool, which is
+    its own separate, logged NEW_ISSUES item. This test pins the current,
+    known gap so it isn't silently reintroduced via a text-sniffing
+    shortcut.
+    """
+    import core.memory_v2 as memory_module
+
+    log = Mock()
+    monkeypatch.setattr(memory_module.memory, "log_action", log)
+    learning = Mock()
+    monkeypatch.setattr(agent, "_get_learning", lambda: learning)
+    display = Mock()
+    monkeypatch.setattr(agent, "show_shell", display)
+    monkeypatch.setitem(agent.TOOLS, "shell", lambda args: shell_tools.shell(args["command"]))
+    monkeypatch.setattr(shell_tools, "ask_confirm", Mock(return_value=True))
+    monkeypatch.setattr(
+        shell_tools, "_run_shell_command_structured",
+        Mock(return_value=shell_tools._ShellExecResult("[EXIT 1] boom", "exit", 1)),
+    )
+    command = "pwd"
+    result = agent.execute_tool({"name": "shell", "args": {"command": command}})
+    assert result == "[EXIT 1] boom"
+    display.assert_called_once_with(command, result, error=False)
+    assert agent.is_error(result, "shell") is False
+    log.assert_called_once_with("shell", result[:100])
+    record(gateway, authority=READ, action="shell_tools.shell", command=command, outcome="failed", reason="command exited with status 1")
