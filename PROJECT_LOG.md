@@ -1,3 +1,67 @@
+## 2026-10-14 — WP2.1 group 5 closeout: capability resource enforcement (NEW-915), "no live gap" finding + dormant-path fix anyway; NEW-916/917 logged
+
+**Scope:** per explicit instruction ("continue all the way through 3-15
+without stopping"), moved to WP2.1 group 5. Group 4 had already fenced out
+`resource_limits` enforcement as this group's scope, including a hardcoded
+`timeout=10.0` in `call_capability()`'s HTTP dispatch branch that ignores
+declared `resource_limits.timeout_seconds`. project-architect's scoping
+(rule 12, verified against live code) found the honest answer is **there is
+no live gap to close**: the only 2 manifests that declare real
+`resource_limits` (`device/private_agent`, `voice/aigentik`) are confirmed
+unreachable three independent ways — no production caller dispatches either
+plugin's capability names; both plugins' manifest permission tags force
+`HIGH_IMPACT` via group 4's gate, which fails closed with no confirmation
+path before the HTTP thunk ever runs; and even if it ran, both plugins'
+`start_command`s reference non-existent target scripts (the real Aigentik
+voice service runs via a completely separate mechanism,
+`lib/service_manager.sh`'s `start_aigentik()`).
+
+**Fixed anyway, as dormant-path coverage** (same pattern as group 4's own
+automatic coverage of dormant `planner.py`/`lifecycle_manager.py` callers):
+the hardcoded timeout now reads the capability's/plugin's declared
+`timeout_seconds`, clamped to a core-owned ceiling
+(`ccos.core.sandbox.MAX_TIMEOUT = 120`) a manifest can only request tighter
+than, never looser. A real data-flow bug was found and fixed in the same
+change: a per-capability `timeout_seconds` override was being silently
+dropped at `PluginManager.load()` time (only the plugin-level dict was ever
+copied onto the `Capability` object) — fixed via a new
+`_merge_capability_resource_limits()` helper. Resolution is robust against
+zero/negative/NaN/string/bool values (all fall through to the next source
+rather than raising or passing through literally) and happens inside the
+gated `_execute()` closure, never before `gate_exec()` runs.
+
+**Code-reviewer approved with one Warning, addressed:** a test-coverage gap
+(the bool/NaN/string rejection paths were implemented but not directly
+tested) — fixed with a new parametrized test, confirmed to discriminate via
+mutation testing (removing the bool-exclusion guard makes it fail with
+exactly the predicted wrong value, `1.0 == 45`).
+
+**Self-disclosed, not in final code:** the implementer's early test-helper
+draft leaked several real child `sleep`-script processes across two
+dev-iteration runs before being caught and fixed; final tests mock process
+spawning entirely and spawn zero real processes (confirmed independently by
+implementer, reviewer, and coordinator via `ps aux`).
+
+**Deliberately not built this round:** real `max_memory_mb`/`max_cpu_percent`
+enforcement (`setrlimit`/cgroup/psutil) — no real target process exists to
+protect for either manifest (both are non-functional stubs), and Android/
+Termux has no cgroups. Speculative work protecting nothing real.
+
+**Two findings logged, not fixed (NEW-916/917):** `ProcessSupervisor.
+start_external_plugin()`/`PluginManager.load()` treat a successfully-
+spawned-but-immediately-failing external_process child as a success —
+real and currently happening (every interactive session's first dashboard
+read spawns two short-lived failing subprocesses for the two stub plugins),
+low severity, distinct from NEW-750. And: `_discover()` never runs
+manifests through the stricter `validate_manifest_v2()` schema validator,
+only `normalize_manifest()` — a general gap NEW-915's fix defends against
+for the timeout field specifically but doesn't close generally.
+
+**Commit:** `d061f6a`. Files: `ccos/core/plugin_manager.py`, `ccos/tests/
+test_external_plugin_supervision.py`, `NEW_ISSUES.md`.
+
+---
+
 ## 2026-10-14 — WP2.1 group 4 closeout: CCOS dispatch and permissions (NEW-910/911/912); NEW-913/914 logged, NEW-908 reconfirmed
 
 **Scope:** per explicit instruction ("continue all the way through 3-15
