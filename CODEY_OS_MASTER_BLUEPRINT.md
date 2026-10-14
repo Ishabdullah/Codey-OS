@@ -2943,6 +2943,43 @@ reviewed by `/root/code_reviewer`, APPROVED), `a50f97e` (slice 27;
 reviewed by `/root/code_reviewer`, APPROVED after correction), `7530b7a` (slice 28;
 reviewed by `/root/code_reviewer`, APPROVED), `29e5cc7` (slice 29;
 reviewed by `/root/code_reviewer`, APPROVED).
+
+> **Status update (2026-10-14) — read this before resuming WP2.1, don't
+> start from "full DoD not yet met" above without checking here first.**
+> Slices 30-32 (2026-10-13) and work groups 1-6 of the 14-group remaining-
+> scope census named below (2026-10-14) are **also now DONE**, on top of
+> slices 1-29 above. In order: **slice 30** (isolated Git worktree READ —
+> status/diff/conflicts), **slice 31** (isolated Git ref mutations —
+> branch/checkout/merge), **slice 32** (checkpoint rollback mediation, plus
+> a same-round cleanup-masking fix) — see `PROJECT_LOG.md`'s three
+> 2026-10-13 entries for exact commits/evidence. Then, of the remaining
+> census's 14 groups: **group 1** (NEW-875, exec-wrapper basename
+> enumeration + git-env-isolation gap — closed as far as enumeration can
+> close it, NEW-904 logged for the open-ended tail), **group 2** (NEW-874,
+> shell execution-error fidelity — audit-ledger portion only, NEW-905/906
+> logged for the episodic-memory/display-layer portion and a pre-existing
+> full-suite hang respectively), **group 3** (NEW-855/425/812, import/state
+> isolation foundation — plus a one-time live-data purge of ~38K rows of
+> confirmed test-pollution found in the real `~/.codeyOS/state.db`,
+> authorized and executed 2026-10-14), **group 4** (NEW-910/911/912, CCOS
+> dispatch and permissions — `call_capability()`'s one production
+> dispatch point now gated through the Action Gateway for the first time;
+> NEW-913/914 logged), **group 5** (NEW-915, capability resource
+> enforcement — honest finding was "no live gap," fixed anyway as
+> dormant-path coverage; NEW-916/917 logged), **group 6** (device
+> boundaries — closed a real LIVE gap: `termux-sms-send`/
+> `termux-telephony-call`/`termux-camera-photo`/`termux-torch`, all real
+> installed binaries on the dev device, classified `ACT` not `HIGH_IMPACT`
+> and could actuate real hardware/SMS unconfirmed under `--yolo`; also
+> closed NEW-750's naming-mismatch bug class, found to recur in 4 manifests
+> not 1). See `PROJECT_LOG.md`'s five 2026-10-14 entries (groups 2-6; group
+> 1 is dated 2026-10-14 too, filed just before them) for exact commits,
+> and `NEW_ISSUES.md` for every `NEW-###` named above. **Groups 7-15 remain
+> open** — pick up from group 7 ("Business mutation boundaries") using the
+> same pattern: project-architect re-scopes against live code first (the
+> census doc's one-line group names have repeatedly turned out stale or
+> incomplete on inspection — don't trust them blindly), then
+> implementer/code-reviewer/ledger-update/commit same as every slice above.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
