@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 import pytest
 
+import utils.config
 from utils.config import (
     get_config_file_path,
     load_user_config,
@@ -112,7 +113,7 @@ def test_get_restoricon_api_config_defaults():
     assert cfg["db_path"].endswith("restoricon.db")
 
 
-def test_default_db_path_matches_api_config_db_path():
+def test_default_db_path_matches_api_config_db_path(monkeypatch):
     """U.39 / NEW-455: restoricon_core.database.DEFAULT_DB_PATH (the path
     migrate_aigentik and any bare DatabaseManager() use) must be the same
     file the API server actually serves from — otherwise backups and
@@ -124,8 +125,19 @@ def test_default_db_path_matches_api_config_db_path():
     clean_service_env fixture's delenv does not affect it; the guard
     below (no RESTORICON_DB_PATH, {} config so no restoricon.db_path
     override) is what keeps this hermetic.
+
+    NEW-855: the root conftest.py redirects CODEY_STATE_DIR to a per-session
+    temp dir for the whole test session (so import-time state stores never
+    touch the real ~/.codeyOS), but restoricon_core.database.DEFAULT_DB_PATH
+    independently re-derives "~/.codeyOS" from Path.home() rather than from
+    utils.config.CODEY_STATE_DIR (same class as NEW-455 itself — logged
+    separately, not fixed here). Pin utils.config.CODEY_STATE_DIR back to
+    the real ~/.codeyOS for this one comparison so it still tests what it
+    always tested: the two shipped defaults agreeing with each other.
     """
     from restoricon_core.database import DEFAULT_DB_PATH
+
+    monkeypatch.setattr(utils.config, "CODEY_STATE_DIR", Path.home() / ".codeyOS")
 
     # (the autouse fixture already cleared RESTORICON_DB_PATH; DEFAULT_DB_PATH
     # was bound at import anyway, so this compares the shipped fallbacks)
@@ -144,6 +156,11 @@ def test_doc_store_path_matches_across_sources(monkeypatch):
     repo_root = Path(__file__).parent.parent.resolve()
 
     # 1. Default (no env / no config override).
+    # NEW-855: pin CODEY_STATE_DIR back to the real ~/.codeyOS for this
+    # assertion — the root conftest.py redirects it to a per-session temp
+    # dir for the whole test session, so without this pin "default" would
+    # mean "wherever this session's temp dir is", not ~/.codeyOS.
+    monkeypatch.setattr(utils.config, "CODEY_STATE_DIR", Path.home() / ".codeyOS")
     default_path = get_restoricon_doc_store_path({})
     assert default_path == str(
         (Path.home() / ".codeyOS" / "restoricon_documents").resolve()

@@ -30,14 +30,16 @@ daemon is running, which is the common case in this test suite). Instead,
 `"scope": "process"` label so the output is no longer misleading about
 what it measures.
 
-Isolation note: `State.uptime`/`State.daemon_pid` read the REAL,
-shared `~/.codeyOS/state.db` (`core.state.get_state_store()`) --
-`tests/conftest.py`'s autouse isolation fixture only redirects
-telemetry's `METRICS_DIR`, not this. `_isolated_daemon_started_at`
-below saves and restores the real `daemon_started_at` value around every
-test in this module so a test run never leaves that shared value mutated
-for whatever else reads it afterward (e.g. a live daemon's own
-`_handle_health`).
+Isolation note: `State.uptime`/`State.daemon_pid` read the shared
+`state.db` via `core.state.get_state_store()`. As of WP2.1 group 3
+(NEW-855), the root `conftest.py` redirects `CODEY_STATE_DIR` to a
+fresh per-session temp dir at collection time (before this module or
+`core.state` is ever imported), so this no longer touches the real
+`~/.codeyOS/state.db` -- but it's still the ONE shared DB for this test
+session, not a per-test one. `_isolated_daemon_started_at` below saves
+and restores `daemon_started_at` around every test in this module so a
+test run never leaves that shared value mutated for whatever other test
+in the session reads it afterward.
 """
 
 import os

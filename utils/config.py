@@ -316,7 +316,17 @@ WORKSPACE_ROOT = Path(os.getcwd()).resolve()
 
 # ── Codey-OS state directory — single source of truth ──────────────────────
 # Do not hardcode ".codeyOS" or similar anywhere else; import from here.
-CODEY_STATE_DIR = Path.home() / ".codeyOS"
+# Honors a CODEY_STATE_DIR env var override (same convention
+# lib/service_manager.sh's $DAEMON_DIR already uses) so test collection can
+# redirect every import-time-initialized state store (core/state.py,
+# core/checkpoint.py, core/model_registry.py, core/symbolic_graph.py) away
+# from the real ~/.codeyOS without touching those modules (NEW-855/NEW-812).
+# No production code path sets this env var, so this is a no-op by default.
+CODEY_STATE_DIR = (
+    Path(os.environ["CODEY_STATE_DIR"])
+    if os.environ.get("CODEY_STATE_DIR")
+    else Path.home() / ".codeyOS"
+)
 
 DAEMON_PID_FILE = CODEY_STATE_DIR / "codeyOS.pid"
 DAEMON_SOCKET_FILE = CODEY_STATE_DIR / "codeyOS.sock"
