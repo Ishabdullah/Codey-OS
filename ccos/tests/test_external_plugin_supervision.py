@@ -25,6 +25,38 @@ from ccos.core.plugin_manager import (
 from core.action_gateway import READ
 
 
+@pytest.fixture(autouse=True)
+def _finally_reap_test_children(monkeypatch):
+    """Every real child created by this suite remains owned through teardown."""
+    from ccos.core import plugin_manager as pm_module
+
+    spawned = []
+    popen = pm_module.subprocess.Popen
+
+    def track(*args, **kwargs):
+        child = popen(*args, **kwargs)
+        spawned.append(child)
+        return child
+
+    monkeypatch.setattr(pm_module.subprocess, "Popen", track)
+    try:
+        yield
+    finally:
+        for child in spawned:
+            if child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=3)
+                except pm_module.subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=3)
+            else:
+                child.wait(timeout=3)
+            for stream in (child.stdout, child.stderr):
+                if stream is not None:
+                    stream.close()
+
+
 def test_supervisor_start_and_stop_external_plugin(tmp_path):
     """Verify ProcessSupervisor starts a process, tracks its PID in a pid file, and cleans it up."""
     # Create a dummy script that sleeps

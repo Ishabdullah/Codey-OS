@@ -19,11 +19,12 @@ import importlib
 import importlib.util
 import inspect
 import json
+import math
 import os
-import signal
 import subprocess
 import sys
 import time
+from threading import RLock
 import urllib.request
 from dataclasses import dataclass, field
 from enum import Enum
@@ -49,7 +50,6 @@ from core.action_gateway import (
     get_action_gateway,
 )
 from utils.config import CODEY_STATE_DIR
-from utils.logger import warning
 
 # WP2.1 group 4 (NEW-910/911/912). Rank used to resolve the "raise-only
 # floor" rule below -- a manifest permission tag or a handler-supplied
@@ -278,171 +278,192 @@ class Plugin:
 
 
 class ProcessSupervisor:
-    """
-    Supervises external process plugins with exact PID tracking and clean shutdown.
-    Strictly follows Rule 3: only operates on exact tracked PIDs, never issues wildcard kills.
-    """
+    """Own Popen children until confirmed exit; PID files confer no ownership."""
+
+    _STARTUP_OBSERVE_SECONDS = 0.1
 
     def __init__(self):
         self._processes: Dict[str, subprocess.Popen] = {}
         self._pid_files: Dict[str, Path] = {}
+        self._pid_records = {}
+        self._ready = set()
+        # start may invoke stop after failed setup. Reentrancy keeps that
+        # cleanup serialized without giving concurrent starts a second child.
+        self._lock = RLock()
+
+    @staticmethod
+    def _record_signature(stat):
+        return (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+
+    def _publish_pid(self, name, path, proc):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Exclusive create rejects existing files and symlinks, including a
+        # record another supervisor published after our pre-spawn check.
+        with path.open("xb") as stream:
+            self._pid_files[name] = path
+            payload = str(proc.pid).encode("ascii")
+            stream.write(payload)
+            stream.flush()
+            self._pid_records[name] = (self._record_signature(os.fstat(stream.fileno())), payload)
+
+    def _remove_owned_record(self, name):
+        path = self._pid_files.get(name)
+        snapshot = self._pid_records.get(name)
+        if path is None or snapshot is None:
+            return
+        try:
+            # O_NOFOLLOW rejects a symlink replacement. Compare both the
+            # opened inode and current directory entry immediately before
+            # unlinking; this is a local stale-record defense, not pidfd or
+            # an account-adversary-proof atomic compare-and-unlink primitive.
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as stream:
+                opened = self._record_signature(os.fstat(stream.fileno()))
+                if opened != snapshot[0]:
+                    return
+                data = stream.read(len(snapshot[1]) + 1)
+                current = self._record_signature(path.lstat())
+            if opened == current == snapshot[0] and data == snapshot[1]:
+                path.unlink()
+        except OSError:
+            # Record replacement or cleanup failure cannot make an exited
+            # child live again; preserve the evidence rather than deleting
+            # an entry we cannot verify as our unchanged publication.
+            return
 
     def start_external_plugin(
         self, plugin: Plugin, state_dir: Optional[Path] = None
     ) -> bool:
-        """
-        Start an external process plugin according to its process_spec.
-        Tracks exact PID and creates pid file if specified.
-        """
-        process_spec = plugin.manifest.get("process_spec", {})
-        cmd = (
-            process_spec.get("start_command")
-            or process_spec.get("command")
-        )
-        if not cmd:
-            entry_point = plugin.manifest.get("entry_point", "__init__.py")
-            entry_file = Path(plugin.path) / entry_point
-            if entry_file.exists():
+        """Start one owned child and observe early exit / configured health."""
+        with self._lock:
+            owned = self._processes.get(plugin.name)
+            if owned is not None:
+                try:
+                    alive = owned.poll() is None
+                except Exception:
+                    # Unknown liveness cannot authorize a duplicate child.
+                    return False
+                if alive:
+                    plugin.pid = owned.pid
+                    return plugin.name in self._ready
+                if not self.stop_external_plugin(plugin.name):
+                    return False
+                plugin.pid = None
+
+            process_spec = plugin.manifest.get("process_spec", {})
+            cmd = process_spec.get("start_command") or process_spec.get("command")
+            if not cmd:
+                entry_file = Path(plugin.path) / plugin.manifest.get("entry_point", "__init__.py")
+                if not entry_file.exists():
+                    plugin.status = PluginStatus.BROKEN
+                    plugin.error = "No start_command or entry_point found for external process"
+                    return False
                 cmd = [sys.executable, str(entry_file)]
-            else:
+            pid_file = process_spec.get("pid_file")
+            pid_path = _resolve_pid_path(pid_file) if pid_file else None
+            # An integer file from another supervisor/session is evidence,
+            # never permission to signal it or start a duplicate alongside it.
+            if pid_path is not None and os.path.lexists(pid_path):
                 plugin.status = PluginStatus.BROKEN
-                plugin.error = "No start_command or entry_point found for external process"
+                plugin.error = "Unowned PID record blocks external process startup"
                 return False
-
-        working_dir = process_spec.get("working_dir") or plugin.path
-        env = dict(os.environ)
-        if "env" in process_spec and isinstance(process_spec["env"], dict):
-            env.update(process_spec["env"])
-
-        # Determine pid file location
-        pid_file_str = process_spec.get("pid_file")
-        pid_path = None
-        if pid_file_str:
-            pid_path = _resolve_pid_path(pid_file_str)
-            self._pid_files[plugin.name] = pid_path
-
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(working_dir),
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            self._processes[plugin.name] = proc
-            plugin.pid = proc.pid
-
-            if pid_path:
-                pid_path.parent.mkdir(parents=True, exist_ok=True)
-                pid_path.write_text(str(proc.pid))
-
-            # Optional health check verification
-            health_endpoint = process_spec.get("health_endpoint")
-            if health_endpoint:
-                healthy = self.check_health(plugin.name, health_endpoint=health_endpoint)
-                if not healthy:
-                    warning(f"ProcessSupervisor: plugin '{plugin.name}' started but health check failed at {health_endpoint}")
-
-            return True
-
-        except Exception as e:
-            plugin.status = PluginStatus.BROKEN
-            plugin.error = f"Failed to spawn external process: {e}"
-            return False
+            env = dict(os.environ)
+            if isinstance(process_spec.get("env"), dict):
+                env.update(process_spec["env"])
+            try:
+                proc = subprocess.Popen(
+                    cmd, cwd=str(process_spec.get("working_dir") or plugin.path),
+                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                self._processes[plugin.name] = proc
+                plugin.pid = proc.pid
+                if pid_path is not None:
+                    self._publish_pid(plugin.name, pid_path, proc)
+                try:
+                    proc.wait(timeout=self._STARTUP_OBSERVE_SECONDS)
+                except subprocess.TimeoutExpired:
+                    pass  # Expected: the bounded startup observation is over.
+                else:
+                    raise RuntimeError("External process exited during startup")
+                if not self.check_health(plugin.name, process_spec.get("health_endpoint")):
+                    raise RuntimeError("External process startup health check failed")
+                self._ready.add(plugin.name)
+                plugin.error = ""
+                return True
+            except Exception:
+                # Setup may fail after Popen. Cleanup only our retained handle;
+                # if cleanup is incomplete, keep it for a later stop attempt.
+                self._ready.discard(plugin.name)
+                if plugin.name in self._processes:
+                    stopped = self.stop_external_plugin(plugin.name)
+                    if stopped:
+                        plugin.pid = None
+                plugin.status = PluginStatus.BROKEN
+                plugin.error = "External process startup failed"
+                return False
 
     def stop_external_plugin(
-        self,
-        plugin_name: str,
-        pid_file: Optional[Union[str, Path]] = None,
+        self, plugin_name: str, pid_file: Optional[Union[str, Path]] = None,
         timeout: float = 3.0,
     ) -> bool:
-        """
-        Stop an external plugin process with clean SIGTERM -> SIGKILL escalation.
-        Rule 3: only kills the exact tracked PID.
-        """
-        proc = self._processes.pop(plugin_name, None)
-        pid = None
-        if proc:
-            pid = proc.pid
-
-        # Check PID file if proc reference not available
-        pid_path = Path(pid_file) if pid_file else self._pid_files.pop(plugin_name, None)
-        if pid is None and pid_path and pid_path.exists():
+        """Stop/reap only an owned Popen; retain all tracking on uncertainty."""
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout < 0:
+            return False
+        with self._lock:
+            proc = self._processes.get(plugin_name)
+            if proc is None:
+                path = _resolve_pid_path(pid_file) if pid_file else self._pid_files.get(plugin_name)
+                return path is None or not os.path.lexists(path)
             try:
-                pid = int(pid_path.read_text().strip())
+                if proc.poll() is None:
+                    try:
+                        proc.terminate()
+                    except ProcessLookupError:
+                        pass  # Still require wait/poll to confirm our child exited.
+                    try:
+                        proc.wait(timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        # Poll again before escalation; it may have exited at
+                        # the timeout boundary. Signal only the Popen handle.
+                        if proc.poll() is None:
+                            proc.kill()
+                        proc.wait(timeout=timeout)
+                else:
+                    proc.wait(timeout=timeout)  # reap an already exited child
+                if proc.poll() is None:
+                    return False
             except Exception:
-                pid = None
-
-        if pid is None or pid <= 0:
-            if pid_path and pid_path.exists():
-                try:
-                    pid_path.unlink()
-                except OSError:
-                    pass
+                # Permission errors, failed waits and unconfirmed termination
+                # do not authorize dropping the only owned process handle.
+                return False
+            self._remove_owned_record(plugin_name)
+            self._processes.pop(plugin_name, None)
+            self._pid_files.pop(plugin_name, None)
+            self._pid_records.pop(plugin_name, None)
+            self._ready.discard(plugin_name)
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass  # Child is reaped; a pipe-close error is not liveness.
             return True
 
-        # Rule 3: Terminate exact PID only
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            pass
-
-        # Wait for process to exit cleanly
-        deadline = time.time() + timeout
-        alive = True
-        while time.time() < deadline:
-            if proc:
-                if proc.poll() is not None:
-                    alive = False
-                    break
-            else:
+    def check_health(self, plugin_name: str, health_endpoint: Optional[str] = None) -> bool:
+        """Require an owned live child, plus optional bounded HTTP readiness."""
+        with self._lock:
+            proc = self._processes.get(plugin_name)
+            if proc is None or proc.poll() is not None:
+                return False
+            if health_endpoint:
                 try:
-                    os.kill(pid, 0)
-                except ProcessLookupError:
-                    alive = False
-                    break
-                except PermissionError:
-                    alive = True
-                    break
-            time.sleep(0.05)
-
-        # Escalate to SIGKILL if still alive
-        if alive:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-
-        if pid_path and pid_path.exists():
-            try:
-                pid_path.unlink()
-            except OSError:
-                pass
-
-        return True
-
-    def check_health(
-        self, plugin_name: str, health_endpoint: Optional[str] = None
-    ) -> bool:
-        """
-        Check health of an external plugin via process liveness and optional HTTP endpoint.
-        """
-        proc = self._processes.get(plugin_name)
-        if proc:
-            if proc.poll() is not None:
-                return False
-
-        if health_endpoint:
-            try:
-                req = urllib.request.Request(health_endpoint, headers={"User-Agent": "Codey-OS-PluginSupervisor"})
-                with urllib.request.urlopen(req, timeout=1.5) as resp:
-                    return resp.status < 400
-            except Exception:
-                return False
-
-        return proc is not None and proc.poll() is None
+                    req = urllib.request.Request(health_endpoint, headers={"User-Agent": "Codey-OS-PluginSupervisor"})
+                    with urllib.request.urlopen(req, timeout=1.5) as response:
+                        healthy = response.status < 400
+                    return healthy and proc.poll() is None
+                except Exception:
+                    return False
+            return proc.poll() is None
 
 
 class PluginManager:
@@ -461,6 +482,8 @@ class PluginManager:
         self._handlers: Dict[str, Callable] = {}
         self._handler_authority: Dict[str, str] = {}
         self.supervisor = ProcessSupervisor()
+        self._lifecycle_lock = RLock()
+        self._external_health_failures = set()
         self._discover()
 
     def register_capability_handler(self, cap_name: str, handler: Callable, *, authority: str):
@@ -605,12 +628,42 @@ class PluginManager:
         return self._plugins.get(name)
 
     def load(self, name: str) -> bool:
-        """
-        Load a plugin: import its module or start external process, and register capabilities.
-        """
+        """Serialize startup and capability registration for one manager."""
+        with self._lifecycle_lock:
+            return self._load(name)
+
+    def _load(self, name: str) -> bool:
+        """Import/start and register capabilities while lifecycle lock is held."""
         plugin = self._plugins.get(name)
         if not plugin:
             return False
+
+        if plugin.status == PluginStatus.ACTIVE:
+            if plugin.execution_mode in ("external_process", "isolated_daemon", "remote_bridge"):
+                if self.supervisor.check_health(
+                    name, plugin.manifest.get("process_spec", {}).get("health_endpoint"),
+                ):
+                    return True
+                # This load attempt explicitly observed failed readiness. Do
+                # not keep advertising capabilities as active, and retain the
+                # owned child until a later unload/retry confirms its exit.
+                plugin.status = PluginStatus.BROKEN
+                plugin.error = "External process health check failed"
+                self._external_health_failures.add(name)
+                for cap_name in plugin.capabilities:
+                    capability = self._registry.get(cap_name)
+                    if capability is not None:
+                        capability.status = CapabilityStatus.BROKEN
+                        self._registry.register(capability)
+                return False
+            return True
+
+        if name in self._external_health_failures:
+            # A retry of this explicit health failure must resolve the prior
+            # lifecycle first. Failed stop preserves child, broken capability
+            # state and this retry marker; no second child is started.
+            if not self._unload(name):
+                return False
 
         plugin_path = Path(plugin.path)
         exec_mode = plugin.execution_mode
@@ -704,7 +757,12 @@ class PluginManager:
             return False
 
     def unload(self, name: str) -> bool:
-        """Unload a plugin, stop any external process, and unregister its capabilities."""
+        """Preserve plugin/capability state until external stop is confirmed."""
+        with self._lifecycle_lock:
+            return self._unload(name)
+
+    def _unload(self, name: str) -> bool:
+        """Stop and unregister while lifecycle lock is held."""
         plugin = self._plugins.get(name)
         if not plugin:
             return False
@@ -720,7 +778,8 @@ class PluginManager:
             # found or unlinked.
             if pid_file:
                 pid_file = str(_resolve_pid_path(pid_file))
-            self.supervisor.stop_external_plugin(name, pid_file=pid_file)
+            if not self.supervisor.stop_external_plugin(name, pid_file=pid_file):
+                return False
             plugin.pid = None
 
         # Unregister capabilities
@@ -735,6 +794,7 @@ class PluginManager:
 
         plugin.status = PluginStatus.INSTALLED
         plugin.capabilities.clear()
+        self._external_health_failures.discard(name)
         return True
 
     def execute(self, name: str, function: str, *args, **kwargs) -> Any:

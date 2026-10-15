@@ -3113,9 +3113,18 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > checks PASS (`docs/wp2_1_group13a_live_verification.md`), no models/live
 > stores/services. Existing Python/pytest ACT policy/opaque effects unchanged.
 > NEW-951 logs nested-core classification/checkpoint misses for group 14.
-> **13b (supervisor ownership), 13c.1 (durable PID identity/Python writers),
-> and 13c.2 (shell lifecycle consumers) remain open**, followed by groups
-> 14/15. No full WP2.1 closure claim.
+> **13b is also code-complete, reviewer APPROVED and disposable-process
+> verified** (NEW-952/916): owned Popen supervision, no PID-file adoption,
+> retained failed-stop ownership, truthful observed health/retry states,
+> duplicate protection and replacement-record preservation. Two review
+> rounds; coordinator 77 passed, two existing warnings; seven disposable
+> lifecycle scenarios PASS, all fixture children reaped. NEW-953 logs
+> pre-existing post-spawn registration partial failure; NEW-954/955 log
+> codeyOS generated-source and exit-status residuals for final census.
+> **13c.1 (durable PID identity/Python writers), 13c.2 (shell consumers,
+> including codeyOS), and 13d (complete shell operation audit) remain open**,
+> followed by groups 14/15. Ownership repairs alone do not close audit
+> coverage; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

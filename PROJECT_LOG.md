@@ -1,3 +1,27 @@
+## 2026-10-15 — WP2.1 group 13 slice 13b: owned plugin lifecycle (NEW-952/916), disposable-process PASS; NEW-953/954/955 logged
+
+**Scope:** architect-scoped subordinate ProcessSupervisor ownership and PluginManager lifecycle fidelity. This does not supply standalone shell gateway coverage; architect added separate 13d after 13c.1/13c.2. Updated full scope in `docs/wp2_1_group13_scope.md` also includes the codeyOS state/identity consumer and parent-TUI environment compatibility.
+
+**Change:** lifecycle serialization, duplicate-start protection, retained exact Popen ownership until confirmed exit/reap, no integer-PID adoption, bounded startup/health checks, cleanup after setup failures, and explicit failed-stop retention. Bounded no-follow/nonblocking PID snapshot comparison preserves foreign/replaced records. Stop True means owned child reaped; preserved replacement cleanup is not implied. Unload failure retains registrations/module/plugin state; repeated loads do not duplicate registration.
+
+**Review:** first pass caught explicit health-failed reload returning False while plugin/capabilities stayed ACTIVE. Round 2 marks both BROKEN, retains child ownership and resolves prior lifecycle before replacement/re-registration. Failed cleanup blocks retry spawn. Final mandatory reviewer **APPROVED**; NEW-916 updated for observed early exit/health, not periodic monitoring. Reviewer also reproduced pre-existing registration-after-spawn partial failure (NEW-953), not silently fixed. Architect's codeyOS compatibility read found source interpolation and lost execution status (NEW-954/955), explicitly queued for final census.
+
+**Verbatim verification:**
+
+```text
+implementer: 77 passed, 2 existing warnings in 32.36s
+coordinator: 77 passed, 2 warnings in 27.04s
+reviewer: 47 passed in 1.52s
+ruff: All checks passed!
+git diff --check: no output
+live-verifier: PASS: 7 isolated lifecycle scenarios; all fixture state removed.
+Finally cleanup: fixture_children= 7 all_reaped= True
+```
+
+`docs/wp2_1_group13b_live_verification.md` preserves literal process outcomes/free-h. Actual disposable children verify duplicate/start/stop, immediate exit, forged/replaced-record preservation; publication/health/stop failure injected around real children. No models, services, network or live-store writes. Existing warnings are database docstring escape sequences; known full-suite/type-checker limitations remain. Next: durable identity 13c.1, shell consumers 13c.2, operation-audit envelope 13d, then groups 14/15. Full WP2.1 DoD remains open.
+
+---
+
 ## 2026-10-15 — WP2.1 group 13 slice 13a: execution mediation (NEW-950), real disposable-process PASS; nested-core gap logged (NEW-951)
 
 **Scope:** architect re-scoped group 13 against live callers, split into 13a execution, 13b owned-Popen supervision, 13c.1 durable PID identity/Python writers, and 13c.2 shell consumers. Full spec: `docs/wp2_1_group13_scope.md`. This round completes 13a only; group 13 stays open.
