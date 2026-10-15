@@ -3017,8 +3017,26 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > destructive actions' (`remove_rule`, DNC-`unblock`) confirm-dialog gap in
 > the same round. **Aigentik's long-running process (if any is currently
 > running) needs a restart to pick this up** — not done as part of this
-> round. **Groups 8-15 remain open** — pick up from group 8 ("Notification
-> boundary") using the same pattern: project-architect re-scopes against
+> round.
+>
+> **Group 8 ("Notification boundary") is now also done** (2026-10-15,
+> NEW-925/926/927/928, PROJECT_LOG.md's 2026-10-15 group-8 entry). Not a
+> clean "already closed by WP0.2" verdict — WP0.2's prior audit work was
+> real but incomplete (4 more unaudited `scheduling_service.py` call sites
+> found and fixed, NEW-925), plus a separate missing-confirmation-gate on
+> the compose-email route (NEW-926), both Track A/Codey-OS (commit
+> `dfad883`). Track B/Codey-Aigentik (commit `8b42ba4`, pushed) closed two
+> real do-not-contact enforcement gaps (NEW-927/928) — appointment
+> commands sending invites with zero DNC check, and a cross-identifier gap
+> in the inbound-booking flow — via one choke point in `gmail.js` rather
+> than patching individual call sites. Took two implementer rounds: round
+> 1 introduced its own bug (the DNC gate's `false`-on-block return value
+> was silently ignored, so the owner was falsely told an invite was sent),
+> caught by code review and fixed in round 2. **Aigentik's process needs a
+> restart to pick this up too** — not done.
+>
+> **Groups 9-15 remain open** — pick up from group 9 ("Remaining HTTP/
+> egress") using the same pattern: project-architect re-scopes against
 > live code first (the census doc's one-line group names have repeatedly
 > turned out stale, incomplete, or different in kind than expected on
 > inspection — don't trust them blindly), then
