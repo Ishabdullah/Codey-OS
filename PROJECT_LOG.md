@@ -1,3 +1,97 @@
+## 2026-10-15 — WP2.1 group 7 closeout: business mutation boundaries (NEW-919/920/921), cross-repo (Codey-OS + Codey-Aigentik); NEW-922/923/924 logged
+
+**Scope:** per explicit instruction ("continue all the way through 3-15
+without stopping"), moved to WP2.1 group 7. project-architect found
+`restoricon_core` (the Restoricon business layer) has zero imports of
+`core.action_gateway` — business mutations have no authority-
+classification/audit-mediation layer at all. The one production
+exerciser is a sibling repo, Codey-Aigentik, via a static bearer token
+(`ROLE_AI_AGENT`) holding 24 write/manage/dispatch permissions, gated at
+the trigger level to one allowlisted phone number but with per-action/
+per-record authority decided by an LLM interpreting free text, not RBAC.
+
+**Two product-direction decisions, asked of and answered by Ish directly:**
+(1) build a `restoricon_core`-native authority mechanism extending its
+existing `actor_type`/`role` pattern, not a new dependency on
+`core.action_gateway`; (2) fail closed by default for HIGH_IMPACT
+mutations with no confirmation signal, accepting this would break two
+currently-deployed, unconfirmed Aigentik flows (`remove_rule`,
+DNC-`unblock`) unless their confirm-dialog gap was also closed.
+
+**The architect then found and corrected three real implementation traps
+in a literal reading of those decisions, flagged explicitly rather than
+silently built:**
+- **Correction A:** gate on `actor.role == ROLE_AI_AGENT`, not
+  `actor.actor_type == "agent"` — 9 internal "system actor" sites in
+  `crm_service.py` are all `role=ROLE_ADMIN, actor_type="agent"`,
+  legitimate no-human automation including a real financial reversal
+  (`reverse_commission`'s clawback caller). A literal `actor_type` gate
+  would have broken all 9.
+- **Correction B:** `scheduling_service.py::update_appointment` (cancel/
+  reschedule) is ACT, not HIGH_IMPACT — a second, independent,
+  unconfirmed caller (a customer cancelling their own appointment,
+  `~/Codey-Aigentik/index.js:764`) hits the same Core route as the
+  owner-confirmed path; classifying it HIGH_IMPACT would have broken that
+  live customer self-service flow.
+- **Correction C:** no confirmation signal reached Core at all — even the
+  already-"confirmed" `delete_contact` flow sent no body field
+  distinguishing confirmed from unconfirmed calls. Had to plumb a new
+  `confirmed` boolean through from Aigentik's JS to Core.
+
+**Built:** new `restoricon_core/authority.py` (no import from `core/`),
+classifying 8 methods HIGH_IMPACT (hard deletes, a financial reversal,
+compliance-relevant DNC removal) and ~120+ others ACT; a fail-closed gate
+called as the first statement in each HIGH_IMPACT method, before any
+transaction opens, so a refusal is durably audited independent of the
+caller's own (never-opened) mutation transaction. Aigentik-side: the
+architect's bundle recommendation was followed over the standalone
+fallback — `remove_rule`/DNC-`unblock` gained their own confirm-dialog
+gating in the same round (mirroring `delete_contact`'s existing UX
+exactly), so zero live flows break, not the two Ish had explicitly
+accepted as breaking.
+
+**Implementer round hit this session's usage-limit reset mid-task** (cut
+off mid-edit on a test file); resumed and verified complete — all claimed
+work was actually finished before the cutoff. Confirmed independently:
+354 passed across the Codey-OS-side targeted suite (coverage test +
+new group-7 test file + the two directly-modified test files + 9 other
+pre-existing files referencing the newly-gated methods, zero
+regressions); Aigentik-side, all JS syntax-valid, 340 passed across its
+full suite, zero regressions.
+
+**Code-reviewer approved with three warnings, addressed:** a missing
+"caller-asserted, not verified consent" caveat in `authority.py`'s
+docstring (added directly); two HIGH_IMPACT methods (`remove_line`,
+`delete_subcontractor`) with no `confirmed`-signal plumbing, making them
+permanently refused for `ROLE_AI_AGENT` with no live caller affected
+today — logged (NEW-922), not fixed, since nothing currently needs them;
+a coverage-test detection gap (only catches a direct `has_permission()`
+AST shape, no backstop against a future destructive method routed
+through a helper) — logged (NEW-923). A third, suggested-not-required
+item (no Aigentik test pins "no destructive call before 'yes'" for any
+confirm-gated flow, old or new — a pre-existing gap, not a new
+regression, inherited rather than introduced) — logged (NEW-924),
+not built, since no existing test harness exercises `owner-command.js`'s
+dispatch mechanism at all today.
+
+**Commit:** `947faf8` (Codey-OS). Files: `restoricon_core/authority.py`
+(new), `restoricon_core/api/routes.py`, `restoricon_core/services/
+automation_service.py`, `restoricon_core/services/commission_service.py`,
+`restoricon_core/services/crm_service.py`, `restoricon_core/services/
+estimate_service.py`, `restoricon_core/services/scheduling_service.py`,
+`tests/test_business_mutation_authority_coverage.py` (new), `tests/
+test_restoricon_core/test_wp2_1_group7_business_mutation_authority.py`
+(new), `tests/test_restoricon_core/test_api.py`, `tests/
+test_restoricon_core/test_contacts.py`, `NEW_ISSUES.md`.
+**Codey-Aigentik** (separate repo): `a932774`, pushed. Files:
+`contacts.js`, `do-not-contact.js`, `email-rules.js`, `sms-rules.js`,
+`owner-command.js`. **Note: Aigentik's long-running process (if any is
+currently running) needs a restart to pick up this change — not done as
+part of this round, per this project's rule against restarting live
+services without checking first.**
+
+---
+
 ## 2026-10-14 — WP2.1 group 6 closeout: device boundaries (NEW-918) — a real LIVE gap, plus NEW-750's naming-bug class recurring 4x; NEW-786 follow-up logged
 
 **Scope:** per explicit instruction ("continue all the way through 3-15
