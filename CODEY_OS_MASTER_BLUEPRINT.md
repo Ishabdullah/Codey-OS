@@ -3035,11 +3035,29 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > caught by code review and fixed in round 2. **Aigentik's process needs a
 > restart to pick this up too** — not done.
 >
-> **Groups 9-15 remain open** — pick up from group 9 ("Remaining HTTP/
-> egress") using the same pattern: project-architect re-scopes against
-> live code first (the census doc's one-line group names have repeatedly
-> turned out stale, incomplete, or different in kind than expected on
-> inspection — don't trust them blindly), then
+> **Group 9 ("Remaining HTTP/egress") is now also done** (2026-10-15,
+> NEW-932, PROJECT_LOG.md's 2026-10-15 group-9 entry, commit `c1c5b9c`).
+> Mixed shape — most census-row mechanisms were already closed by groups
+> 4/7/8/WP0.1/WP0.7, confirmed with a formal loopback-only exclusion
+> record for 9 files; one real live gap remained, matching group 6's
+> exact pattern: named network-client binaries (`curl`/`wget`/`scp`/
+> `rsync`/`ssh`/`sftp`/`ftp`/`telnet`/`nc`/`ncat`/`netcat`) classified
+> `ACT`, allowing unconfirmed file exfiltration under `--yolo` — fixed by
+> mirroring `_is_termux_basename()`'s precedent exactly. **Does not close
+> the egress class in general**: `sh -c`/`bash -lc` with combined flags
+> or extra spacing still bypasses `DANGEROUS_PATTERNS`'s brittle
+> substring match (NEW-933, logged not fixed). Also corrected a ledger
+> mis-tag (`NEW-753` was never group 7's work — orphaned, pending Ish's
+> decision) and logged two cross-repo findings (NEW-935/936: Aigentik's
+> dormant Gemini/Vertex switch, and an open question on whether
+> "external model access to human-model data never by default" extends
+> to Restoricon business/customer PII).
+>
+> **Groups 10-15 remain open** — pick up from group 10 ("User-facing
+> filesystem operations") using the same pattern: project-architect
+> re-scopes against live code first (the census doc's one-line group
+> names have repeatedly turned out stale, incomplete, or different in
+> kind than expected on inspection — don't trust them blindly), then
 > implementer/code-reviewer/ledger-update/commit same as every slice above.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
