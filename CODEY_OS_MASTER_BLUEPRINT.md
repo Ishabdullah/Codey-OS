@@ -3086,26 +3086,25 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > object versioning enabled? And is deleted-document GCS retention
 > intentional or a gap?
 >
-> **Group 12 ("Internal persistence") is in progress** (2026-10-15).
-> Slice **12a is code-complete and code-reviewer APPROVED**: symbolic
-> operations audit READ/ACT, error dictionaries audit FAILED, and graph
-> clear requires an actual HIGH_IMPACT confirmation callback with atomic
-> four-table deletion and truthful CLI reporting (NEW-945). Coordinator
-> isolated regression: 122 passed; no live-store/model test. NEW-946 logs
-> existing partial writes in ordinary relation creation, outside clear's
-> atomic guarantee. Slice **12b remains open**: independently callable
-> destructive diagnostic/preference/history/blackboard resets, including
-> single-strategy reset. Narrow bookkeeping dispositions and explicit
-> NEW-939/export/artifact residuals are recorded in
-> `docs/wp2_1_group12_persistence_contract.md`. GCS follow-ups NEW-943/944
-> are already decided by Ish but unimplemented; no cloud work here.
+> **Group 12 ("Internal persistence") is now scoped-complete** (2026-10-15),
+> both slices code-complete and code-reviewer APPROVED. **12a** (`0334b75`):
+> graph READ/ACT operations, truthful FAILED outcomes and confirmed atomic
+> HIGH_IMPACT clear (NEW-945). **12b**: seven destructive diagnostic,
+> preference, strategy, history and blackboard reset boundaries now require
+> actual confirmation, commit before cache changes, roll back owned SQL
+> failures, and preserve aggregate partial progress (NEW-947; two review
+> rounds, a real post-commit logging bug fixed). Coordinator final isolated
+> regression: 252 passed, one existing plugin-test warning; no live-store
+> or model test. Narrow subordinate-bookkeeping dispositions are recorded
+> in `docs/wp2_1_group12_persistence_contract.md`; no module-wide exemptions.
+> **Residuals remain open:** NEW-946 ordinary relation partial writes,
+> NEW-948 recording transaction rollback debt, NEW-949 duration serialization,
+> NEW-939 and unresolved CLI/config/design/KB/export/artifact caller
+> boundaries for group 15. GCS NEW-943/944 are decided but unimplemented.
 >
-> **Groups 12-15 remain open** — continue group 12 ("Internal
-> persistence") using the same pattern: project-architect re-scopes
-> against live code first (the census doc's one-line group names have
-> repeatedly turned out stale, incomplete, or different in kind than
-> expected on inspection — don't trust them blindly), then
-> implementer/code-reviewer/ledger-update/commit same as every slice above.
+> **Groups 13-15 remain open** — pick up group 13 ("Lifecycle/admin
+> operations"), architect re-scoping against live code, followed by the same
+> implementer/reviewer/ledger/commit/push pipeline. Full WP2.1 DoD is not met.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

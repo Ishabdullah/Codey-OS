@@ -17,7 +17,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.state import get_state_store
-from utils.logger import info
 from utils.logger import success as log_success
 from utils.logger import warning
 
@@ -375,19 +374,42 @@ class StrategyTracker:
             "recent_attempts": len(self._recent_records),
         }
 
-    def reset_strategy(self, strategy: str):
-        """Reset statistics for a strategy."""
-        if strategy in self._stats:
-            self._stats[strategy] = StrategyStats(strategy)
-            self._save_tracker()
-            info(f"Reset statistics for strategy '{strategy}'")
+    def reset_strategy(self, strategy: str, *, confirm_available=None, confirm=None):
+        """Reset selected statistics after approval; retain other strategies."""
+        from core.persistence_reset import _gate_reset, _reset_state_record
 
-    def clear(self):
-        """Clear all strategy statistics."""
+        def reset():
+            if strategy not in self._stats:
+                return
+            candidate = dict(self._stats)
+            candidate[strategy] = StrategyStats(strategy)
+            data = {name: stats.to_dict() for name, stats in candidate.items()}
+            # Do not use _save_tracker: its best-effort error handling is for
+            # ordinary recording, and would conceal a failed destructive reset.
+            _reset_state_record(self.state, "strategy_tracker", json.dumps(data))
+            self._stats = candidate
+
+        return _gate_reset(
+            action="strategy_tracker.reset_strategy", execute=reset,
+            confirm_available=confirm_available, confirm=confirm,
+        )
+
+    def _clear_persisted(self):
+        """Subordinate reset mechanics; caller owns the confirmation boundary."""
+        from core.persistence_reset import _reset_state_record
+
+        _reset_state_record(self.state, "strategy_tracker")
         self._stats = {name: StrategyStats(name) for name in self.BUILTIN_STRATEGIES}
         self._recent_records = []
-        self.state.delete("strategy_tracker")
-        info("Strategy tracker cleared")
+
+    def clear(self, *, confirm_available=None, confirm=None):
+        """Clear learned data after human approval; return its gateway decision."""
+        from core.persistence_reset import _gate_reset
+
+        return _gate_reset(
+            action="strategy_tracker.clear", execute=self._clear_persisted,
+            confirm_available=confirm_available, confirm=confirm,
+        )
 
 
 # Global singleton

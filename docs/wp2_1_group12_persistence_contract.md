@@ -4,6 +4,12 @@ Architect-scoped against live code on 2026-10-15, starting at `77fcd71`.
 This is a boundary disposition, not a claim that WP2.1 is complete.
 The blueprint §21 owns progress; NEW_ISSUES.md owns finding status.
 
+Status (2026-10-15): slices 12a and 12b are code-complete and
+code-reviewer-approved (NEW-945/947), verified with disposable real SQLite
+and audit fixtures. No live-store or model test. Explicit residuals below
+remain open; NEW-946/948/949 additionally record graph partial writes,
+ordinary-recording transaction debt and duration serialization loss.
+
 ## Operations requiring authority
 
 Slice 12a covers `SymbolicGraph.execute` (QUERY: READ; seven mutation

@@ -97,7 +97,7 @@ def test_record_outcome_routes_through_strategy_tracker():
         assert stats["total_attempts"] >= 1
         print(f"[PASS] recovery_record_outcome() persisted via StrategyTracker: {record}")
     finally:
-        tracker.reset_strategy(test_strategy)
+        tracker.reset_strategy(test_strategy, confirm=lambda: True)
 
 
 def test_self_test():

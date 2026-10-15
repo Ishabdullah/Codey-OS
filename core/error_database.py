@@ -348,11 +348,21 @@ class ErrorDatabase:
             "most_common": max(by_type.items(), key=lambda x: x[1])[0] if by_type else None,
         }
 
-    def clear(self):
-        """Clear error database."""
+    def _clear_persisted(self):
+        """Subordinate reset mechanics; caller owns the confirmation boundary."""
+        from core.persistence_reset import _reset_state_record
+
+        _reset_state_record(self.state, "error_database")
         self._cache = {}
-        self.state.delete("error_database")
-        info("Error database cleared")
+
+    def clear(self, *, confirm_available=None, confirm=None):
+        """Clear learned data after human approval; return its gateway decision."""
+        from core.persistence_reset import _gate_reset
+
+        return _gate_reset(
+            action="error_database.clear", execute=self._clear_persisted,
+            confirm_available=confirm_available, confirm=confirm,
+        )
 
 
 # Global singleton

@@ -620,11 +620,21 @@ class PreferenceManager:
             return self._cache[category].get("confidence", 0.0)
         return 0.0
 
-    def clear(self):
-        """Clear all learned preferences."""
+    def _clear_persisted(self):
+        """Subordinate reset mechanics; caller owns the confirmation boundary."""
+        from core.persistence_reset import _reset_state_record
+
+        _reset_state_record(self.state, "user_preferences")
         self._cache = {}
-        self.state.delete("user_preferences")
-        info("Preferences cleared")
+
+    def clear(self, *, confirm_available=None, confirm=None):
+        """Clear learned data after human approval; return its gateway decision."""
+        from core.persistence_reset import _gate_reset
+
+        return _gate_reset(
+            action="preferences.clear", execute=self._clear_persisted,
+            confirm_available=confirm_available, confirm=confirm,
+        )
 
     def status(self) -> Dict[str, Any]:
         """Get preference status."""

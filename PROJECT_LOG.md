@@ -1,3 +1,25 @@
+## 2026-10-15 — WP2.1 group 12 closeout, slice 12b: confirmed persistence resets (NEW-947); recording/serialization debt logged (NEW-948/949)
+
+**Scope:** architect's live-code inventory plus single-strategy-reset amendment. Completes group 12's two scoped slices (12a in `0334b75`, 12b here), with narrow subordinate-recording dispositions and explicit remaining caller boundaries in `docs/wp2_1_group12_persistence_contract.md`. No new production callers; dormant public destructive helpers are hardened before activation.
+
+**Change:** seven independently callable reset boundaries require HIGH_IMPACT actual human approval, fail closed headless, and retain count/bool returns where meaningful. Previously-None reset methods return gateway decisions. SQL commit precedes cache mutation; failed owned transactions roll back, and pre-existing pending transactions are refused without assuming ownership. Aggregate learning reset confirms once, uses subordinate mechanics, and returns committed component names even if a later component fails. Audit labels/reasons contain no stored values or task/strategy identifiers.
+
+**Mandatory review:** round 1 CHANGES REQUESTED caught a real post-commit logging bug: actual Rich output to a closed stream raised after persisted reset, causing false FAILED/empty progress. Round 2 removed informational output from authoritative callbacks and added real closed-output tests across all seven boundaries and partial aggregate failure. Final **APPROVED** (`/root/code_reviewer`). Independent real SQLite tests also prove trigger side effects roll back before a later unrelated write, and existing transactions remain owned by their original caller.
+
+**Verbatim final validation:**
+
+```text
+implementer: 203 passed, 1 warning in 6.20s
+coordinator: 252 passed, 1 warning in 7.39s
+reviewer: 192 passed, 1 warning in 7.29s
+ruff new-file full / touched-file focused: All checks passed!
+git diff --check: no output
+```
+
+Warning is the existing plugin test returning bool. Full suite not rerun due known baseline NEW-906/908; type checkers unavailable. No models, live-store mutation, service restart or external sends; no dependency/setup change. Two confirmed pre-existing findings logged: NEW-948 ordinary recording can leave SQL transactions pending for later accidental commit; NEW-949 serialization loses accumulated strategy durations. NEW-946 remains open; ordinary graph mutations are not atomic. NEW-939/export/artifact caller boundaries remain for final census. Next: architect re-scopes group 13, then groups 14/15; full WP2.1 DoD stays open.
+
+---
+
 ## 2026-10-15 — WP2.1 group 12 slice 12a: symbolic graph authority and atomic confirmed clear (NEW-945); partial relation writes logged (NEW-946)
 
 **Scope:** project-architect re-scoped internal persistence against live callers, finding model-selected graph mutations and `/graph clear` unmediated. Group 12 is split into 12a (graph, completed here) and 12b (destructive persistence/reset APIs, still pending). The narrow recording/coordination contract is in `docs/wp2_1_group12_persistence_contract.md`; it gives no blanket storage-module exemption and retains NEW-939/export/artifact caller boundaries for final census.

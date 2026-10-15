@@ -429,15 +429,30 @@ class TaskBlackboard:
             except Exception:
                 return False
 
-    def cleanup_task(self, task_id: str) -> bool:
-        """Remove a task session and all associated blackboard entries / checkpoints."""
-        with self._lock:
-            cur = self._conn.execute(
-                "DELETE FROM task_sessions WHERE task_id = ?",
-                (task_id,),
-            )
-            self._conn.commit()
-            return cur.rowcount > 0
+    def cleanup_task(self, task_id: str, *, confirm_available=None, confirm=None) -> bool:
+        """Remove one task and its dependent records after human approval."""
+        from core.persistence_reset import _gate_reset
+
+        removed = False
+
+        def reset():
+            nonlocal removed
+            with self._lock:
+                if self._conn.in_transaction:
+                    # Do not commit or roll back pending unrelated recording.
+                    raise RuntimeError("Blackboard transaction already active")
+                with self._conn:
+                    cur = self._conn.execute(
+                        "DELETE FROM task_sessions WHERE task_id = ?", (task_id,),
+                    )
+                    found = cur.rowcount > 0
+            removed = found  # commit failure cannot report deletion
+
+        _gate_reset(
+            action="task_blackboard.cleanup_task", execute=reset,
+            confirm_available=confirm_available, confirm=confirm,
+        )
+        return removed
 
     def purge_expired(self) -> int:
         """Purge all task sessions whose expires_at timestamp has passed."""

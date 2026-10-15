@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Optional
 from core.error_database import ErrorDatabase, get_error_database
 from core.preferences import PreferenceManager, get_preferences
 from core.strategy_tracker import StrategyTracker, get_strategy_tracker
-from utils.logger import info
 from utils.logger import success as log_success
 from utils.logger import warning
 
@@ -225,12 +224,32 @@ class LearningManager:
             "strategies": self.strategy_tracker.get_statistics(),
         }
 
-    def clear_all(self):
-        """Clear all learned data."""
-        self.preferences.clear()
-        self.error_db.clear()
-        self.strategy_tracker.clear()
-        info("All learning data cleared")
+    def clear_all(self, *, confirm_available=None, confirm=None):
+        """Confirm once; report completed resets even if a later reset fails.
+
+        The returned decision's detail["completed"] contains only persisted
+        steps. Independent public clear methods retain their own gates.
+        """
+        from core.persistence_reset import _gate_reset
+
+        completed = []
+
+        def reset():
+            for name, component in (
+                ("preferences", self.preferences),
+                ("errors", self.error_db),
+                ("strategies", self.strategy_tracker),
+            ):
+                component._clear_persisted()
+                completed.append(name)
+
+        decision = _gate_reset(
+            action="learning.clear_all", execute=reset,
+            confirm_available=confirm_available, confirm=confirm,
+        )
+        decision.detail["completed"] = completed
+        return decision
+
 
 
 # Global singleton

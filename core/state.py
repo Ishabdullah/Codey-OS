@@ -376,13 +376,31 @@ class StateStore:
             )
             return [dict(row) for row in cur.fetchall()]
 
-    def clear_old_actions(self, keep_hours: int = 24):
-        """Remove actions older than keep_hours."""
-        with self._lock:
-            cutoff = int(time.time()) - (keep_hours * 3600)
-            cur = self._conn.execute("DELETE FROM episodic_log WHERE timestamp < ?", (cutoff,))
-            self._conn.commit()
-            return cur.rowcount
+    def clear_old_actions(self, keep_hours: int = 24, *, confirm_available=None, confirm=None):
+        """Remove older actions after approval; return the committed row count."""
+        from core.persistence_reset import _gate_reset
+
+        if type(keep_hours) is not int or keep_hours < 0:
+            raise ValueError("keep_hours must be a non-negative integer")
+        removed = 0
+
+        def reset():
+            nonlocal removed
+            with self._lock:
+                if self._conn.in_transaction:
+                    # Do not commit or roll back pending unrelated recording.
+                    raise RuntimeError("State transaction already active")
+                with self._conn:
+                    cutoff = int(time.time()) - (keep_hours * 3600)
+                    cur = self._conn.execute("DELETE FROM episodic_log WHERE timestamp < ?", (cutoff,))
+                    count = cur.rowcount
+            removed = count  # expose progress only after commit
+
+        _gate_reset(
+            action="state.clear_old_actions", execute=reset,
+            confirm_available=confirm_available, confirm=confirm,
+        )
+        return removed
 
     # ==================== Model State (Phase 3) ====================
 

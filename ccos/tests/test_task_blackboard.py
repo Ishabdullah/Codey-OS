@@ -231,7 +231,9 @@ def test_blackboard_task_lifecycle_and_cleanup(temp_db):
     assert bb.complete_task("task-D", "completed") is True
 
     # Cleanup task
-    assert bb.cleanup_task("task-D") is True
+    assert bb.cleanup_task("task-D") is False
+    assert bb.get("task-D", "key1") == "val1"
+    assert bb.cleanup_task("task-D", confirm=lambda: True) is True
     assert bb.get("task-D", "key1") is None
     assert bb.get_latest_checkpoint("task-D") is None
 
