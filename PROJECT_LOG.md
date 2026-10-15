@@ -1,3 +1,70 @@
+## 2026-10-15 — WP2.1 group 11 closeout: checkpoint/backups/pruning (NEW-941/863), dormant-path hardening + a collision bug; NEW-942 logged, two Ish questions flagged
+
+**Scope:** per explicit instruction ("continue all the way through 3-15
+without stopping"), moved to WP2.1 group 11. Mixed shape, mostly already
+covered — slice 32 (2026-10-13) already mediated `rollback()`, and
+Restoricon's B7 backup mechanism (GCS, done per the blueprint) had no
+pruning-class gap — but `prune_checkpoints()` was never touched by any
+prior slice, plus an already-logged-but-unfixed checkpoint-ID collision
+bug (`NEW-863`) belonged in this same round per the "fix related
+findings" preference.
+
+**NEW-941:** `core/checkpoint.py::prune_checkpoints()` had zero Action
+Gateway mediation and zero path validation — unlike `_rollback_files()`,
+which validates checkpoint_id shape, rejects symlinks, and requires
+containment inside `CHECKPOINT_DIR`. Confirmed dormant (zero production
+callers anywhere), but live on-disk evidence of a real growth problem:
+6 checkpoint directories dating back to 2026-07-29, 8.5MB, never pruned.
+Fixed with shared validation (extracted from `_rollback_files()`),
+`keep_count` validation, a fix for the `get_checkpoints(100) # Get all`
+bug (genuinely fetches all rows now), row-before-rmtree ordering
+mirroring slice 32's own precedent, and HIGH_IMPACT gateway mediation —
+a deliberate deviation from the task's initial ACT suggestion,
+independently agreed by code-reviewer (pruning destroys the system's
+only rollback safety net, unlike a recoverable git commit). Dormant-path
+fix only — no new caller/CLI added, same precedent as groups 5/6/9/10.
+
+**NEW-863 (fixed same round, already logged, previously deferred):**
+checkpoint IDs were `str(int(time.time()))` with `mkdir(exist_ok=True)`
+— two checkpoints created in the same wall-clock second silently
+overwrote each other's backups. Fixed with a UUID-suffixed ID AND
+`exist_ok=False` — the real root cause was the silent-reuse flag, not
+just the lack of entropy; a suffix alone wouldn't have fixed it without
+also flipping that flag. Required a side-effect fix in `get_checkpoints()`
+(a `rowid DESC` tiebreak, since same-second rows are now possible and
+would otherwise break `ORDER BY created_at DESC` ties nondeterministically).
+
+**Code-reviewer round 1 found a real blocking bug, fixed in round 2:**
+the partial-prune return value lied — if a later candidate's `rmtree`
+failed, the function unconditionally returned 0 even though earlier
+candidates in the same call had already been genuinely pruned. Fixed
+with a closure-captured counter reflecting real progress regardless of
+how the overall call resolves. Round 1 also caught a wrong claim in the
+implementer's own report (that one symlink guard was "redundant" with
+containment) — independently probed and found false for an in-tree
+symlink; a dedicated test was added to prove the guard matters
+independently.
+
+**One informational finding logged (NEW-942):** `ccos/plugins/coding/
+finetune`'s backup/rollback capabilities have no `CAPABILITY_AUTHORITY`
+entry — currently refused by group 4's fail-closed default (dormant
+twice over: unclassified and uncalled), flagging so a future "wire up
+finetune" change doesn't casually under-classify its most destructive
+capability.
+
+**Two product-policy questions flagged for Ish, not bugs, not decided
+this round:** does the GCS bucket Restoricon's document backups upload
+to have object versioning enabled (a corrupted local file silently
+replaces its only off-device copy otherwise)? And: are deleted
+Restoricon documents intentionally retained in GCS forever (upload-only,
+no delete-on-delete), or is that a gap to close later?
+
+**Commit:** `5558f45`. Files: `core/checkpoint.py`, `core/state.py`, `tests/
+test_checkpoint_prune_gateway.py` (new), `tests/
+test_checkpoint_create_collision.py` (new), `NEW_ISSUES.md`.
+
+---
+
 ## 2026-10-15 — WP2.1 group 10 closeout: user-facing filesystem operations (NEW-937/938/461), two High-severity live bugs in Restoricon's document store; NEW-939 deferred, NEW-940 logged
 
 **Scope:** per explicit instruction ("continue all the way through 3-15
