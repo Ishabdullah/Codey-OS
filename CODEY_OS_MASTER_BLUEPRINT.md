@@ -3053,11 +3053,32 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > "external model access to human-model data never by default" extends
 > to Restoricon business/customer PII).
 >
-> **Groups 10-15 remain open** — pick up from group 10 ("User-facing
-> filesystem operations") using the same pattern: project-architect
-> re-scopes against live code first (the census doc's one-line group
-> names have repeatedly turned out stale, incomplete, or different in
-> kind than expected on inspection — don't trust them blindly), then
+> **Group 10 ("User-facing filesystem operations") is now also done**
+> (2026-10-15, NEW-937/938/461, PROJECT_LOG.md's 2026-10-15 group-10
+> entry, commit `9e4e98d`) — the most severe findings of this session's
+> WP2.1 run: Restoricon's document upload (`POST /api/v1/documents`) had
+> a real, reproduced write-side path traversal (any authenticated role,
+> including ones without the write permission, could write a file
+> anywhere on disk) and a read-side arbitrary-file-disclosure bug (any
+> of 6 roles could register the SQLite DB file itself as a "document"
+> and download it). Both fixed: permission check moved before parsing,
+> `document_type` whitelisted against the real DB constraint, every ID
+> field validated before path construction, containment verified via
+> `realpath`+`commonpath` at two points (one defeating a symlink planted
+> at the computed filename itself), JSON-body `file_path` registration
+> rejected outright (Ish's decision — no legitimate use case found).
+> Took two implementer rounds — round 1's own orphan-file cleanup had a
+> real bug (could delete a file whose DB row had already committed,
+> turning a recoverable problem into an unrecoverable one), fixed in
+> round 2 with a fail-safe existence check. **Deploy-time note:** the
+> `/download` containment check was only verified safe against a
+> 2026-09-30 DB backup, not live data — re-run that check against the
+> real live DB before relying on it. **Groups 11-15 remain open** —
+> pick up from group 11 ("Checkpoint/backups/pruning") using the same
+> pattern: project-architect re-scopes against live code first (the
+> census doc's one-line group names have repeatedly turned out stale,
+> incomplete, or different in kind than expected on inspection — don't
+> trust them blindly), then
 > implementer/code-reviewer/ledger-update/commit same as every slice above.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
