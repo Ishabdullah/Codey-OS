@@ -422,12 +422,30 @@ class StateStore:
 
     # ==================== Checkpoints (Phase 6) ====================
 
-    def get_checkpoints(self, limit: int = 10) -> List[Dict]:
-        """Get recent checkpoints."""
+    def get_checkpoints(self, limit: Optional[int] = 10) -> List[Dict]:
+        """Get recent checkpoints, newest first.
+
+        limit=None returns every row (no LIMIT clause) -- callers that
+        need the genuine full set (e.g. prune_checkpoints(), which must
+        see every checkpoint to prune correctly) must pass None rather
+        than a large sentinel value, which would silently leave a tail
+        unprunable once the table grew past it.
+
+        `rowid DESC` is a secondary sort key so two checkpoints created
+        in the same wall-clock second (same created_at) still get a
+        deterministic, newest-first order instead of whatever order
+        SQLite happens to return ties in.
+        """
         with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM checkpoints ORDER BY created_at DESC LIMIT ?", (limit,)
-            )
+            if limit is None:
+                cur = self._conn.execute(
+                    "SELECT * FROM checkpoints ORDER BY created_at DESC, rowid DESC"
+                )
+            else:
+                cur = self._conn.execute(
+                    "SELECT * FROM checkpoints ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                    (limit,),
+                )
             return [dict(row) for row in cur.fetchall()]
 
     def get_checkpoint(self, checkpoint_id: str) -> Optional[Dict]:

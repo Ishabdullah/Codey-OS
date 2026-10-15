@@ -14,6 +14,7 @@ import json
 import re
 import shutil
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -74,11 +75,18 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
         files_modified: List of files that will be modified
 
     Returns:
-        Checkpoint ID (timestamp)
+        Checkpoint ID (timestamp with a random suffix -- see NEW-863:
+        a bare `str(int(time.time()))` let two checkpoints created in
+        the same wall-clock second silently overwrite each other's
+        backup files via `exist_ok=True`'s directory reuse)
     """
-    checkpoint_id = str(int(time.time()))
+    checkpoint_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
     backup_dir = CHECKPOINT_DIR / checkpoint_id
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    # exist_ok=False: a genuine collision (the id above is already
+    # vanishingly unlikely to repeat) must raise loudly here rather than
+    # silently reuse another checkpoint's directory and let backups
+    # overwrite each other (NEW-863).
+    backup_dir.mkdir(parents=True, exist_ok=False)
 
     info(f"Checkpoint: creating '{checkpoint_id}' - {reason}")
 
@@ -209,8 +217,17 @@ def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optiona
         return None
 
 
-def _rollback_files(checkpoint_id: str):
-    """Validate the complete producer-scoped backup set before any writes."""
+def _resolve_checkpoint_dir(checkpoint_id: str) -> Path:
+    """Validate checkpoint_id's shape and resolve its backup directory,
+    without requiring the directory to exist.
+
+    Shared by `_rollback_files()` (which additionally requires the
+    directory to exist -- there is nothing to restore from otherwise)
+    and `prune_checkpoints()` (which treats a missing directory as
+    already-pruned and simply skips the `rmtree`), so both
+    deletion-adjacent paths get identical containment guarantees
+    instead of two independently-maintained copies of this guard.
+    """
     if (
         not isinstance(checkpoint_id, str)
         or not checkpoint_id
@@ -219,10 +236,21 @@ def _rollback_files(checkpoint_id: str):
         or Path(checkpoint_id).is_absolute()
     ):
         raise ValueError("Invalid checkpoint ID")
-    backup_dir = CHECKPOINT_DIR / checkpoint_id
-    if CHECKPOINT_DIR.is_symlink() or backup_dir.is_symlink() or not backup_dir.is_dir():
+    if CHECKPOINT_DIR.is_symlink():
         raise ValueError("Checkpoint directory missing or unsafe")
-    backup_dir.resolve().relative_to(CHECKPOINT_DIR.resolve())
+    backup_dir = CHECKPOINT_DIR / checkpoint_id
+    if backup_dir.is_symlink():
+        raise ValueError("Checkpoint directory missing or unsafe")
+    if backup_dir.exists():
+        backup_dir.resolve().relative_to(CHECKPOINT_DIR.resolve())
+    return backup_dir
+
+
+def _rollback_files(checkpoint_id: str):
+    """Validate the complete producer-scoped backup set before any writes."""
+    backup_dir = _resolve_checkpoint_dir(checkpoint_id)
+    if not backup_dir.is_dir():
+        raise ValueError("Checkpoint directory missing or unsafe")
     if CODE_DIR.is_symlink() or not CODE_DIR.is_dir():
         raise ValueError("Restore root missing or unsafe")
     code_root = CODE_DIR.resolve()
@@ -375,35 +403,98 @@ def get_latest_checkpoint() -> Optional[str]:
     return checkpoints[0]["id"] if checkpoints else None
 
 
-def prune_checkpoints(keep_count: int = 5):
+def prune_checkpoints(keep_count: int = 5, *, confirm: Optional[Callable[[], bool]] = None) -> int:
     """
     Remove old checkpoints, keeping only the most recent ones.
 
+    Mediated as HIGH_IMPACT, not ACT: this permanently deletes backup
+    data (the module docstring's own "delete important data" example),
+    and it is the system's only rollback safety net for the checkpoints
+    it removes -- unlike `_create_git_commit`'s ACT-gated git commit
+    (recoverable from reflog/history), a pruned checkpoint's file
+    backups are gone for good. Per the gateway's HIGH_IMPACT fail-closed
+    rule, calling this with no confirmation path available (the default,
+    `confirm=None`) refuses and does no work -- it is deliberately inert
+    until a real caller is wired with an explicit confirmation path
+    (out of scope for this change; see WP2.1 group 11).
+
     Args:
-        keep_count: Number of recent checkpoints to keep
+        keep_count: Number of recent checkpoints to keep. Must be a
+            positive int -- 0 would erase every checkpoint (including
+            the newest), and a negative value would slice the
+            candidate list from the wrong end, pruning the newest
+            checkpoints instead of the oldest.
+        confirm: optional human confirmation callback, forwarded to the
+            Action Gateway exactly like `rollback()`'s.
+
+    Returns:
+        Number of checkpoints actually removed (0 if refused or if
+        there was nothing to prune).
     """
-    state = get_state_store()
-    checkpoints = state.get_checkpoints(100)  # Get all
+    if isinstance(keep_count, bool) or not isinstance(keep_count, int) or keep_count < 1:
+        raise ValueError("keep_count must be a positive integer")
 
-    if len(checkpoints) <= keep_count:
-        return
+    from core.action_gateway import HIGH_IMPACT, get_action_gateway
 
-    to_remove = checkpoints[keep_count:]
+    # Code-reviewer finding (WP2.1 group 11, round 1): a mid-loop rmtree
+    # failure on a LATER candidate must not erase the fact that EARLIER
+    # candidates were already genuinely pruned. `execute()` raising
+    # never returns its local `removed` count to the caller -- the
+    # exception propagates straight through gate_exec() to
+    # OUTCOME_FAILED, and the old code then unconditionally returned 0,
+    # contradicting the docstring's "number actually removed" contract
+    # and this function's own "partial effects retained" design (same
+    # as rollback()'s). `pruned` is captured in the enclosing scope and
+    # incremented as each candidate's DB row + directory are actually
+    # removed, so it reflects true progress regardless of how execute()
+    # ultimately returns or raises.
+    pruned = [0]
 
-    for cp in to_remove:
-        checkpoint_id = cp["id"]
-        backup_dir = CHECKPOINT_DIR / checkpoint_id
+    def execute():
+        state = get_state_store()
+        checkpoints = state.get_checkpoints(None)  # genuinely all rows, not a 100-row cap
 
-        # Remove backup directory
-        if backup_dir.exists():
-            shutil.rmtree(backup_dir)
+        if len(checkpoints) <= keep_count:
+            return 0
 
-        # Remove from database
-        state.delete_checkpoint(checkpoint_id)
+        to_remove = checkpoints[keep_count:]
 
-        info(f"Checkpoint: pruned '{checkpoint_id}'")
+        # Validate the complete set before any writes (mirrors
+        # _rollback_files's own discipline): if any candidate's ID is
+        # unsafe, abort entirely rather than partially pruning the
+        # trustworthy ones first.
+        resolved = [(cp["id"], _resolve_checkpoint_dir(cp["id"])) for cp in to_remove]
 
-    success(f"Checkpoint: pruned {len(to_remove)} old checkpoints")
+        for checkpoint_id, backup_dir in resolved:
+            # Delete the DB row before rmtree: a mid-rmtree failure then
+            # leaves, at worst, a harmless orphan directory on disk --
+            # never a DB row that still claims a backup exists after
+            # it has been partially deleted (mirrors rollback()'s
+            # ordering discipline, slice 32, for the same reason).
+            state.delete_checkpoint(checkpoint_id)
+            if backup_dir.exists():
+                shutil.rmtree(backup_dir)
+            pruned[0] += 1
+            info(f"Checkpoint: pruned '{checkpoint_id}'")
+
+        success(f"Checkpoint: pruned {pruned[0]} old checkpoints")
+        return pruned[0]
+
+    decision = get_action_gateway().gate_exec(
+        authority=HIGH_IMPACT,
+        action="checkpoint.prune",
+        command="checkpoint prune attempt",
+        confirm_available=callable(confirm),
+        confirm=confirm,
+        execute=execute,
+    )
+    if not decision.allowed:
+        warning(f"Checkpoint prune {decision.outcome}: {decision.reason}")
+        # pruned[0] reflects real progress even on OUTCOME_FAILED (a
+        # later candidate's rmtree raised after earlier ones already
+        # succeeded) or OUTCOME_REFUSED (always 0, execute() never ran).
+        return pruned[0]
+    return decision.detail["result"]
 
 
 # State store extensions for checkpoints
