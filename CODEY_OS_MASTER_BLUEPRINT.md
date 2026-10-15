@@ -3086,7 +3086,21 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > object versioning enabled? And is deleted-document GCS retention
 > intentional or a gap?
 >
-> **Groups 12-15 remain open** — pick up from group 12 ("Internal
+> **Group 12 ("Internal persistence") is in progress** (2026-10-15).
+> Slice **12a is code-complete and code-reviewer APPROVED**: symbolic
+> operations audit READ/ACT, error dictionaries audit FAILED, and graph
+> clear requires an actual HIGH_IMPACT confirmation callback with atomic
+> four-table deletion and truthful CLI reporting (NEW-945). Coordinator
+> isolated regression: 122 passed; no live-store/model test. NEW-946 logs
+> existing partial writes in ordinary relation creation, outside clear's
+> atomic guarantee. Slice **12b remains open**: independently callable
+> destructive diagnostic/preference/history/blackboard resets, including
+> single-strategy reset. Narrow bookkeeping dispositions and explicit
+> NEW-939/export/artifact residuals are recorded in
+> `docs/wp2_1_group12_persistence_contract.md`. GCS follow-ups NEW-943/944
+> are already decided by Ish but unimplemented; no cloud work here.
+>
+> **Groups 12-15 remain open** — continue group 12 ("Internal
 > persistence") using the same pattern: project-architect re-scopes
 > against live code first (the census doc's one-line group names have
 > repeatedly turned out stale, incomplete, or different in kind than

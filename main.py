@@ -1641,8 +1641,26 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         sub = parts[1].strip().lower() if len(parts) > 1 else ""
 
         if sub == "clear":
-            _mem.symbolic.clear()
-            success("Symbolic graph cleared.")
+            confirm = None
+            if (
+                not yolo
+                and os.getenv("CODEY_DAEMON_MODE") != "1"
+                and os.getenv("CODEY_NON_INTERACTIVE") != "1"
+            ):
+                try:
+                    interactive = sys.stdin.isatty()
+                except Exception:
+                    # Unknown stdin state cannot provide human approval.
+                    interactive = False
+                if interactive:
+                    def confirm():
+                        answer = input("Delete the entire symbolic graph? [y/N]: ")
+                        return answer.strip().lower() in ("y", "yes")
+            decision = _mem.symbolic.clear(confirm=confirm)
+            if decision is not None and decision.allowed:
+                success("Symbolic graph cleared.")
+            else:
+                error(decision.reason if decision is not None else "Symbolic graph unavailable.")
         elif sub == "state":
             state = _mem.get_graph_state()
             console.print(f"[bold]Symbolic Graph State:[/bold]")

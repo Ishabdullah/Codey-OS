@@ -226,8 +226,12 @@ class SymbolicGraph:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def execute(self, op: GraphOperation) -> Dict[str, Any]:
-        """Execute a graph operation and return the result."""
-        self._load_graph()
+        """Mediate one operation: QUERY is READ, every mutation is ACT.
+
+        Subordinate relation auto-creation stays within this operation's
+        decision; return the original handler result, including error dicts.
+        """
+        from core.action_gateway import ACT, READ, get_action_gateway
 
         handlers = {
             GraphOp.OBSERVE: self._op_observe,
@@ -244,21 +248,36 @@ class SymbolicGraph:
         if not handler:
             return {"error": f"Unknown operation: {op.op}"}
 
-        try:
-            result = handler(op.args)
-            self._nx_graph = None  # invalidate NetworkX cache
-            return result
-        except Exception as e:
-            error(f"Graph operation {op.op.value} failed: {e}")
-            return {"error": str(e)}
+        result = None
+
+        def execute_operation():
+            nonlocal result
+            try:
+                self._load_graph()
+                result = handler(op.args)
+                self._nx_graph = None  # invalidate NetworkX cache
+            except Exception as exc:
+                # Preserve the existing in-process error API, but never copy
+                # arbitrary labels, arguments or exception text to the audit.
+                error(f"Graph operation {op.op.value} failed: {exc}")
+                result = {"error": str(exc)}
+                raise RuntimeError("Symbolic graph operation failed") from None
+            if "error" in result:
+                raise RuntimeError("Symbolic graph operation failed")
+            return "Symbolic graph operation completed"
+
+        decision = get_action_gateway().gate_exec(
+            authority=READ if op.op == GraphOp.QUERY else ACT,
+            action="symbolic_graph.execute",
+            command=f"symbolic_graph.{op.op.value}",
+            confirm_available=False,
+            execute=execute_operation,
+        )
+        return result if result is not None else {"error": decision.reason}
 
     def execute_batch(self, ops: List[GraphOperation]) -> List[Dict[str, Any]]:
-        """Execute a batch of graph operations."""
-        self._load_graph()
-        results = []
-        for op in ops:
-            results.append(self.execute(op))
-        return results
+        """Execute each operation through its own mediation boundary."""
+        return [self.execute(op) for op in ops]
 
     def get_graph_state(self) -> Dict[str, Any]:
         """Return the full graph state as a JSON-serializable dict."""
@@ -349,22 +368,45 @@ class SymbolicGraph:
 
         return "\n".join(lines)
 
-    def clear(self):
-        """Clear the entire graph."""
-        conn = self._get_conn()
-        try:
-            conn.executescript("""
-                DELETE FROM sg_relations;
-                DELETE FROM sg_utterances;
-                DELETE FROM sg_concepts;
-                DELETE FROM sg_episodes;
-            """)
-            conn.commit()
-        finally:
-            conn.close()
-        self._concepts.clear()
-        self._relations.clear()
-        self._nx_graph = None
+    def clear(self, *, confirm_available=None, confirm=None):
+        """Clear all graph data atomically after explicit human approval.
+
+        A Boolean availability claim cannot substitute for a callback. The
+        returned decision distinguishes a completed clear from refusal/failure.
+        """
+        from core.action_gateway import HIGH_IMPACT, get_action_gateway
+
+        def clear_graph():
+            try:
+                conn = self._get_conn()
+                try:
+                    # executescript commits implicitly: use individual DELETEs
+                    # in one explicit transaction so a later failure rolls back
+                    # every table, retaining the corresponding caches too.
+                    with conn:
+                        conn.execute("BEGIN")
+                        for table in (
+                            "sg_relations", "sg_utterances", "sg_concepts", "sg_episodes"
+                        ):
+                            conn.execute(f"DELETE FROM {table}")
+                finally:
+                    conn.close()
+            except Exception:
+                # SQL errors can contain graph data supplied by triggers.
+                raise RuntimeError("Symbolic graph clear failed") from None
+            self._concepts.clear()
+            self._relations.clear()
+            self._nx_graph = None
+            return "Symbolic graph cleared"
+
+        return get_action_gateway().gate_exec(
+            authority=HIGH_IMPACT,
+            action="symbolic_graph.clear",
+            command="symbolic_graph.clear",
+            confirm_available=callable(confirm) and confirm_available is not False,
+            confirm=confirm if callable(confirm) else None,
+            execute=clear_graph,
+        )
 
     def status(self) -> Dict[str, Any]:
         """Return graph statistics."""

@@ -1,3 +1,27 @@
+## 2026-10-15 — WP2.1 group 12 slice 12a: symbolic graph authority and atomic confirmed clear (NEW-945); partial relation writes logged (NEW-946)
+
+**Scope:** project-architect re-scoped internal persistence against live callers, finding model-selected graph mutations and `/graph clear` unmediated. Group 12 is split into 12a (graph, completed here) and 12b (destructive persistence/reset APIs, still pending). The narrow recording/coordination contract is in `docs/wp2_1_group12_persistence_contract.md`; it gives no blanket storage-module exemption and retains NEW-939/export/artifact caller boundaries for final census.
+
+**Change:** `SymbolicGraph.execute` gates QUERY as READ and seven mutations as ACT, once per operation/batch member. Handler error dictionaries and exceptions become FAILED audit outcomes using fixed non-sensitive reasons while preserving public result dictionaries. Clear is HIGH_IMPACT with an actual approving callback, defaults to refusal, and refuses callback-free True or explicit False. The memory wrapper forwards decisions; `/graph clear` prompts only with an interactive human and reports success only after completion. Four-table deletion is transactional and caches change only after successful persistence; a later DELETE failure rolls everything back.
+
+**Pipeline:** architect → implementer → mandatory independent code-reviewer **APPROVED** (`/root/code_reviewer`) → coordinator checks. No live model/process test needed; real SQLite mechanics exercised only in disposable fixtures. Reviewer found a separate pre-existing relation partial-write bug (NEW-946): a missing target can leave an auto-created source concept committed. Logged, not silently fixed; clear's atomicity does not extend to ordinary handlers.
+
+**Verbatim validation:**
+
+```text
+implementer: 73 passed in 2.48s
+coordinator: 122 passed in 2.27s
+reviewer: 87 passed in 1.67s
+mutation: remove error-dictionary guard: 1 failed in 0.16s
+mutation: force clear confirmation availability: 4 failed, 3 passed in 0.52s
+ruff (new tests and focused touched-code checks): All checks passed!
+git diff --check: no output
+```
+
+Full suite not rerun (known baseline NEW-906/908 hangs/resource failures); type checkers mypy/pyright/ty unavailable. No dependency/setup change, no model load, live-store write, service restart or cloud action. Existing unrelated `.claude/` work preserved. Next: architect-scoped slice 12b, then groups 13–15; WP2.1 full DoD remains open.
+
+---
+
 ## 2026-10-15 — WP2.1 group 11 closeout: checkpoint/backups/pruning (NEW-941/863), dormant-path hardening + a collision bug; NEW-942 logged, two Ish questions flagged
 
 **Scope:** per explicit instruction ("continue all the way through 3-15

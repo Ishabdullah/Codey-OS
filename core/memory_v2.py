@@ -521,10 +521,13 @@ class SymbolicMemory:
             return []
         return self._graph.check_consistency()
 
-    def clear(self):
-        """Clear the entire graph."""
+    def clear(self, *, confirm_available=None, confirm=None):
+        """Clear the graph only through its human-confirmed boundary."""
         if self._available:
-            self._graph.clear()
+            return self._graph.clear(
+                confirm_available=confirm_available, confirm=confirm,
+            )
+        return None
 
     def status(self) -> dict:
         if not self._available:
