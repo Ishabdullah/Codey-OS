@@ -27,6 +27,7 @@ from ..auth import (
     PERM_MANAGE_USERS,
     PERM_READ_TEAM_COMMISSIONS,
     PERM_READ_TEAM_SALES_DATA,
+    PERM_WRITE_DOCUMENTS,
     PERM_WRITE_ESTIMATES,
     PERM_WRITE_SUBCONTRACTORS,
     PERMISSIONS_CATALOG,
@@ -94,6 +95,51 @@ def _parse_model_quant(model_path: str) -> Optional[str]:
     quant/precision token is found."""
     match = _MODEL_QUANT_RE.search(Path(model_path).name)
     return match.group(1).upper() if match else None
+
+
+# NEW-937: must mirror database.py's `documents.document_type` CHECK
+# constraint exactly (not just models.py's Document.document_type
+# comment, which can drift from the real constraint -- see rule 12).
+# Used to whitelist-validate the multipart document-upload handler's
+# document_type form field BEFORE it's spliced into an on-disk path.
+_LEGAL_DOCUMENT_TYPES = frozenset(
+    {
+        "contract",
+        "estimate",
+        "proposal",
+        "invoice",
+        "receipt",
+        "insurance",
+        "permit",
+        "photo",
+        "pdf",
+        "upload",
+        "warranty",
+    }
+)
+
+
+def _parse_optional_int_field(raw: Optional[str], name: str) -> Optional[int]:
+    """Parse an optional multipart-form string field (e.g. customer_id,
+    project_id) into an int, treating None/"" as absent -- mirrors the
+    `if metadata.get(...)` truthiness check the document-upload handler
+    already used before NEW-937, so an empty-string field still means
+    "not provided", not an error. Whitespace-padded numbers (e.g.
+    " 5\n") are accepted, same as bare `int()` -- the parsed int is
+    always what ends up in the path (via `str(parsed_int)`), never the
+    raw string, so this is safe. Raises ValueError with a clean,
+    non-leaking message on anything non-numeric, catching int()'s own
+    ValueError/TypeError rather than pre-filtering with something like
+    str.isdigit() (which would itself raise bare Python exception text
+    for inputs isdigit() doesn't reject, e.g. '--5' or non-ASCII digit
+    characters, leaking it to the client the way NEW-528 already named
+    for a different call site)."""
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid '{name}' field: {raw!r}")
 
 
 def _parse_int_query_param(
@@ -2317,18 +2363,32 @@ class APIRouter:
                     if content_type.startswith("multipart/form-data"):
                         if content_length > 26214400:
                             return 413, {"Content-Type": "application/json"}, {"error": "Payload Too Large"}
+
+                        # NEW-937: permission check BEFORE any parsing or
+                        # disk effect. Before this, PERM_WRITE_DOCUMENTS
+                        # was only checked inside crm.create_document(),
+                        # which ran AFTER the file was already written to
+                        # disk below -- any authenticated actor of ANY
+                        # role (including ROLE_CUSTOMER/ROLE_SUBCONTRACTOR,
+                        # neither of which holds this permission) could
+                        # trigger the write and only get a 403 back
+                        # afterward, with the already-written file never
+                        # cleaned up.
+                        if not actor.has_permission(PERM_WRITE_DOCUMENTS):
+                            raise PermissionError("Actor lacks permission to register documents")
+
                         state = {"current_header_name": "", "current_part_name": "", "current_filename": ""}
                         metadata = {}
                         file_info = {}
-                        
+
                         def on_part_begin():
                             state["current_header_name"] = ""
                             state["current_part_name"] = ""
                             state["current_filename"] = ""
-                        
+
                         def on_header_field(data, start, end):
                             state["current_header_name"] += data[start:end].decode("utf-8").lower()
-                        
+
                         def on_header_value(data, start, end):
                             if state["current_header_name"] == "content-disposition":
                                 val = data[start:end].decode("utf-8")
@@ -2340,28 +2400,57 @@ class APIRouter:
                                 filename_match = re.search(r'filename="([^"]+)"', val)
                                 if filename_match:
                                     state["current_filename"] = filename_match.group(1)
-                                
+
                         def on_header_end():
                             state["current_header_name"] = ""
-                            
+
                         def on_headers_finished():
                             if state["current_filename"]:
-                                # It's a file
+                                if 'path' in file_info:
+                                    # A second file part in the same
+                                    # request would otherwise silently
+                                    # overwrite file_info['path']/['fd']
+                                    # and orphan the first file (same
+                                    # family as NEW-461) -- refuse instead.
+                                    file_info['error'] = "Only one file part is supported per upload"
+                                    file_info['error_status'] = 400
+                                    return
+                                # It's a file. NEW-937: validate everything
+                                # that feeds the on-disk path BEFORE
+                                # building that path or touching the
+                                # filesystem -- previously document_type
+                                # and every id field were spliced into
+                                # os.path.join() raw and unvalidated here,
+                                # letting e.g. document_type="../../../../tmp/evil"
+                                # escape the doc store via relative
+                                # traversal, or an absolute-path id field
+                                # (os.path.join() discards every preceding
+                                # component once one is absolute) drop
+                                # base_dir entirely.
                                 safe_filename = os.path.basename(state["current_filename"])
                                 if not safe_filename:
                                     safe_filename = "unnamed_upload"
-                                
-                                customer_id = metadata.get("customer_id")
-                                project_id = metadata.get("project_id")
+
                                 document_type = metadata.get("document_type", "upload")
-                                
-                                subcontractor_id = metadata.get("subcontractor_id")
-                                vendor_id = metadata.get("vendor_id")
-                                
+                                if document_type not in _LEGAL_DOCUMENT_TYPES:
+                                    file_info['error'] = f"Invalid document_type: {document_type!r}"
+                                    file_info['error_status'] = 400
+                                    return
+
+                                try:
+                                    customer_id = _parse_optional_int_field(metadata.get("customer_id"), "customer_id")
+                                    project_id = _parse_optional_int_field(metadata.get("project_id"), "project_id")
+                                    subcontractor_id = _parse_optional_int_field(metadata.get("subcontractor_id"), "subcontractor_id")
+                                    vendor_id = _parse_optional_int_field(metadata.get("vendor_id"), "vendor_id")
+                                except ValueError as e:
+                                    file_info['error'] = str(e)
+                                    file_info['error_status'] = 400
+                                    return
+
                                 from utils.config import get_restoricon_doc_store_path
                                 base_dir = get_restoricon_doc_store_path()
                                 rel_dir = f"{document_type}s"
-                                
+
                                 if project_id:
                                     rel_dir = os.path.join(rel_dir, "projects", str(project_id))
                                 elif customer_id:
@@ -2372,14 +2461,52 @@ class APIRouter:
                                     rel_dir = os.path.join(rel_dir, "vendors", str(vendor_id))
                                 else:
                                     rel_dir = os.path.join(rel_dir, "general")
-                                    
+
                                 target_dir = os.path.join(base_dir, rel_dir)
+
+                                # NEW-937: resolve + verify containment
+                                # under the doc store BEFORE os.makedirs()
+                                # (directory creation is also a disk
+                                # effect, not just open()) -- commonpath
+                                # on the realpath'd strings, not a bare
+                                # startswith, to avoid a "/docsXYZ" vs
+                                # "/docs" prefix-collision false-accept.
+                                # document_type is already whitelisted and
+                                # every id is already a validated int at
+                                # this point, so this is defense-in-depth,
+                                # not the primary guard.
+                                real_base = os.path.realpath(base_dir)
+                                real_target_dir = os.path.realpath(target_dir)
+                                if os.path.commonpath([real_base, real_target_dir]) != real_base:
+                                    file_info['error'] = "Resolved document path escapes the document store"
+                                    file_info['error_status'] = 400
+                                    return
+
                                 os.makedirs(target_dir, exist_ok=True)
-                                
+
                                 saved_file_path = os.path.join(target_dir, f"{int(time.time())}_{safe_filename}")
+                                real_saved_file_path = os.path.realpath(saved_file_path)
+                                if os.path.commonpath([real_base, real_saved_file_path]) != real_base:
+                                    file_info['error'] = "Resolved document path escapes the document store"
+                                    file_info['error_status'] = 400
+                                    return
+
+                                # Stash the already-validated values so the
+                                # post-parse Document construction below
+                                # reuses them instead of re-reading raw
+                                # metadata a second time (metadata can gain
+                                # fields between this callback and parser
+                                # completion if the client sends the file
+                                # part before its metadata fields -- a
+                                # separate, already-tracked ordering issue,
+                                # NEW-571 -- so reusing the one validated
+                                # snapshot avoids a second, divergent read).
+                                file_info['document_type'] = document_type
+                                file_info['customer_id'] = customer_id
+                                file_info['project_id'] = project_id
                                 file_info['path'] = saved_file_path
                                 file_info['fd'] = open(saved_file_path, "wb")
-                                
+
                         def on_part_data(data, start, end):
                             if state["current_filename"]:
                                 if 'fd' in file_info:
@@ -2387,7 +2514,7 @@ class APIRouter:
                             else:
                                 if state["current_part_name"]:
                                     metadata[state["current_part_name"]] = metadata.get(state["current_part_name"], "") + data[start:end].decode("utf-8")
-                                    
+
                         def on_part_end():
                             if state["current_filename"] and 'fd' in file_info:
                                 file_info['fd'].close()
@@ -2398,10 +2525,10 @@ class APIRouter:
                             if part.strip().startswith("boundary="):
                                 boundary = part.split("=")[1].strip()
                                 break
-                        
+
                         if not boundary:
                             return 400, {"Content-Type": "application/json"}, {"error": "Missing boundary"}
-                        
+
                         callbacks = {
                             'on_part_begin': on_part_begin,
                             'on_header_field': on_header_field,
@@ -2414,44 +2541,126 @@ class APIRouter:
 
                         import python_multipart
                         parser = python_multipart.MultipartParser(boundary, callbacks)
-                        
-                        remaining = content_length
-                        while remaining > 0:
-                            chunk = rfile.read(min(8192, remaining))
-                            if not chunk:
-                                break
-                            parser.write(chunk)
-                            remaining -= len(chunk)
-                        parser.finalize()
-                        
-                        if 'error' in file_info:
+
+                        # NEW-461/NEW-937: everything from here through the
+                        # create_document() call below can leave an
+                        # already-opened/already-written file on disk if
+                        # it raises -- e.g. a non-UTF-8 metadata field
+                        # raising UnicodeDecodeError (a ValueError) out of
+                        # on_part_data's .decode("utf-8"), or create_document()
+                        # itself failing (a FK-constraint violation on a
+                        # nonexistent project_id/customer_id). Clean up
+                        # whatever this handler itself opened/wrote before
+                        # re-raising, so the caller still sees the original
+                        # error. This is scoped to the file this handler's
+                        # own file_info tracks, not a general-purpose
+                        # service-layer cleanup.
+                        try:
+                            remaining = content_length
+                            while remaining > 0:
+                                chunk = rfile.read(min(8192, remaining))
+                                if not chunk:
+                                    break
+                                parser.write(chunk)
+                                remaining -= len(chunk)
+                            parser.finalize()
+
+                            if 'error' in file_info:
+                                if 'fd' in file_info:
+                                    file_info['fd'].close()
+                                if 'path' in file_info and os.path.exists(file_info['path']):
+                                    os.remove(file_info['path'])
+                                status = file_info.get('error_status', 400)
+                                return status, {"Content-Type": "application/json"}, {"error": file_info['error']}
+
+                            if 'path' not in file_info:
+                                return 400, {"Content-Type": "application/json"}, {"error": "No file uploaded"}
+
+                            tags = []
+                            subcontractor_id = metadata.get("subcontractor_id")
+                            if subcontractor_id:
+                                tags.append(f"subcontractor_id:{subcontractor_id}")
+                            if metadata.get("assessment"):
+                                tags.append("assessment")
+
+                            doc = Document(
+                                customer_id=file_info.get('customer_id'),
+                                project_id=file_info.get('project_id'),
+                                document_type=file_info.get('document_type', 'upload'),
+                                title=metadata.get("title", os.path.basename(file_info['path'])),
+                                file_path=file_info['path'],
+                                tags=tags
+                            )
+                            created = self.crm.create_document(doc, actor)
+                            return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
+                        except Exception:
                             if 'fd' in file_info:
                                 file_info['fd'].close()
                             if 'path' in file_info and os.path.exists(file_info['path']):
-                                os.remove(file_info['path'])
-                            return 400, {"Content-Type": "application/json"}, {"error": file_info['error']}
-                            
-                        if 'path' not in file_info:
-                            return 400, {"Content-Type": "application/json"}, {"error": "No file uploaded"}
-                            
-                        tags = []
-                        subcontractor_id = metadata.get("subcontractor_id")
-                        if subcontractor_id:
-                            tags.append(f"subcontractor_id:{subcontractor_id}")
-                        if metadata.get("assessment"):
-                            tags.append("assessment")
-
-                        doc = Document(
-                            customer_id=int(metadata.get("customer_id")) if metadata.get("customer_id") else None,
-                            project_id=int(metadata.get("project_id")) if metadata.get("project_id") else None,
-                            document_type=metadata.get("document_type", "upload"),
-                            title=metadata.get("title", os.path.basename(file_info['path'])),
-                            file_path=file_info['path'],
-                            tags=tags
-                        )
-                        created = self.crm.create_document(doc, actor)
-                        return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
+                                # create_document()'s own INSERT commits
+                                # (via its `with conn:` block) BEFORE it
+                                # calls audit.log() -- if audit.log()
+                                # raises for any reason (locked DB, I/O
+                                # error) AFTER that commit, this except
+                                # block would otherwise catch it here and
+                                # unlink a file that a `documents` row
+                                # already points at, turning a recoverable
+                                # orphan-file bug (NEW-461) into an
+                                # unrecoverable row-without-file bug on a
+                                # data-integrity-critical store. Only
+                                # delete the file when NO documents row
+                                # references this exact path -- i.e. only
+                                # when the exception happened before (or
+                                # during) create_document()'s own commit,
+                                # not after it.
+                                # If this lookup itself fails (e.g. the
+                                # same lock contention that made
+                                # audit.log() raise in the first place),
+                                # we can't prove no row references the
+                                # file -- default to NOT deleting it.
+                                # An orphaned file with no row is
+                                # recoverable (it's just dead weight on
+                                # disk); a row left pointing at a
+                                # deleted file is not. The original
+                                # exception is still re-raised below
+                                # either way, so the caller never loses
+                                # visibility into what actually failed.
+                                row_exists = True
+                                try:
+                                    conn = self.crm.db.get_connection()
+                                    row_exists = conn.execute(
+                                        "SELECT 1 FROM documents WHERE file_path = ? LIMIT 1",
+                                        (file_info['path'],),
+                                    ).fetchone() is not None
+                                except Exception:
+                                    pass
+                                if not row_exists:
+                                    try:
+                                        os.remove(file_info['path'])
+                                    except OSError:
+                                        # The original exception below is
+                                        # the one the caller needs to see;
+                                        # a failure removing the orphan
+                                        # (e.g. a concurrent delete) isn't
+                                        # worth masking it with a
+                                        # different error.
+                                        pass
+                            raise
                     else:
+                        # NEW-938 / Ish's decision: reject a caller-supplied
+                        # file_path outright -- only this multipart branch
+                        # (which computes its own server-side-generated
+                        # safe path above) may ever set Document.file_path.
+                        # No "register an existing file by path" feature
+                        # exists or is needed; without this, any of the
+                        # six roles holding PERM_WRITE_DOCUMENTS could
+                        # register an arbitrary existing path (e.g. the
+                        # sqlite DB file) as a Document and then download
+                        # it via GET /api/v1/documents/<id>/download.
+                        if "file_path" in json_body:
+                            return 400, {"Content-Type": "application/json"}, {
+                                "error": "file_path may not be set directly; upload a file via multipart/form-data instead"
+                            }
                         doc = Document(**json_body)
                         created = self.crm.create_document(doc, actor)
                         return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
@@ -2473,22 +2682,41 @@ class APIRouter:
                 doc = self.crm.get_document(doc_id, actor)
                 if not doc:
                     return 404, {"Content-Type": "application/json"}, {"error": "Document not found"}
-                
-                if not doc.file_path or not os.path.exists(doc.file_path):
+
+                if not doc.file_path:
                     return 404, {"Content-Type": "application/json"}, {"error": "File not found on disk"}
-                
+
+                # NEW-938: defense-in-depth containment check, independent
+                # of the upload-side file_path rejection above -- protects
+                # against any other current or future code path that
+                # constructs a Document with a bad file_path (not just the
+                # JSON-body registration vector this round closes). Run
+                # BEFORE os.path.exists() (no existence oracle for a path
+                # outside the store) and operate on the realpath'd string
+                # from here on, so the path that's containment-checked is
+                # the exact same one that's opened/sized below -- no gap
+                # between the check and the use.
+                from utils.config import get_restoricon_doc_store_path
+                real_base = os.path.realpath(get_restoricon_doc_store_path())
+                real_doc_path = os.path.realpath(doc.file_path)
+                if os.path.commonpath([real_base, real_doc_path]) != real_base:
+                    return 403, {"Content-Type": "application/json"}, {"error": "Document path is not permitted"}
+
+                if not os.path.exists(real_doc_path):
+                    return 404, {"Content-Type": "application/json"}, {"error": "File not found on disk"}
+
                 def generate():
-                    with open(doc.file_path, "rb") as f:
+                    with open(real_doc_path, "rb") as f:
                         while True:
                             chunk = f.read(8192)
                             if not chunk:
                                 break
                             yield chunk
-                
-                file_size = os.path.getsize(doc.file_path)
+
+                file_size = os.path.getsize(real_doc_path)
                 headers = {
                     "Content-Type": "application/octet-stream",
-                    "Content-Disposition": f'attachment; filename="{os.path.basename(doc.file_path)}"',
+                    "Content-Disposition": f'attachment; filename="{os.path.basename(real_doc_path)}"',
                     "Content-Length": str(file_size)
                 }
                 return 200, headers, generate()
