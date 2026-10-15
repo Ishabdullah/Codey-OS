@@ -3,7 +3,6 @@ TDD agent mode — write, test, fix, repeat.
 """
 
 import re
-import subprocess
 from pathlib import Path
 
 from core.display import (show_error, show_response, show_shell,
@@ -14,26 +13,45 @@ MAX_TDD_ITERATIONS = 5
 
 
 class TestResult:
-    def __init__(self, passed, failed, errors, output, failures):
+    def __init__(self, passed, failed, errors, output, failures, *, returncode=None, outcome=None, execution_error=False):
         self.passed = passed
         self.failed = failed
         self.errors = errors
         self.output = output
         self.failures = failures  # list of (test_name, error_text)
         self.total = passed + failed + errors
-        self.all_pass = failed == 0 and errors == 0
+        self.returncode = returncode
+        self.outcome = outcome
+        self.refused = outcome == "refused"
+        self.execution_error = execution_error
+        self.all_pass = failed == 0 and errors == 0 and returncode in (None, 0) and not self.refused and not execution_error
 
 
-def run_tests(test_path):
-    """Run pytest and parse results."""
-    result = subprocess.run(
+def run_tests(test_path, *, confirm_available=None, confirm=None):
+    """Mediate pytest and use its real exit status for execution outcomes."""
+    from core.process_boundary import run_process
+
+    process = run_process(
         ["python3", "-m", "pytest", str(test_path), "-v", "--tb=short", "--no-header"],
-        capture_output=True,
-        text=True,
-        timeout=60,
+        timeout=60, action="tdd.run_tests",
+        confirm_available=confirm_available, confirm=confirm,
     )
-    output = result.stdout + result.stderr
-    return parse_pytest_output(output)
+    if process.refused or process.execution_error is not None:
+        output = process.execution_error or process.decision.reason
+        return TestResult(
+            0, 0, 1, output, [], returncode=process.returncode,
+            outcome=process.decision.outcome, execution_error=process.execution_error is not None,
+        )
+    parsed = parse_pytest_output(process.stdout + process.stderr)
+    if process.returncode != 0 and parsed.failed == 0 and parsed.errors == 0:
+        # Usage, import and collection failures may lack verbose test lines.
+        # They must never become an empty successful test run.
+        parsed.errors = 1
+    return TestResult(
+        parsed.passed, parsed.failed, parsed.errors, parsed.output, parsed.failures,
+        returncode=process.returncode, outcome=process.decision.outcome,
+        execution_error=process.returncode not in (0, 1),
+    )
 
 
 def parse_pytest_output(output):
@@ -134,6 +152,9 @@ def run_tdd_loop(source_path, test_path, yolo=True):
     for iteration in range(1, MAX_TDD_ITERATIONS + 1):
         info(f"Running tests — iteration {iteration}/{MAX_TDD_ITERATIONS}...")
         result = run_tests(test_path)
+        if result.refused or result.execution_error:
+            show_error(result.output)
+            return
         show_tdd_status(
             iteration,
             MAX_TDD_ITERATIONS,

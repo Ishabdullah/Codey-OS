@@ -3102,9 +3102,20 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > NEW-939 and unresolved CLI/config/design/KB/export/artifact caller
 > boundaries for group 15. GCS NEW-943/944 are decided but unimplemented.
 >
-> **Groups 13-15 remain open** — pick up group 13 ("Lifecycle/admin
-> operations"), architect re-scoping against live code, followed by the same
-> implementer/reviewer/ledger/commit/push pipeline. Full WP2.1 DoD is not met.
+> **Group 13 ("Lifecycle/admin operations") is in progress** (2026-10-15).
+> Architect live-code scope is `docs/wp2_1_group13_scope.md`. **13a is
+> code-complete, code-reviewer APPROVED and disposable-process verified**
+> (NEW-950): fix/TDD/recovery execution audits real outcomes, structured
+> refusal/signal failures stop dependent edits, recovery package install
+> requires actual HIGH_IMPACT approval, mkdir reuses filesystem policy.
+> Two review rounds fixed SIGKILL wrongly triggering source edits.
+> Coordinator: 123 passed, one existing warning; live-verifier seven isolated
+> checks PASS (`docs/wp2_1_group13a_live_verification.md`), no models/live
+> stores/services. Existing Python/pytest ACT policy/opaque effects unchanged.
+> NEW-951 logs nested-core classification/checkpoint misses for group 14.
+> **13b (supervisor ownership), 13c.1 (durable PID identity/Python writers),
+> and 13c.2 (shell lifecycle consumers) remain open**, followed by groups
+> 14/15. No full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

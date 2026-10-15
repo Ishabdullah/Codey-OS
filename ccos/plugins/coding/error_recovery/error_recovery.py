@@ -125,6 +125,9 @@ def test() -> bool:
     import shutil
     import tempfile
     from pathlib import Path
+    from unittest.mock import patch
+
+    from core.filesystem import Filesystem
 
     assert recovery_classify_error("ModuleNotFoundError: No module named 'foo'") == "import_error"
     assert recovery_classify_error("FileNotFoundError: no such file or directory") == "file_not_found"
@@ -135,13 +138,16 @@ def test() -> bool:
     tmp_dir = Path(tempfile.mkdtemp(prefix="recovery_selftest_"))
     try:
         target = tmp_dir / "nested" / "dir" / "file.txt"
-        result = recovery_execute_strategy(
-            name="create_parent_dirs",
-            action="mkdir_then_write",
-            description="Create parent directories first",
-            confidence=0.8,
-            file_path=str(target),
-        )
+        # Give this isolated self-test its own workspace without changing
+        # the production adapter's containment or default confirmation policy.
+        with patch("tools.file_tools._get_fs", return_value=Filesystem(workspace=tmp_dir)):
+            result = recovery_execute_strategy(
+                name="create_parent_dirs",
+                action="mkdir_then_write",
+                description="Create parent directories first",
+                confidence=0.8,
+                file_path=str(target),
+            )
         assert target.parent.is_dir(), f"Expected parent dir created, got: {result}"
         return True
     finally:

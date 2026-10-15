@@ -4,6 +4,7 @@ import importlib.util
 import shutil
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 # _pathutil.py lives at ccos/plugins/_pathutil.py, two levels above this
 # plugin's directory (test.py -> error_recovery/ -> coding/ -> plugins/).
@@ -57,13 +58,18 @@ def test_execute_strategy_mkdir_then_write():
         target = tmp_dir / "missing" / "nested" / "file.txt"
         assert not target.parent.exists(), "Precondition: nested dir should not exist yet"
 
-        result = recovery_execute_strategy(
-            name="create_parent_dirs",
-            action="mkdir_then_write",
-            description="Create parent directories first",
-            confidence=0.8,
-            file_path=str(target),
-        )
+        from core.filesystem import Filesystem
+
+        # This disposable directory is the test's workspace; production
+        # recovery must retain normal containment instead of accepting /tmp.
+        with patch("tools.file_tools._get_fs", return_value=Filesystem(workspace=tmp_dir)):
+            result = recovery_execute_strategy(
+                name="create_parent_dirs",
+                action="mkdir_then_write",
+                description="Create parent directories first",
+                confidence=0.8,
+                file_path=str(target),
+            )
 
         assert target.parent.is_dir(), f"Expected parent dir created, got result: {result}"
         print(f"[PASS] recovery_execute_strategy() created missing parent dir: {result}")

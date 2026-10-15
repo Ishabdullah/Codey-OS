@@ -1,3 +1,26 @@
+## 2026-10-15 — WP2.1 group 13 slice 13a: execution mediation (NEW-950), real disposable-process PASS; nested-core gap logged (NEW-951)
+
+**Scope:** architect re-scoped group 13 against live callers, split into 13a execution, 13b owned-Popen supervision, 13c.1 durable PID identity/Python writers, and 13c.2 shell consumers. Full spec: `docs/wp2_1_group13_scope.md`. This round completes 13a only; group 13 stays open.
+
+**Change:** fix/TDD subprocesses and recovery actions now use gateway decisions and structured real exit/refusal/error metadata. Nonzero/timeout/signal failures audit FAILED with bounded static reasons; no output-sniffing. Refusal and infrastructure failures stop dependent edits. Existing Python/pytest ACT classification is preserved (opaque execution remains unresolved); recovery installation is HIGH_IMPACT actual-confirmation-required, search/lookup READ, mkdir uses the established workspace/core/Git/checkpoint filesystem policy. Recovery CCOS remains unclassified/refused; test-only callers use disposable workspaces.
+
+**Review:** round 1 CHANGES REQUESTED caught signal termination incorrectly triggering source edits (`agent edit calls after signal termination: 1`). Round 2 classifies negative exits as execution interruption and aborts initial/verification workflows; positive source/test failures still repair normally. Mandatory reviewer **APPROVED** (`/root/code_reviewer`). Existing nested core path classifier misses were independently confirmed and logged NEW-951, not silently fixed.
+
+**Verbatim validation:**
+
+```text
+implementer: 123 passed, 1 warning in 1.13s
+coordinator: 123 passed, 1 warning in 1.03s
+reviewer: 118 passed, 1 warning in 0.98s
+ruff: All checks passed!
+git diff --check: no output
+live-verifier: PASS: 7 isolated checks; temporary state removed.
+```
+
+Independent on-device subprocess evidence: `docs/wp2_1_group13a_live_verification.md` includes literal success/exit7/self-SIGTERM audits, actual temporary pytest pass/fail, pip refusal with zero subprocess calls, mkdir success, and free-h before/after. No models, package installs, existing services, live stores or external sends. Full fix/TDD agent flows and timeouts are unit-tested only. Warning remains the existing bool-return plugin test; known full-suite/type-checker limitations remain. Next: 13b, then 13c.1/13c.2, then groups 14/15. Full WP2.1 DoD remains open.
+
+---
+
 ## 2026-10-15 — WP2.1 group 12 closeout, slice 12b: confirmed persistence resets (NEW-947); recording/serialization debt logged (NEW-948/949)
 
 **Scope:** architect's live-code inventory plus single-strategy-reset amendment. Completes group 12's two scoped slices (12a in `0334b75`, 12b here), with narrow subordinate-recording dispositions and explicit remaining caller boundaries in `docs/wp2_1_group12_persistence_contract.md`. No new production callers; dormant public destructive helpers are hardened before activation.

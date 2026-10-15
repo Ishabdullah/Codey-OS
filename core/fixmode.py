@@ -4,32 +4,37 @@ codey --fix script.py
 codey --fix script.py "also add argument parsing while you're at it"
 """
 
-import subprocess
 from pathlib import Path
 
 from utils.logger import error, info, separator, success, warning
 
 
-def run_and_capture(path: str) -> tuple[bool, str]:
-    """
-    Run a Python file and capture output + errors.
-    Returns (success, output_string).
-    """
-    try:
-        result = subprocess.run(
-            ["python3", str(path)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode == 0:
-            return True, result.stdout
-        else:
-            return False, result.stderr or result.stdout
-    except subprocess.TimeoutExpired:
-        return False, "[ERROR] Script timed out after 30s"
-    except Exception as e:
-        return False, f"[ERROR] {e}"
+class CaptureResult(tuple):
+    """Backward-compatible (success, output), with structured stop metadata."""
+
+    def __new__(cls, success, output, *, refused=False, execution_error=False):
+        value = super().__new__(cls, (success, output))
+        value.refused = refused
+        value.execution_error = execution_error
+        return value
+
+
+def run_and_capture(path: str, *, confirm_available=None, confirm=None) -> tuple[bool, str]:
+    """Run Python through the gateway; preserve the success/output tuple API."""
+    from core.process_boundary import run_process
+
+    result = run_process(
+        ["python3", str(path)], timeout=30, action="fixmode.run_and_capture",
+        confirm_available=confirm_available, confirm=confirm,
+    )
+    if result.refused:
+        return CaptureResult(False, result.decision.reason, refused=True)
+    if result.execution_error is not None:
+        return CaptureResult(False, f"[ERROR] {result.execution_error}", execution_error=True)
+    return CaptureResult(
+        result.decision.allowed,
+        result.stdout if result.returncode == 0 else result.stderr or result.stdout,
+    )
 
 
 def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
@@ -57,7 +62,11 @@ def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
         config.AGENT_CONFIG["confirm_shell"] = False
 
     info(f"Running {p.name}...")
-    ok, output = run_and_capture(str(p))
+    captured = run_and_capture(str(p))
+    ok, output = captured
+    if getattr(captured, "refused", False) or getattr(captured, "execution_error", False):
+        error(output)
+        return
 
     if ok:
         success(f"{p.name} ran successfully:")
@@ -96,7 +105,11 @@ def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
     # Verify the fix worked
     separator()
     info(f"Verifying fix...")
-    ok2, output2 = run_and_capture(str(p))
+    verified = run_and_capture(str(p))
+    ok2, output2 = verified
+    if getattr(verified, "refused", False) or getattr(verified, "execution_error", False):
+        error(output2)
+        return
     if ok2:
         success(f"Fixed! {p.name} now runs successfully.")
         if output2.strip():

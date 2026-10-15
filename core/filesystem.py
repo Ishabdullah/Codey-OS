@@ -251,6 +251,25 @@ class Filesystem:
         except Exception as e:
             raise FilesystemAccessError(f"Failed to write {path}: {e}")
 
+    def make_parent_dirs(self, path: Union[str, Path]) -> Path:
+        """Create a validated target's parents for recovery before a write.
+
+        The recovery caller owns authority/confirmation. Validation, Git
+        metadata denial and core-file checkpointing match write().
+        """
+        try:
+            path = self._validate_path(path)
+            self._reject_git_metadata_mutation(path)
+            self._reject_git_metadata_mutation(path.parent)
+            if _is_core_file(str(path)):
+                self._require_checkpoint(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return path.parent
+        except FilesystemAccessError:
+            raise
+        except Exception as exc:
+            raise FilesystemAccessError(f"Failed to create parent directory: {exc}") from exc
+
     def patch(self, path: Union[str, Path], old_str: str, new_str: str) -> str:
         """
         Patch file content (replace old_str with new_str).

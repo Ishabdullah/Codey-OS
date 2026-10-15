@@ -15,8 +15,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional
 
-from utils.logger import info
-
 
 class ErrorType(Enum):
     """Types of errors that can occur."""
@@ -401,121 +399,137 @@ def recover_from_error(error_message: str) -> Optional[FallbackStrategy]:
     return get_switcher().get_fallback(error_message=error_message)
 
 
-def execute_strategy(strategy: FallbackStrategy, context: dict) -> str:
-    """
-    Execute a recovery strategy.
+def execute_strategy(
+    strategy: FallbackStrategy, context: dict, *, confirm_available=None, confirm=None
+) -> str:
+    """Mediate recovery actions without recording error-derived payloads.
 
-    Args:
-        strategy: The strategy to execute.
-        context: Dict with optional keys:
-            - "error_message": original error string
-            - "tool_name": the tool that failed
-            - "tool_args": args passed to the tool
-            - "file_path": path being operated on
-
-    Returns:
-        A result string describing what was done.
+    HIGH_IMPACT operations require an actual approving callback. The dormant
+    CCOS adapter supplies none; this does not add a new dispatch capability.
     """
     import re
-    import subprocess
+    from pathlib import Path
+
+    from core.action_gateway import ACT, HIGH_IMPACT, READ, get_action_gateway
+    from core.process_boundary import run_process
 
     action = strategy.action
     error_msg = context.get("error_message", "")
     file_path = context.get("file_path", "")
 
-    # ---- pip_install: extract package from ImportError and install ----
+    def local(authority, label, execute):
+        message = None
+
+        def perform():
+            nonlocal message
+            try:
+                message = execute()
+            except Exception as exc:
+                message = f"Recovery failed: {exc}"
+                raise RuntimeError("Recovery operation failed") from None
+            return "Recovery operation completed"
+
+        decision = get_action_gateway().gate_exec(
+            authority=authority, action=label, command=label,
+            confirm_available=callable(confirm) and confirm_available is not False,
+            confirm=confirm if callable(confirm) else None, execute=perform,
+        )
+        return message if message is not None else decision.reason
+
+    def process(argv, timeout, label, authority=None):
+        return run_process(
+            argv, timeout=timeout, action=label, authority=authority,
+            confirm_available=confirm_available, confirm=confirm,
+        )
+
+    def unavailable(result):
+        if result.refused:
+            return result.decision.reason
+        if result.execution_error is not None:
+            return f"Recovery failed: {result.execution_error}"
+        return None
+
     if action == "pip_install":
-        # Try to extract package name from error like "No module named 'foo'"
-        m = re.search(r"No module named ['\"]([^'\"]+)['\"]", error_msg)
-        pkg = m.group(1).split(".")[0] if m else None
-        if pkg:
-            try:
-                result = subprocess.run(
-                    ["pip", "install", pkg],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                if result.returncode == 0:
-                    info(f"Recovery: installed '{pkg}' successfully")
-                    return f"Installed {pkg}: {result.stdout.strip()[:200]}"
-                else:
-                    return f"pip install {pkg} failed: {result.stderr.strip()[:200]}"
-            except Exception as e:
-                return f"pip install error: {e}"
-        return "Recovery: could not determine package name from error"
+        match = re.search(r"No module named ['\"]([^'\"]+)['\"]", error_msg)
+        package = match.group(1).split(".")[0] if match else None
+        # Module names are data, not pip flags or direct URL/install options.
+        if not package or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", package):
+            return local(READ, "recovery.package_lookup", lambda: "Recovery: could not determine package name from error")
+        result = process(["pip", "install", package], 60, "recovery.pip_install", HIGH_IMPACT)
+        stopped = unavailable(result)
+        if stopped is not None:
+            return stopped
+        if result.returncode == 0:
+            return f"Installed {package}: {result.stdout.strip()[:200]}"
+        return f"pip install {package} failed: {result.stderr.strip()[:200]}"
 
-    # ---- search_files: search for similar files when file not found ----
-    elif action in ("search_files", "create_then_modify"):
-        if file_path:
-            from pathlib import Path
+    if action in ("search_files", "create_then_modify"):
+        if not file_path:
+            return local(READ, "recovery.search_files", lambda: "Recovery: no file path in context to search for")
+        name = Path(file_path).name
+        # A fixed -name operand cannot become find options or an expression.
+        result = process(["find", ".", "-name", name], 10, "recovery.search_files", READ)
+        stopped = unavailable(result)
+        if stopped is not None:
+            return stopped
+        if result.returncode != 0:
+            return f"Search failed: {result.stderr.strip()[:200]}"
+        found = result.stdout.strip()
+        return f"Found similar files:\n{found[:500]}" if found else f"No files named '{name}' found in project"
 
-            name = Path(file_path).name
-            try:
-                result = subprocess.run(
-                    ["find", ".", "-name", name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                found = result.stdout.strip()
-                if found:
-                    return f"Found similar files:\n{found[:500]}"
-                return f"No files named '{name}' found in project"
-            except Exception as e:
-                return f"Search failed: {e}"
-        return "Recovery: no file path in context to search for"
+    if action == "mkdir_then_write":
+        from tools.file_tools import _get_fs, classify_write_action
 
-    # ---- mkdir_then_write: create parent dirs before writing ----
-    elif action == "mkdir_then_write":
-        if file_path:
-            from pathlib import Path
+        fs = _get_fs()
+        validation_error = None
+        target = None
+        try:
+            target = fs._validate_path(file_path) if file_path else None
+        except Exception as exc:
+            validation_error = exc
 
-            try:
-                parent = Path(file_path).parent
-                parent.mkdir(parents=True, exist_ok=True)
-                return f"Created parent directory: {parent}"
-            except Exception as e:
-                return f"mkdir failed: {e}"
-        return "Recovery: no file path in context"
+        def mkdir():
+            if validation_error is not None:
+                raise validation_error
+            if target is None:
+                return "Recovery: no file path in context"
+            parent = fs.make_parent_dirs(target)
+            return f"Created parent directory: {parent}"
 
-    # ---- verify_dependencies / check_and_fix_permissions ----
-    elif action in ("verify_dependencies", "check_and_fix_permissions"):
-        # Extract command name from shell error
-        m = re.search(r"'([^']+)': command not found", error_msg)
-        cmd = m.group(1) if m else None
-        if cmd:
-            try:
-                result = subprocess.run(["which", cmd], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    return f"'{cmd}' found at: {result.stdout.strip()}"
-                return f"'{cmd}' not found — install it first"
-            except Exception as e:
-                return f"which {cmd} failed: {e}"
-        return "Recovery: could not determine missing dependency"
+        authority = classify_write_action(str(target)) if target is not None else ACT
+        return local(authority, "recovery.mkdir_then_write", mkdir)
 
-    # ---- search_error_message: return trimmed error for model context ----
-    elif action == "search_error_message":
-        return f"Error context for debugging:\n{error_msg[:500]}"
+    if action in ("verify_dependencies", "check_and_fix_permissions"):
+        match = re.search(r"'([^']+)': command not found", error_msg)
+        command = match.group(1) if match else None
+        if not command:
+            return local(READ, "recovery.dependency_lookup", lambda: "Recovery: could not determine missing dependency")
+        # Reject option-like names rather than interpreting error text as flags.
+        if command.startswith("-") or "\x00" in command:
+            return local(READ, "recovery.dependency_lookup", lambda: "Recovery: invalid dependency name")
+        result = process(["which", command], 5, "recovery.dependency_lookup", READ)
+        stopped = unavailable(result)
+        if stopped is not None:
+            return stopped
+        if result.returncode == 0:
+            return f"'{command}' found at: {result.stdout.strip()}"
+        return f"'{command}' not found — install it first"
 
-    # ---- run_single_test: isolate a failing pytest test ----
-    elif action == "run_single_test":
-        m = re.search(r"FAILED\s+([\w/]+\.py::[\w]+)", error_msg)
-        if m:
-            test_id = m.group(1)
-            try:
-                result = subprocess.run(
-                    ["python", "-m", "pytest", test_id, "-v", "--tb=short"],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                out = (result.stdout + result.stderr).strip()
-                return f"Single test result:\n{out[:800]}"
-            except Exception as e:
-                return f"pytest failed: {e}"
-        return "Recovery: could not identify specific failing test"
+    if action == "search_error_message":
+        return local(READ, "recovery.error_context", lambda: f"Error context for debugging:\n{error_msg[:500]}")
 
-    # ---- log_and_continue / fallback ----
-    else:
-        return f"Recovery advisory ({strategy.name}): {strategy.description}"
+    if action == "run_single_test":
+        match = re.search(r"FAILED\s+([\w/]+\.py::[\w]+)", error_msg)
+        if not match:
+            return local(READ, "recovery.test_lookup", lambda: "Recovery: could not identify specific failing test")
+        result = process(
+            ["python", "-m", "pytest", match.group(1), "-v", "--tb=short"],
+            60, "recovery.run_single_test",
+        )
+        stopped = unavailable(result)
+        if stopped is not None:
+            return stopped
+        out = (result.stdout + result.stderr).strip()
+        return f"Single test result:\n{out[:800]}"
+
+    return local(READ, "recovery.advisory", lambda: f"Recovery advisory ({strategy.name}): {strategy.description}")
