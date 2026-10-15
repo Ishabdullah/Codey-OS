@@ -2432,13 +2432,23 @@ inbound mail, it isn't an outbound-send gate.
 - *Doc:* correct `docs/security.md`'s false network-traffic claim (§13.6).
 - *DoD:* an unauthenticated POST cannot send mail; a DNC address cannot be mailed.
 
-**WP0.2 — RBAC + audit on `notification_service`** — **DONE 2026-10-07.** RBAC
-to *trigger* a send was already adequate at both real call sites
+**WP0.2 — RBAC + audit on `notification_service`** — **DONE 2026-10-07 for
+the two call sites found at the time — correction 2026-10-15 (rule 6): this
+was never a complete inventory.** RBAC to *trigger* a send was already
+adequate at both real call sites known at the time
 (`crm_service.py`'s PM-assignment email, `routes.py`'s compose route); the real
 gap was the send itself having no audit trail. Added `audit.log` calls
 (success/failure/exception) at both sites. code-reviewer APPROVED. `pdf_service`
 re-checked and found not to be a gap (see §16.7/§21 item 4 corrections);
 `pricing_repo`'s gap logged, not fixed (dormant subsystem, `NEW-777`).
+**WP2.1 group 8 (2026-10-15, NEW-925) found 4 more real `NotificationService`
+call sites** — all in `scheduling_service.py` (staff-calendar invite/
+cancellation sends) — with zero audit trail, same class of gap, now fixed
+the same way. Group 8 also closed a separate, previously-unscoped gap
+(NEW-926): the B8.10c compose-email route was reachable by a `ROLE_AI_AGENT`
+actor with zero confirmation gate (not an audit-trail gap — a missing
+authority check WP0.2 never covered). See `PROJECT_LOG.md`'s 2026-10-15
+group-8 entry for full detail.
 - *Objective:* close the second unaudited path to real email (§16.4).
 - *Deps:* none. *Repo:* Codey-OS — `restoricon_core/notification_service.py`.
 - *Intent:* apply the existing RBAC check and audit envelope used by the other ~137

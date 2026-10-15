@@ -1005,15 +1005,43 @@ class SchedulingService:
                     "attendee_email": user_row["email"],
                     "attendee_name": user_row["full_name"]
                 }
+                # WP2.1 group 8 (NEW-925): mirror WP0.2's
+                # notify_email_sent/notify_email_failed audit pattern --
+                # the create above is already audited, but the invite
+                # send itself -- a real outbound email -- had no record
+                # of its own, success or failure. RBAC for triggering
+                # this send is already covered by the
+                # PERM_WRITE_STAFF_SCHEDULES check above.
+                _notify_sent = False
                 try:
-                    self.notification.send_calendar_invite(
+                    _notify_sent = bool(self.notification.send_calendar_invite(
                         to_email=user_row["email"],
                         appointment=appointment_dict,
                         text=f"You have been scheduled: {schedule.title}"
-                    )
+                    ))
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning("Failed to send staff schedule ICS invite: %s", e)
+                    self.audit.log(
+                        action="notify_email_failed",
+                        entity_type="staff_schedule",
+                        entity_id=schedule.id,
+                        change_summary=f"Staff schedule invite to {user_row['email']} raised: {e}",
+                        actor=actor,
+                        details=build_audit_details(after={"to": user_row["email"], "error": str(e)}),
+                    )
+                else:
+                    self.audit.log(
+                        action="notify_email_sent" if _notify_sent else "notify_email_failed",
+                        entity_type="staff_schedule",
+                        entity_id=schedule.id,
+                        change_summary=(
+                            f"Staff schedule invite {'sent to' if _notify_sent else 'failed to send to'} "
+                            f"{user_row['email']}"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(after={"to": user_row["email"], "sent": _notify_sent}),
+                    )
 
         return schedule
 
@@ -1227,15 +1255,39 @@ class SchedulingService:
                     "attendee_email": user_row["email"],
                     "attendee_name": user_row["full_name"]
                 }
+                # WP2.1 group 8 (NEW-925): see create_staff_schedule's
+                # matching comment above -- same notify_email_sent/
+                # notify_email_failed audit pattern for this invite send.
+                _notify_sent = False
                 try:
-                    self.notification.send_calendar_invite(
+                    _notify_sent = bool(self.notification.send_calendar_invite(
                         to_email=user_row["email"],
                         appointment=appointment_dict,
                         text=f"Your schedule has been updated: {after.title}"
-                    )
+                    ))
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning("Failed to send staff schedule ICS invite on update: %s", e)
+                    self.audit.log(
+                        action="notify_email_failed",
+                        entity_type="staff_schedule",
+                        entity_id=schedule_id,
+                        change_summary=f"Staff schedule invite to {user_row['email']} raised: {e}",
+                        actor=actor,
+                        details=build_audit_details(after={"to": user_row["email"], "error": str(e)}),
+                    )
+                else:
+                    self.audit.log(
+                        action="notify_email_sent" if _notify_sent else "notify_email_failed",
+                        entity_type="staff_schedule",
+                        entity_id=schedule_id,
+                        change_summary=(
+                            f"Staff schedule invite {'sent to' if _notify_sent else 'failed to send to'} "
+                            f"{user_row['email']}"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(after={"to": user_row["email"], "sent": _notify_sent}),
+                    )
 
         # NEW-506: on an actual reassignment (not every edit), the OLD
         # assignee gets a cancellation for the slot they no longer have --
@@ -1254,15 +1306,40 @@ class SchedulingService:
                     "attendee_email": old_user_row["email"],
                     "attendee_name": old_user_row["full_name"]
                 }
+                # WP2.1 group 8 (NEW-925): see create_staff_schedule's
+                # matching comment above -- same notify_email_sent/
+                # notify_email_failed audit pattern for this cancellation
+                # send to the OLD assignee.
+                _notify_sent = False
                 try:
-                    self.notification.send_calendar_cancellation(
+                    _notify_sent = bool(self.notification.send_calendar_cancellation(
                         to_email=old_user_row["email"],
                         appointment=cancellation_dict,
                         text=f"You have been unassigned from: {before['title']}"
-                    )
+                    ))
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning("Failed to send staff schedule ICS cancellation on reassignment: %s", e)
+                    self.audit.log(
+                        action="notify_email_failed",
+                        entity_type="staff_schedule",
+                        entity_id=schedule_id,
+                        change_summary=f"Staff schedule reassignment cancellation to {old_user_row['email']} raised: {e}",
+                        actor=actor,
+                        details=build_audit_details(after={"to": old_user_row["email"], "error": str(e)}),
+                    )
+                else:
+                    self.audit.log(
+                        action="notify_email_sent" if _notify_sent else "notify_email_failed",
+                        entity_type="staff_schedule",
+                        entity_id=schedule_id,
+                        change_summary=(
+                            f"Staff schedule reassignment cancellation {'sent to' if _notify_sent else 'failed to send to'} "
+                            f"{old_user_row['email']}"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(after={"to": old_user_row["email"], "sent": _notify_sent}),
+                    )
 
         return after
 
@@ -1315,14 +1392,39 @@ class SchedulingService:
                     "attendee_email": user_row["email"],
                     "attendee_name": user_row["full_name"]
                 }
+                # WP2.1 group 8 (NEW-925): see create_staff_schedule's
+                # matching comment above -- same notify_email_sent/
+                # notify_email_failed audit pattern for this delete-
+                # triggered cancellation send.
+                _notify_sent = False
                 try:
-                    self.notification.send_calendar_cancellation(
+                    _notify_sent = bool(self.notification.send_calendar_cancellation(
                         to_email=user_row["email"],
                         appointment=cancellation_dict,
                         text=f"This schedule entry has been cancelled: {schedule.title}"
-                    )
+                    ))
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning("Failed to send staff schedule ICS cancellation on delete: %s", e)
+                    self.audit.log(
+                        action="notify_email_failed",
+                        entity_type="staff_schedule",
+                        entity_id=schedule_id,
+                        change_summary=f"Staff schedule cancellation to {user_row['email']} raised: {e}",
+                        actor=actor,
+                        details=build_audit_details(after={"to": user_row["email"], "error": str(e)}),
+                    )
+                else:
+                    self.audit.log(
+                        action="notify_email_sent" if _notify_sent else "notify_email_failed",
+                        entity_type="staff_schedule",
+                        entity_id=schedule_id,
+                        change_summary=(
+                            f"Staff schedule cancellation {'sent to' if _notify_sent else 'failed to send to'} "
+                            f"{user_row['email']}"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(after={"to": user_row["email"], "sent": _notify_sent}),
+                    )
 
         return True

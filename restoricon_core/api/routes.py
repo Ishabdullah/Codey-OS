@@ -30,6 +30,7 @@ from ..auth import (
     PERM_WRITE_ESTIMATES,
     PERM_WRITE_SUBCONTRACTORS,
     PERMISSIONS_CATALOG,
+    ROLE_AI_AGENT,
     ROLE_CUSTOMER,
 )
 from ..models import (
@@ -2836,6 +2837,38 @@ class APIRouter:
                     return 503, {"Content-Type": "application/json"}, {
                         "error": "Email service is not configured"
                     }
+
+                # WP2.1 group 8 (NEW-926): a ROLE_AI_AGENT actor holds
+                # PERM_LOG_COMMUNICATION and is not ROLE_CUSTOMER, so it
+                # passes every gate above and could otherwise send a
+                # real, free-text-content email to a real customer with
+                # zero confirmation gate. This is the same route-level
+                # `confirmed` pattern NEW-919/920/921 already use inline
+                # at /api/v1/do-not-contact/remove, not a
+                # BUSINESS_MUTATION_AUTHORITY table entry (this send
+                # logic lives directly in the route handler, not a
+                # classified service method). `confirmed` is a
+                # CALLER-ASSERTED boolean, not verified consent -- Core
+                # has no way to cryptographically confirm a human
+                # actually replied "yes" upstream; it is enforced by
+                # caller discipline, not by this check. Treat this as a
+                # known, accepted limit of the design, not proof of real
+                # human confirmation (restoricon_core/authority.py's
+                # docstring carries the same caveat).
+                if actor.role == ROLE_AI_AGENT:
+                    confirmed = isinstance(json_body, dict) and json_body.get("confirmed") is True
+                    if not confirmed:
+                        self.audit.log(
+                            action="refused",
+                            entity_type="notification_send",
+                            entity_id=customer_id,
+                            change_summary=f"Refused unconfirmed compose-email send for ai_agent actor (user_id={actor.user_id})",
+                            actor=actor,
+                            details=build_audit_details(after={"customer_id": customer_id}),
+                        )
+                        return 403, {"Content-Type": "application/json"}, {
+                            "error": "ai_agent actor must set confirmed=true to send a customer email"
+                        }
 
                 rep = self.auth.get_user_by_id(actor.user_id) if actor.user_id else None
                 rep_name = (rep.full_name if rep and rep.full_name else actor.username) or "Restoricon Team"
