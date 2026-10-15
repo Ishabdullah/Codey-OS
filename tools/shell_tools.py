@@ -242,6 +242,39 @@ def _is_termux_basename(base: str) -> bool:
     return base.startswith("termux-")
 
 
+_NETWORK_CLIENT_BASENAMES = frozenset({
+    # Confirmed INSTALLED on this device via `command -v` (WP2.1 group 9):
+    # curl, wget, scp, rsync, ssh, sftp, ftp, telnet -- all real,
+    # resolvable binaries that can push a local file to an arbitrary
+    # remote host (curl -d @file, wget --post-file, scp, rsync,
+    # ssh ... < file) with zero confirmation under yolo/any
+    # no-confirmation-path caller (the same shape as NEW-918's termux-
+    # sms-send finding, for network egress instead of device actuation).
+    "curl", "wget", "scp", "rsync", "ssh", "sftp", "ftp", "telnet",
+    # Included defensively though confirmed NOT installed on this device
+    # today -- classification should not depend on local installation; a
+    # future install or a different device shouldn't silently reopen this
+    # gap.
+    "nc", "ncat", "netcat",
+})
+# Deliberately NOT covered: opaque-interpreter egress (python3 -c
+# "import urllib...", node -e "fetch(...)", curl piped through another
+# shell) -- that is NEW-904's already-logged open-ended tail (basename
+# enumeration has no natural end), not addressed by this change; this
+# set is bounded to named network-client binaries only, same scope
+# boundary as the exec-wrapper set above.
+
+
+def _is_network_client_basename(base: str) -> bool:
+    """True if a parsed argv[0] basename names a network-client
+    executable that can transfer a local file to a remote host (curl,
+    wget, scp, rsync, ssh, sftp, ftp, telnet, nc/ncat/netcat). Whole-
+    family conservative classification via basename, mirroring
+    _is_termux_basename's style (WP2.1 group 9).
+    """
+    return base in _NETWORK_CLIENT_BASENAMES
+
+
 def _direct_high_impact_after_quote_error(command: str) -> bool:
     """Recognize an identifiable restricted executable despite malformed quoting."""
     lexer = shlex.shlex(command, posix=True)
@@ -257,6 +290,7 @@ def _direct_high_impact_after_quote_error(command: str) -> bool:
     return (
         _is_git_basename(base)
         or _is_termux_basename(base)
+        or _is_network_client_basename(base)
         or base in _EXEC_WRAPPER_BASENAMES
         or base == "env"
     )
@@ -281,6 +315,15 @@ def classify_shell_command(command: str) -> str:
          classification via basename prefix, matching the git check's
          style, not a hand-picked dangerous subset: these actuate real
          device hardware/telephony and none is individually enumerated.
+      2c. Every direct network-client executable (_NETWORK_CLIENT_BASENAMES:
+         curl, wget, scp, rsync, ssh, sftp, ftp, telnet, nc, ncat,
+         netcat) -> HIGH_IMPACT. Whole-family conservative classification
+         via basename, matching the termux-* check's style -- these can
+         exfiltrate a local file to an arbitrary remote host with zero
+         confirmation under yolo. Named-binary enumeration only; does
+         NOT cover opaque-interpreter egress (python3 -c "import
+         urllib...", node -e "fetch(...)") -- see NEW-904's already-
+         logged open-ended tail for that class.
       3. Direct exec-wrapper basenames (_EXEC_WRAPPER_BASENAMES: find,
          xargs, timeout, nice, nohup, setsid, stdbuf, chrt, ionice,
          strace, flock, watch, script, unshare, taskset, setarch,
@@ -307,7 +350,12 @@ def classify_shell_command(command: str) -> str:
         return ACT
 
     base = Path(parts[0]).name
-    if _is_git_basename(base) or _is_termux_basename(base) or base in _EXEC_WRAPPER_BASENAMES:
+    if (
+        _is_git_basename(base)
+        or _is_termux_basename(base)
+        or _is_network_client_basename(base)
+        or base in _EXEC_WRAPPER_BASENAMES
+    ):
         return HIGH_IMPACT
     if base == "env":
         return READ if len(parts) == 1 else HIGH_IMPACT
