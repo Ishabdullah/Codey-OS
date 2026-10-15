@@ -1,3 +1,89 @@
+## 2026-10-15 — WP2.1 group 8 closeout: notification boundary (NEW-925/926/927/928), cross-repo (Codey-OS + Codey-Aigentik); NEW-929/930/931 logged; WP0.2 "done" claim corrected
+
+**Scope:** per explicit instruction ("continue all the way through 3-15
+without stopping"), moved to WP2.1 group 8. project-architect checked
+whether this was already closed by WP0.2 ("RBAC + audit on
+notification_service," done 2026-10-07) — it wasn't a clean yes or no:
+WP0.2's own audit coverage was real but incomplete (never a full
+inventory), and a separate, genuinely live gap existed in the sibling
+repo. Split into two parallel implementer rounds (Track A: Codey-OS,
+Track B: Codey-Aigentik), run concurrently since they're independent.
+
+**Track A (Codey-OS, NEW-925/926):** re-grepping every real
+`NotificationService` call site found 4 more beyond WP0.2's original two
+— all in `scheduling_service.py` (staff-calendar invite/cancellation
+sends), each with zero audit trail on send outcome. Fixed by mirroring
+WP0.2's exact existing pattern. Separately, the B8.10c compose-email
+route was found reachable by a `ROLE_AI_AGENT` actor (holds
+`PERM_LOG_COMMUNICATION`, not excluded like `PERM_SEND_ESTIMATES`) with
+zero confirmation gate — no live caller today, same dormant-with-one-
+real-thing shape as several group-7 `HIGH_IMPACT` entries. Fixed with a
+route-level `confirmed` check mirroring NEW-919/920/921's existing inline
+pattern at `/api/v1/do-not-contact/remove`. **One code-reviewer warning
+was independently re-checked and found NOT to hold**: a claim that
+`estimate_service.py`'s share-link email has no audit of send outcome —
+confirmed by direct code read that its caller, `transition()`, already
+logs `delivery_channel`/`delivered_to` in its own audit call; the
+architect's original "not a gap" finding from scoping was correct, the
+reviewer's warning was based on reading one function in isolation and
+missing its caller. Corrected the record rather than filing a non-issue.
+
+**Track B (Codey-Aigentik, NEW-927/928) — the real live gap:**
+`owner-command.js`'s three appointment commands (`schedule_appointment`,
+`reschedule_appointment`, `cancel_appointment`) sent calendar invites/
+cancellations with zero do-not-contact check at all, inconsistent with
+the established pattern elsewhere in the same file — an owner texting
+"schedule appointment with [a blocked contact]" would get a real invite
+emailed to that blocked contact, the exact scenario DNC exists to
+prevent. A second, independent gap: `index.js`'s inbound-SMS-triggered
+booking flow checked DNC against the inbound phone identifier at intake
+but emailed a calendar invite to a different, never-independently-
+checked email identifier. Fixed with a single choke point inside
+`gmail.js`'s send wrapper functions (closing both gaps at once) rather
+than patching ~7 individual call sites — deliberately NOT extended to
+`sendOwnerNotification`/`sendReply`, with the reasoning for each
+documented in code and tests.
+
+**Took two implementer rounds on Track B.** Round 1's own fix had a real
+blocking bug: the gate makes the send functions return `false` on a
+block, but all 7 contact-facing call sites ignored that return value and
+unconditionally told the owner/customer the invite was sent — a
+user-visible lie (not a safety bypass; no email went out, but a false
+claim about one). Round 2 fixed all 7 sites to branch on the real result,
+plus added an admin-address carve-out so the owner's own calendar copy
+can never be DNC-blocked (the DNC list is customer-facing, was never
+meant to protect/block the owner's own address).
+
+**Two Suspected findings logged, deliberately not scoped (NEW-929/930):**
+no rate-limiting/spam-prevention mechanism exists anywhere (needs an
+explicit scope decision from Ish before any task is written); Aigentik's
+header-injection safety is delegated entirely to nodemailer's own
+protections, not independently verified against the installed version's
+source (flagged per rule 12, not claimed safe on reputation alone).
+
+**One more Suspected finding from round 2's review (NEW-931):** a DNC
+block or Core-outage failure during an appointment cancellation can
+leave both the customer and owner silently uninformed (the cancellation
+itself still commits correctly in Core; just the notification fails
+silently) — a disclosed side effect of the chosen fail-closed design, not
+a new bug, not fixed this round.
+
+**Record correction (rule 6):** `CODEY_OS_MASTER_BLUEPRINT.md`'s WP0.2
+entry read as "done" without qualification — corrected to note it was
+scoped to the two call sites found at the time, not a complete inventory.
+
+**Commit:** `dfad883` (Codey-OS). Files: `restoricon_core/api/routes.py`,
+`restoricon_core/services/scheduling_service.py`, `tests/
+test_restoricon_core/test_wp2_1_group8_notification_boundary.py` (new),
+`NEW_ISSUES.md`, `CODEY_OS_MASTER_BLUEPRINT.md`.
+**Codey-Aigentik** (separate repo): `8b42ba4`, pushed. Files:
+`gmail.js`, `index.js`, `owner-command.js`, `tests/gmail-dnc.test.js`
+(new), `tests/invite-send-failure-reply.test.js` (new). **Note:
+Aigentik's long-running process (if any is currently running) needs a
+restart to pick up this change — not done as part of this round.**
+
+---
+
 ## 2026-10-15 — WP2.1 group 7 closeout: business mutation boundaries (NEW-919/920/921), cross-repo (Codey-OS + Codey-Aigentik); NEW-922/923/924 logged
 
 **Scope:** per explicit instruction ("continue all the way through 3-15
