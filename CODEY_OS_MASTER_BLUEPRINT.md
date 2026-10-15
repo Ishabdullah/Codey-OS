@@ -3073,12 +3073,24 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > round 2 with a fail-safe existence check. **Deploy-time note:** the
 > `/download` containment check was only verified safe against a
 > 2026-09-30 DB backup, not live data — re-run that check against the
-> real live DB before relying on it. **Groups 11-15 remain open** —
-> pick up from group 11 ("Checkpoint/backups/pruning") using the same
-> pattern: project-architect re-scopes against live code first (the
-> census doc's one-line group names have repeatedly turned out stale,
-> incomplete, or different in kind than expected on inspection — don't
-> trust them blindly), then
+> real live DB before relying on it.
+>
+> **Group 11 ("Checkpoint/backups/pruning") is now also done** (2026-10-15,
+> NEW-941/863, PROJECT_LOG.md's 2026-10-15 group-11 entry, commit
+> `5558f45`). Mostly already covered (slice 32, Restoricon's B7 backup) —
+> but `core/checkpoint.py::prune_checkpoints()` had zero mediation and
+> zero path validation, hardened dormant-path-only (no new caller), plus
+> a same-round fix of the already-logged `NEW-863` checkpoint-ID
+> collision bug. **Two product-policy questions flagged for Ish, not
+> decided:** does the GCS bucket for Restoricon document backups have
+> object versioning enabled? And is deleted-document GCS retention
+> intentional or a gap?
+>
+> **Groups 12-15 remain open** — pick up from group 12 ("Internal
+> persistence") using the same pattern: project-architect re-scopes
+> against live code first (the census doc's one-line group names have
+> repeatedly turned out stale, incomplete, or different in kind than
+> expected on inspection — don't trust them blindly), then
 > implementer/code-reviewer/ledger-update/commit same as every slice above.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
