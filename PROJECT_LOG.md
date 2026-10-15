@@ -1,3 +1,93 @@
+## 2026-10-15 — WP2.1 group 10 closeout: user-facing filesystem operations (NEW-937/938/461), two High-severity live bugs in Restoricon's document store; NEW-939 deferred, NEW-940 logged
+
+**Scope:** per explicit instruction ("continue all the way through 3-15
+without stopping"), moved to WP2.1 group 10. project-architect found a
+real, reproduced pair of High-severity bugs in Restoricon's document
+upload/download endpoints — the most severe findings of this session's
+WP2.1 run — plus a batch of low-severity gateway-coverage gaps elsewhere
+in Codey-OS-core.
+
+**NEW-937 (write-side):** `POST /api/v1/documents`'s multipart handler
+built the on-disk write path from raw, unvalidated form fields via
+`os.path.join()`, opened the file for write BEFORE any `int()`
+validation of ID fields and BEFORE the `PERM_WRITE_DOCUMENTS` permission
+check (which ran ~90 lines later, inside `create_document()`, after the
+write). Two confirmed, reproduced vectors: relative traversal via
+`document_type = "../../../../tmp/evil"`; total escape via an absolute-
+path ID field (`os.path.join()` discards everything before an absolute
+component). Because the write happened before the permission check, ANY
+authenticated role — including `ROLE_CUSTOMER`/`ROLE_SUBCONTRACTOR`,
+neither of which holds the permission — could trigger the write and
+only get a 403 back afterward.
+
+**NEW-938 (read-side, likely worse):** the JSON-body branch did
+`Document(**json_body)` with an unguarded `file_path` field — any of 6
+roles holding `PERM_WRITE_DOCUMENTS` could register an arbitrary
+existing path (e.g. the SQLite DB file, a secrets file) and download it
+via `/download`, which had zero containment check anywhere.
+
+**Ish's decision:** reject the JSON-body `file_path` registration
+outright — no legitimate caller for an "existing file by path" feature
+was found anywhere in this repo or Codey-Aigentik.
+
+**Fix:** permission check moved to the top of the multipart branch,
+before any parsing; `document_type` whitelist-validated against the
+real DB `CHECK` constraint (not just a code comment, per rule 12); every
+ID field `int()`-parsed before path construction; containment verified
+via `realpath`+`commonpath` (not a bare `startswith`, which a prefix
+collision could fool) at two points, the second specifically defeating
+a symlink planted at the computed filename itself. JSON-body `file_path`
+rejected outright before any disk/DB effect; `/download` also got an
+independent containment check as defense-in-depth.
+
+**Same-round fix of NEW-461** (a separate, already-logged orphan-file
+bug on the same handler, fixed per the "fix related findings in the
+same round" preference) — found a second manifestation beyond the
+originally-logged case along the way (a non-UTF-8 metadata byte raising
+`UnicodeDecodeError` after the write).
+
+**Took two implementer rounds.** Round 1's own NEW-461 cleanup had a
+real blocking bug, caught by code review: it unconditionally deleted the
+uploaded file on any exception, including one raised AFTER
+`create_document()`'s own DB insert had already committed — turning a
+recoverable orphan-file bug into an unrecoverable row-without-file bug
+on a data-integrity-critical store, worse than the original problem.
+Round 2 fixed it with a `SELECT 1 FROM documents WHERE file_path = ?`
+guard, failing safe (default to not-deleting) if the lookup itself can't
+be trusted. Round 1 also had a real test-coverage gap the reviewer
+caught: the containment-check logic itself had no test that actually
+reached it (the traversal/absolute-path tests were stopped by the
+whitelist/int-parse layers first) — round 2 added two symlink-based
+tests specifically to exercise containment directly. Both rounds'
+fixes were independently mutation-tested by both implementer and
+code-reviewer (disabling each guard and confirming the corresponding
+test fails with the exact predicted wrong result).
+
+**Deploy-time note, not a code blocker:** the `/download` containment
+check's safety depends on no existing `documents` row already having a
+`file_path` outside the configured doc store. Could not check the real
+live DB (standing rule against touching it) — checked a 2026-09-30
+backup copy instead (0 of 2 rows outside the store), explicitly flagged
+as not a live-data guarantee. Before deploying the `/download` check for
+real, re-run the same read-only check against the actual live DB.
+
+**New finding, same handler, logged not fixed (NEW-940):** the saved
+filename is built from a second-resolution timestamp — two uploads with
+matching metadata within the same wall-clock second collide, and the
+second silently truncates the first's already-written (and possibly
+already-committed) file. Distinct from everything else this round fixed
+(the containment checks validate the resolved path, not path
+uniqueness).
+
+**NEW-939 (the 6-site low-severity gateway-wiring batch) deliberately
+deferred to its own round** — different files, non-overlapping concern,
+shouldn't share this round's mandatory security review.
+
+**Commit:** `9e4e98d`. Files: `restoricon_core/api/routes.py`, `tests/
+test_restoricon_core/test_b6_5_document_upload.py`, `NEW_ISSUES.md`.
+
+---
+
 ## 2026-10-15 — WP2.1 group 9 closeout: remaining HTTP/egress (NEW-932), one real live gap among several already-closed census items; NEW-933/934/935/936 logged; NEW-753 ledger mis-tag corrected
 
 **Scope:** per explicit instruction ("continue all the way through 3-15
