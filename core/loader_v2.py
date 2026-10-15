@@ -291,6 +291,8 @@ class LlamaServer:
     ):
         self.model_path = model_path
         self.process: Optional[subprocess.Popen] = None
+        self._pid_publication = None
+        self._identity_publication_failed = False
         self.port = port
         self._started = False
         # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): whether
@@ -803,14 +805,28 @@ class LlamaServer:
                     preexec_fn=os.setsid if os.name != "nt" else None,
                 )
                 
-                # Write PID file for graceful kills from codeydOS
+                # Publish only the child this instance just spawned. A failed
+                # metadata write leaves cross-process control unavailable; it
+                # must not trigger this loader's separate teardown defect.
+                from core.process_identity import LifecycleRecord
+
                 pid_file = CODEY_STATE_DIR / f"llama-server-{self.port}.pid"
                 try:
-                    with open(str(pid_file) + ".tmp", "w") as f:
-                        f.write(str(self.process.pid))
-                    os.rename(str(pid_file) + ".tmp", str(pid_file))
-                except (IOError, OSError):
-                    pass
+                    with LifecycleRecord(pid_file, f"llama-server-{self.port}") as record:
+                        published = record.publish(self.process.pid)
+                    self._pid_publication = (pid_file, published)
+                    self._identity_publication_failed = False
+                except Exception:
+                    # Preserve the pre-existing nonfatal PID-write behavior.
+                    # Do not introduce a new teardown/accounting trigger while
+                    # NEW-956's owned-stop fix remains independently scoped.
+                    self._identity_publication_failed = True
+                    try:
+                        warning("llama-server identity publication unavailable; owned child retained")
+                    except Exception:
+                        # Diagnostic output failure cannot turn metadata
+                        # degradation into an implicit model teardown.
+                        pass
             finally:
                 signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
 
@@ -936,10 +952,18 @@ class LlamaServer:
         else:
             stopped_cleanly = True
         finally:
-            try:
-                (CODEY_STATE_DIR / f"llama-server-{self.port}.pid").unlink(missing_ok=True)
-            except Exception:
-                pass
+            if self._pid_publication is not None:
+                from core.process_identity import LifecycleRecord, UnsafeRecord
+
+                path, expected = self._pid_publication
+                try:
+                    with LifecycleRecord(path, f"llama-server-{self.port}") as record:
+                        record.cleanup(expected)
+                except (OSError, UnsafeRecord):
+                    # Unconfirmed exit or changed identity preserves evidence;
+                    # this bookkeeping never grants new termination authority.
+                    pass
+                self._pid_publication = None
             self.process = None
             self._started = False
         return stopped_cleanly

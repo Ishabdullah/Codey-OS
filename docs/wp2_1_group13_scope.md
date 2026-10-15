@@ -303,3 +303,162 @@ credential-path precedence, inspect captured stdout/audit for absence of a fake
 credential marker, and prove failed bootstrap never launches the fake TUI.
 
 This is implementation compatibility, not a new product-direction fork.
+
+
+## 13e — NEW-956 owned-model teardown confirmation/accounting
+
+Priority: after 13c.1 identity records, before shell migration if dependencies
+permit. Confirmed High, separately logged by coordinator as NEW-956. NEW-74
+covers adopted-state reporting/no-op and explicitly leaves adoption authority
+unresolved; it does not cover losing an actually owned child after teardown
+failure. Do not grant adopted-process kill authority in this slice.
+
+Proof from actual LlamaServer.stop AST with fake child/OS only (no core imports,
+models, actual processes or live state):
+
+    unexpected-error {'returned': False, 'owned_handle_lost': True, 'started': False, 'pid_file_exists': False, 'wait_calls': 0, 'fake_child_still_alive': True}
+    timeout-kill-unconfirmed {'returned': True, 'owned_handle_lost': True, 'started': False, 'pid_file_exists': False, 'wait_calls': 1, 'fake_child_still_alive': True}
+
+Current stop finally unconditionally removes PID state and clears process/
+_started. Timeout sends KILL without final wait. ModelLoader.unload ignores
+False, drops server/loaded/ever-spawned state and releases its slot. Failed-load
+cleanup likewise drops ownership/releases. Consequence: surviving model can
+become unowned/unaccounted before another load; RAM-critical, not cosmetic.
+
+### Low-level owned LlamaServer contract
+
+stop returns True only after confirming/reaping this owned child; an already
+exited owned child is reaped and may return True. Retain NEW-74 no-owned-handle
+False behavior and adopted warning. Poll the retained Popen before signaling.
+Bounded TERM wait, KILL escalation, then bounded final wait; use the Popen handle
+as the ownership anchor. On unexpected signal/wait error, an additional owned
+cleanup attempt is allowed, but success still requires confirmed exit/reap.
+If exit remains unconfirmed, retain process handle, identity/PID evidence and
+accurate teardown-pending state, return False; no unconditional finally reset.
+
+Preserve existing dedicated-session group-stop behavior only when the owned
+live child still anchors its expected group (group created by this loader).
+Never signal an adopted PID or expand to discovered groups. Avoid stale captured
+PID fallback after the handle has exited. Identity cleanup uses 13c.1 compare-
+before-remove and preserves replacement records. Failure to remove an unrelated
+replacement is not evidence the original owned child survived; report cleanup
+separately from actual process exit.
+
+Serialize start/stop transitions; idempotent retry must not overwrite a surviving
+handle or publish a new child while old teardown is pending. Keep waits bounded
+and locks out of asynchronous event-loop work using existing executor patterns.
+
+### ModelLoader contract and accounting
+
+Preserve ordinary unload success/no-op call shape (None is compatible). On an
+owned child whose exit cannot be confirmed, raise a specific RuntimeError
+subclass (e.g. ModelTeardownError), retain _server and _slot_id, and expose an
+honest last outcome/reason; do not release the slot or claim unloaded success.
+A failed load may have _loaded=False even while it retains an owned cleanup-
+pending child: do not invent a healthy-loaded state to store cleanup ownership.
+get_pid must keep returning its owned PID. Status should expose cleanup pending
+rather than require downstream callers to infer it from is_loaded.
+
+At the earliest owned-child convergence after spawn, retain this reservation's
+slot ID, including when start fails or resident confirmation throws. Failed-
+load finally may release/discard only after no child was spawned or owned exit
+is confirmed. Never overwrite retained failed-cleanup ownership in a later
+load_primary call. Direct load_primary, ensure_model cold load, and start retry
+must first resolve retained cleanup or refuse a new load with an error outcome.
+A healthy existing owned child must not be overwritten by direct load_primary.
+
+Keep reservation accounting conservative while cleanup is pending. PENDING
+reservations initially belong to the loader PID, whereas resident marking binds
+the actual model PID. A surviving failed-start child must not lose accounting
+merely because the loader exits: bind its existing reservation to the actual
+owned child without prematurely marking it RESIDENT or dropping its reserved
+cost. If needed add one narrow resource_gate bind-PENDING-slot-PID helper under
+its existing locked-state contract; no admission math/status-policy rewrite.
+Check its real reaping behavior and test the retained failed-start slot against
+loader-death simulation. If durable accounting cannot be updated, surface that
+failure and retain old ownership/evidence; do not claim cross-process accounting
+is proven. Existing broader reserve-to-spawn crash windows remain separately
+tracked, not silently declared fixed.
+
+Release the slot only after confirmed owned exit. If release itself fails,
+retain the slot ID for retry and report accounting cleanup failure. No new load
+until cleanup is resolved; do not silently discard a conservatively retained
+reservation. Adopted references have no owned child and normally no owned slot;
+retain established adoption bookkeeping, never kill or free the other owner's
+slot. Do not change NEW-74 adopted-state product policy.
+
+Use a per-loader reentrant lifecycle guard or equivalent private-method
+structure so load/unload/cleanup serialize. Preserve existing SWAP_GUARD
+nonblocking protocol: ensure_model and daemon release take SWAP_GUARD before
+loader lifecycle lock; inner load/unload must not reacquire SWAP_GUARD. Never
+invert that order or wait for health/HTTP while holding resource_gate's flock.
+A per-server guard protects direct LlamaServer.start/stop callers. Retain owned
+state consistently across exceptions and interruptions, not just False returns.
+
+### Caller propagation (read/inspect every listed path)
+
+- _spawn_locked timeout cleanup, load_primary failed-load finally,
+  ModelLoader.unload, and ensure_model thermal restart. Failed teardown must
+  abort replacement and preserve tm.restart_recommended for later retry.
+- reset_loader: unload failure must preserve the global loader reference.
+- daemon _release_model_slot_sync: _loaded=False is insufficient to declare
+  already-unloaded if cleanup-pending ownership exists. No released/freed result
+  or cooldown success after failed teardown; exception reaches existing error
+  response. Keep blocking teardown in executor. Daemon shutdown logs the failure
+  and preserves durable child/identity/accounting evidence as it exits.
+- main.shutdown currently captures PID then raw killpg on unload exception.
+  New teardown exception must not trigger stale bare-PID/group fallback that
+  bypasses retained owned-handle checks. Prefer owned loader cleanup/retry and
+  truthful warning, preserving evidence; do not report successful unload.
+- lora_import.swap_to_finetuned_model primary AND secondary paths mutate cfg
+  before unload. Abort reload on teardown failure and restore original cfg
+  values before returning failure. rollback_to_backup must not claim successful
+  reload after failed teardown/load. Do not rewrite artifact/promotion policy;
+  group14 owns those independent boundaries.
+- Audit all current LlamaServer.stop/ModelLoader.unload callers (including tests)
+  for result assumptions; adding a False and then ignoring it recreates NEW-956.
+
+### Tests and live verification
+
+Fake-child tests must discriminate retained ownership on TERM failure, KILL
+failure and final wait timeout; successful TERM and forced KILL both reap;
+already-exited owned child reaps without signaling; adopted stays untouched;
+identity replacements preserved; retry eventually clears state. ModelLoader
+fixtures cover unload failure retaining slot/server/PID; failed start and
+resident-confirmation exception retaining cleanup ownership/reservation; no
+second spawn/reservation on retry while first child survives; release failure
+retains slot ID; adopted accounting unchanged; daemon release with _loaded=False
+cleanup pending; thermal restart abort/no reset; reset_loader preserves singleton;
+LoRA config restored and no replacement load on failed teardown; main shutdown
+avoids raw stale-PID fallback. Verify lock concurrency without model loading.
+
+Live-verifier uses only real lightweight disposable Python children started in
+an isolated session, temporary identity/state and fake admission data. One child
+handles TERM normally, one ignores TERM and needs KILL. Assert bounded actual
+exit, Popen.wait/reap, identity cleanup and slot release order. Injection of
+failed signaling/wait against retained fixture handle proves retry/no-new-spawn;
+a separately owned innocent fixture process must survive. Finally cleanup exact
+fixture handles, record verbatim outputs and no remaining fixture children.
+This loads no model or embedding; model RAM-load cycle is neither needed nor
+represented as verified. Mandatory explicit adversarial lifecycle approval.
+
+No product-direction fork: preserve ownership/accounting of processes already
+spawned. Adopted authority and independent promotion decisions remain separate.
+
+
+## 13c.1 safe ordering correction after NEW-957
+
+Loader metadata publication failure in 13c.1 remains nonfatal, matching the
+previous startup behavior: warn explicitly that durable identity is unavailable,
+retain the owned Popen, and continue existing startup/health/accounting. Do not
+call the currently unsafe stop or raise solely for publication failure. Missing
+or inconsistent cross-process identity remains fail-closed. This is degraded
+identity infrastructure, not complete lifecycle closure. Required 13e follows
+immediately after 13c.1 and before shell migration, establishing safe retained
+cleanup/accounting without changing NEW-74 adopted-process authority.
+
+Every fake-Popen regression context must explicitly mock both identity writer
+and LlamaServer.stop before execution. Real signaling belongs only to retained
+disposable fixture handles with finally cleanup. NEW-957 preserves the initial
+unguarded-fixture incident and missing-output uncertainty; do not imply zero
+unknown signal attempts or reconstruct unavailable logs.

@@ -175,7 +175,7 @@ def test_argv_provenance_emitted_on_genuine_spawn(monkeypatch, _capture_telemetr
 
     with patch.object(lv.LlamaServer, "_is_port_in_use", return_value=False), patch.object(
         lv.LlamaServer, "_check_health", return_value=True
-    ), patch("subprocess.Popen", return_value=fake_process) as mock_popen, patch.object(
+    ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process) as mock_popen, patch.object(
         lv.time, "sleep", return_value=None
     ), patch("pathlib.Path.exists", return_value=True):
         loader = lv.get_loader()
@@ -241,7 +241,7 @@ def test_no_telemetry_calls_when_disabled(monkeypatch, _capture_telemetry):
 
     with patch.object(lv.LlamaServer, "_is_port_in_use", return_value=False), patch.object(
         lv.LlamaServer, "_check_health", return_value=True
-    ), patch("subprocess.Popen", return_value=fake_process), patch.object(
+    ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process), patch.object(
         lv.time, "sleep", return_value=None
     ), patch("pathlib.Path.exists", return_value=True):
         loader = lv.get_loader()
@@ -438,7 +438,7 @@ def test_argv_provenance_failure_never_propagates(monkeypatch, _capture_telemetr
 
     with patch.object(lv.LlamaServer, "_is_port_in_use", return_value=False), patch.object(
         lv.LlamaServer, "_check_health", return_value=True
-    ), patch("subprocess.Popen", return_value=fake_process), patch.object(
+    ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process), patch.object(
         lv.time, "sleep", return_value=None
     ), patch("pathlib.Path.exists", return_value=True):
         loader = lv.get_loader()

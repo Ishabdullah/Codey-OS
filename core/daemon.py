@@ -108,57 +108,57 @@ LOG_FILE = DAEMON_LOG_FILE
 # ==================== PID File Management ====================
 
 
+_PID_PUBLICATION = None
+
+
 def check_pid_file() -> bool:
-    """
-    Check if daemon is already running.
+    """Block duplicate startup on verified-live or unsafe process evidence."""
+    from core.process_identity import DEAD, LifecycleRecord, UnsafeRecord
 
-    Returns True if another daemon is running.
-    Removes stale PID file if process is dead.
-    """
-    import fcntl
-
-    if PID_FILE.exists():
-        try:
-            with open(PID_FILE, "r") as f:
-                fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
-                try:
-                    pid = int(f.read().strip())
-                    if pid == os.getpid():
-                        # codeydOS writes this process's own PID into the
-                        # file before Python starts, to close the H-4
-                        # daemon-start race. Finding our own PID here is
-                        # therefore expected on every startup — it is not
-                        # evidence of a second instance.
-                        return False
-                    os.kill(pid, 0)
-                    return True
-                except (ProcessLookupError, ValueError):
-                    warning("Removing stale PID file")
-                    PID_FILE.unlink(missing_ok=True)
-                    return False
-                finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)
-        except (IOError, OSError):
+    try:
+        with LifecycleRecord(PID_FILE, "codeyOS") as record:
+            # codeydOS publishes/prewrites this very process before Python
+            # starts. Its own PID must never be mistaken for a duplicate.
+            if record.is_current_self_record():
+                return False
+            observed = record.inspect()
+            if observed.state == DEAD:
+                return not record.cleanup(observed)
             return True
-    return False
+    except (OSError, UnsafeRecord):
+        # Inaccessible/malformed identity is not permission to spawn another.
+        return True
 
 
 def write_pid_file():
-    """Write current PID to PID file with file locking."""
-    import fcntl
+    """Publish this daemon's own durable identity under the stable lock."""
+    from core.process_identity import LifecycleRecord
 
-    with open(PID_FILE, "w") as f:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        try:
-            f.write(str(os.getpid()))
-            f.flush()
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+    global _PID_PUBLICATION
+    path = Path(PID_FILE)
+    with LifecycleRecord(path, "codeyOS") as record:
+        _PID_PUBLICATION = (path, record.publish(os.getpid()))
 
 
 def remove_pid_file():
-    """Remove PID file on shutdown."""
-    PID_FILE.unlink(missing_ok=True)
+    """Remove only this daemon's unchanged, verified self-publication."""
+    from core.process_identity import LifecycleRecord, UnsafeRecord
+
+    global _PID_PUBLICATION
+    if _PID_PUBLICATION is None:
+        return False
+    path, expected = _PID_PUBLICATION
+    try:
+        # A shell stopper may hold the lifecycle lock while awaiting our
+        # exit. Shutdown must not wait on that lock: leave evidence for its
+        # verified-dead cleanup instead, so the process can actually exit.
+        with LifecycleRecord(path, "codeyOS", blocking=False) as record:
+            removed = record.cleanup(expected, current_self=True)
+        if removed:
+            _PID_PUBLICATION = None
+        return removed
+    except (OSError, UnsafeRecord):
+        return False  # Preserve changed or unverifiable shutdown evidence.
 
 
 # ==================== Unix Socket Server ====================

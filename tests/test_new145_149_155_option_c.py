@@ -379,7 +379,7 @@ def test_start_allow_upgrade_true_daemon_idle_kills_and_respawns(tmp_path, monke
         rg, "find_resident_slot", return_value={"pid": 9999, "n_ctx": 16384, "slot_id": "s1"}
     ), patch.object(rg, "pid_cmdline_contains", return_value=True), patch.object(
         lv, "_kill_single_pid_term_then_kill", _fake_kill
-    ), patch("subprocess.Popen", return_value=fake_process), patch.object(
+    ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process), patch.object(
         server, "_check_health", return_value=True
     ), patch.object(lv.time, "sleep", return_value=None):
         result = server.start()
@@ -430,7 +430,7 @@ def test_start_allow_upgrade_true_daemon_idle_releases_old_slot_on_upgrade(
         lv, "_kill_single_pid_term_then_kill", lambda pid, wait_s=8.0: None
     ), patch.object(
         rg, "release_slot", release_slot_mock
-    ), patch("subprocess.Popen", return_value=fake_process), patch.object(
+    ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process), patch.object(
         server, "_check_health", return_value=True
     ), patch.object(lv.time, "sleep", return_value=None):
         result = server.start()
@@ -487,7 +487,7 @@ def test_start_allow_upgrade_true_never_uses_killpg(tmp_path, monkeypatch, fake_
         lv.os, "getpgid"
     ) as mock_getpgid, patch(
         "subprocess.Popen", return_value=fake_process
-    ), patch.object(server, "_check_health", return_value=True), patch.object(
+    ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch.object(server, "_check_health", return_value=True), patch.object(
         lv.time, "sleep", return_value=None
     ):
         result = server.start()

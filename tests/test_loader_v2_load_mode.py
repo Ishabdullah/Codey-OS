@@ -71,7 +71,7 @@ def _spawn_and_capture_argv(monkeypatch, tmp_path):
 
     with patch.object(lv.LlamaServer, "_is_port_in_use", return_value=False), patch.object(
         lv.LlamaServer, "_check_health", return_value=True
-    ), patch("subprocess.Popen", return_value=fake_process), patch(
+    ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process), patch(
         "subprocess.run", return_value=fake_version_probe
     ) as mock_run, patch.object(lv.time, "sleep", return_value=None), patch(
         "pathlib.Path.exists", return_value=True
@@ -206,7 +206,7 @@ def test_version_diagnostic_failure_does_not_block_real_spawn(monkeypatch, tmp_p
 
     with patch.object(lv.LlamaServer, "_is_port_in_use", return_value=False), patch.object(
         lv.LlamaServer, "_check_health", return_value=True
-    ), patch("subprocess.Popen", return_value=fake_process), patch(
+    ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process), patch(
         "subprocess.run", side_effect=fake_run
     ), patch.object(lv.time, "sleep", return_value=None), patch(
         "pathlib.Path.exists", return_value=True

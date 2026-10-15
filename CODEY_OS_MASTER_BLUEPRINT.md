@@ -3121,10 +3121,24 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > lifecycle scenarios PASS, all fixture children reaped. NEW-953 logs
 > pre-existing post-spawn registration partial failure; NEW-954/955 log
 > codeyOS generated-source and exit-status residuals for final census.
-> **13c.1 (durable PID identity/Python writers), 13c.2 (shell consumers,
-> including codeyOS), and 13d (complete shell operation audit) remain open**,
-> followed by groups 14/15. Ownership repairs alone do not close audit
-> coverage; no full WP2.1 closure claim.
+> **13c.1 is code-complete, source reviewer APPROVED and independently
+> disposable-process verified** (NEW-958): strict durable identity/locks,
+> daemon/loader writers, fail-closed cross-process control. Final guarded
+> bundle 164 passed; eight real fixture children all reaped. No models.
+> No pidfd API here; immediate rechecks leave a kernel signaling race.
+> **13c.2 (shell consumers, including codeyOS) and 13d (complete shell
+> operation audit) remain open**,
+> **13e is additionally required before group 13 closure:** NEW-956, a
+> confirmed High-severity owned-model teardown/accounting gap: failed or
+> unconfirmed stop drops handles and releases resource accounting. Actual
+> stop-AST/fake-child proof, no model load; not fixed yet. Architect scopes
+> it after 13c.1, independently of NEW-74 adopted-process authority.
+> NEW-957 records a 13c.1 placeholder-PID regression incident (unguarded
+> teardown, exact signal issuance unknown); prevention guards now reviewed.
+> 13c.1 metadata failure preserves owned handles with an explicit warning;
+> 13e follows immediately before shell migration. No model was spawned.
+> Groups 14/15 follow. Ownership repairs alone do not close audit coverage;
+> durable PID metadata alone does not fix NEW-956; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

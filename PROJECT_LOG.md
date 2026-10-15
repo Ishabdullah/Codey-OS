@@ -1,3 +1,29 @@
+## 2026-10-15 — WP2.1 13c.1 durable identity/Python writers (NEW-958), reviewed and disposable-process PASS
+
+Strict PID/identity sidecars, lifecycle locks, validated inherited descriptors, bounded snapshots and compare-before-cleanup now support verified cross-process control. Daemon and loader publish identity; loader metadata failure warns and retains ownership. Shell migration remains 13c.2; High NEW-956 teardown/accounting repair is required immediately next, before shell migration.
+
+Mandatory source reviewer APPROVED. Final guarded frozen-source bundle: `164 passed in 124.53s (0:02:04)`; independent reviewer focused: `101 passed in 3.43s`. Focused lint and diff checks passed. Independent live-verifier PASS: eight disposable fixture children all reaped; publication/stop, SIGUSR1, forced KILL, identity mismatch/replacement refusal, inherited locks and actual daemon helpers exercised. Literal output and RAM readings: `docs/wp2_1_group13c1_live_verification.md`. No model loads, existing services, network or live-store changes. Loader fallback is unit-only. No pidfd API is available, leaving a bounded check-to-signal race; same-UID state forgery is outside this mechanism.
+
+NEW-957 prevention safeguards are implemented and reviewed: all eight affected fake-Popen contexts explicitly mock identity publication and teardown; the static guard passed before expanded reruns. `docs/wp2_1_group13c1_fixture_incident.md` preserves initial command, failures and available warnings. Historical signal issuance/service impact remains unknown because initial full output was not retained; successful guarded reruns do not reconstruct it. Earlier incident/discovery entries below are chronological evidence, not current safeguard status. Groups 13e/13c.2/13d and 14/15 remain open; no full WP2.1 closure claim.
+
+---
+
+## 2026-10-15 — WP2.1 13c.1 test-harness incident (NEW-957), safe publication ordering corrected before further regression testing
+
+The first expanded identity-writer run reached existing real teardown code with mocked Popen placeholder PIDs in fifteen failing regression cases. No model was spawned (Popen mocked), but teardown was not fully guarded. Available truncated warnings show PermissionError; without a line traceback/full raw output they cannot establish whether getpgid or killpg was denied, whether any signal was issued, or zero attempts across the batch. Coordinator disclosed this mistake and uncertainty to Ish. NEW-957 records the limits; no missing output is reconstructed.
+
+Old placeholder runs are stopped pending explicit identity-writer plus LlamaServer.stop mocks and static context verification. Only retained real disposable handles may be signaled in dedicated wiring tests. Architect corrected commit ordering: 13c.1 publication failure remains nonfatal, warns and retains ownership as before; it must not introduce a new trigger into NEW-956. Required 13e safe teardown/accounting follows immediately after 13c.1, before shell migration. No live services were restarted or targeted as remediation. Fixture correction/review is still pending; not a completion claim.
+
+---
+
+## 2026-10-15 — WP2.1 group 13 scoping discovery: High-severity model stop ownership/accounting loss (NEW-956), required repair added
+
+While reading the PID-writer context for 13c.1, coordinator flagged unconditional loader teardown cleanup. Project-architect confirmed a distinct High-severity defect against the actual `LlamaServer.stop` AST with fake children: failed kill returns False but drops ownership/PID state, and timeout escalation can return True without waiting for exit. ModelLoader ignores stop's result and releases accounting, admitting later work while a child may still be alive. NEW-74 addresses adopted-server behavior; it does not cover this owned-child loss.
+
+Verbatim proof is retained in NEW-956. No model, real child or live state was involved. **Not fixed or live-verified yet.** Architect is scoping required slice 13e after durable identity 13c.1; group 13 cannot close on identity metadata alone. Current 13c.1 implementation stays within its reviewed scope; termination/accounting repair gets its own implementation, mandatory adversarial review and disposable-process verification.
+
+---
+
 ## 2026-10-15 — WP2.1 group 13 slice 13b: owned plugin lifecycle (NEW-952/916), disposable-process PASS; NEW-953/954/955 logged
 
 **Scope:** architect-scoped subordinate ProcessSupervisor ownership and PluginManager lifecycle fidelity. This does not supply standalone shell gateway coverage; architect added separate 13d after 13c.1/13c.2. Updated full scope in `docs/wp2_1_group13_scope.md` also includes the codeyOS state/identity consumer and parent-TUI environment compatibility.
