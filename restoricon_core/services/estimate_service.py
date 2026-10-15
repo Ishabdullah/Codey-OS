@@ -124,6 +124,7 @@ from ..models import (
     utc_now_iso,
 )
 from .audit_service import AuditService, build_audit_details
+from ..authority import check_business_mutation_authority
 # ClaimConflictError: reused, not redefined -- crm_service.py does not import
 # estimate_service.py (confirmed, no cycle), and the NEW-534 claim-workflow
 # precedent this module's claim()/unclaim() follow is defined there. A
@@ -1207,6 +1208,9 @@ class EstimateService:
         return after
 
     def remove_line(self, line_id: int, actor: AuthContext) -> None:
+        check_business_mutation_authority(
+            actor, "estimate_service.remove_line", self.audit
+        )
         if not actor.has_permission(PERM_WRITE_ESTIMATES):
             raise PermissionError("Actor lacks permission to write estimates")
 

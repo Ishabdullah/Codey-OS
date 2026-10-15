@@ -3150,7 +3150,14 @@ class APIRouter:
                     cid = existing.id if existing else None
                 if not cid:
                     return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
-                deleted = self.crm.delete_contact(cid, actor)
+                # NEW-919/920/921: strict identity check (`is True`, not
+                # truthy) -- a truthy string must not count. json_body can
+                # be a non-dict (e.g. `None` from a literal JSON "null"
+                # body, or the DELETE-method variant of this route which
+                # sends no body at all) for other callers on this same
+                # route, which must default to unconfirmed.
+                confirmed = isinstance(json_body, dict) and json_body.get("confirmed") is True
+                deleted = self.crm.delete_contact(cid, actor, confirmed=confirmed)
                 if not deleted:
                     return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
                 return 200, {"Content-Type": "application/json"}, {"deleted": True}
@@ -3386,7 +3393,12 @@ class APIRouter:
                 and method == "POST"
             ):
                 rule_id = _parse_int_path_segment(path[len("/api/v1/automation-rules/"):-len("/delete")], "rule_id")
-                deleted = self.automation.delete_rule(rule_id, actor)
+                # NEW-919/920/921: strict identity check, not truthy -- a
+                # truthy string must not count, and json_body can be a
+                # non-dict (e.g. `None` from a literal JSON "null" body)
+                # for other callers, which must default to unconfirmed.
+                confirmed = isinstance(json_body, dict) and json_body.get("confirmed") is True
+                deleted = self.automation.delete_rule(rule_id, actor, confirmed=confirmed)
                 return 200, {"Content-Type": "application/json"}, {"deleted": deleted}
 
             # Business Profile (singleton)
@@ -3426,7 +3438,10 @@ class APIRouter:
 
             if path == "/api/v1/do-not-contact/remove" and method == "POST":
                 identifier = json_body.get("identifier", "")
-                removed = self.automation.remove_from_do_not_contact(identifier, actor)
+                # NEW-919/920/921: strict identity check, see the matching
+                # comment on the automation-rules delete route above.
+                confirmed = isinstance(json_body, dict) and json_body.get("confirmed") is True
+                removed = self.automation.remove_from_do_not_contact(identifier, actor, confirmed=confirmed)
                 return 200, {"Content-Type": "application/json"}, {"removed": removed}
 
             if path == "/api/v1/do-not-contact/check" and method == "GET":

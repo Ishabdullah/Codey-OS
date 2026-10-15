@@ -25,6 +25,7 @@ from ..auth import (
 from ..database import DatabaseManager
 from ..models import AutomationRule, BusinessProfile, DoNotContactEntry, utc_now_iso
 from .audit_service import AuditService, build_audit_details
+from ..authority import check_business_mutation_authority
 
 VALID_CHANNELS = {"email", "sms"}
 VALID_DNC_TYPES = {"email", "phone"}
@@ -185,13 +186,23 @@ class AutomationService:
             return None
         return self._row_to_rule(row)
 
-    def delete_rule(self, rule_id: int, actor: AuthContext) -> bool:
+    def delete_rule(self, rule_id: int, actor: AuthContext, confirmed: bool = False) -> bool:
         """Delete one automation_rules row by its own integer id.
         NEW-230: email-rules.js/sms-rules.js's removeRule() has no Core
         equivalent without this -- the fuzzy id-or-description match stays
         client-side in the JS; this only deletes the already-resolved id.
         Always returns a bool (deleting an already-gone id is not an
-        error), matching remove_from_do_not_contact()'s shape."""
+        error), matching remove_from_do_not_contact()'s shape.
+
+        `confirmed` (NEW-919/920/921, WP2.1 group 7): caller-asserted
+        boolean, mirroring delete_contact's own `confirmed` kwarg. Checked
+        by check_business_mutation_authority only when
+        actor.role == ROLE_AI_AGENT (see restoricon_core/authority.py);
+        human callers (dashboard delete, no body field at all) are
+        unaffected."""
+        check_business_mutation_authority(
+            actor, "automation_service.delete_rule", self.audit, confirmed=confirmed
+        )
         if not actor.has_permission(PERM_WRITE_AUTOMATION_RULES):
             raise PermissionError("Actor lacks permission to delete automation rules")
 
@@ -420,7 +431,16 @@ class AutomationService:
         )
         return entry
 
-    def remove_from_do_not_contact(self, identifier: str, actor: AuthContext) -> bool:
+    def remove_from_do_not_contact(
+        self, identifier: str, actor: AuthContext, confirmed: bool = False
+    ) -> bool:
+        """`confirmed` (NEW-919/920/921, WP2.1 group 7): caller-asserted
+        boolean, mirroring delete_contact's own `confirmed` kwarg. Checked
+        by check_business_mutation_authority only when
+        actor.role == ROLE_AI_AGENT; human callers are unaffected."""
+        check_business_mutation_authority(
+            actor, "automation_service.remove_from_do_not_contact", self.audit, confirmed=confirmed
+        )
         if not actor.has_permission(PERM_WRITE_DNC):
             raise PermissionError("Actor lacks permission to modify the do-not-contact list")
 

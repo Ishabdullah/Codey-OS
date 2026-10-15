@@ -94,6 +94,7 @@ from ..models import (
     utc_now_iso,
 )
 from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS, _AUDITABLE_CONTACT_FIELDS, _AUDITABLE_HANDOFF_CHECKLIST_FIELDS
+from ..authority import check_business_mutation_authority
 from .commission_service import CommissionService
 from .notification_service import NotificationService
 from .operations_service import OperationsService
@@ -7487,6 +7488,9 @@ class CRMService:
         just the HTTP route. Permission check now runs first (this is no
         longer just a defense-in-depth re-check after the route's own
         gate -- see the corrected comment at the route call site)."""
+        check_business_mutation_authority(
+            actor, "crm_service.delete_subcontractor", self.audit
+        )
         if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
             raise PermissionError("Actor lacks permission to delete subcontractors")
 
@@ -7918,7 +7922,10 @@ class CRMService:
         updated = self.update_contact(existing.id, updates, actor)
         return updated or existing
 
-    def delete_contact(self, contact_id: int, actor: AuthContext) -> bool:
+    def delete_contact(self, contact_id: int, actor: AuthContext, confirmed: bool = False) -> bool:
+        check_business_mutation_authority(
+            actor, "crm_service.delete_contact", self.audit, confirmed=confirmed
+        )
         if not actor.has_permission(PERM_WRITE_CONTACTS):
             raise PermissionError("Actor lacks permission to delete contacts")
 

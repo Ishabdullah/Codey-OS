@@ -41,6 +41,7 @@ from .audit_service import (
     _AUDITABLE_APPOINTMENT_TYPE_FIELDS,
 )
 from .notification_service import NotificationService
+from ..authority import check_business_mutation_authority
 
 VALID_STATUSES = {"confirmed", "negotiating", "cancelled", "completed"}
 
@@ -847,6 +848,9 @@ class SchedulingService:
         (completed/cancelled) appointments are left with their
         appointment_type_id unchanged -- appointment_type_id is a bare,
         FK-less INTEGER, so this is safe and requires no cleanup."""
+        check_business_mutation_authority(
+            actor, "scheduling_service.delete_appointment_type", self.audit
+        )
         if not actor.has_permission(PERM_WRITE_APPOINTMENT_TYPES):
             raise PermissionError("Actor lacks permission to delete appointment types")
 
@@ -1266,6 +1270,9 @@ class SchedulingService:
         """Returns True if a row was deleted, False if no such row existed
         (NEW-491: the route maps False to 404 instead of a false-success
         200, and no audit row is written for a delete that did nothing)."""
+        check_business_mutation_authority(
+            actor, "scheduling_service.delete_staff_schedule", self.audit
+        )
         if not actor.has_permission(PERM_WRITE_STAFF_SCHEDULES):
             raise PermissionError("Actor lacks permission to write staff schedules")
 

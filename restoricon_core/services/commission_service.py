@@ -22,6 +22,7 @@ from ..auth import (
 from ..database import DatabaseManager
 from ..models import CommissionLedgerEntry, CommissionPlanConfig, utc_now_iso
 from .audit_service import AuditService, build_audit_details
+from ..authority import check_business_mutation_authority
 
 # Must stay byte-for-byte identical to the CHECK constraint in
 # database.py's commission_ledger_entries DDL -- validated in Python too
@@ -394,6 +395,9 @@ class CommissionService:
         race class) -- SQLite's own constraint rejects the second
         concurrent insert with sqlite3.IntegrityError, which is caught
         below and re-raised as a ValueError."""
+        check_business_mutation_authority(
+            actor, "commission_service.reverse_commission", self.audit
+        )
         if not actor.has_permission(PERM_WRITE_TEAM_COMMISSIONS):
             raise PermissionError("Actor lacks permission to reverse commission ledger entries")
 

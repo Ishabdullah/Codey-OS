@@ -137,8 +137,13 @@ def test_contact_crud_lifecycle(setup_core):
     assert updated.licensed == 1
     assert updated.license_number == "LIC-9876"
 
-    # Delete contact
-    deleted = crm_service.delete_contact(created.id, actor)
+    # Delete contact. NEW-919/920/921 (WP2.1 group 7): delete_contact is
+    # HIGH_IMPACT and fails closed for a ROLE_AI_AGENT actor without an
+    # explicit confirmed=True -- this fixture's `actor` is ai_agent, so
+    # this lifecycle test asserts the confirmed path still works end to
+    # end (see test_wp2_1_group7_business_mutation_authority.py for the
+    # unconfirmed-refusal coverage).
+    deleted = crm_service.delete_contact(created.id, actor, confirmed=True)
     assert deleted is True
     assert crm_service.get_contact(created.id, actor) is None
 

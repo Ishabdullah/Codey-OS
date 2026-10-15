@@ -183,6 +183,16 @@ def _agent_headers(base_url):
     return {"Authorization": f"Bearer {body['token']}"}
 
 
+def _admin_headers(base_url):
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    return {"Authorization": f"Bearer {body['token']}"}
+
+
 def _mock_admitted_budget_decision(effective_n_ctx=4096, reservation_id="test-reservation-id"):
     """Deterministic stand-in for `wait_and_reserve_context_budget()`'s
     real return value, used by the T3 telemetry tests in this file to
@@ -782,10 +792,13 @@ def test_api_automation_rules_delete(api_server):
     assert status == 201
     rule_id = body["automation_rule"]["id"]
 
+    # NEW-919/920/921: delete_rule is HIGH_IMPACT and fails closed for a
+    # ROLE_AI_AGENT actor without an explicit confirmed=True.
     status, body = make_request(
         f"{base_url}/api/v1/automation-rules/{rule_id}/delete",
         method="POST",
         headers=headers,
+        data={"confirmed": True},
     )
     assert status == 200
     assert body["deleted"] is True
@@ -799,6 +812,7 @@ def test_api_automation_rules_delete(api_server):
         f"{base_url}/api/v1/automation-rules/{rule_id}/delete",
         method="POST",
         headers=headers,
+        data={"confirmed": True},
     )
     assert status == 200
     assert body["deleted"] is False
@@ -875,11 +889,13 @@ def test_api_do_not_contact(api_server):
     assert status == 200
     assert body["blocked"] is False
 
+    # NEW-919/920/921: remove_from_do_not_contact is HIGH_IMPACT and fails
+    # closed for a ROLE_AI_AGENT actor without an explicit confirmed=True.
     status, body = make_request(
         f"{base_url}/api/v1/do-not-contact/remove",
         method="POST",
         headers=headers,
-        data={"identifier": "spammer@example.com"},
+        data={"identifier": "spammer@example.com", "confirmed": True},
     )
     assert status == 200
     assert body["removed"] is True
@@ -889,7 +905,7 @@ def test_api_do_not_contact(api_server):
         f"{base_url}/api/v1/do-not-contact/remove",
         method="POST",
         headers=headers,
-        data={"identifier": "spammer@example.com"},
+        data={"identifier": "spammer@example.com", "confirmed": True},
     )
     assert status == 200
     assert body["removed"] is False
@@ -1805,9 +1821,18 @@ def test_api_staff_schedule_patch_and_delete_missing_id_are_404(api_server):
     schedule 500'd (`'NoneType' object has no attribute 'to_dict'`) and
     DELETE reported `{"deleted": true}` for a row that never existed.
     Both must be a clean 404 -- exercised over a real socket since PATCH
-    only became reachable once server.py gained do_PATCH."""
+    only became reachable once server.py gained do_PATCH.
+
+    Uses an admin actor, not the ai_agent fixture headers used elsewhere in
+    this file: NEW-919/920/921 classifies delete_staff_schedule
+    HIGH_IMPACT (fail-closed for ROLE_AI_AGENT with no confirmation
+    signal), and no confirmed-signal plumbing exists for this
+    dashboard-only route -- same rationale as delete_appointment_type's
+    own classification (not currently reached live by any ai_agent
+    caller, future-proofed only). An admin actor is unaffected by the
+    gate regardless."""
     _, base_url, _, _ = api_server
-    headers = _agent_headers(base_url)
+    headers = _admin_headers(base_url)
 
     status, body = make_request(
         f"{base_url}/api/v1/staff-schedules/999999",
