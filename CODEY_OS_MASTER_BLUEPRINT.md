@@ -2993,11 +2993,25 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > closed NEW-750's naming-mismatch bug class, found to recur in 4 manifests
 > not 1). See `PROJECT_LOG.md`'s five 2026-10-14 entries (groups 2-6; group
 > 1 is dated 2026-10-14 too, filed just before them) for exact commits,
-> and `NEW_ISSUES.md` for every `NEW-###` named above. **Groups 7-15 remain
-> open** — pick up from group 7 ("Business mutation boundaries") using the
-> same pattern: project-architect re-scopes against live code first (the
-> census doc's one-line group names have repeatedly turned out stale or
-> incomplete on inspection — don't trust them blindly), then
+> and `NEW_ISSUES.md` for every `NEW-###` named above.
+>
+> **Group 7 ("Business mutation boundaries") is now also done** (2026-10-15,
+> NEW-919/920/921, PROJECT_LOG.md's 2026-10-15 entry) — the first group to
+> span two repos: `restoricon_core` (Codey-OS, commit `947faf8`) gained its
+> own native fail-closed authority mechanism for business mutations
+> (deliberately NOT importing `core.action_gateway` — a separate, Ish-
+> approved mechanism extending `restoricon_core`'s existing `actor_type`/
+> `role` pattern), and Codey-Aigentik (sibling repo, commit `a932774`,
+> pushed) threads a `confirmed` signal through from its existing
+> "reply yes" owner-confirmation flow and closes two previously-unconfirmed
+> destructive actions' (`remove_rule`, DNC-`unblock`) confirm-dialog gap in
+> the same round. **Aigentik's long-running process (if any is currently
+> running) needs a restart to pick this up** — not done as part of this
+> round. **Groups 8-15 remain open** — pick up from group 8 ("Notification
+> boundary") using the same pattern: project-architect re-scopes against
+> live code first (the census doc's one-line group names have repeatedly
+> turned out stale, incomplete, or different in kind than expected on
+> inspection — don't trust them blindly), then
 > implementer/code-reviewer/ledger-update/commit same as every slice above.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
