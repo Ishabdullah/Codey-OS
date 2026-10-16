@@ -3174,7 +3174,19 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > Real admission/failed-load/model RAM paths are unit-only, no model load.
 > NEW-957 records the 13c.1 placeholder-PID incident (exact signal issuance
 > unknown); reviewed guards prevent recurrence without rewriting history.
-> Next 13c.2b.3, 13f and 13d; groups 14/15 follow. Ownership repairs alone do not
+> Additional live-caller scope: NEW-965 installed-symlink root mismatch across
+> all six wrappers is included in b.3. NEW-966 planning-only fallback enqueue
+> is open for 13d; actual server enqueue/cancel need ACT boundaries. 13g fixes
+> CLI data transport/exit fidelity (NEW-954/955) before audit; 13h plugin
+> activation staging/rollback/owned cleanup (NEW-953) is complete, source
+> reviewer APPROVED round 3 and resumed disposable-process verified. Staged
+> validation, exact rollback and retained failed cleanup; both dispatch paths
+> serialize through existing RLock after reviewer caught two rollback races.
+> Final selected 50 passed, reviewer 34 passed; initial overbroad harness FAIL
+> preserved, separate PASS distinguishes restored-original READ allowed from
+> failed staged-object refusal; five exact fixture handles reaped. No durable
+> registry/import transaction or arbitrary activation authorization claimed.
+> Next 13c.2b.3, 13g/13f and 13d; groups 14/15 follow. Ownership repairs alone do not
 > close operation audit coverage; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**

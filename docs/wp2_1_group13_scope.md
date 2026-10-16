@@ -1188,3 +1188,256 @@ forced kill. Replace stale daemon comment saying embed has no comparable gate
 side effect: it does have best-effort residency accounting. Log explicit owned
 embed cleanup failure (and avoid false embed-stopped success); bounded stop runs
 in executor. Broader cross-process adopted/port cleanup remains separately scoped.
+
+
+## 13h — NEW-953 complete plugin activation failure (plugin-only slice)
+
+Independent of b.3 shell/daemon work: implementation files ccos/core/
+plugin_manager.py and dedicated plugin tests only. No core.daemon, shell, shared
+tracker or registry persistence rewrite. Architect scope artifact is coordinator
+handoff; no additional agent writes it during implementation. Ordinary mandatory
+implementer -> reviewer -> disposable owned-child verification pipeline applies.
+
+Confirmed existing failure: _load external branch starts child, then constructs/
+registers capabilities one by one without complete-operation failure handling.
+A discovered manifest with resource_limits:1 in its second capability throws
+TypeError after first registration; child survives, status remains INSTALLED,
+partial registry/capabilities remain. Existing source paths: _load around635-698,
+in-process import/register around700-755, _unload around760. Supervisor ownership
+repair NEW-952 does not fix this manager-level incomplete activation.
+
+### Staging and failure outcomes
+
+Under existing manager lifecycle RLock, stage ALL Capability objects and the
+required manifest shapes before starting an external child or executing a new
+module import. Validate the actual fields used by these constructors/merge code
+(mapping/list/string requirements as appropriate); unknown authority names remain
+refused by existing table, not newly authorized. Duplicate staged capability names
+must not produce ambiguous rollback. This is bounded activation-input validation,
+not a claim that every NEW-917 manifest schema issue is fixed.
+
+Snapshot affected registry entries and plugin/module state before activation.
+Do not mutate plugin.capabilities until successful registration is committed;
+track precisely which names this attempt added/replaced. On construction,
+registration False/exception, or module setup failure return False with BROKEN
+status and a useful static error; never claim ACTIVE or leak uncaught TypeError
+as if no child started. Protect post-spawn interruptions as well as ordinary
+exceptions: cleanup/ownership state must remain truthful, then propagate actual
+interruptions according to existing caller contract.
+
+For external process already spawned: request supervisor owned cleanup. If it
+confirms child exit/reap, clear plugin PID and resolve attempt-owned registry/
+module artifacts. If cleanup fails, retain supervisor Popen/PID, BROKEN state
+and explicit retry marker; no subsequent load may spawn another until prior
+cleanup is confirmed. Do not reset ownership merely because registration failed.
+Reuse manager's failed-health lifecycle precedent, but distinguish registration
+failure diagnostics. _unload/retry must recover this failed-activation state.
+
+Restore replaced registry entries, remove only newly added entries, and preserve
+unrelated entries/counters. Rollback itself can fail: retain explicit incomplete
+cleanup state, return False and prevent partially installed attempt capabilities
+from dispatching. Never erase a legitimate unrelated registry entry to hide a
+failed attempt. Use existing registry API and scoped snapshots; registry._save
+currently swallows disk errors, so this slice cannot promise durable atomic
+registry transactions. Record that limitation rather than changing _save during
+a plugin-only fix. Do not report rollback successful when its API raises/returns
+an unexpected failure. A safely absent entry is already cleaned, not perpetual
+debt. Successful retry must register each capability exactly once.
+
+Do the equivalent manager bookkeeping cleanup for in-process import/registration
+failure: remove/restore only this attempt's sys.modules/_modules entries, not
+arbitrary imported dependencies or preexisting objects. Python import side effects
+are not generally reversible; do not claim transactional execution of module code.
+No new custom/generated plugin activation authorization is established.
+
+A failed activation must not leave its newly created partial capabilities
+callable. Use failure-state gating/removal consistent with existing call_capability
+contracts; do not rely on unknown fixture names already being unclassified. Keep
+CAPABILITY_AUTHORITY, permissions/resource-limit policy and installed-bootstrap
+trust unchanged. Any guard must target failed activation rather than introducing
+an unrelated broad compatibility change to every plugin's dispatch.
+
+### Tests and real mechanics
+
+Before any test run, audit fake PID/Popen/supervisor signal paths (NEW-957). Most
+manager tests mock supervisor fully, including teardown. Required cases:
+
+- Discover real malformed second capability; False/BROKEN, no spawn/import and
+  no first capability registered (mutation distinguishes staging-before-spawn).
+- Valid staged input + injected second registry register exception/False after
+  a successful spawn; owned cleanup attempted, registry restored, no ACTIVE
+  partials and useful failure outcome.
+- Registry restoration failure and supervisor stop failure independently: exact
+  Popen/PID retained where needed, blocked dispatch/replacement, retry recovers
+  without duplicated registration or loss of unrelated preexisting capability.
+- Existing capability overwritten then activation fails restores its original
+  object/data; unrelated entries/counters remain unchanged.
+- Use a core-classified READ fixture capability (e.g. system.info) to prove failed
+  activation cannot dispatch; unknown-name refusal alone is vacuous coverage.
+- In-process registration/import failure removes only attempt module state,
+  preserves preexisting module entries, reports BROKEN and supports retry.
+- Concurrent load/unload/failure paths preserve existing lifecycle serialization.
+
+Independent disposable verification: temporary plugin manifests/registry and a
+lightweight child owned by the real supervisor, with injected valid registration
+failure; confirm reaped child and restored registry. Inject one failed cleanup
+then retry with retained handle; innocent fixture child survives. Actual default
+plugins/models/services/remote health/cloud/live stores must never run. Finally
+cleanup exact Popen handles; distinguish injected registry conditions from real
+process mechanics. Mandatory explicit lifecycle reviewer approval before commit.
+
+No product fork: this makes already-authorized installed activation truthful and
+ownership-safe. It does not authorize arbitrary plugin installation/promotion.
+
+
+## 13g — NEW-954/955 fixed CLI data transport and truthful exit
+
+Implement after b.3 wrapper migration and before13d audit envelope. Scope:
+codeyOS plus one fixed Python client module and dedicated tests; preserve b.3
+identity/config/root mechanics rather than reimplement them. No source generation
+from prompt, task ID, config or path text. Replace temporary Python heredocs with
+fixed code receiving argv/JSON data. A thin shell exec of that fixed client
+preserves actual status and removes cleanup masking; do not retain a temp-script
+cleanup whose zero replaces Python's status.
+
+Required branches: status; task list/single ID; cancel; --bg/--background; direct
+interactive flags/prompts; --daemon passthrough. Positive decimal task IDs only,
+validated before connecting; reject executable-looking expressions as invalid
+data, not shell/Python source. Preserve background prompt joining/filtering and
+current yolo field meaning without adding authority. Configured socket/state/
+repo paths are values; quotes/newlines/metacharacters never enter Python source.
+Do not embed JSON by concatenation. Actual daemon responses/exceptions preserve
+existing output intent and failure status; no empty/invalid response becomes
+success. Preserve timeouts unless an existing shared helper's intentional
+contract is selected/documented. No new task protocol or capability activation.
+
+Direct-mode main import is lazy and only selected by direct/--daemon branches;
+status/task/cancel/background must not start inference or import main for argument
+parsing. Preserve original direct argv, stdin/stdout/stderr and signal/error exit
+behavior. Main can SystemExit; don't catch-and-return-zero. Any retained cleanup
+runs without masking the original result. Keep generated-source injection and
+exit fidelity as distinct verified properties.
+
+Tests: public dispatcher + fixed client, not only JSON helper tests. Quotes,
+triple quotes, newlines and code-shaped prompt text remain literal request data;
+invalid IDs cause no connection; special configured paths stay data; status/task/
+cancel/background error and timeout nonzero; direct main exit7 and interruption
+propagate; cleanup failure cannot replace execution status; no model import in
+READ/RPC client branches. Real disposable UDS fixture exercises actual encoded
+prompt/task/cancel payloads; fixture subprocess direct-main substitute verifies
+exit/argv without models. Audit synthetic PID fixtures first; no real daemon,
+service, recipients/cloud/live store or actual model. Independent review and
+appropriate disposable client verification before commit.
+
+13g repairs transport/fidelity, not daemon action authority. 13d below covers
+actual enqueue/cancel; don't claim safe serialization establishes mediation.
+
+## 13d extension — daemon command/cancel/config complete operations
+
+Keep earlier finite shell-operation gateway spec: ACT configured start/stop/
+reload/restart/bootstrap/config-create; READ status/log/config display; one public
+complete-operation envelope, private subprocess mechanics, static audit labels,
+no public --internal/env skip token. Add server-side ACT boundaries for daemon
+command enqueue and task cancellation. UNIX socket0600 establishes access, not
+an action decision. Fixed CLI transport cannot be the sole mutation gate because
+a caller can use the socket directly.
+
+Use gate_exec around synchronous actual enqueue/cancel operations INSIDE their
+async request handlers; do NOT pass an async function/coroutine to the synchronous
+gateway and audit allowed before await. Preserve request/response contracts.
+Non-plan-only command adds one task with existing needs_planning/no_plan semantics;
+cancel touches one selected task. READ validation/lookups can precede mutation,
+but no state.add_task/cancel_task may bypass the operation gate. Convert actual
+mutation failure/error-result into FAILED audit, not normal-returned success.
+Bookkeeping after a committed mutation must not retroactively relabel the action
+unattempted/refused; report post-action recording failures separately. Payloads/
+prompts/customer data must not enter audit command/error details. ACT headless
+behavior remains existing policy, no new spending/security exception. Execution
+later retains all existing tool gates; enqueue audit does not preauthorize them.
+
+Plan-only RPC is planning/inference subordinate mechanism once non-enqueuing;
+existing fixed episodic recording follows group12 contract. Do not introduce an
+async-gateway redesign merely to gate a loopback transport. READ socket queries
+and fixed CLI READ operation audit need explicit disposition with the existing
+READ/loopback contract; never blanket exempt all commands because local socket.
+No classification entries are added for currently refused daemon/taskqueue CCOS
+capabilities. codeydOS config default-create is ACT even when its idempotent call
+finds a file; generic daemon_config.set/save and arbitrary taskqueue JSON paths
+remain NEW-939 candidates, not automatically authorized by the operator wrapper.
+
+### Proposed NEW-966 — planning-only fallback unexpectedly queues execution
+
+Ledger read through NEW-964; NEW-965 is coordinator-reserved for installed wrapper
+resolution, no NEW-966 header found at inspection. Coordinator allocates IDs.
+Confirmed by source, Medium: core.daemon.DaemonServer._handle_command's
+plan_only=True branch returns early only when planner yields >1 steps. Empty/
+single-step/no_plan=True/timeout/refused-or-other exception paths fall through to
+unconditional self.state.add_task(prompt). This is distinct from intended ACT
+background queueing and from NEW-954 transport/NEW-955 exit masking.
+
+Exact actual caller: core/planner_service.py:_request_daemon_plan sends command
+with plan_only=True at send_command around118; it reads response.get('plan') and
+returns only lists of length>1. Empty/one-step/no-plan response returns None and
+its caller runs directly. Current unexpected enqueue can therefore schedule a
+second background execution while the interactive caller falls back locally.
+No real planner/model execution was used to establish this source finding.
+NEW-112 and _handle_command comments also incorrectly claim no background caller:
+codeyOS --bg sends command without plan_only and genuinely reaches the intended
+enqueue branch. Preserve that explicit operator-requested queueing behavior.
+
+Repair: every plan_only=True outcome must return planning result/no-plan, never
+enqueue. Existing supported response shape can retain status='ok', task_ids=[],
+plan=steps for returned planning lists (including one step), or plan=[] when no
+plan/no_plan/error fallback. Never include a queued task_id. Client already treats
+empty/one-step plans as None/direct fallback, so this requires no new client
+policy. Keep useful static failure/no-plan message and existing timeout/tier
+semantics; don't turn planner failure into a queued real action. Correct comments/
+NEW-112 record honestly via coordinator; actual enqueue data source now identified.
+
+Tests: async handler with planner mocked to >1,1,0,None, timeout, connection error,
+generic exception and no_plan=True; state.add_task spy zero for ALL plan_only
+cases; returned no-plan/one-step shape makes actual planner_service return None.
+Non-plan-only still adds exactly one task with existing flags, ACT audit; direct
+socket caller cannot bypass audit; cancel success/invalid/already-done/DB error
+outcomes truthful. Temporary UDS+StateStore integration has no executor/watchdog/
+models: verify planning-only leaves task rows unchanged and explicit command
+queues one. All cloud/inference functions mocked; no real model/network/service.
+New non-enqueue condition is contract correctness, not a product-direction fork.
+
+## NEW-965 — installed wrapper symlink root, bounded b.3 correction
+
+Confirmed path-only disposable fixture (no public wrapper sourced/executed):
+copy only existing root-assignment+printf into temp repo/wrapper, symlink it from
+temp bin/wrapper, execute each with bash. Literal observed suffixes:
+
+    direct: .../codey-wrapper-path-only-0wom2p7x/repo
+    installed-symlink: .../codey-wrapper-path-only-0wom2p7x/bin
+    expected-repository: .../codey-wrapper-path-only-0wom2p7x/repo
+
+install.sh setup_symlinks around431-434 installs SIX wrappers: codey, codey-start,
+codey-stop, codey-metrics, codeyOS, codeydOS. All use dirname(BASH_SOURCE[0]) without
+full target dereference, so installed invocation selects bin rather than repo.
+codey-metrics14 shares the defect even though the initial lifecycle scope named
+five. Include all six in b.3 root compatibility; retain codey-metrics intentional
+repo cd while other wrappers preserve caller cwd/workspace.
+
+Use guarded full target resolution (e.g. existing readlink -f capability), then
+quoted dirname/canonical pwd. Dangling/loop/unresolvable target fails clearly,
+never falls back to bin/current cwd or executes missing/alternate core paths.
+No new setup dependency is implied: readlink is already used by service mechanics;
+verify install requirements before adding a different binary. Tests only path-
+resolution clones or fully isolated/stubbed public entrypoints: direct invocation,
+installed absolute/relative symlink, chains, spaces and failure targets. No
+installed service or setup/cloud action runs. Mandatory reviewer includes the
+sixth metrics wrapper; no symlink correctness claim from direct-root tests alone.
+
+### Post-b.3 dependency ordering
+
+13g (client injection/exit fidelity) precedes13d meaningful outer audit. 13h plugin
+registration may proceed independently in plugin-only files with its own pipeline.
+13f embed ownership remains required as already scoped, not repeated here. 13d
+includes native enqueue/cancel/config and NEW-966 correctness before group13 can
+claim its remaining action boundaries closed. NEW-939 residual files/KB/export/
+config APIs remain explicitly for further bounded work/final census. NEW-951 is
+group14 protected executable scope; deferred NEW-904/905/913/914 and GCS943/944
+unchanged. No broad group/WP2.1 closure claim follows from these handoffs.

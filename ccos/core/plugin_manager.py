@@ -484,6 +484,7 @@ class PluginManager:
         self.supervisor = ProcessSupervisor()
         self._lifecycle_lock = RLock()
         self._external_health_failures = set()
+        self._activation_attempts = {}
         self._discover()
 
     def register_capability_handler(self, cap_name: str, handler: Callable, *, authority: str):
@@ -665,96 +666,200 @@ class PluginManager:
             if not self._unload(name):
                 return False
 
-        plugin_path = Path(plugin.path)
-        exec_mode = plugin.execution_mode
-
-        # External process or isolated daemon supervision
-        if exec_mode in ("external_process", "isolated_daemon", "remote_bridge"):
-            started = self.supervisor.start_external_plugin(plugin)
-            if not started:
+        if name in self._activation_attempts:
+            if not self._cleanup_activation(plugin):
                 return False
-
-            # Register capabilities from manifest
-            caps = plugin.manifest.get("capabilities", [])
-            for cap_def in caps:
-                capability = Capability(
-                    name=cap_def.get("name", f"{name}.{cap_def.get('id', 'unknown')}"),
-                    description=cap_def.get("description", ""),
-                    implementation=cap_def.get("implementation", str(plugin_path)),
-                    category=cap_def.get("category", plugin.manifest.get("domain", plugin.manifest.get("category", "general"))),
-                    dependencies=cap_def.get("dependencies", []),
-                    hardware_requirements=cap_def.get("hardware_requirements", []),
-                    test_path=cap_def.get("test", ""),
-                    status=CapabilityStatus.ACTIVE,
-                    version=plugin.version,
-                    execution_mode=cap_def.get("execution_mode", exec_mode),
-                    resource_limits=_merge_capability_resource_limits(cap_def, plugin.manifest),
-                    permissions=cap_def.get("permissions", plugin.manifest.get("permissions", [])),
-                    inputs_schema=cap_def.get("inputs_schema", {}),
-                    outputs_schema=cap_def.get("outputs_schema", {}),
-                )
-                self._registry.register(capability)
-                plugin.capabilities.append(capability.name)
-
-            plugin.status = PluginStatus.ACTIVE
-            return True
-
-        # In-process or sandboxed Python module loading
-        init_path = plugin_path / "__init__.py"
-        entry = plugin.manifest.get("entry_point", "__init__.py")
-        entry_path = plugin_path / entry
-
-        module_file = entry_path if entry_path.exists() else init_path
-        if not module_file.exists():
-            plugin.status = PluginStatus.BROKEN
-            plugin.error = f"Entry point not found: {module_file}"
-            return False
 
         try:
-            # Dynamic import
-            spec = importlib.util.spec_from_file_location(
-                f"ccos_plugin_{name}", str(module_file)
-            )
-            if spec is None or spec.loader is None:
-                plugin.status = PluginStatus.BROKEN
-                plugin.error = "Could not create module spec"
-                return False
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
-
-            self._modules[name] = module
-
-            # Register capabilities from manifest
-            caps = plugin.manifest.get("capabilities", [])
-            for cap_def in caps:
-                capability = Capability(
-                    name=cap_def.get("name", f"{name}.{cap_def.get('id', 'unknown')}"),
-                    description=cap_def.get("description", ""),
-                    implementation=cap_def.get("implementation", str(plugin_path)),
-                    category=cap_def.get("category", plugin.manifest.get("domain", plugin.manifest.get("category", "general"))),
-                    dependencies=cap_def.get("dependencies", []),
-                    hardware_requirements=cap_def.get("hardware_requirements", []),
-                    test_path=cap_def.get("test", ""),
-                    status=CapabilityStatus.ACTIVE,
-                    version=plugin.version,
-                    execution_mode=cap_def.get("execution_mode", exec_mode),
-                    resource_limits=_merge_capability_resource_limits(cap_def, plugin.manifest),
-                    permissions=cap_def.get("permissions", plugin.manifest.get("permissions", [])),
-                    inputs_schema=cap_def.get("inputs_schema", {}),
-                    outputs_schema=cap_def.get("outputs_schema", {}),
-                )
-                self._registry.register(capability)
-                plugin.capabilities.append(capability.name)
-
-            plugin.status = PluginStatus.ACTIVE
-            return True
-
-        except Exception as e:
+            staged = self._stage_capabilities(plugin)
+        except Exception:
             plugin.status = PluginStatus.BROKEN
-            plugin.error = str(e)
+            plugin.error = "Invalid activation capability or manifest fields"
             return False
+
+        module_key = f"ccos_plugin_{name}"
+        attempt = {
+            "staged": {cap.name: cap for cap in staged},
+            "previous": {cap.name: self._registry.get(cap.name) for cap in staged},
+            "touched": [], "external": plugin.execution_mode in (
+                "external_process", "isolated_daemon", "remote_bridge"),
+            "spawn_attempted": False, "failure_error": "Plugin activation failed",
+            "module_key": module_key, "module": None,
+            "sys_previous": sys.modules.get(module_key),
+            "manager_previous": self._modules.get(name),
+        }
+        self._activation_attempts[name] = attempt
+        try:
+            if attempt["external"]:
+                # Record before calling: startup itself can fail/interrupt
+                # after Popen, with an owned child still in the supervisor.
+                attempt["failure_error"] = "External plugin activation startup failed"
+                attempt["spawn_attempted"] = True
+                if not self.supervisor.start_external_plugin(plugin):
+                    raise RuntimeError("External startup failed")
+            else:
+                attempt["failure_error"] = "Plugin activation module setup failed"
+                plugin_path = Path(plugin.path)
+                entry_path = plugin_path / plugin.manifest.get("entry_point", "__init__.py")
+                module_file = entry_path if entry_path.exists() else plugin_path / "__init__.py"
+                spec = importlib.util.spec_from_file_location(module_key, str(module_file))
+                if spec is None or spec.loader is None:
+                    raise RuntimeError("Could not create module spec")
+                module = importlib.util.module_from_spec(spec)
+                attempt["module"] = module
+                sys.modules[module_key] = module
+                spec.loader.exec_module(module)
+                self._modules[name] = module
+
+            attempt["failure_error"] = "Plugin activation capability registration failed"
+            for capability in staged:
+                # Include the current registration before invoking the API:
+                # a registry implementation may mutate and then raise.
+                attempt["touched"].append(capability.name)
+                if self._registry.register(capability) is not True:
+                    raise RuntimeError("Capability registration failed")
+            plugin.capabilities = [cap.name for cap in staged]
+            plugin.status = PluginStatus.ACTIVE
+            plugin.error = ""
+            del self._activation_attempts[name]
+            return True
+        except BaseException as exc:
+            plugin.status = PluginStatus.BROKEN
+            plugin.error = attempt["failure_error"]
+            try:
+                self._cleanup_activation(plugin)
+            except BaseException:
+                # The attempt remains recorded and dispatch-blocked even if
+                # cleanup itself is interrupted. Preserve the original signal.
+                if isinstance(exc, Exception):
+                    raise
+            if not isinstance(exc, Exception):
+                raise
+            return False
+
+    def _stage_capabilities(self, plugin: Plugin) -> List[Capability]:
+        """Validate only activation-consumed shapes, before executable effects."""
+        manifest = plugin.manifest
+        if not isinstance(manifest, dict):
+            raise ValueError("manifest")
+        for key in ("entry_point", "domain", "category"):
+            if key in manifest and not isinstance(manifest[key], str):
+                raise ValueError(key)
+        for key in ("resource_limits", "process_spec"):
+            if key in manifest and not isinstance(manifest[key], dict):
+                raise ValueError(key)
+        if "permissions" in manifest and not self._string_list(manifest["permissions"]):
+            raise ValueError("permissions")
+        process_spec = manifest.get("process_spec", {})
+        for key in ("command", "start_command"):
+            if key in process_spec and not self._string_list(process_spec[key]):
+                raise ValueError(key)
+        for key in ("pid_file", "working_dir", "endpoint", "health_endpoint"):
+            if process_spec.get(key) is not None and not isinstance(process_spec[key], str):
+                raise ValueError(key)
+        if "env" in process_spec and (
+            not isinstance(process_spec["env"], dict)
+            or not all(isinstance(key, str) and isinstance(value, str)
+                       for key, value in process_spec["env"].items())
+        ):
+            raise ValueError("process environment")
+        caps = manifest.get("capabilities", [])
+        if not isinstance(caps, list):
+            raise ValueError("capabilities")
+        staged = []
+        names = set()
+        for definition in caps:
+            if not isinstance(definition, dict):
+                raise ValueError("capability")
+            for key in ("name", "id", "description", "implementation", "category", "test", "execution_mode"):
+                if key in definition and not isinstance(definition[key], str):
+                    raise ValueError(key)
+            for key in ("dependencies", "hardware_requirements", "permissions"):
+                if key in definition and not self._string_list(definition[key]):
+                    raise ValueError(key)
+            for key in ("resource_limits", "inputs_schema", "outputs_schema"):
+                if key in definition and not isinstance(definition[key], dict):
+                    raise ValueError(key)
+            cap_name = definition.get("name", f"{plugin.name}.{definition.get('id', 'unknown')}")
+            if not cap_name or cap_name in names:
+                raise ValueError("duplicate or empty capability name")
+            names.add(cap_name)
+            staged.append(Capability(
+                name=cap_name, description=definition.get("description", ""),
+                implementation=definition.get("implementation", plugin.path),
+                category=definition.get("category", manifest.get("domain", manifest.get("category", "general"))),
+                dependencies=definition.get("dependencies", []),
+                hardware_requirements=definition.get("hardware_requirements", []),
+                test_path=definition.get("test", ""), status=CapabilityStatus.ACTIVE,
+                version=plugin.version, execution_mode=definition.get("execution_mode", plugin.execution_mode),
+                resource_limits=_merge_capability_resource_limits(definition, manifest),
+                permissions=definition.get("permissions", manifest.get("permissions", [])),
+                inputs_schema=definition.get("inputs_schema", {}),
+                outputs_schema=definition.get("outputs_schema", {}),
+            ))
+        return staged
+
+    @staticmethod
+    def _string_list(value):
+        return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+    def _cleanup_activation(self, plugin: Plugin) -> bool:
+        """Retry exact attempt cleanup; API failures retain dispatch-blocked debt.
+
+        Registry._save swallows I/O errors: this is in-memory bookkeeping,
+        not a durable registry transaction. Import side effects are not undone.
+        """
+        attempt = self._activation_attempts[plugin.name]
+        clean = True
+        if attempt["spawn_attempted"]:
+            try:
+                pid_file = plugin.manifest.get("process_spec", {}).get("pid_file")
+                pid_file = str(_resolve_pid_path(pid_file)) if pid_file else None
+                if self.supervisor.stop_external_plugin(plugin.name, pid_file=pid_file) is not True:
+                    clean = False
+                else:
+                    plugin.pid = None
+                    attempt["spawn_attempted"] = False
+            except Exception:
+                clean = False  # Retain supervisor ownership and retry marker.
+        for cap_name in list(attempt["touched"]):
+            try:
+                previous = attempt["previous"][cap_name]
+                current = self._registry.get(cap_name)
+                if current is previous:
+                    pass  # Original entry (including absence) already restored.
+                elif current is attempt["staged"][cap_name] or current is None:
+                    if previous is None:
+                        result = self._registry.unregister(cap_name)
+                        if result is not True and self._registry.get(cap_name) is not None:
+                            raise RuntimeError("Capability removal failed")
+                    elif self._registry.register(previous) is not True:
+                        raise RuntimeError("Capability restoration failed")
+                    if self._registry.get(cap_name) is not previous:
+                        raise RuntimeError("Capability restoration not observed")
+                else:
+                    # Someone replaced this name independently. Do not erase it
+                    # or claim that we restored the original snapshot.
+                    raise RuntimeError("Capability changed during cleanup")
+                attempt["touched"].remove(cap_name)
+            except Exception:
+                clean = False
+        module = attempt["module"]
+        if module is not None:
+            for mapping, key, previous in (
+                (sys.modules, attempt["module_key"], attempt["sys_previous"]),
+                (self._modules, plugin.name, attempt["manager_previous"]),
+            ):
+                if mapping.get(key) is module:
+                    if previous is None:
+                        mapping.pop(key, None)
+                    else:
+                        mapping[key] = previous
+        if clean:
+            del self._activation_attempts[plugin.name]
+        else:
+            plugin.error = attempt["failure_error"] + "; cleanup pending"
+        return clean
 
     def unload(self, name: str) -> bool:
         """Preserve plugin/capability state until external stop is confirmed."""
@@ -766,6 +871,14 @@ class PluginManager:
         plugin = self._plugins.get(name)
         if not plugin:
             return False
+
+        if name in self._activation_attempts:
+            if not self._cleanup_activation(plugin):
+                return False
+            plugin.status = PluginStatus.INSTALLED
+            plugin.error = ""
+            self._external_health_failures.discard(name)
+            return True
 
         # Stop external process if applicable
         if plugin.execution_mode in ("external_process", "isolated_daemon", "remote_bridge"):
@@ -798,9 +911,14 @@ class PluginManager:
         return True
 
     def execute(self, name: str, function: str, *args, **kwargs) -> Any:
-        """
-        Execute a function from a loaded in-process plugin.
-        """
+        """Execute a loaded module function in a consistent lifecycle epoch."""
+        with self._lifecycle_lock:
+            return self._execute(name, function, *args, **kwargs)
+
+    def _execute(self, name: str, function: str, *args, **kwargs) -> Any:
+        """Caller holds lifecycle lock through guard, lookup and callback."""
+        if name in self._activation_attempts:
+            raise RuntimeError("Plugin activation incomplete; execution unavailable")
         module = self._modules.get(name)
         if not module:
             raise RuntimeError(f"Plugin '{name}' not loaded")
@@ -837,6 +955,17 @@ class PluginManager:
         context: Optional[TaskContext] = None,
         **kwargs,
     ) -> Any:
+        """Keep activation state, authority and execution in one lifecycle epoch."""
+        with self._lifecycle_lock:
+            return self._call_capability(cap_name, *args, context=context, **kwargs)
+
+    def _call_capability(
+        self,
+        cap_name: str,
+        *args,
+        context: Optional[TaskContext] = None,
+        **kwargs,
+    ) -> Any:
         """
         Execute a capability by its registered name.
         Supports in-process functions, direct handlers, and external process HTTP/IPC dispatch.
@@ -857,6 +986,16 @@ class PluginManager:
 
         gateway = get_action_gateway()
         action_label = f"ccos.call_capability:{cap_name}"
+        # Only capabilities owned by an unfinished activation are blocked.
+        # Restored/preexisting entries and independent direct handlers retain
+        # their prior contract. Keep this refusal in the existing audit path.
+        if any(attempt["staged"].get(cap_name) is cap and cap is not None
+               for attempt in tuple(self._activation_attempts.values())):
+            decision = gateway.refuse_exec(
+                authority=HIGH_IMPACT, action=action_label, command=cap_name,
+                reason="plugin activation incomplete; capability unavailable",
+            )
+            raise CapabilityRefused(decision.reason)
         authority = self._authority_for(cap_name, cap)
 
         if authority is None:
