@@ -48,6 +48,8 @@ import time
 import pytest
 
 import core.observability as observability
+from core.daemon_config import DaemonPaths
+from core.process_identity import LifecycleRecord
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +62,16 @@ def _isolated_daemon_started_at():
         store.set("daemon_started_at", original)
 
 
+def _configure_path(monkeypatch, pid_file):
+    paths = DaemonPaths(pid_file, pid_file.with_suffix(".sock"), pid_file.with_suffix(".log"))
+    monkeypatch.setattr(observability, "resolve_daemon_paths", lambda: paths)
+
+
+def _publish_self(pid_file):
+    with LifecycleRecord(pid_file, "codeyOS") as record:
+        record.publish(os.getpid())
+
+
 def _reload_state():
     observability.reset_state()
     return observability.get_state()
@@ -67,7 +79,7 @@ def _reload_state():
 
 def test_daemon_pid_none_when_no_pid_file(tmp_path, monkeypatch):
     """No PID file at all -> no daemon running -> None."""
-    monkeypatch.setattr(observability, "DAEMON_PID_FILE", tmp_path / "codeyOS.pid")
+    _configure_path(monkeypatch, tmp_path / "codeyOS.pid")
     state = _reload_state()
     assert state.daemon_pid is None
 
@@ -78,7 +90,7 @@ def test_daemon_pid_none_for_stale_pid_file(tmp_path, monkeypatch):
     # A PID essentially guaranteed not to be alive in this test process's
     # namespace.
     pid_file.write_text("999999")
-    monkeypatch.setattr(observability, "DAEMON_PID_FILE", pid_file)
+    _configure_path(monkeypatch, pid_file)
     state = _reload_state()
     assert state.daemon_pid is None
 
@@ -86,8 +98,8 @@ def test_daemon_pid_none_for_stale_pid_file(tmp_path, monkeypatch):
 def test_daemon_pid_returns_real_pid_when_alive(tmp_path, monkeypatch):
     """PID file points at a live PID (this test process itself) -> that PID."""
     pid_file = tmp_path / "codeyOS.pid"
-    pid_file.write_text(str(os.getpid()))
-    monkeypatch.setattr(observability, "DAEMON_PID_FILE", pid_file)
+    _publish_self(pid_file)
+    _configure_path(monkeypatch, pid_file)
     state = _reload_state()
     assert state.daemon_pid == os.getpid()
 
@@ -97,7 +109,7 @@ def test_uptime_is_zero_when_no_daemon_running_even_if_started_at_stale(tmp_path
     NEW-109's core contradiction: a stale `daemon_started_at` in the state
     store must not produce a non-zero uptime once no live daemon is found.
     """
-    monkeypatch.setattr(observability, "DAEMON_PID_FILE", tmp_path / "codeyOS.pid")
+    _configure_path(monkeypatch, tmp_path / "codeyOS.pid")
     state = _reload_state()
     state.state_store.set("daemon_started_at", 1)  # deliberately stale/ancient
     assert state.daemon_pid is None
@@ -113,10 +125,10 @@ def test_uptime_nonzero_when_daemon_pid_alive_and_started_at_fresh(tmp_path, mon
     both the PID file's mtime and `daemon_started_at` to the same instant.
     """
     pid_file = tmp_path / "codeyOS.pid"
-    pid_file.write_text(str(os.getpid()))
+    _publish_self(pid_file)
     started_at = int(time.time()) - 42
     os.utime(pid_file, (started_at, started_at))
-    monkeypatch.setattr(observability, "DAEMON_PID_FILE", pid_file)
+    _configure_path(monkeypatch, pid_file)
     state = _reload_state()
     state.state_store.set("daemon_started_at", started_at)
     assert state.daemon_pid == os.getpid()
@@ -132,10 +144,10 @@ def test_uptime_zero_during_startup_window_before_started_at_recorded(tmp_path, 
     even though `daemon_pid` correctly finds a live PID.
     """
     pid_file = tmp_path / "codeyOS.pid"
-    pid_file.write_text(str(os.getpid()))
+    _publish_self(pid_file)
     # PID file's mtime is "now" (just written). daemon_started_at holds an
     # old value from a previous run -- predates this PID file write.
-    monkeypatch.setattr(observability, "DAEMON_PID_FILE", pid_file)
+    _configure_path(monkeypatch, pid_file)
     state = _reload_state()
     state.state_store.set("daemon_started_at", int(time.time()) - 9999)
     assert state.daemon_pid == os.getpid()
@@ -147,7 +159,7 @@ def test_pid_and_uptime_never_contradict(tmp_path, monkeypatch):
     Direct regression for NEW-109's reported symptom: pid is None and
     uptime is simultaneously non-zero must never both be true.
     """
-    monkeypatch.setattr(observability, "DAEMON_PID_FILE", tmp_path / "codeyOS.pid")
+    _configure_path(monkeypatch, tmp_path / "codeyOS.pid")
     state = _reload_state()
     state.state_store.set("daemon_started_at", 1)
     status = state.get_full_status()

@@ -25,8 +25,10 @@ try:
 except ImportError:
     HAS_PSUTIL = False
 
+from core.daemon_config import resolve_daemon_paths
+from core.process_identity import RUNNING, inspect_record
 from core.state import get_state_store
-from utils.config import CODEY_VERSION, DAEMON_PID_FILE, MODEL_CONFIG
+from utils.config import CODEY_VERSION, MODEL_CONFIG
 
 
 class State:
@@ -42,7 +44,8 @@ class State:
     - health metrics
     """
 
-    def __init__(self):
+    def __init__(self, daemon_paths=None):
+        self.daemon_paths = daemon_paths
         self.state_store = get_state_store()
         if HAS_PSUTIL:
             self._process = psutil.Process(os.getpid())
@@ -209,13 +212,17 @@ class State:
         file's own write time cannot belong to the daemon that wrote
         that file.
         """
-        if self.daemon_pid is None:
+        paths = self.daemon_paths or resolve_daemon_paths()
+        return self._uptime_at(paths, self._daemon_pid_at(paths))
+
+    def _uptime_at(self, paths, pid):
+        if pid is None:
             return 0
         started_at = int(self.state_store.get("daemon_started_at", 0))
         if not started_at:
             return 0
         try:
-            pid_file_mtime = int(DAEMON_PID_FILE.stat().st_mtime)
+            pid_file_mtime = int(paths.pid_file.stat().st_mtime)
         except OSError:
             # Can't verify freshness (e.g. the file vanished between the
             # `daemon_pid` liveness check above and this stat) -- fall
@@ -227,66 +234,39 @@ class State:
 
     @property
     def daemon_pid(self) -> Optional[int]:
-        """
-        Get the real daemon PID, or None if no daemon is currently
-        running.
+        """Return only the configured daemon's verified recorded identity."""
+        return self._daemon_pid_at(self.daemon_paths or resolve_daemon_paths())
 
-        Previously returned `self._process.pid`, i.e.
-        `psutil.Process(os.getpid()).pid` — always the CALLING
-        process's own PID (the CLI, a test, whatever imports this
-        module), never the daemon's, and unconditionally `None` when
-        psutil wasn't installed regardless of whether a daemon was
-        actually running (this device has no psutil — see NEW-108).
-        That's NEW-109's root cause.
-
-        Reads `utils.config.DAEMON_PID_FILE` instead — the same file
-        `core.daemon.write_pid_file()`/`check_pid_file()` already use —
-        and verifies the PID is still alive via `os.kill(pid, 0)`,
-        mirroring `check_pid_file()`'s own liveness check. Unlike
-        `check_pid_file()`, this has no "is this a duplicate of ME"
-        dedup logic: if this property is called from inside the daemon
-        process itself, finding its own PID in the file is the correct
-        answer, not evidence of anything to guard against.
-        """
-        try:
-            with open(DAEMON_PID_FILE, "r") as f:
-                pid = int(f.read().strip())
-        except (OSError, ValueError):
-            # No PID file, unreadable, or corrupt contents -> no daemon
-            # running (or we genuinely can't tell) -> None is the
-            # honest answer, not a guess.
-            return None
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            # Stale PID file (the process that wrote it is gone) -> no
-            # daemon running.
-            return None
-        except PermissionError:
-            # Process exists but is owned by a different user -- still
-            # evidence *something* is alive at this PID; treat it as
-            # running rather than guessing it's dead.
-            pass
-        return pid
+    def _daemon_pid_at(self, paths):
+        observed = inspect_record(paths.pid_file, "codeyOS")
+        if observed.state == RUNNING:
+            return observed.identity["pid"]
+        return None
 
     @property
     def health(self) -> Dict:
         """Get health metrics."""
+        return self._health_at(self.uptime)
+
+    def _health_at(self, uptime):
         return {
             "memory_usage": self.memory_usage,
             "cpu_usage": self.cpu_usage,
-            "uptime_seconds": self.uptime,
+            "uptime_seconds": uptime,
             "tasks_pending": self.tasks_pending,
             "model_loaded": self.model_active is not None,
         }
 
     def get_full_status(self) -> Dict:
-        """Get complete observability status."""
+        """Get complete observability status from one daemon-path snapshot."""
+        paths = self.daemon_paths or resolve_daemon_paths()
+        pid = self._daemon_pid_at(paths)
+        uptime = self._uptime_at(paths, pid)
         return {
             "version": CODEY_VERSION,
             "daemon": {
-                "pid": self.daemon_pid,
-                "uptime_seconds": self.uptime,
+                "pid": pid,
+                "uptime_seconds": uptime,
             },
             "model": {
                 "active": self.model_active,
@@ -315,7 +295,7 @@ class State:
             "tokens": {
                 "used": self.tokens_used,
             },
-            "health": self.health,
+            "health": self._health_at(uptime),
         }
 
     def to_dict(self) -> Dict:

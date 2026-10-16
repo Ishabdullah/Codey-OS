@@ -13,10 +13,12 @@ compared to the full daemon.
 """
 import asyncio
 import importlib.util
+import os
 import tempfile
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 # _pathutil.py lives at ccos/plugins/_pathutil.py, two levels above this
 # plugin's directory (test.py -> daemon_control/ -> system/ -> plugins/).
@@ -27,6 +29,8 @@ _spec.loader.exec_module(_pathutil)
 _pathutil.ensure_repo_root_on_path()
 
 import core.daemon as daemon_mod
+from core.daemon_config import DaemonPaths
+from core.process_identity import LifecycleRecord
 from core.state import StateStore
 
 from ccos.plugins.system.daemon_control.daemon_control import (
@@ -34,15 +38,16 @@ from ccos.plugins.system.daemon_control.daemon_control import (
     daemon_check_pid_file,
     daemon_get_task,
     daemon_health,
-    daemon_is_running,
     daemon_ping,
     daemon_status,
-    test,
+    daemon_is_running,
+    test as _plugin_self_test,
 )
 
 _TMP_DIR = Path(tempfile.mkdtemp(prefix="daemon_control_plugin_test_"))
 _TEST_SOCKET = _TMP_DIR / "test.sock"
 _TEST_DB = _TMP_DIR / "test_state.db"
+_TEST_PATHS = DaemonPaths(_TMP_DIR / "fixture.pid", _TEST_SOCKET, _TMP_DIR / "fixture.log")
 
 
 class _TestServerThread(threading.Thread):
@@ -58,15 +63,20 @@ class _TestServerThread(threading.Thread):
     def run(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.server = daemon_mod.DaemonServer(self.state)
-        self.loop.run_until_complete(self._start())
+        self.server = daemon_mod.DaemonServer(self.state, paths=_TEST_PATHS)
+        try:
+            self.loop.run_until_complete(self._start())
+        except asyncio.CancelledError:
+            pass  # fixture stop closes serve_forever
+        finally:
+            if self.server.server:
+                self.loop.run_until_complete(self.server.server.wait_closed())
+            self.loop.close()
 
     async def _start(self):
-        from core.daemon import SOCKET_FILE
-
-        SOCKET_FILE.unlink(missing_ok=True)
+        _TEST_SOCKET.unlink(missing_ok=True)
         self.server.server = await asyncio.start_unix_server(
-            self.server._handle_client, path=str(SOCKET_FILE)
+            self.server._handle_client, path=str(_TEST_SOCKET)
         )
         self.server.running = True
         self._ready.set()
@@ -79,8 +89,9 @@ class _TestServerThread(threading.Thread):
 
 
 def _start_test_daemon():
-    """Monkeypatch the module-global SOCKET_FILE to a temp path and start a bare server."""
-    daemon_mod.SOCKET_FILE = _TEST_SOCKET
+    """Start a bare fixture socket server with explicit paths and self identity."""
+    with LifecycleRecord(_TEST_PATHS.pid_file, "codeyOS") as record:
+        record.publish(os.getpid())
     state = StateStore(db_path=_TEST_DB)
     thread = _TestServerThread(state)
     thread.start()
@@ -90,15 +101,18 @@ def _start_test_daemon():
     return thread, state
 
 
+@patch("ccos.plugins.system.daemon_control.daemon_control.resolve_daemon_paths", lambda: _TEST_PATHS)
+@patch.object(daemon_mod, "resolve_daemon_paths", lambda: _TEST_PATHS)
 def test_status_capabilities_without_daemon():
-    # Real environment daemon state — no assumption that it's running.
+    # Explicit disposable paths; no real environment daemon state.
     result = daemon_is_running()
     assert isinstance(result, dict) and "running" in result
     pid_result = daemon_check_pid_file()
     assert isinstance(pid_result, dict) and "running" in pid_result
-    print(f"[PASS] daemon_is_running()={result}, daemon_check_pid_file()={pid_result} against real env state")
+    print(f"[PASS] daemon_is_running()={result}, daemon_check_pid_file()={pid_result} against isolated state")
 
 
+@patch.object(daemon_mod, "resolve_daemon_paths", lambda: _TEST_PATHS)
 def test_socket_capabilities_against_lightweight_test_daemon():
     thread, state = _start_test_daemon()
     try:
@@ -133,11 +147,17 @@ def test_socket_capabilities_against_lightweight_test_daemon():
         print(f"[PASS] daemon_cancel_task({task_id}) -> {cancelled}, cancellation flag set")
     finally:
         thread.stop()
-        daemon_mod.SOCKET_FILE.unlink(missing_ok=True)
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        state.close()
+        _TEST_SOCKET.unlink(missing_ok=True)
+        with LifecycleRecord(_TEST_PATHS.pid_file, "codeyOS") as record:
+            record.cleanup(record.inspect(), current_self=True)
 
 
+@patch("ccos.plugins.system.daemon_control.daemon_control.resolve_daemon_paths", lambda: _TEST_PATHS)
 def test_self_test():
-    result = test()
+    result = _plugin_self_test()
     assert result is True
     print("[PASS] Self-test passed")
 

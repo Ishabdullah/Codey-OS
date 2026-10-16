@@ -16,7 +16,10 @@ from core import daemon, loader_v2, process_identity
 @pytest.fixture
 def daemon_path(tmp_path, monkeypatch):
     path = tmp_path / "codeyOS.pid"
-    monkeypatch.setattr(daemon, "PID_FILE", path)
+    from core.daemon_config import DaemonPaths
+
+    paths = DaemonPaths(path, tmp_path / "codeyOS.sock", tmp_path / "codeyOS.log")
+    monkeypatch.setattr(daemon, "resolve_daemon_paths", lambda: paths)
     monkeypatch.setattr(daemon, "_PID_PUBLICATION", None)
     return path
 

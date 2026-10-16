@@ -7,6 +7,7 @@ Provides defaults for all settings.
 """
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -16,9 +17,6 @@ from utils.config import (CODEY_STATE_DIR, DAEMON_CONFIG_FILE, DAEMON_LOG_FILE,
 # Configuration directory
 CONFIG_DIR = CODEY_STATE_DIR
 CONFIG_FILE = DAEMON_CONFIG_FILE
-
-# Ensure config directory exists
-CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Default configuration
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -118,12 +116,14 @@ class DaemonConfig:
 
     def save(self):
         """Save current configuration to file."""
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_file, "w") as f:
             json.dump(self._config, f, indent=2)
 
     def create_default_config(self) -> Path:
         """Create a default config file if it doesn't exist."""
         if not self.config_file.exists():
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.config_file, "w") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=2)
         return self.config_file
@@ -157,3 +157,27 @@ def create_default_config() -> Path:
     """Create a default config file."""
     config = get_config()
     return config.create_default_config()
+
+
+@dataclass(frozen=True)
+class DaemonPaths:
+    """One effective path snapshot shared by a complete daemon operation."""
+
+    pid_file: Path
+    socket_file: Path
+    log_file: Path
+
+
+def resolve_daemon_paths(config=None):
+    """Read configured daemon paths without creating state directories.
+
+    Absolute custom values remain absolute. Relative values currently retain
+    their existing invoking-cwd interpretation; the product decision on their
+    supported future interpretation remains separately pending.
+    """
+    selected = get_config() if config is None else config
+    return DaemonPaths(
+        pid_file=Path(selected.get("daemon", "pid_file", default=str(DAEMON_PID_FILE))),
+        socket_file=Path(selected.get("daemon", "socket_file", default=str(DAEMON_SOCKET_FILE))),
+        log_file=Path(selected.get("daemon", "log_file", default=str(DAEMON_LOG_FILE))),
+    )

@@ -13,9 +13,9 @@ Of those 7, this plugin wraps 5 as read-only or single-task-scoped
 capabilities: `ping`→`daemon_ping`, `status`→`daemon_status`,
 `health`→`daemon_health`, `task`→`daemon_get_task`,
 `cancel`→`daemon_cancel_task`. It also wraps two functions that are NOT
-socket handlers at all — `daemon_check_pid_file`/`daemon_is_running` call
-`core.daemon`'s `check_pid_file()`/`is_daemon_running()` directly, no
-socket round-trip. 7 capabilities total in this plugin.
+socket handlers at all: `daemon_check_pid_file` inspects bounded identity
+snapshots without mutation; `daemon_is_running` checks verified identity plus
+the configured socket. 7 capabilities total in this plugin.
 
 Two of the 7 handlers are deliberately left unwrapped, for two different
 reasons — don't conflate them:
@@ -93,14 +93,35 @@ from ccos.plugins._pathutil import ensure_repo_root_on_path
 
 ensure_repo_root_on_path()
 
-from core.daemon import check_pid_file as _check_pid_file
+from core.daemon import daemon_health as _daemon_health
+from core.daemon import daemon_ping as _daemon_ping
+from core.daemon import daemon_status as _daemon_status
 from core.daemon import is_daemon_running as _is_daemon_running
 from core.daemon import send_command
+from core.daemon_config import resolve_daemon_paths
+from core.process_identity import DEAD, RUNNING, inspect_record
 
 
 def daemon_check_pid_file() -> dict:
-    """Read-only: whether a daemon PID file indicates another instance is running."""
-    return {"running": _check_pid_file()}
+    """Read-only identity status: running is None when identity is unknown."""
+    observed = inspect_record(resolve_daemon_paths().pid_file, "codeyOS")
+    running = True if observed.state == RUNNING else False if observed.state == DEAD else None
+    return {"running": running, "state": observed.state}
+
+
+def daemon_ping() -> dict:
+    """Return the existing daemon ping RPC response or propagate its error."""
+    return _daemon_ping()
+
+
+def daemon_status() -> dict:
+    """Return the existing daemon status RPC response or propagate its error."""
+    return _daemon_status()
+
+
+def daemon_health() -> dict:
+    """Return the existing daemon health RPC response or propagate its error."""
+    return _daemon_health()
 
 
 def daemon_is_running() -> dict:

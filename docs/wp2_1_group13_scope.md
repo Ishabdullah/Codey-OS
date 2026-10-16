@@ -661,3 +661,215 @@ the stable-anchor paragraphs/tests describe option B only, not approved scope.
 Keep dependent relative-path implementation pending Ish's answer. 13e and
 absolute-path/identity mechanics remain independently actionable. Do not silently
 rewrite deployment path semantics or choose a migration policy in implementation.
+
+
+## 13c.2b — Publication failure must retain real ownership
+
+Problem: after a shell spawns $!, record failure followed by return/lock release
+can leave an unrecorded service. Restoricon/Cloudflare have no orphan scan, so
+later start can duplicate it. Bash may already reap a short-lived $! and permit
+PID reuse: captured integer plus late kill is not a safe cleanup capability.
+No product fork: retain ownership only of the process this launcher spawned.
+
+Selected mechanism: extend the stdlib process_identity CLI with an internal
+owned-spawn operation. The helper itself Popen-spawns the service while holding
+the launcher's validated inherited lifecycle lock, then publishes that owned
+child (normal publish direct-child proof, no adopt/discover). It retains the
+Popen throughout publication/startup checking and failure cleanup. A real owned
+Popen can poll/wait/reap its child; it does not depend on Bash's already-reaped
+integer. Do not simply add late record-then-kill around old shell $! paths.
+
+Finite service mechanics supply argv as a list, cwd, append-log destination and
+existing service environment. No shell=True or command-text interpolation. Keep
+HUP resistance/session behavior explicitly compatible with the existing nohup
+launch; close every lifecycle/ready FD in the service child. Do not modify its
+credentials, PATH, configured ports or args. No command/secret argv may be
+printed into protocol, diagnostics or audit. The helper is process mechanics;
+13d supplies the complete-operation authority/audit envelope.
+
+### Ownership/cleanup outcomes
+
+Before Popen succeeds, any failure is a no-child failure. After Popen succeeds,
+any exception (record write, snapshot/proc failure, startup observation, log
+handling, ordinary interruption) must converge through owned cleanup. Retain
+the child handle before any post-spawn operation can throw. Poll before signal;
+TERM + bounded wait, KILL + bounded final wait. Only confirmed exit AND reap
+allows the failed launch to finish with no retained ownership. Never signal a
+PID read from a record, adopt an old process or expand to a process group not
+created/owned by this launch. A replaced record is preserved independently of
+owned-child cleanup.
+
+Successful publish plus bounded current liveness check emits published PID and
+returns success; failure emits failure only after cleanup, or explicit retained-
+guardian failure below. Service startup timing stays bounded as today; recorded
+and still alive is not proof its application health/API is ready. Daemon may be
+blocked in its own check_pid_file until outer launch lock release, so do not
+wait for its application readiness under this lock.
+
+If kill/wait remains unconfirmed, do NOT drop the Popen, exit the helper or close
+its inherited lock. Retain an explicit failed-launch guardian process holding
+that exact lifecycle lock/open-description until owned child is confirmed exited
+and reaped. Guardian can periodically observe/retry bounded owned cleanup; no
+new service spawn, orphan discovery or arbitrary recovery. Avoid a busy loop or
+unbounded output. Signal/interrupt handling must preserve ownership/lock or
+complete owned cleanup, not silently release them while the child survives.
+A forced SIGKILL/host crash can defeat in-memory fallback; disclose this limit.
+When all filesystem writes fail no implementation can promise durable markers.
+Existing lock inode must never be replaced or unlinked as a recovery shortcut.
+
+### Private readiness channel and shell handoff
+
+Use a private pipe FD, never public stdout framing/eval or a disk file that may
+be unwritable. Exactly one bounded machine result after startup/cleanup decision:
+published <child_pid>; failed-cleanup-confirmed; or retained <guardian_pid>
+<child_pid>. Require strict result grammar and valid positive PIDs; protocol
+contents are diagnostic, never authority to signal. Child stdout/stderr remain
+append-log streams, no pipe inheritance. Ready FD closes after sending; guardian
+must not hold it open while waiting for its child.
+
+Shell function holds lifecycle FD while reading result. On published, wait for
+successful helper completion, then release outer lock and return success. On
+failed-cleanup-confirmed, wait helper completion and return failure. On retained,
+return failure with an explicit retained-ownership/lock-contended diagnostic;
+DO NOT wait forever for guardian. Shell closes its FD, but helper retains same
+open-description lock. Future start/stop/status use bounded/nonblocking lock
+acquisition and report contended/unsafe; no duplicate service or false stopped
+success. No public flag/environment variable may skip lock or publication.
+A Bash process-substitution/coproc pipe is acceptable; do not use a pipeline
+that loses status, `$!` meaning or closes the helper's required lock FD. Helper
+owns actual service Popen, so direct-child proof does not depend on pipe-shell
+parentage. Keep guardian service PID and its own PID distinct in diagnostics.
+
+EOF/crash before a valid ready result is failure, not permission to release and
+retry blindly: inspect whether the helper still owns the lock, report unsafe
+state, and retain the parent lock while resolving a still-live helper. Normal
+exceptions must send one of the defined outcomes; unavoidable process crash
+limits remain explicit rather than claimed solved. Do not introduce a second
+spawn fallback. This contract is not a full general-purpose daemon supervisor.
+
+### Callsite coverage and verification
+
+Use owned-spawn helper for all shared service spawn sites: Restoricon, Aigentik,
+Litestream, Cloudflare, document backup, and codeydOS daemon launcher. Existing
+identity setup on daemon self-publication remains idempotent. Model loader has
+its own Popen/NEW-956 retention path and is NOT migrated into this shell helper.
+Preserve fd200 close invariant, log paths, argv quoting, actual cwd/env, selected
+state root, config path resolution and no-automatic-kill orphan diagnostics.
+Keep relative custom-path choice pending Ish; this mechanism needs no answer.
+
+Mandatory before running old tests: audit synthetic PID fixtures and partial
+subprocess/helper mocks (NEW-957). Use fully mocked identity/owned-spawn calls
+or exact retained disposable Popen handles; never signal a test-looking number.
+
+Unit/fake-child cases: Popen failure; identity/proc failure before publish;
+first/second record-file write failure; log error; replaced record; publication
+failure then TERM success; ignored TERM then KILL/reap; KILL/wait failure retains
+handle+lock/guardian and returns failed readiness; retry confirms exit/releases
+lock; service child inherits no lock/ready FD; malformed/EOF readiness never
+starts a second service. Assert every service wrapper uses this contract.
+
+Disposable real children: normal publication; forced metadata-write failure
+with successful owned cleanup (no child remains); TERM-ignoring child KILL/reap;
+controlled retained-guardian case verifies a competing launch cannot acquire
+lock/spawn, then lets owned cleanup finish and confirms lock release. Failure
+injection is via test monkeypatch/harness, not a production unsafe bypass flag.
+Fixtures retain exact helper/child handles and finally-cleanup; no real services,
+models, package installs or live roots. Reviewer verifies stdout/argv secrecy,
+return propagation, daemon lock handoff and all post-Popen exception paths.
+
+
+## 13c.2a bounded additions — NEW-960/NEW-961 daemon_control public contract
+
+Actual artifact read: daemon_control.py exports check/is_running/get_task/cancel
+plus self-test, while manifest and doc promise ping/status/health too. Its PID
+wrapper calls the mutating startup check: creates lock/root, cleans dead records,
+reports unsafe as True and its own identity as False. These names are absent
+from CAPABILITY_AUTHORITY, so normal CCOS dispatch refuses them; no live agent
+activation or new authority classification is authorized here.
+
+Close within Python consumer reconciliation, not defer: expose a genuinely
+read-only identity inspector distinct from startup duplicate prevention. It
+reads bounded no-follow snapshots plus proc identity, checks a stable pair
+(double snapshot or existing noncreating read lock); absent root remains absent,
+no mkdir/lock creation/cleanup/signals. Share underlying inspection logic where
+practical, but do not weaken lifecycle-mutator lock checks. An unstable/missing
+pair or inaccessible identity is unsafe, not dead or verified running. Status
+results confer no signal/start authority and can become stale after return.
+
+Plugin daemon_check_pid_file uses effective resolved PID path and that inspector.
+Verified identity for current process is RUNNING (startup's own-PID exception is
+irrelevant to status). Return running True for verified running, False for
+confirmed absent-dead, and an explicitly documented unknown (e.g. None) plus
+state unsafe-unverifiable for unsafe; never mislabel startup-blocked as running.
+Preserve dictionary shape and self-test's running key. Manifest description must
+stop claiming READ self-healing removes stale PID files. No authority-table or
+permissions additions and no newly exposed shutdown/command/release handler.
+
+Implement the three already-promised plugin functions daemon_ping/status/health
+as thin wrappers over existing core.daemon RPC helpers (private aliases avoid
+name shadowing). Preserve response/exception contracts. Test the public plugin
+exports, not replacement imports from core.daemon. Existing modified test.py
+currently imports these3 directly from core, masking the missing plugin API;
+change it to real public plugin imports after implementing wrappers.
+
+Pin every manifest implementation symbol to an actual callable in the plugin;
+keep all seven capability names unchanged. Use existing lightweight DaemonServer
+fixture socket/temp StateStore to exercise public ping/status/health/task/cancel.
+No full Daemon/model startup. Replace real-environment PID/status self-tests with
+isolated path fixtures: own process identity => True; absent root => False and
+root remains absent; legacy-live/malformed/mismatch => explicit unknown and
+identical file snapshots afterward. Missing wrapper mutation breaks collection/
+public-symbol test; substituting startup guard breaks nonmutation/self tests.
+Normal call_capability remains unclassified-refused before and after this fix.
+No real daemon/live-store writes. Mandatory reviewer coverage of public contract.
+
+
+## 13c.2a NEW-960 class closure — main.py status versus startup guard
+
+Reviewer/source follow-up confirmed main._daemon_is_running still calls the
+startup-mutating check_pid_file. Its missing-record result False creates a
+lifecycle lock; malformed record returns True and is mislabeled running. Actual
+callers are gate recovery and shutdown. Complete the same Python-consumer class
+now, rather than defer this known instance to final census.
+
+Change helper to existing pure core.daemon.is_daemon_running, which verifies
+identity plus socket reachability. Unsafe means False for RPC coordination only;
+it never supplies startup permission. Gate-recovery diagnostic must say no
+verified reachable daemon is available, not assert no process exists. Shutdown
+must not skip owned-model cleanup merely because a malformed record would block
+startup. main --daemon delegates to core.daemon.main, sharing its single resolved
+config/path snapshot. Core startup blocked diagnostic must describe a running
+daemon OR unsafe/unverifiable record, rather than claim every block is already
+running; remove nonexistent --daemon-stop advice. No capability classification
+or adopted-process policy change.
+
+Tests: missing root helper False creates nothing; malformed/legacy live False
+preserves records/no socket connect; verified identity plus disposable socket
+True; gate recovery no RPC for unverified; shutdown still calls owned cleanup
+on unsafe state; --daemon delegates once; shared core entry passes identical
+config/paths to guard and Daemon constructor; blocked startup never constructs/
+runs Daemon; diagnostic contains no unsupported flag. Use isolated state before
+imports and fake Daemon.run (no model); mandatory reviewer re-review after change.
+
+
+## 13c.2a verification scope correction after isolated import diagnostic
+
+Initial combined fresh import/READ missing-root assertion failed; buffered raw
+child/RAM evidence was unavailable. Preserve that initial report separately.
+New isolated diagnostic confirms daemon_config/stdidentity imports remain
+write-free, core.daemon/plugin import creates the state directory through
+core.state bootstrap, and main imports initialize fixed StateStore schema via
+EpisodicMemory. Subsequent READ functions leave snapshots unchanged. Architect
+accepted these observed effects under the existing group 12 schema-initialization
+contract, not a new general import exemption. No lazy-import repair is required
+for this bounded slice. Resumed verification compares READ effects after stated
+bootstrap and tests actual configured-path UDS clients. It cannot reconstruct
+the initial failed run's missing output or prove its precise cause. Preserve
+these distinctions in the final census.
+
+13c.2b readiness clarification: broken/EOF readiness while the actual helper
+job remains alive retains the outer lock and waits for that owned helper job's
+cleanup completion. Never signal a captured numeric helper PID or auto-spawn a
+replacement. Normal valid retained-guardian status may return bounded failure
+while the helper keeps the same lock and child ownership. Forced crash limits
+remain explicit.

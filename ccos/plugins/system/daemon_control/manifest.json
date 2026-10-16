@@ -7,7 +7,7 @@
   "capabilities": [
     {
       "name": "system.daemon_check_pid_file",
-      "description": "Read-only: check whether a daemon PID file indicates another daemon instance is running (self-healing: removes a stale PID file if the process is dead)",
+      "description": "Read-only verified daemon identity status: running true for verified identity, false for absent/dead, null for unknown/unverifiable; preserves all records",
       "implementation": "daemon_control:daemon_check_pid_file",
       "category": "system",
       "dependencies": [],

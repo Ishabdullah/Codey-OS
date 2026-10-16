@@ -3130,6 +3130,15 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > operation audit) remain open**. NEW-959 records supported custom daemon
 > PID/socket/log path mismatch, scoped for shared resolution in 13c.2;
 > relative-path compatibility choice surfaced to Ish and remains pending.
+> **13c.2a Python consumers are code-complete, reviewer APPROVED and
+> resumed disposable-UDS verified**: shared effective paths/startup snapshot,
+> pure identity READ, truthful plugin/CLI coordination and restored advertised
+> handlers (NEW-960/961 fixed). NEW-959 remains Python-only partial; shells
+> and relative-path decision remain open. Frozen selected 291 passed;
+> coordinator new suite 35 passed; actual temporary RPC/plugin/observability
+> checks PASS. Initial failed broad import expectation and separate diagnostic
+> preserved: fixed schema/bootstrap imports remain group 12 mechanics;
+> no blanket write-free app-import claim or new authority enablement.
 > **13e is code-complete, source reviewer APPROVED after two rounds and
 > independently disposable-process verified** (High NEW-956): owned
 > stop/reap confirmation, retained failed cleanup/accounting, immediate

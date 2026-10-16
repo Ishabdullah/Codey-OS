@@ -150,6 +150,27 @@ class Inspection:
     legacy: bool = False
 
 
+def _inspect_pair(pid_record, identity_record, service, proc_root, *, require_identity=False):
+    if pid_record is None:
+        return Inspection(DEAD) if identity_record is None else Inspection(UNSAFE)
+    pid = parse_pid(pid_record.data)
+    identity = parse_identity(identity_record.data, service) if identity_record else None
+    if identity is not None and identity["pid"] != pid:
+        return Inspection(UNSAFE)
+    if identity is None and require_identity:
+        return Inspection(UNSAFE)
+    current = process_info(pid, proc_root)
+    if identity is None:
+        state = DEAD if current is None or current["state"] in ("Z", "X", "x") else UNSAFE
+        return Inspection(state, None, pid_record, None, legacy=True)
+    if current is None:
+        return Inspection(DEAD, identity, pid_record, identity_record)
+    if any(current[key] != identity[key] for key in ("pid", "boot_id", "start_ticks", "uid")):
+        return Inspection(UNSAFE)
+    state = DEAD if current["state"] in ("Z", "X", "x") else RUNNING
+    return Inspection(state, identity, pid_record, identity_record)
+
+
 class LifecycleRecord:
     """One stable flock context. No skip-lock mode is available.
 
@@ -210,22 +231,7 @@ class LifecycleRecord:
             self._check_lock()
             pid_record = _read(self.path, 32)
             identity_record = _read(self.identity_path, 2048)
-            if pid_record is None:
-                return Inspection(DEAD) if identity_record is None else Inspection(UNSAFE)
-            pid = parse_pid(pid_record.data)
-            identity = parse_identity(identity_record.data, self.service) if identity_record else None
-            if identity is not None and identity["pid"] != pid:
-                return Inspection(UNSAFE)
-            current = process_info(pid, self.proc_root)
-            if identity is None:
-                state = DEAD if current is None or current["state"] in ("Z", "X", "x") else UNSAFE
-                return Inspection(state, None, pid_record, None, legacy=True)
-            if current is None:
-                return Inspection(DEAD, identity, pid_record, identity_record)
-            if any(current[key] != identity[key] for key in ("pid", "boot_id", "start_ticks", "uid")):
-                return Inspection(UNSAFE)
-            state = DEAD if current["state"] in ("Z", "X", "x") else RUNNING
-            return Inspection(state, identity, pid_record, identity_record)
+            return _inspect_pair(pid_record, identity_record, self.service, self.proc_root)
         except (UnsafeRecord, OSError):
             return Inspection(UNSAFE)
 
@@ -372,6 +378,24 @@ class LifecycleRecord:
         return UNSAFE
 
 
+def inspect_record(pid_file, service):
+    """Read bounded stable snapshots without mkdir, locks, cleanup or signals.
+
+    A missing identity partner or concurrent replacement is unsafe. The result
+    supplies no startup/signal authority and can become stale after return.
+    Lifecycle mutations still hold their own lock and revalidate independently.
+    """
+    try:
+        record = LifecycleRecord(pid_file, service)  # validates names; never enters a lock
+        pair = (_read(record.path, 32), _read(record.identity_path, 2048))
+        observed = _inspect_pair(*pair, service, record.proc_root, require_identity=True)
+        if pair != (_read(record.path, 32), _read(record.identity_path, 2048)):
+            return Inspection(UNSAFE)
+        return observed
+    except (OSError, UnsafeRecord):
+        return Inspection(UNSAFE)
+
+
 def _pid_argument(text):
     try:
         return parse_pid(text.encode("ascii"))
@@ -391,18 +415,21 @@ def main(argv=None):
     args = parser.parse_args(argv)
     result = UNSAFE
     try:
-        with LifecycleRecord(args.pid_file, args.service, lock_fd=args.lock_fd) as record:
-            if args.operation == "record":
-                record.publish(args.pid, launcher_parent=os.getppid())
-                result = RUNNING
-            elif args.operation == "inspect":
-                result = record.inspect().state
-            elif args.operation == "cleanup":
-                result = DEAD if record.cleanup() else UNSAFE
-            elif args.operation == "signal":
-                result = record.signal(getattr(signal, "SIG" + args.signal))
-            else:
-                result = record.stop(args.timeout)
+        if args.operation == "inspect" and args.lock_fd is None:
+            result = inspect_record(args.pid_file, args.service).state
+        else:
+            with LifecycleRecord(args.pid_file, args.service, lock_fd=args.lock_fd) as record:
+                if args.operation == "record":
+                    record.publish(args.pid, launcher_parent=os.getppid())
+                    result = RUNNING
+                elif args.operation == "inspect":
+                    result = record.inspect().state
+                elif args.operation == "cleanup":
+                    result = DEAD if record.cleanup() else UNSAFE
+                elif args.operation == "signal":
+                    result = record.signal(getattr(signal, "SIG" + args.signal))
+                else:
+                    result = record.stop(args.timeout)
     except (OSError, UnsafeRecord):
         result = UNSAFE
     print(result)

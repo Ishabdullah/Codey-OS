@@ -23,10 +23,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from core.daemon_config import get_config
+from core.daemon_config import get_config, resolve_daemon_paths
 from core.state import StateStore, get_state_store
 from core.task_executor import TaskExecutor, emit_task_timeout_correction
-from utils.config import CODEY_STATE_DIR, DAEMON_LOG_FILE, DAEMON_PID_FILE, DAEMON_SOCKET_FILE
+from utils.config import CODEY_STATE_DIR
 from utils.logger import (error, info, set_log_level, setup_file_logging,
                           warning)
 
@@ -94,16 +94,9 @@ _DEFERRAL_STATE_MAX_ENTRIES = 256
 
 # ==================== Configuration ====================
 
-# Daemon directory — defined at module level so check_pid_file / is_daemon_running
-# can use it without triggering a full Daemon init.
+# State directory creation belongs to actual daemon startup. Path consumers
+# use the configured resolver without constructing a daemon.
 DAEMON_DIR = CODEY_STATE_DIR
-
-# Stable path constants with hardcoded defaults.
-# These may be overridden when Daemon.__init__ reads the config file.
-PID_FILE = DAEMON_PID_FILE
-SOCKET_FILE = DAEMON_SOCKET_FILE
-LOG_FILE = DAEMON_LOG_FILE
-
 
 # ==================== PID File Management ====================
 
@@ -111,12 +104,12 @@ LOG_FILE = DAEMON_LOG_FILE
 _PID_PUBLICATION = None
 
 
-def check_pid_file() -> bool:
+def check_pid_file(paths=None) -> bool:
     """Block duplicate startup on verified-live or unsafe process evidence."""
     from core.process_identity import DEAD, LifecycleRecord, UnsafeRecord
 
     try:
-        with LifecycleRecord(PID_FILE, "codeyOS") as record:
+        with LifecycleRecord((paths or resolve_daemon_paths()).pid_file, "codeyOS") as record:
             # codeydOS publishes/prewrites this very process before Python
             # starts. Its own PID must never be mistaken for a duplicate.
             if record.is_current_self_record():
@@ -130,12 +123,12 @@ def check_pid_file() -> bool:
         return True
 
 
-def write_pid_file():
+def write_pid_file(paths=None):
     """Publish this daemon's own durable identity under the stable lock."""
     from core.process_identity import LifecycleRecord
 
     global _PID_PUBLICATION
-    path = Path(PID_FILE)
+    path = (paths or resolve_daemon_paths()).pid_file
     with LifecycleRecord(path, "codeyOS") as record:
         _PID_PUBLICATION = (path, record.publish(os.getpid()))
 
@@ -172,7 +165,8 @@ class DaemonServer:
     to appropriate handlers.
     """
 
-    def __init__(self, state: StateStore):
+    def __init__(self, state: StateStore, paths=None):
+        self.paths = paths or resolve_daemon_paths()
         self.state = state
         self.server: Optional[asyncio.Server] = None
         self.running = False
@@ -701,15 +695,15 @@ class DaemonServer:
     async def start(self):
         """Start the socket server."""
         # Remove old socket file if exists
-        SOCKET_FILE.unlink(missing_ok=True)
+        self.paths.socket_file.unlink(missing_ok=True)
 
-        self.server = await asyncio.start_unix_server(self._handle_client, path=str(SOCKET_FILE))
+        self.server = await asyncio.start_unix_server(self._handle_client, path=str(self.paths.socket_file))
 
         # Set socket permissions (user only)
-        os.chmod(SOCKET_FILE, 0o600)
+        os.chmod(self.paths.socket_file, 0o600)
 
         self.running = True
-        info(f"Daemon listening on {SOCKET_FILE}")
+        info(f"Daemon listening on {self.paths.socket_file}")
 
         async with self.server:
             await self.server.serve_forever()
@@ -720,7 +714,7 @@ class DaemonServer:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
-        SOCKET_FILE.unlink(missing_ok=True)
+        self.paths.socket_file.unlink(missing_ok=True)
         info("Daemon socket stopped")
 
 
@@ -859,31 +853,20 @@ class Daemon:
     Manages the event loop, signal handlers, and socket server.
     """
 
-    def __init__(self):
-        global PID_FILE, SOCKET_FILE, LOG_FILE
-
-        # Load config and apply logging — done here, not at module level,
-        # so importing core.daemon for CLI helpers doesn't trigger side effects.
-        self._config = get_config()
+    def __init__(self, config=None, paths=None):
+        # Snapshot once before duplicate check/startup; importing helpers is
+        # read-only and does not create the default state root.
+        self._config = get_config() if config is None else config
+        self.paths = paths or resolve_daemon_paths(self._config)
         DAEMON_DIR.mkdir(parents=True, exist_ok=True)
-
+        self.paths.socket_file.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.log_file.parent.mkdir(parents=True, exist_ok=True)
         log_level = self._config.get("daemon", "log_level", default="INFO")
         set_log_level(log_level)
-
-        log_file_path = self._config.get("daemon", "log_file", default=str(LOG_FILE))
-        setup_file_logging(log_file_path)
-
-        # Override path constants from config so all other functions see them.
-        PID_FILE = Path(
-            self._config.get("daemon", "pid_file", default=str(DAEMON_PID_FILE))
-        )
-        SOCKET_FILE = Path(
-            self._config.get("daemon", "socket_file", default=str(DAEMON_SOCKET_FILE))
-        )
-        LOG_FILE = Path(log_file_path)
+        setup_file_logging(str(self.paths.log_file))
 
         self.state = get_state_store()
-        self.server = DaemonServer(self.state)
+        self.server = DaemonServer(self.state, paths=self.paths)
         self.executor = TaskExecutor(self.state, self._config)
         from core.planner_v2 import get_planner
 
@@ -2153,7 +2136,7 @@ class Daemon:
 
     def run(self):
         """Run the daemon."""
-        write_pid_file()
+        write_pid_file(self.paths)
         info(f"Daemon PID: {os.getpid()}")
 
         try:
@@ -2167,31 +2150,39 @@ class Daemon:
 # ==================== CLI Functions ====================
 
 
-def is_daemon_running() -> bool:
-    """Check if daemon is running by testing socket."""
-    if not SOCKET_FILE.exists():
+def is_daemon_running(paths=None) -> bool:
+    """Require verified daemon identity and a reachable configured socket."""
+    from core.process_identity import RUNNING, inspect_record
+
+    paths = paths or resolve_daemon_paths()
+    if inspect_record(paths.pid_file, "codeyOS").state != RUNNING or not paths.socket_file.exists():
         return False
 
     try:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(1.0)
-        sock.connect(str(SOCKET_FILE))
+        sock.connect(str(paths.socket_file))
         sock.close()
         return True
     except (socket.error, OSError):
         return False
 
 
-def send_command(cmd: str, data: Dict = None, timeout: float = 60.0) -> Dict:
-    """Send a command to the daemon via socket."""
-    if not SOCKET_FILE.exists():
+def send_command(cmd: str, data: Dict = None, timeout: float = 60.0, *, paths=None) -> Dict:
+    """Send to the configured socket only for a verified recorded daemon."""
+    from core.process_identity import RUNNING, inspect_record
+
+    paths = paths or resolve_daemon_paths()
+    if inspect_record(paths.pid_file, "codeyOS").state != RUNNING:
+        raise ConnectionError("Daemon identity unavailable or unverified")
+    if not paths.socket_file.exists():
         raise ConnectionError("Daemon socket not found. Is the daemon running?")
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
 
     try:
-        sock.connect(str(SOCKET_FILE))
+        sock.connect(str(paths.socket_file))
 
         # Send request
         request = {"cmd": cmd, "data": data or {}}
@@ -2305,11 +2296,13 @@ def daemon_ping() -> Dict:
 
 def main():
     """Main entry point for daemon."""
-    if check_pid_file():
-        error("Daemon is already running")
+    config = get_config()
+    paths = resolve_daemon_paths(config)
+    if check_pid_file(paths):
+        error("Daemon startup blocked by a running daemon or unsafe/unverifiable process record")
         sys.exit(1)
 
-    daemon = Daemon()
+    daemon = Daemon(config=config, paths=paths)
     daemon.run()
 
 

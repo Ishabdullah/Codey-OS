@@ -143,11 +143,14 @@ def apply_overrides(args):
 
 
 def _daemon_is_running() -> bool:
-    """Check if the daemon is running (PID file check)."""
-    try:
-        from core.daemon import check_pid_file
+    """Coordinate only with a verified daemon reachable at its socket.
 
-        return check_pid_file()
+    False is not startup permission; daemon startup uses its own locked guard.
+    """
+    try:
+        from core.daemon import is_daemon_running
+
+        return is_daemon_running()
     except Exception:
         return False
 
@@ -204,7 +207,7 @@ def _load_primary_with_gate_recovery(loader) -> bool:
 
     if not _daemon_is_running():
         error(
-            "Resource gate denied the model load and no daemon is running "
+            "Resource gate denied the model load and no verified reachable daemon is available "
             f"to free a slot: {original_reason}"
         )
         return False
@@ -2115,14 +2118,10 @@ def main():
 
     # Daemon mode (v2 feature)
     if args.daemon:
-        from core.daemon import Daemon, check_pid_file
+        from core.daemon import main as daemon_main
 
-        if check_pid_file():
-            error("Daemon is already running. Use --daemon-stop to shut it down.")
-            sys.exit(1)
         info("Starting Codey-OS daemon mode...")
-        daemon = Daemon()
-        daemon.run()
+        daemon_main()
         return
 
     if args.clear_session:

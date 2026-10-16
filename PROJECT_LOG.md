@@ -1,3 +1,33 @@
+## 2026-10-15 — WP2.1 13c.2a Python effective paths and truthful READ consumers (NEW-960/961 fixed; NEW-959 partial)
+
+**Change:** one frozen config/path snapshot before duplicate checking through daemon construction/publication/socket startup; fresh Python clients and observability resolve configured paths. Config imports no longer mkdir; actual config writes create their parent. Pure identity inspection uses stable bounded no-follow snapshots, creates no locks/directories and grants no mutation authority. Public plugin PID state is True/False/explicit unknown rather than startup-permission semantics; three advertised RPC handlers now exist. All seven manifest symbols are callable; existing unclassified capability refusal is unchanged.
+
+**Class closure/review:** first source approval identified the same mutating startup-guard misuse in main._daemon_is_running. Architect extended the slice; implementer replaced it with verified reachable RPC coordination, delegated --daemon to shared startup and corrected false already-running/unsupported-stop advice. Mandatory reviewer re-reviewed and APPROVED. NEW-959 is Python-only partial: custom absolute paths agree; shell migration remains next and relative-path direction is pending Ish, with existing semantics unchanged.
+
+```text
+final frozen selected regression: 291 passed in 15.10s
+new effective-path/status/main suite plus safety guard: 36 passed in 2.25s
+coordinator new suite: 35 passed in 1.29s
+reviewer independent checks: 163 passed in 5.16s
+focused lint and full new-test lint: All checks passed!
+git diff --check: no output
+Finally cleanup: UDS closed/unlinked; event-loop thread joined; self identity removed; temporary SQLite closed
+```
+
+**Verification correction:** initial combined fresh-import/READ assertion failed before socket fixtures, but the harness lost buffered child/RAM output. `docs/wp2_1_group13c2a_live_verification.md` preserves that FAIL/uncertainty. Separate literal diagnostic (`..._import_diagnostic.md`) shows resolver/stdidentity imports create nothing; daemon/plugin imports create an empty state directory, main initializes fixed SQLite schema, and subsequent reads add no files. Architect traced these to the already-declared group 12 fixed-schema/bootstrap mechanism; no blanket import exception/new security finding. The diagnostic does not reconstruct or prove the precise initial cause.
+
+**Independent resumed PASS:** `docs/wp2_1_group13c2a_live_resumed.md` verifies bytes/inode/mtime unchanged by plugin/CLI reads after documented bootstrap, explicit unknown/False and zero socket creation on unsafe records, custom absolute PID/socket/log paths with spaces, self-identity status/startup distinction, fresh configured RPC client, actual public ping/status/health/task/list/cancel over temporary UDS/SQLite, and observability PID/mtime. Only bare DaemonServer handlers ran; full Daemon/model startup, global log setup and shell migration were not tested. All temporary resources closed/removed, no models/existing services/external network/live stores. Startup-before-construction is unit-only.
+
+Next: owned-spawn/private readiness/failure guardian mechanism (13c.2b.1), all shell consumers/client/composites (13c.2b.2), complete-operation audit 13d, then groups 14/15. Initial verification artifacts and NEW-957 history remain intact; full WP2.1 DoD stays open.
+
+---
+
+## 2026-10-15 — WP2.1 13c.2a caller trace: daemon adapter READ misuse and missing handlers (NEW-960/961)
+
+Implementer traced existing daemon plugin fixtures while wiring effective paths; coordinator confirmed two distinct pre-existing findings against source. READ PID capability calls the startup guard, which mutates dead-record state and returns duplicate-start semantics (self False, unsafe True), mislabeled as running. Manifest/docstring also promise three socket wrappers absent from the actual module, causing dormant test collection failure. Core helpers exist. NEW-960/961 logged; architect requested bounded disposition before plugin changes. Tests must not be rewritten to exercise core while claiming advertised plugin handlers fixed. Normal CCOS dispatch remains unclassified/refused; no authority change is implied. No live daemon/process action. Independent resolver implementation continues.
+
+---
+
 ## 2026-10-15 — WP2.1 13e: High model teardown/accounting defect NEW-956 fixed, two-round approval and disposable-process PASS
 
 **Change:** owned stop confirms/reaps after TERM or KILL and retains ownership/evidence on uncertainty. Loader retains child/reservation/cleanup state, refuses replacement while unresolved, binds the PENDING reservation immediately after actual spawn, and handles failed binding/resident marking/release truthfully. Both resource reapers preserve explicitly marked PENDING child reservations on ambiguous PID permissions without health-based premature release. Residency clears the marker; physical RAM ceiling/admission arithmetic is unchanged (MemTotal only, no swap/zram). Existing adopted-process authority is unchanged.
