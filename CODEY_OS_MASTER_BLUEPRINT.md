@@ -3149,7 +3149,19 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > fixture children/nine parent helper+innocent handles reaped. Fixture cleanup
 > backstop corrected before approval. Application readiness/production CLI OS
 > exit mapping and installed shell integration are outside the live harness.
-> Next b.2 wires every consumer; no shell/audit closure is implied by b.1.
+> **13c.2b.2 private parent mechanics are code-complete, source reviewer
+> APPROVED after trap-restoration correction and resumed disposable-process
+> verified**: safe finite lock-exec, actual coprocess job/FD handoff, whole-pipe
+> bounded readiness, guardian shared-lock preservation and finite path data.
+> Production selected 227 passed; test-only complete-marker correction 44 passed.
+> Initial harness marker-read FAIL preserved; separate resumed PASS with all
+> fixture handles reaped. Public consumers are unchanged: b.3 wires all six
+> services/model/client/composites; NEW-962/963 remain open and no operation
+> audit closure is implied. Relative configured-path choice remains pending.
+> **13f now scoped, NEW-964 High open:** embed stop/replacement can lose live
+> owned handle/accounting/singleton. Pinned fake-only proof and narrow repair
+> preserve accounted-but-exempt policy; no admission gate or adopted kill
+> authority added. Repair/review/disposable verification required before closing13.
 > **13e is code-complete, source reviewer APPROVED after two rounds and
 > independently disposable-process verified** (High NEW-956): owned
 > stop/reap confirmation, retained failed cleanup/accounting, immediate
@@ -3162,7 +3174,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > Real admission/failed-load/model RAM paths are unit-only, no model load.
 > NEW-957 records the 13c.1 placeholder-PID incident (exact signal issuance
 > unknown); reviewed guards prevent recurrence without rewriting history.
-> Next 13c.2 then 13d; groups 14/15 follow. Ownership repairs alone do not
+> Next 13c.2b.3, 13f and 13d; groups 14/15 follow. Ownership repairs alone do not
 > close operation audit coverage; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**

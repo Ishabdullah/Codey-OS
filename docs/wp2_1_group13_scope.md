@@ -990,3 +990,201 @@ returns failure (proves no flock-u); rapid published/failed helper exit; broken
 ready pipe resolves via actual job; all six launch sites exercise helper;
 malformed-config warning cannot corrupt finite path data; Litestream setup and
 secrets backup stubs were used, with explicit proof no real command escaped.
+
+
+## Consumer implementation sequence refinement — 2026-10-16
+
+Coordinator accepted this bounded decomposition after b.1 committed/pushed
+cdd580d. It supersedes any implication that the entire consumer handoff must be
+one implementation/review round; historical source/probe records remain intact.
+
+- 13c.2b.2: safe finite lock-exec adapter, shared-parser private readiness/job
+  handoff, finite daemon-path data channel, and fixed sourced private mechanics
+  library. NO public entrypoint migration or claim of legacy-consumer repair.
+- 13c.2b.3: migrate all six complete start/stop pairs, daemon reload/restart,
+  codeyOS inspection and composite/public shell consumers together, with fixture
+  side-effect isolation and independent disposable-process verification.
+
+NEW-962/NEW-963 remain open until b.3 consumers are actually migrated/reviewed/
+verified; b.2 is infrastructure only. Each round follows implementer -> reviewer
+approval before commit and required live-fixture verification. The finite private
+core-mechanics convention is unchanged: no public --internal option, no env
+skip-lock/skip-audit switch, no caller-supplied approval/bypass token, no arbitrary
+command/function selector in the adapter. Actual inherited FDs are validated,
+not treated as self-attested authority. Public whole-operation gateway coverage
+remains 13d; private mechanics cannot be reported as providing that envelope.
+Ish's relative configured-path choice remains pending. No new product decision
+or change to accepted trust boundaries follows from this execution split.
+
+
+## 13f — Owned embedding teardown/replacement (NEW-964 proposed)
+
+Independent scope, 2026-10-16. Ledger checked through NEW-963; no NEW-964 header
+present at inspection. Coordinator allocates/logs NEW-964 separately. Confirmed
+High lifecycle defect; same class as NEW-956 but NEW-956 repaired primary loader
+only, not this module. Do not retrospectively mark embed covered by that repair.
+Group13's earlier subordinate-mechanism contract explicitly required ownership/
+resource safety; it was NOT an embed lifecycle exemption. Implement after b.3
+(or independently before13d) and before group13 closes. No production edits or
+real signals/models were used in this scope.
+
+### Confirmed source and safe proof
+
+core/embed_server.py stop around222-290: unexpected errors suppress cleanup
+failure, finally clears self.process, resets started and releases slot. Timeout
+sends KILL with no subsequent wait, yet logs stopped. stop_embed_server at file
+end discards singleton regardless. start around58-124 can fall through from a
+live unhealthy owned child into adoption/foreign-port cleanup/new spawn, and
+around167 replaces self.process. Thus current failure handling can lose actual
+ownership/accounting or overwrite the only handle before confirmed exit.
+
+Actual stop AST run with fake OS/child only, no core import or real process:
+
+    signal-failure {'returned': None, 'owned_handle_lost': True, 'slot_id_lost': True, 'released': ['fixture-slot'], 'wait_calls': 0, 'fake_child_alive': True, 'last_log': 'Embed server stopped'}
+    timeout-no-final-wait {'returned': None, 'owned_handle_lost': True, 'slot_id_lost': True, 'released': ['fixture-slot'], 'wait_calls': 1, 'fake_child_alive': True, 'last_log': 'Embed server stopped'}
+
+Safe reproducible command, pinned to the inspected stop source so future code
+cannot unexpectedly run through old fake-PID assumptions:
+
+```sh
+python3 - <<'PROBE'
+import ast, hashlib, subprocess
+from pathlib import Path
+from types import SimpleNamespace
+source = Path('core/embed_server.py').read_text()
+module = ast.parse(source)
+cls = next(n for n in module.body if isinstance(n, ast.ClassDef) and n.name == 'EmbedServer')
+stop = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'stop')
+assert hashlib.sha256(ast.get_source_segment(source, stop).encode()).hexdigest() == 'f3fcfb6ae4afe7b62b374cd6a6468890801555aefaf53eb4cf2e94577b03ef27', 'Source changed: audit mocks before probing'
+class Child:
+    pid = 12345
+    def __init__(self, timeout=False): self.timeout=timeout; self.waits=0; self.alive=True
+    def terminate(self): raise PermissionError('fake failure')
+    def kill(self): raise PermissionError('fake failure')
+    def wait(self, timeout):
+        self.waits += 1
+        if self.timeout: raise subprocess.TimeoutExpired('fixture', timeout)
+        raise PermissionError('fake failure')
+for mode in ('signal-failure', 'timeout-no-final-wait'):
+    released, messages = [], []
+    def killpg(*args):
+        if mode == 'signal-failure': raise PermissionError('fake failure')
+    env = {'os': SimpleNamespace(name='posix', getpgid=lambda pid:pid, killpg=killpg), 'subprocess':subprocess, 'rg':SimpleNamespace(release_slot=lambda slot:released.append(slot)), 'warning':messages.append, 'info':messages.append}
+    exec(compile(ast.Module(body=[stop], type_ignores=[]), '<actual-EmbedServer.stop>', 'exec'), env)
+    child = Child(mode == 'timeout-no-final-wait')
+    server = SimpleNamespace(process=child, _slot_id='fixture-slot', _started=True)
+    result = env['stop'](server)
+    print(mode, {'returned':result, 'owned_handle_lost':server.process is None, 'slot_id_lost':server._slot_id is None, 'released':released, 'wait_calls':child.waits, 'fake_child_alive':child.alive, 'last_log':messages[-1]})
+PROBE
+```
+
+### Narrow implementation contract
+
+Keep ordinary stop success None for compatibility; unconfirmed owned teardown
+raises an explicit RuntimeError subclass (EmbedTeardownError), retains Popen,
+existing slot ID and cleanup-pending state, and never logs stopped. Poll owned
+Popen before signal; confirmed-exited child is reaped without PID/group lookup.
+TERM + bounded wait, KILL + bounded FINAL wait/reap. Preserve only already-owned
+dedicated-session group semantics where the live child still anchors its group;
+never grant adopted PID/group kill authority. Unexpected failures/interruptions
+must preserve ownership until actual exit, not drop references in finally.
+Existing 13e owned-child mechanics may be reused if their API fits without
+rewriting primary lifecycle again.
+
+Release a known owned-child slot only after actual exit/reap. Release I/O failure
+retains its ID for retry and reports cleanup debt; already-absent False is not a
+permanent failure. stop_embed_server clears global singleton only after successful
+stop/accounting cleanup; failure propagates while preserving the singleton.
+
+Serialize per-instance start/stop and singleton creation/stop with appropriate
+reentrant guards. No new spawn/adoption/foreign-port cleanup while this instance
+still owns an unresolved child. An owned live unhealthy child first takes owned
+cleanup/reap path; if unconfirmed, start returns False with cleanup pending,
+retaining handle/slot and refusing replacement. Once old owned child is confirmed
+exited/reaped, clean its old slot before considering a new occupant. Do not enter
+_kill_port_occupant against one's own unresolved child as a replacement shortcut.
+A stale already-exited handle must be cleared/reaped before adopting a different
+healthy occupant (NEW-203's docstring-only fix did not establish this invariant).
+Do not signal the dead handle's possibly reused PID first.
+
+Wrap every post-Popen startup path (log output, early child death, health timeout,
+health success, interrupts) in ownership-safe cleanup/retention, with actual handle
+assigned immediately. Never overwrite pending cleanup with a new Popen. Close the
+parent log stream deterministically even on Popen/logging failures; errors after
+spawn cannot bypass cleanup. Start returns False on failed launch after safe
+cleanup, or returns False retaining explicit pending cleanup; it does not claim
+healthy readiness or drop uncertain state. is_running/is_healthy report their
+actual liveness/health meanings and must not erase cleanup state.
+
+### Accounting/adoption boundaries: preserve existing product contract
+
+Embedding is explicitly accounted-but-exempt: NO reserve_slot/can_admit gate,
+no new admission denial, no new eviction authority. Existing registration is
+best-effort/nonfatal after health; preserve it. This slice does not introduce
+PENDING embed registrations or pre-spawn reservations (which would also activate
+NEW-202's currently harmless slot-status divergence). Lack of durable/pre-health
+accounting remains an explicit limitation; retaining the owned handle prevents
+this object's replacement even when no slot could be registered. Do not claim
+registration I/O failure is a model-admission policy change.
+
+After health, keep best-effort registration tied to the actual owned child.
+Once a slot does exist, teardown failure must retain it. If registration throws
+or later slot release fails, report accurately; never use accounting-only failure
+to grant new kill/replace authority or misreport an owned child gone.
+
+Healthy foreign adoption remains non-owning: no signal, no new permission to
+stop that process. Distinguish a borrowed pre-existing slot from an observability
+slot this instance itself registered for adoption; never release another owner's
+slot. Preserve the established adopted-observability detachment behavior when
+stop releases only its own observation registration. Existing unhealthy foreign
+port-replacement policy/helpers remain separate; do not broaden them, and do not
+claim this slice proves their identity/race safety. NEW-74 adoption product policy
+remains separate; NEW-203's old blanket dead-handle-is-safe explanation needs an
+explicit record correction because PID reuse is not excluded by a stale integer.
+
+### Exact callers and tests
+
+Known callers: core.daemon startup around1118-1127, 30-second watchdog around
+1281-1292, shutdown around1329-1336; core.inference.py:_start_server around101-107
+gets singleton and calls start when health is false. Module start_embed_server
+and stop_embed_server expose singleton mechanics. No separate stop caller found
+in embeddings.py/pipeline clients. Update daemon shutdown's bare except pass to
+truthful warning, retain failed singleton, run bounded blocking stop in executor
+as primary shutdown already does. Startup/watchdog must report failed pending
+cleanup rather than claim a restart succeeded; watchdog must be able to retry
+cleanup even if is_running sees a live pending-cleanup child. Inference optional
+BM25 fallback remains, but cannot discard ownership or trigger another spawn
+while cleanup is pending. Do not load models to test any caller.
+
+Before regression runs, audit all fake PID/Popen tests and port probes (NEW-957,
+NEW-279's live-port coupling). Mock every signaling and health/port dependency
+in fake-child tests. Include: normal TERM and forced KILL final reap; TERM/KILL/
+wait failure retains child+slot/singleton/no stopped log; retry succeeds; already
+exited handle invokes no getpgid/killpg before adoption; unhealthy owned child
+cannot be overwritten or routed to foreign killer; early child death, health
+timeout and interrupt cleanup; post-Popen log failure; registration failure stays
+nonfatal/exempt; slot release failure retains ID; borrowed adopted slot preserved;
+self-registered adopted observation detached without signaling; singleton races;
+daemon shutdown logs/retains; watchdog retry and inference fallback no replacement.
+
+Independent live-verifier: only lightweight disposable Python children in owned
+sessions/temp logs and fake slot callbacks, one normal TERM, one ignoring TERM,
+plus injected cleanup failure/retry and innocent fixture preservation. Confirm
+actual child exit/reap, retained references, no second spawn and slot-release
+order. Keep exact fixture Popen ownership and finally cleanup; no model/embedding
+weights, real ports/services/network/cloud/live stores. Report mechanics versus
+mocked startup/adoption/accounting integration distinctly. Mandatory adversarial
+lifecycle approval before commit; no group13 closure until this repair is reviewed
+and required disposable-process evidence is recorded.
+
+
+13f durability/reporting limit: retaining singleton/Popen protects retries only
+while that Python owner lives. Daemon shutdown may still exit after warning;
+its in-memory ownership then disappears. Best-effort registered child-PID slot
+can outlive the parent, but no embed durable PID identity/restart cleanup is
+added by this slice, and failed registration/disk failure offers no durability
+guarantee. Do not claim in-memory retention survives daemon exit, host death or
+forced kill. Replace stale daemon comment saying embed has no comparable gate
+side effect: it does have best-effort residency accounting. Log explicit owned
+embed cleanup failure (and avoid false embed-stopped success); bounded stop runs
+in executor. Broader cross-process adopted/port cleanup remains separately scoped.

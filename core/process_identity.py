@@ -198,7 +198,7 @@ class LifecycleRecord:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             if self.inherited_fd is None:
-                self.fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+                self.fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
             elif type(self.inherited_fd) is int and 0 <= self.inherited_fd <= 2**31 - 1:
                 self.fd = os.dup(self.inherited_fd)
             else:
