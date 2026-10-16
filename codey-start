@@ -8,13 +8,19 @@
 
 set -e
 
-CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! _CODEY_SCRIPT="$(readlink -f -- "${BASH_SOURCE[0]}")" || [ ! -f "$_CODEY_SCRIPT" ]; then
+    printf 'Cannot resolve installed Codey-OS entrypoint.\n' >&2
+    exit 2
+fi
+CODEY_OS_DIR="$(cd -- "${_CODEY_SCRIPT%/*}" && pwd -P)" || exit 2
+unset _CODEY_SCRIPT
 export CODEY_OS_DIR
 export CODEY_DIR="$CODEY_OS_DIR"
 
 source "$CODEY_OS_DIR/lib/service_manager.sh"
 
 start_all_services
+prepare_bootstrap_environment
 
 echo "  TUI         → launching codeyOS..."
 echo

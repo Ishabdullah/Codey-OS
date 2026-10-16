@@ -2294,10 +2294,11 @@ def daemon_ping() -> Dict:
 # ==================== Entry Point ====================
 
 
-def main():
-    """Main entry point for daemon."""
+def main(*, paths=None):
+    """Start with the handed path snapshot, or resolve once for direct CLI."""
     config = get_config()
-    paths = resolve_daemon_paths(config)
+    if paths is None:
+        paths = resolve_daemon_paths(config)
     if check_pid_file(paths):
         error("Daemon startup blocked by a running daemon or unsafe/unverifiable process record")
         sys.exit(1)

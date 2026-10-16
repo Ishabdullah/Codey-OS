@@ -11,6 +11,11 @@
 # integrity violation — propagates to the caller unchanged.
 #
 
-CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! _CODEY_SCRIPT="$(readlink -f -- "${BASH_SOURCE[0]}")" || [ ! -f "$_CODEY_SCRIPT" ]; then
+    printf 'Cannot resolve installed Codey-OS entrypoint.\n' >&2
+    exit 2
+fi
+CODEY_OS_DIR="$(cd -- "${_CODEY_SCRIPT%/*}" && pwd -P)" || exit 2
+unset _CODEY_SCRIPT
 cd "$CODEY_OS_DIR" || exit 1
 exec python3 -m telemetry.cli "$@"

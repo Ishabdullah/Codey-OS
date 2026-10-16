@@ -41,8 +41,9 @@ elif args and args[0] == str(root / 'core/service_lifecycle.py') and len(args) >
 with trace.open('a') as stream: stream.write(label + '\n')
 if not allowed: sys.exit(91)
 if os.environ.get('FIXTURE_REQUIRE_LOCK') == '1' and label != 'readiness':
-    fd = 200
-    expected = Path(os.environ['FIXTURE_PID'] + '.lifecycle.lock').stat()
+    fd = int(args[args.index('--lock-fd') + 1])
+    selected_pid = args[args.index('--pid-file') + 1] if label == 'identity:spawn' else args[2]
+    expected = Path(selected_pid + '.lifecycle.lock').stat()
     actual = os.fstat(fd)
     assert (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
 if label == 'readiness':
@@ -373,10 +374,10 @@ def test_adapter_reload_and_stop_verified_disposable_owned_child(sandbox):
             time.sleep(.01)
         assert signal_frame == b"USR1\n" and child.poll() is None
         result = run_adapter(env, "lock-exec", "daemon", "stop")
-        assert result.returncode == 0 and result.stdout.strip() == identity.DEAD, result.stderr
+        assert result.returncode == 0 and identity.DEAD in result.stdout.splitlines(), result.stderr
         child.wait(timeout=5)
         assert not pid_file.exists() and not Path(str(pid_file) + ".identity").exists()
-        assert sandbox.trace.read_text().splitlines() == ["identity:signal", "identity:stop"]
+        assert sandbox.trace.read_text().splitlines() == ["identity:signal", "identity:stop", "identity:stop"]
     finally:
         # Actual Popen ownership, no PID extracted from records or output.
         if child.poll() is None:

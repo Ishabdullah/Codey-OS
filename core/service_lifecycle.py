@@ -23,7 +23,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _PRIVATE_LIBRARY = _REPO_ROOT / "lib/service_lifecycle.sh"
 _LOCK_FD = 200
 # Caller values only enter argv positions, never this Bash source fragment.
-_BASH_FRAGMENT = 'source "$1"; shift; _codey_locked_identity "$@"'
+_BASH_FRAGMENT = 'source "$1"; shift; _codey_service_operation "$@"'
 _SERVICES = {
     "daemon": ("codeyOS", "codeyOS"),
     "restoricon": ("restoricon-api", "restoricon-api"),
@@ -33,7 +33,12 @@ _SERVICES = {
     "backup-docs": ("backup-docs", "backup-docs"),
     "llama-server-8080": ("llama-server-8080", "llama-server-8080"),
 }
-_OPERATIONS = ("stop", "reload", "preflight")
+_OPERATIONS = ("start", "stop", "restart", "reload", "preflight")
+# All operations acquire their complete set in this same order, before effects.
+_START_ORDER = ("daemon", "restoricon", "aigentik", "cloudflared", "litestream", "backup-docs")
+_LOCK_ORDER = (*_START_ORDER, "llama-server-8080")
+_LOCK_NUMBERS = (200, 210, 211, 212, 213, 214, 215)  # 201 is the private readiness pipe
+
 
 
 @dataclass(frozen=True)
@@ -76,28 +81,162 @@ def _close_extra_fds(keep):
                 pass  # listdir's own transient descriptor is already closed
 
 
+def _config_helpers():
+    if not __package__:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from utils import config
+    return config
+
+
+def start_profile(service, selected):
+    """Fixed installed profiles; no arbitrary shell command configuration."""
+    cwd = Path.cwd()
+    missing = False
+    if service == "daemon":
+        argv = ["python3", str(_REPO_ROOT / "core/daemon_bootstrap.py"), str(selected.pid_file), str(selected.socket_file), str(selected.log_file)]
+    elif service == "restoricon":
+        config = _config_helpers().get_restoricon_api_config()
+        argv = ["python3", "-m", "restoricon_core.api.server", "--host", str(config["host"]), "--port", str(config["port"]), "--db", str(config["db_path"])]
+    elif service == "aigentik":
+        cwd = Path(_config_helpers().get_aigentik_config()["dir"])
+        script = next((name for name in ("main.py", "app.py", "server.py", "run.sh", "index.js", "start.sh") if (cwd / name).is_file()), None)
+        missing = script is None
+        runtime = "python3" if script and script.endswith(".py") else "node" if script and script.endswith(".js") else "bash"
+        argv = [runtime, script] if script else []
+    elif service == "litestream":
+        cwd = Path(os.environ.get("CODEY_STATE_DIR") or Path.home() / ".codeyOS")
+        binary = Path.home() / "go/bin/litestream"
+        missing = not binary.is_file()
+        argv = [str(binary), "replicate", "-config", str(Path.home() / ".codeyOS/litestream.yml")]
+    elif service == "cloudflared":
+        import shutil
+        token = _config_helpers().get_cloudflare_tunnel_token() if shutil.which("cloudflared") else None
+        missing = not token
+        argv = ["cloudflared", "tunnel", "run", "--token", token] if token else []
+    elif service == "backup-docs":
+        cwd = _REPO_ROOT / "core"
+        argv = ["python3", "backup_documents.py", "--daemon"]
+    else:
+        argv = []
+    return str(cwd), missing, argv
+
+
+def discover_untracked(service, cwd, argv, tracked=None):
+    """Cwd/runtime/token matches are diagnostics, never termination authority."""
+    if service not in ("aigentik", "litestream", "backup-docs") or not argv:
+        return []
+    runtime, token = Path(argv[0]).name, argv[1]
+    target = str(Path(cwd).resolve())
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == tracked:
+            continue
+        try:
+            if os.readlink(entry / "cwd") != target:
+                continue
+            args = [value.decode(errors="replace") for value in (entry / "cmdline").read_bytes().split(b"\0") if value]
+            if args and Path(args[0]).name.startswith(runtime) and any(value == token or Path(value).name == token for value in args[1:]):
+                found.append(int(entry.name))
+        except (OSError, ValueError):
+            continue  # inaccessible/departed processes grant no authority
+    return sorted(found)
+
+
 def lock_exec(service, operation):
-    """Acquire/validate before fixed mechanics; this is never public READ status."""
-    if operation not in _OPERATIONS or service not in _SERVICES or operation == "reload" and service != "daemon":
+    """Lock the entire operation; nested private mechanics reuse held FDs."""
+    if operation not in _OPERATIONS or service not in (*_SERVICES, "all") or operation == "reload" and service != "daemon" or service == "all" and operation in ("reload", "preflight") or service == "llama-server-8080" and operation != "stop":
         raise identity.UnsafeRecord("Unsupported service operation")
-    selected = service_paths(service)
-    record = identity.LifecycleRecord(selected.pid_file, selected.key, blocking=False)
+    targets = set(_START_ORDER if service == "all" else (service,))
+    if "daemon" in targets and operation in ("start", "stop", "restart"):
+        targets.add("llama-server-8080")
+    selected = {name: service_paths(name) for name in _LOCK_ORDER if name in targets}
+    records = []
+    temporary = []
     try:
-        record.__enter__()
-        if record.fd != _LOCK_FD:
-            os.dup2(record.fd, _LOCK_FD, inheritable=True)
-            os.close(record.fd)
-            record.fd = _LOCK_FD
-        else:
-            os.set_inheritable(_LOCK_FD, True)
-        record._check_lock()
-        _close_extra_fds({_LOCK_FD})
-        os.execvpe("bash", ["bash", "-c", _BASH_FRAGMENT, "codey-service-mechanics", str(_PRIVATE_LIBRARY), str(_LOCK_FD), operation, selected.key, str(selected.pid_file)], dict(os.environ))
-        raise identity.UnsafeRecord("Service mechanics did not exec")
-    finally:
-        if record.fd is not None:
+        for name, paths in selected.items():
+            record = identity.LifecycleRecord(paths.pid_file, paths.key, blocking=False)
+            record.__enter__()
+            records.append(record)
+        # Duplicate through a high temporary range before assigning fixed FDs;
+        # an opener's numeric descriptor can otherwise collide with a later FD.
+        import fcntl
+        for record in records:
+            temporary.append(fcntl.fcntl(record.fd, fcntl.F_DUPFD_CLOEXEC, 240))
+        for record in records:
             os.close(record.fd)
             record.fd = None
+        plan = []
+        for index, ((name, paths), record, saved) in enumerate(zip(selected.items(), records, temporary)):
+            number = _LOCK_NUMBERS[index]
+            os.dup2(saved, number, inheritable=True)
+            os.close(saved)
+            temporary[index] = None
+            record.fd = number
+            record._check_lock()
+            cwd, missing, argv = start_profile(name, paths) if operation in ("start", "restart") or name in ("aigentik", "litestream", "backup-docs") else (str(Path.cwd()), False, [])
+            observed = record.inspect()
+            orphans = discover_untracked(name, cwd, argv, observed.identity["pid"] if observed.state == identity.RUNNING else None)
+            plan.extend((str(number), name, paths.key, str(paths.pid_file), str(paths.log_file), str(paths.socket_file or ""), cwd, "1" if missing else "0", str(len(orphans)), " ".join(map(str, orphans)), str(len(argv)), *argv))
+        keep = {record.fd for record in records}
+        _close_extra_fds(keep)
+        os.execvpe("bash", ["bash", "-c", _BASH_FRAGMENT, "codey-service-mechanics", str(_PRIVATE_LIBRARY), service, operation, str(len(records)), *plan], dict(os.environ))
+        raise identity.UnsafeRecord("Service mechanics did not exec")
+    finally:
+        # Never LOCK_UN a description that an owned guardian may retain.
+        for descriptor in temporary:
+            if descriptor is not None:
+                os.close(descriptor)
+        for record in records:
+            if record.fd is not None:
+                os.close(record.fd)
+                record.fd = None
+
+
+def status(service):
+    """Pure snapshots; no creating lock adapter, cleanup, or signal path."""
+    names = _START_ORDER if service == "all" else (service,)
+    result = 0
+    for name in names:
+        selected = service_paths(name)
+        observed = identity.inspect_record(selected.pid_file, selected.key)
+        suffix = f" (PID {observed.identity['pid']})" if observed.state == identity.RUNNING else ""
+        print(f"  {name}: {observed.state}{suffix}")
+        if name in ("aigentik", "litestream", "backup-docs"):
+            cwd, _missing, argv = start_profile(name, selected)
+            found = discover_untracked(name, cwd, argv, observed.identity["pid"] if observed.state == identity.RUNNING else None)
+            if found:
+                print(f"  {name}: UNTRACKED matches (diagnostic only): {' '.join(map(str, found))}")
+        if observed.state == identity.UNSAFE:
+            result = 2
+        elif observed.state == identity.DEAD and service != "all":
+            result = 1
+    return result
+
+
+def usable_daemon(pid_file, socket_file):
+    """Coordination read only; this result never permits starting a daemon."""
+    values = (pid_file, socket_file)
+    if any(not value or "\0" in value or len(value.encode()) > 4096 for value in values):
+        raise identity.UnsafeRecord("Invalid client path snapshot")
+    observed = identity.inspect_record(Path(pid_file), "codeyOS")
+    if observed.state == identity.UNSAFE:
+        print("Daemon identity is unsafe/unverifiable; connection refused", file=sys.stderr)
+        return 2
+    return 0 if observed.state == identity.RUNNING and Path(socket_file).is_socket() else 1
+
+
+def show_logs(service):
+    names = _START_ORDER if service == "all" else (service,)
+    for name in names:
+        selected = service_paths(name)
+        try:
+            with selected.log_file.open(errors="replace") as stream:
+                from collections import deque
+                lines = deque(stream, maxlen=50 if service != "all" else 10)
+            print(f"=== {name} ===")
+            print("".join(lines), end="")
+        except FileNotFoundError:
+            print(f"No log found for {name} ({selected.log_file}).")
 
 
 def path_data(field, encoding, data_fd):
@@ -161,8 +300,16 @@ def main(argv=None):
         parser = _Parser(add_help=False)
         commands = parser.add_subparsers(dest="command", required=True)
         locked = commands.add_parser("lock-exec", add_help=False)
-        locked.add_argument("service", choices=tuple(_SERVICES))
+        locked.add_argument("service", choices=(*_SERVICES, "all"))
         locked.add_argument("operation", choices=_OPERATIONS)
+        client = commands.add_parser("usable-daemon", add_help=False)
+        client.add_argument("pid_file")
+        client.add_argument("socket_file")
+        logs = commands.add_parser("logs", add_help=False)
+        logs.add_argument("service", choices=(*_SERVICES, "all"))
+        inspected = commands.add_parser("status", add_help=False)
+        inspected.add_argument("service", choices=(*_SERVICES, "all"))
+        commands.add_parser("config-create", add_help=False)
         paths = commands.add_parser("paths", add_help=False)
         paths.add_argument("--field", choices=("pid", "socket", "log", "all"), default="all")
         paths.add_argument("--encoding", choices=("json", "nul"), default="json")
@@ -172,6 +319,17 @@ def main(argv=None):
         args = parser.parse_args(argv)
         if args.command == "lock-exec":
             lock_exec(args.service, args.operation)
+        elif args.command == "usable-daemon":
+            return usable_daemon(args.pid_file, args.socket_file)
+        elif args.command == "logs":
+            show_logs(args.service)
+        elif args.command == "status":
+            return status(args.service)
+        elif args.command == "config-create":
+            if not __package__:
+                sys.path.insert(0, str(_REPO_ROOT))
+            from core.daemon_config import create_default_config
+            print(f"Default config created at: {create_default_config()}")
         elif args.command == "paths":
             path_data(args.field, args.encoding, args.data_fd)
         else:

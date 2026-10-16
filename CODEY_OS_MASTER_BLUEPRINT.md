@@ -3119,8 +3119,8 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > duplicate protection and replacement-record preservation. Two review
 > rounds; coordinator 77 passed, two existing warnings; seven disposable
 > lifecycle scenarios PASS, all fixture children reaped. NEW-953 logs
-> pre-existing post-spawn registration partial failure; NEW-954/955 log
-> codeyOS generated-source and exit-status residuals for final census.
+> pre-existing post-spawn registration partial failure, repaired in 13h below;
+> NEW-954/955 codeyOS generated-source/exit residuals are required 13g work.
 > **13c.1 is code-complete, source reviewer APPROVED and independently
 > disposable-process verified** (NEW-958): strict durable identity/locks,
 > daemon/loader writers, fail-closed cross-process control. Final guarded
@@ -3139,9 +3139,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > checks PASS. Initial failed broad import expectation and separate diagnostic
 > preserved: fixed schema/bootstrap imports remain group 12 mechanics;
 > no blanket write-free app-import claim or new authority enablement.
-> NEW-962 High/NEW-963 Medium additionally pin current shell raw-PID
-> signaling and publication-failure ownership loss. Both remain open until
-> all consumers migrate; owned-spawn helper alone is not closure.
+> NEW-962 High/NEW-963 Medium pin prior shell raw-PID signaling and
+> publication-failure ownership loss, fixed by full b.3 migration below;
+> owned-spawn infrastructure alone was not closure.
 > **13c.2b.1 mechanism is code-complete, reviewer APPROVED and independently
 > disposable-process verified**: actual owned Popen, strict private readiness,
 > failed-launch cleanup or retained same-lock guardian, no duplicate fallback.
@@ -3155,9 +3155,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > bounded readiness, guardian shared-lock preservation and finite path data.
 > Production selected 227 passed; test-only complete-marker correction 44 passed.
 > Initial harness marker-read FAIL preserved; separate resumed PASS with all
-> fixture handles reaped. Public consumers are unchanged: b.3 wires all six
-> services/model/client/composites; NEW-962/963 remain open and no operation
-> audit closure is implied. Relative configured-path choice remains pending.
+> fixture handles reaped. That b.2 round left public consumers unchanged;
+> b.3 below completes them. No operation audit closure is implied by these
+> mechanics. Relative configured-path choice remains pending.
 > **13f now scoped, NEW-964 High open:** embed stop/replacement can lose live
 > owned handle/accounting/singleton. Pinned fake-only proof and narrow repair
 > preserve accounted-but-exempt policy; no admission gate or adopted kill
@@ -3186,7 +3186,21 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > preserved, separate PASS distinguishes restored-original READ allowed from
 > failed staged-object refusal; five exact fixture handles reaped. No durable
 > registry/import transaction or arbitrary activation authorization claimed.
-> Next 13c.2b.3, 13g/13f and 13d; groups 14/15 follow. Ownership repairs alone do not
+> **13c.2b.3 public consumers complete, source reviewer APPROVED and
+> resumed disposable verification PASS:** all six profiles, strict stop/reload/
+> restart/model identity, fixed-order complete locks, diagnostic-only orphans,
+> selected guardian FD, write-free library sourcing/service-manager status/
+> identity inspection, parent environment, shared daemon
+> path snapshot and all-six installed symlink roots (NEW-962/963/965 fixed).
+> Reviewer found shutdown lock cycle; only confirmed-reap model metadata cleanup
+> is now nonblocking, preserving evidence for shell cleanup. Initial selected
+> 292 pass/3 fixture failures corrected by affected72 pass; reviewer8 pass.
+> Initial live FAIL preserves40 passed cases and wrong stopped-status expectation;
+> focused resumed PASS proves statusOS1 and actual child/owner normal exit under
+> parent-held model lock. Public application launch is simulated; no model or
+> installed-service/audit claim. Legacy codeyOS RPC status still writes a
+> temporary script pending13g; NEW-959 relative path choice remains pending.
+> Next 13g/13f and 13d; groups 14/15 follow. Ownership repairs alone do not
 > close operation audit coverage; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**

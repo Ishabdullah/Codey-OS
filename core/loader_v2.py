@@ -946,7 +946,11 @@ class LlamaServer:
 
                 path, expected = self._pid_publication
                 try:
-                    with LifecycleRecord(path, f"llama-server-{self.port}") as record:
+                    # A shell stopper can hold this model lock while waiting
+                    # for daemon exit. Once our child is reaped, never block
+                    # shutdown on that lock; its owner can clean the unchanged
+                    # verified-dead record after we exit.
+                    with LifecycleRecord(path, f"llama-server-{self.port}", blocking=False) as record:
                         record.cleanup(expected)
                 except (OSError, UnsafeRecord):
                     pass  # Reaped child is stopped; preserve unrelated evidence.

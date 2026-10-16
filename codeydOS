@@ -1,63 +1,22 @@
 #!/data/data/com.termux/files/usr/bin/bash
-#
-# codeydOS - Codey-OS Daemon Manager
-#
-# Commands:
-#   start   - Start the main daemon
-#   stop    - Stop the main daemon
-#   status  - Show daemon status and loaded model
-#   restart - Restart the daemon cleanly
-#   reload  - Send reload signal (SIGUSR1) to main daemon
-#   config  - Create default config file
-#
-# M1-D (2026-08-23): this script used to also manage `plannd`, a dedicated
-# planner daemon running Qwen2.5-Coder-1.5B on its own port (8081). That
-# process is retired — planning is now a thinking-mode request against the
-# same primary Qwen3.5-4B server this script already starts on port 8080
-# (see core/plannd.py:get_plan()). `start_plannd()`/`stop_plannd()` and
-# their PID/log files, the port-8081 status line, and the "planner" gate
-# slot registration/release below are all removed accordingly, not left as
-# unused functions nobody calls.
-#
-
+# Verified daemon lifecycle; public gateway envelope is handled separately.
 set -e
+if ! _CODEY_SCRIPT="$(readlink -f -- "${BASH_SOURCE[0]}")" || [ ! -f "$_CODEY_SCRIPT" ]; then
+    printf 'Cannot resolve installed Codey-OS entrypoint.\n' >&2
+    exit 2
+fi
+CODEY_OS_DIR="$(cd -- "${_CODEY_SCRIPT%/*}" && pwd -P)" || exit 2
+unset _CODEY_SCRIPT
 
-CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_DIR="$HOME/.codeyOS"
-
-# Main daemon files
-PID_FILE="$DAEMON_DIR/codeyOS.pid"
-LOG_FILE="$DAEMON_DIR/codeyOS.log"
-
-# Ensure daemon directory exists
-mkdir -p "$DAEMON_DIR"
-
-# ── Status display ─────────────────────────────────────────────────────────────
+export CODEY_OS_DIR
+DAEMON_DIR="${CODEY_STATE_DIR:-$HOME/.codeyOS}"
+source "$CODEY_OS_DIR/lib/service_manager.sh"
 
 show_status() {
-    local main_running=false
-    local main_pid=""
-
-    # Check main daemon
-    if [ -f "$PID_FILE" ]; then
-        main_pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
-        if [ -n "$main_pid" ] && kill -0 "$main_pid" 2>/dev/null; then
-            main_running=true
-        else
-            rm -f "$PID_FILE"
-            main_pid=""
-        fi
-    fi
-
-    # Print daemon status
-    if $main_running; then
-        printf "Main daemon:    running  (PID %s)\n" "$main_pid"
-    else
-        printf "Main daemon:    stopped\n"
-    fi
-
+    local result=0
+    svc_status daemon || result=$?
     # Check model server port and print model status via Python
-    /data/data/com.termux/files/usr/bin/python3 - <<PYEOF
+    python3 - <<PYEOF
 import sys, urllib.request
 sys.path.insert(0, "$CODEY_OS_DIR")
 
@@ -124,216 +83,18 @@ else:
     print("Planner:        local (shares the model above, thinking mode)")
 PYEOF
 
-    if $main_running; then
-        return 0
-    else
-        return 1
-    fi
+
+    return "$result"
 }
-
-# ── Main daemon ────────────────────────────────────────────────────────────────
-
-# NEW-409 (2026-09-08): only port 8080 (the single primary model server,
-# per M1-D 2026-08-23) is ever started by this script now; the port-8081
-# planner process was retired and never gets a PID file, so this only
-# handles 8080.
-kill_llama_server_gracefully() {
-    local pid_file="$DAEMON_DIR/llama-server-8080.pid"
-    if [ -f "$pid_file" ]; then
-        local s_pid=$(cat "$pid_file" 2>/dev/null || echo "")
-        if [ -n "$s_pid" ] && kill -0 "$s_pid" 2>/dev/null; then
-            kill -TERM "$s_pid" 2>/dev/null || true
-            for i in {1..10}; do
-                if ! kill -0 "$s_pid" 2>/dev/null; then
-                    break
-                fi
-                sleep 0.5
-            done
-            if kill -0 "$s_pid" 2>/dev/null; then
-                kill -9 "$s_pid" 2>/dev/null || true
-            fi
-        fi
-        rm -f "$pid_file"
-    fi
-}
-
-
-start_daemon() {
-    if [ -f "$PID_FILE" ]; then
-        PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
-        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            echo "Main daemon is already running (PID: $PID)"
-            return 0
-        else
-            echo "Removing stale PID file"
-            rm -f "$PID_FILE"
-        fi
-    fi
-
-    echo "Starting Codey-OS daemon..."
-
-    # Clear stale Python bytecode cache so code changes take effect immediately
-    find "$CODEY_OS_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-
-    # Kill any orphaned llama-server on port 8080 from a previous session
-    kill_llama_server_gracefully
-    sleep 1
-
-    # Create launcher script
-    TMPSCRIPT="$(mktemp "$DAEMON_DIR/daemon_run_XXXX.py")"
-    trap 'rm -f "${TMPSCRIPT:-}"' ERR
-
-    cat > "$TMPSCRIPT" << PYEOF
-import sys
-import os
-
-CODEY_OS_DIR = "$CODEY_OS_DIR"
-sys.path.insert(0, CODEY_OS_DIR)
-os.environ.setdefault("CODEY_DIR", CODEY_OS_DIR)
-
-from core.daemon import main
-main()
-PYEOF
-
-    # Start daemon in background, redirect output to log
-    nohup /data/data/com.termux/files/usr/bin/python3 "$TMPSCRIPT" > "$LOG_FILE" 2>&1 &
-    DAEMON_PID=$!
-
-    # Write the PID file immediately (atomic write-then-move), from the
-    # shell, rather than waiting for the Python process to write its own
-    # copy later. Closes the race where a concurrent `codeydOS start` run
-    # during the model's 15-40s load window sees no/stale PID file, passes
-    # the guard above, and pre-kills this instance's still-loading
-    # llama-server. core/daemon.py's own write_pid_file() still runs later
-    # as a second, idempotent write — this one just needs to land first.
-    echo "$DAEMON_PID" > "${PID_FILE}.tmp"
-    mv "${PID_FILE}.tmp" "$PID_FILE"
-
-    sleep 1
-
-    if kill -0 "$DAEMON_PID" 2>/dev/null; then
-        echo "Main daemon started (PID: $DAEMON_PID)"
-        echo "Log: $LOG_FILE"
-    else
-        echo "ERROR: Main daemon failed to start. Check: $LOG_FILE"
-        rm -f "$TMPSCRIPT" "$PID_FILE"
-        return 1
-    fi
-
-    # Cleanup temp script after a delay
-    (sleep 5 && rm -f "$TMPSCRIPT") &
-}
-
-stop_daemon() {
-    if [ ! -f "$PID_FILE" ]; then
-        echo "Main daemon is not running"
-        kill_llama_server_gracefully
-        return 0
-    fi
-
-    PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
-
-    if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then
-        echo "Main daemon is not running (stale PID file)"
-        rm -f "$PID_FILE"
-        kill_llama_server_gracefully
-        return 0
-    fi
-
-    echo "Stopping main daemon (PID: $PID)..."
-
-    kill -TERM "$PID" 2>/dev/null || true
-
-    for i in {1..10}; do
-        if ! kill -0 "$PID" 2>/dev/null; then
-            echo "Main daemon stopped"
-            rm -f "$PID_FILE"
-            kill_llama_server_gracefully
-            return 0
-        fi
-        sleep 0.5
-    done
-
-    echo "Force killing main daemon..."
-    kill -9 "$PID" 2>/dev/null || true
-    rm -f "$PID_FILE"
-    kill_llama_server_gracefully
-    echo "Main daemon stopped (forced)"
-}
-
-# ── Combined operations ────────────────────────────────────────────────────────
-
-restart_all() {
-    stop_daemon || true
-    sleep 1
-    start_daemon
-}
-
-reload_daemon() {
-    if [ ! -f "$PID_FILE" ]; then
-        echo "Main daemon is not running"
-        return 1
-    fi
-
-    PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
-
-    if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then
-        echo "Main daemon is not running"
-        rm -f "$PID_FILE"
-        return 1
-    fi
-
-    echo "Sending reload signal to main daemon (PID: $PID)..."
-    kill -USR1 "$PID"
-    echo "Reload signal sent"
-}
-
-# ── Main command dispatcher ────────────────────────────────────────────────────
-
+kill_llama_server_gracefully() { svc_operation llama-server-8080 stop; }
+restart_all() { svc_operation daemon restart; }
+reload_daemon() { svc_operation daemon reload; }
 case "${1:-status}" in
-    start)
-        start_daemon
-        echo ""
-        show_status || true
-        ;;
-    stop)
-        stop_daemon || true
-        ;;
-    status)
-        show_status
-        ;;
-    restart)
-        restart_all
-        echo ""
-        show_status || true
-        ;;
-    reload)
-        reload_daemon
-        ;;
-    config)
-        TMPSCRIPT="$(mktemp "$DAEMON_DIR/config_XXXX.py")"
-
-        cat > "$TMPSCRIPT" << PYEOF
-import sys
-sys.path.insert(0, '$CODEY_OS_DIR')
-from core.daemon_config import create_default_config
-path = create_default_config()
-print(f"Default config created at: {path}")
-PYEOF
-
-        /data/data/com.termux/files/usr/bin/python3 "$TMPSCRIPT" || { rm -f "$TMPSCRIPT"; exit 1; }
-        rm -f "$TMPSCRIPT"
-        ;;
-    *)
-        echo "Usage: codeydOS {start|stop|status|restart|reload|config}"
-        echo ""
-        echo "Commands:"
-        echo "  start   - Start the main daemon"
-        echo "  stop    - Stop the main daemon"
-        echo "  status  - Show daemon status and loaded model"
-        echo "  restart - Restart the daemon"
-        echo "  reload  - Send reload signal (SIGUSR1) to main daemon"
-        echo "  config  - Create default config file"
-        exit 1
-        ;;
+    start) start_daemon ;;
+    stop) stop_daemon ;;
+    status) show_status ;;
+    restart) restart_all ;;
+    reload) reload_daemon ;;
+    config) python3 "$CODEY_OS_DIR/core/service_lifecycle.py" config-create ;;
+    *) printf 'Usage: codeydOS {start|stop|status|restart|reload|config}\n' >&2; exit 2 ;;
 esac

@@ -384,3 +384,12 @@ def test_main_daemon_flag_delegates_once_to_shared_entrypoint(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["codeyOS", "--daemon"])
     main.main()
     delegate.assert_called_once_with()
+
+
+def test_handed_snapshot_keeps_duplicate_guard_without_reselection(configured, monkeypatch):
+    events = []
+    monkeypatch.setattr(daemon, "resolve_daemon_paths", lambda *_: pytest.fail("handed paths were reselected"))
+    monkeypatch.setattr(daemon, "check_pid_file", lambda paths: events.append(("check", paths)) or False)
+    monkeypatch.setattr(daemon, "Daemon", lambda **kwargs: SimpleNamespace(run=lambda: events.append(("run", kwargs["paths"]))))
+    daemon.main(paths=configured.paths)
+    assert events == [("check", configured.paths), ("run", configured.paths)]
