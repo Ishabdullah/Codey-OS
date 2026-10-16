@@ -468,7 +468,8 @@ class DaemonServer:
         process this loader didn't spawn (nothing for `stop()` to wait on
         there).
         """
-        if not loader.is_loaded():
+        pending = getattr(loader, "is_cleanup_pending", lambda: False)()
+        if not loader.is_loaded() and not pending:
             return False, True
 
         loader.unload()
@@ -1336,7 +1337,7 @@ class Daemon:
             try:
                 from core.loader_v2 import get_loader
 
-                get_loader().unload()
+                await asyncio.get_running_loop().run_in_executor(None, get_loader().unload)
             except Exception as e:
                 warning(f"7B model unload during shutdown failed: {e}")
 

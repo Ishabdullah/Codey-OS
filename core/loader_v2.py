@@ -208,7 +208,8 @@ def confirm_resident_and_mark_slot(
             "confirm_resident_and_mark_slot()'s docstring)"
         )
 
-    rg.mark_resident(slot_id, pid=pid)
+    if not rg.mark_resident(slot_id, pid=pid):
+        raise RuntimeError("Resident reservation could not be confirmed")
 
 
 def _kill_single_pid_term_then_kill(pid: int, wait_s: float = 8.0) -> None:
@@ -293,6 +294,10 @@ class LlamaServer:
         self.process: Optional[subprocess.Popen] = None
         self._pid_publication = None
         self._identity_publication_failed = False
+        self._lifecycle_lock = threading.RLock()
+        self._cleanup_pending = False
+        self._owned_session_pid = None
+        self._on_spawn = None
         self.port = port
         self._started = False
         # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): whether
@@ -525,11 +530,17 @@ class LlamaServer:
         return _UPGRADE_PORT_STUCK
 
     def start(self) -> bool:
-        """Start llama-server subprocess."""
+        """Serialize startup against owned-child teardown/retry."""
+        with self._lifecycle_lock:
+            return self._start_locked()
+
+    def _start_locked(self) -> bool:
         try:
-            if self.process and self.process.poll() is None:
-                # Already running
-                return True
+            if self.process is not None:
+                if self.process.poll() is None:
+                    return not self._cleanup_pending and self._started
+                if not self.stop():
+                    return False
 
             # Check if llama-server is already running on this port (e.g., from daemon)
             if self._is_port_in_use():
@@ -804,7 +815,13 @@ class LlamaServer:
                     stderr=subprocess.STDOUT,
                     preexec_fn=os.setsid if os.name != "nt" else None,
                 )
-                
+                self._owned_session_pid = self.process.pid if os.name != "nt" else None
+                self._cleanup_pending = True
+                # Bind the admitted reservation at the first owned-child
+                # convergence, before metadata, logs or the health wait.
+                if self._on_spawn is not None:
+                    self._on_spawn(self.process)
+
                 # Publish only the child this instance just spawned. A failed
                 # metadata write leaves cross-process control unavailable; it
                 # must not trigger this loader's separate teardown defect.
@@ -852,6 +869,7 @@ class LlamaServer:
                     # Give server a moment to fully initialize all endpoints
                     time.sleep(0.5)
                     self._started = True
+                    self._cleanup_pending = False
                     success(f"llama-server started on port {self.port}")
                     return True
 
@@ -866,92 +884,63 @@ class LlamaServer:
             error(traceback.format_exc())
             return False
 
-    def stop(self) -> bool:
-        """
-        Stop the llama-server process THIS instance spawned.
+    _STOP_TIMEOUT_S = 8.0
 
-        NEW-74 (2026-09-08): `start()`'s reuse/adoption branches (the
-        `_is_port_in_use()` short-circuit, the cross-process lock's
-        reuse-poll, and the post-lock re-check) all set `self._started =
-        True` for a server they detected and adopted, not one they ever
-        `Popen()`'d — `self.process` is left `None` in every one of those
-        branches. Before this fix, calling `stop()` in that state was a
-        totally silent no-op (the `if self.process:` guard skipped the
-        whole body, including the `finally` clause that resets
-        `self._started`), so a caller had no way to tell "I stopped it"
-        apart from "I never had it to stop" — the adopted server kept
-        running with no signal that nothing happened.
-
-        Deliberately NOT changed to kill-by-adopted-PID here: an adopted
-        PID was positively identified via a health check, not a name-
-        pattern match, so it's a narrower case than CLAUDE.md rule 3's
-        "never kill by bare name pattern" — but this method still never
-        spawned it, and granting `stop()` new authority to kill a process
-        it doesn't own is a real design decision, not a bookkeeping fix.
-        Flagged for Ish/project-architect rather than decided here (see
-        NEW_ISSUES.md NEW-74). The safe fix in the meantime is making this
-        return value/log honest about doing nothing, not making it newly
-        capable of killing.
-
-        Returns:
-            True  — a process this instance spawned was signalled and its
-                    teardown ran to completion without an unexpected error.
-            False — either a no-op (no `self.process` to act on — adopted,
-                    or already stopped/never started), or teardown was
-                    attempted but hit an unexpected exception outside the
-                    already-handled `ProcessLookupError`/
-                    `TimeoutExpired` cases (logged below) — in that case
-                    the process may or may not actually be dead, so this
-                    must not claim success.
-        """
-        if self.process is None:
-            if self._started:
-                warning(
-                    f"LlamaServer.stop() called on port {self.port} but this "
-                    "instance never spawned a process (adopted an already-"
-                    "running server) — nothing to stop here. The adopted "
-                    "server is still running; see NEW-74 in NEW_ISSUES.md."
-                )
-            return False
-        try:
-            import signal as _signal
-
-            if os.name != "nt":
-                try:
-                    os.killpg(os.getpgid(self.process.pid), _signal.SIGTERM)
-                except ProcessLookupError:
-                    self.process.terminate()
-            else:
-                self.process.terminate()
+    def _signal_owned(self, proc, requested_signal):
+        """Signal only a live retained child, using its own session if anchored."""
+        if proc.poll() is not None:
+            return
+        if os.name != "nt" and self._owned_session_pid == proc.pid:
             try:
-                self.process.wait(timeout=8)
-            except subprocess.TimeoutExpired:
-                if os.name != "nt":
-                    try:
-                        os.killpg(os.getpgid(self.process.pid), _signal.SIGKILL)
-                    except Exception:
-                        self.process.kill()
-                else:
-                    self.process.kill()
-        except Exception as e:
-            # An unexpected failure (not the ProcessLookupError/
-            # TimeoutExpired cases already handled above) during
-            # signal/wait — best-effort final kill attempt, then fall
-            # through to the finally block's bookkeeping reset regardless
-            # (this instance is done trying either way, matching the
-            # pre-NEW-74 behavior). Logged, not silently swallowed — and
-            # `stopped_cleanly` below is what keeps the return value honest
-            # about this path (NEW-74: a caller must never be told "True"
-            # for a teardown attempt whose outcome we don't actually know).
-            warning(f"LlamaServer.stop() on port {self.port} hit an unexpected error during teardown: {e}")
-            stopped_cleanly = False
-            try:
-                self.process.kill()
-            except Exception:
-                pass
+                group = os.getpgid(proc.pid)
+                if group == self._owned_session_pid and proc.poll() is None:
+                    os.killpg(group, requested_signal)
+                    return
+            except ProcessLookupError:
+                return  # wait/poll below must still confirm/reap the owned child.
+        # A child that left its original group is still our Popen, but no
+        # longer establishes authority over its current process group.
+        if requested_signal == signal.SIGKILL:
+            proc.kill()
         else:
-            stopped_cleanly = True
-        finally:
+            proc.terminate()
+
+    def stop(self) -> bool:
+        """Confirm/reap this owned child; uncertainty retains cleanup ownership.
+
+        An adopted process has no Popen and retains NEW-74's False result.
+        Group signaling is restricted to the dedicated session this instance
+        actually created, while its retained live child still anchors it.
+        """
+        with self._lifecycle_lock:
+            proc = self.process
+            if proc is None:
+                if self._started:
+                    warning(
+                        f"LlamaServer.stop() called on port {self.port} but this "
+                        "instance never spawned a process (adopted an already-"
+                        "running server) — nothing to stop here. See NEW-74."
+                    )
+                return False
+            self._cleanup_pending = True
+            self._started = False
+            try:
+                if proc.poll() is None:
+                    self._signal_owned(proc, signal.SIGTERM)
+                    try:
+                        proc.wait(timeout=self._STOP_TIMEOUT_S)
+                    except subprocess.TimeoutExpired:
+                        self._signal_owned(proc, signal.SIGKILL)
+                        proc.wait(timeout=self._STOP_TIMEOUT_S)
+                else:
+                    proc.wait(timeout=self._STOP_TIMEOUT_S)
+                if proc.poll() is None:
+                    return False
+            except Exception:
+                # Signal/wait failure is not exit confirmation. Keep the only
+                # Popen, PID publication and retry state instead of orphaning it.
+                return False
+            # BaseException propagates with retained ownership/pending state.
             if self._pid_publication is not None:
                 from core.process_identity import LifecycleRecord, UnsafeRecord
 
@@ -960,13 +949,12 @@ class LlamaServer:
                     with LifecycleRecord(path, f"llama-server-{self.port}") as record:
                         record.cleanup(expected)
                 except (OSError, UnsafeRecord):
-                    # Unconfirmed exit or changed identity preserves evidence;
-                    # this bookkeeping never grants new termination authority.
-                    pass
+                    pass  # Reaped child is stopped; preserve unrelated evidence.
                 self._pid_publication = None
             self.process = None
-            self._started = False
-        return stopped_cleanly
+            self._owned_session_pid = None
+            self._cleanup_pending = False
+            return True
 
     def _check_health(self) -> bool:
         """Check if server is responding."""
@@ -1327,6 +1315,10 @@ def _emit_argv_provenance(*, argv: List[str]) -> None:
         )
 
 
+class ModelTeardownError(RuntimeError):
+    """An owned model or conservative reservation still needs cleanup."""
+
+
 class ModelLoader:
     """
     Manages model loading via llama-server.
@@ -1363,12 +1355,31 @@ class ModelLoader:
         self._ever_spawned: bool = False
         self._load_failures: int = 0
         self._slot_id: Optional[str] = None
+        self._lifecycle_lock = threading.RLock()
+        self._cleanup_pending = False
+        self._slot_pid_bound = False
+        self._pending_bind_error = ""
         # See LOAD_OUTCOME_* constants above this class.
         self._last_ensure_outcome: str = LOAD_OUTCOME_OK
         self._last_ensure_reason: str = ""
 
     def load_primary(self) -> bool:
-        """Load the primary (7B) model."""
+        """Serialize load/cleanup without reacquiring the caller's SWAP_GUARD."""
+        with self._lifecycle_lock:
+            if self._loaded and not self._cleanup_pending and self._server and self._server.is_running():
+                self._last_ensure_outcome = LOAD_OUTCOME_ALREADY_LOADED
+                self._last_ensure_reason = ""
+                return True
+            if self._server is not None or self._slot_id is not None:
+                try:
+                    self.unload()
+                except ModelTeardownError as exc:
+                    self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+                    self._last_ensure_reason = str(exc)
+                    return False
+            return self._load_primary_locked()
+
+    def _load_primary_locked(self) -> bool:
         try:
             # Snapshot cfg.MODEL_PATH ONCE, into a local, at the top of this
             # call — not re-read at each use site below. cfg.MODEL_PATH can
@@ -1472,6 +1483,8 @@ class ModelLoader:
             # diff, not this one).
             gate_meminfo = rg.read_meminfo()
             decision, slot_id = rg.reserve_slot(spec, port=PRIMARY_SERVER_PORT, meminfo=gate_meminfo)
+            if decision.admitted:
+                self._slot_id = slot_id
             # Emitted unconditionally, before the admitted/denied branch
             # below — denials must be recorded exactly as fully as
             # admissions (design §2.B).
@@ -1497,6 +1510,9 @@ class ModelLoader:
 
             # Captured before spawn so confirm_resident_and_mark_slot() has a
             # true "before" baseline to compare a post-spawn read against.
+            self._slot_id = slot_id
+            self._slot_pid_bound = False
+            self._pending_bind_error = ""
             baseline_meminfo = rg.read_meminfo()
 
             # ── Structural reserve→spawn→confirm cleanup guarantee ──────────
@@ -1508,9 +1524,9 @@ class ModelLoader:
             # itself, whose rg.mark_resident() does a blocking flock() +
             # atomic os.replace() write, both of which can raise under fd
             # exhaustion/disk pressure (realistic on this device) — the
-            # spawned process must be stopped and the reservation released,
-            # not silently leaked while the outer except below swallows the
-            # exception and returns False. `loaded_ok` is only set True on
+            # attempt owned-process teardown. Release the reservation only
+            # after confirmed exit; otherwise retain both for an explicit
+            # retry and report cleanup pending. `loaded_ok` is only set True on
             # the genuine success return; every other exit from this block
             # (an explicit `return False` OR an exception propagating to the
             # outer handler) is treated identically by the finally clause.
@@ -1528,9 +1544,25 @@ class ModelLoader:
             # would let a background task kill a live interactive session's
             # server out from under a human mid-conversation.
             self._server = LlamaServer(model_path, n_ctx=n_ctx, allow_upgrade=interactive)
+            def bind_owned_child(process):
+                try:
+                    if not rg.bind_pending_slot_pid(slot_id, process.pid):
+                        raise RuntimeError("Pending reservation could not be bound")
+                except BaseException:
+                    self._pending_bind_error = "Owned child reservation binding failed"
+                    self._cleanup_pending = True
+                    raise
+                self._slot_pid_bound = True
+
+            self._server._on_spawn = bind_owned_child
             loaded_ok = False
             try:
-                if not self._server.start():
+                started = self._server.start()
+                # Subclasses/test doubles may implement start without the
+                # concrete Popen hook. Bind at their first returned handle too.
+                if self._server.process is not None and not self._slot_pid_bound and not self._pending_bind_error:
+                    bind_owned_child(self._server.process)
+                if not started:
                     self._load_failures += 1
                     self._last_ensure_outcome = LOAD_OUTCOME_SPAWN_FAILED
                     self._last_ensure_reason = (
@@ -1554,8 +1586,7 @@ class ModelLoader:
                         "releasing this loader's own gate reservation, not double-accounting "
                         "its residency."
                     )
-                    rg.release_slot(slot_id)
-                    self._slot_id = None
+                    self._release_own_slot()
                     # ── Lease/registry item, 2026-08-26 (NEW-104/NEW-149) ────
                     # NEW-104's own fix-direction note: releasing our
                     # reservation above (correct — we don't own this
@@ -1595,6 +1626,7 @@ class ModelLoader:
                         _emit_argv_provenance(argv=self._server.last_argv)
 
                 self._loaded = True
+                self._cleanup_pending = False
                 self._loaded_at = time.time()
                 # NEW-152: only the genuine-spawn branch above (`self._server.
                 # process is not None`) sets `_ever_spawned` — the adoption
@@ -1613,38 +1645,34 @@ class ModelLoader:
                 return True
             finally:
                 if not loaded_ok:
-                    if self._server is not None and self._server.process is not None:
-                        # We actually spawned this process (a reused server
-                        # has self.process left None and must never be
-                        # stop()'d here — not ours to kill, CLAUDE.md rule 3)
-                        # — tear it down so nothing is left orphaned with no
-                        # tracking reference to it.
-                        self._server.stop()
-                    self._server = None
                     self._loaded = False
+                    self._cleanup_pending = True
                     try:
-                        rg.release_slot(slot_id)
-                    except Exception as e:
-                        # release_slot() itself failing here is the same
-                        # class of flock()/os.replace() failure this whole
-                        # block guards against — must not mask the original
-                        # failure that got us into this cleanup path, so log
-                        # and continue; the outer except below still returns
-                        # False either way. release_slot() is safe to call
-                        # even if the slot was already released above (the
-                        # reuse branch) — it's a no-op lookup-miss, not an
-                        # error, in that case.
-                        warning(
-                            f"resource_gate: failed to release slot {slot_id} during "
-                            f"load_primary() cleanup: {e}"
-                        )
-                    self._slot_id = None
+                        self.unload()
+                    except ModelTeardownError as exc:
+                        # Preserve the owned child/reservation rather than
+                        # masking the original failure with false cleanup.
+                        self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+                        self._last_ensure_reason = str(exc)
 
-        except Exception as e:
-            error(f"Failed to load model: {e}")
+
+        except BaseException as exc:
+            # Gaps before start's inner try may own a reservation but no child.
+            # A child retained by failed inner cleanup must not be discarded or
+            # automatically retried here; keep that failure visible for retry.
+            if self._server is None and self._slot_id is not None:
+                self._cleanup_pending = True
+                try:
+                    self.unload()
+                except ModelTeardownError:
+                    pass  # conservative slot remains owned for an explicit retry
+            if not isinstance(exc, Exception):
+                raise
             self._load_failures += 1
             self._last_ensure_outcome = LOAD_OUTCOME_ERROR
-            self._last_ensure_reason = str(e)
+            if not self._cleanup_pending:
+                self._last_ensure_reason = str(exc)
+            error(f"Failed to load model: {exc}")
             return False
 
     def _reconcile_adopted_slot(self, wanted_n_ctx: int) -> None:
@@ -1723,43 +1751,57 @@ class ModelLoader:
         except Exception as e:
             warning(f"resource_gate: adopted-slot reconciliation failed, ignoring: {e}")
 
+    def _release_own_slot(self):
+        if self._slot_id is None:
+            return
+        try:
+            result = rg.release_slot(self._slot_id)
+            if result is not True and result is not False:
+                raise RuntimeError("Reservation release was not confirmed")
+        except BaseException as exc:
+            self._cleanup_pending = True
+            self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+            self._last_ensure_reason = "Model exited but reservation cleanup failed"
+            if isinstance(exc, Exception):
+                raise ModelTeardownError(self._last_ensure_reason) from exc
+            raise
+        # False means the row was already absent under release_slot's lock.
+        self._slot_id = None
+        self._slot_pid_bound = False
+        self._pending_bind_error = ""
+
     def unload(self):
-        """Unload (stop) the current model server."""
-        if self._server:
-            info("Stopping model server...")
-            self._server.stop()
-            self._server = None
+        """Release ownership/accounting only after confirmed owned-child exit."""
+        with self._lifecycle_lock:
+            server = self._server
+            owned = server is not None and server.process is not None
+            if owned:
+                self._cleanup_pending = True
+                self._loaded = False
+                try:
+                    stopped = server.stop()
+                except BaseException as exc:
+                    self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+                    self._last_ensure_reason = "Owned model teardown remains unconfirmed"
+                    if isinstance(exc, Exception):
+                        raise ModelTeardownError(self._last_ensure_reason) from exc
+                    raise
+                if stopped is not True or server.process is not None:
+                    self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+                    self._last_ensure_reason = self._pending_bind_error or "Owned model teardown remains unconfirmed"
+                    raise ModelTeardownError(self._last_ensure_reason)
+            # Adopted references carry no Popen authority: drop only our own
+            # reference/reservation, never call stop on the other owner's child.
             self._loaded = False
-            # NEW-155 hygiene fix (2026-08-27, landed alongside the
-            # NEW-145/NEW-149/NEW-155 Option C round as its own separate
-            # commit/hunk — see CODEY_MASTER_PLAN.md Appendix A's 7.4b-C
-            # entry, judgment call 3): `_ever_spawned` used to be set once,
-            # on a genuine spawn, and NEVER reset anywhere — including
-            # here — so `_watchdog_check_model()`'s crash-restart gate
-            # (`was_ever_spawned()`) stayed permanently sticky-True for the
-            # rest of this process's lifetime after a single genuine spawn,
-            # even once this loader has explicitly confirmed (via this very
-            # method) that the server is stopped and nobody currently wants
-            # it running. Reset it here, at the one place this loader
-            # itself confirms a genuine stop, so the watchdog stops eagerly
-            # respawning a coder nobody asked for at the smaller
-            # background ceiling. Does NOT weaken crash-restart coverage:
-            # an actual crash (the process dying on its own, not via an
-            # explicit unload() call) never reaches this method — the
-            # watchdog's cold-load branch calls `load_primary()` directly
-            # in that case — so `was_ever_spawned()` stays True across a
-            # real crash exactly as before.
-            self._ever_spawned = False
-        if self._slot_id:
-            try:
-                rg.release_slot(self._slot_id)
-            except Exception as e:
-                # The underlying process is already stopped above regardless
-                # of this outcome — a failure to update gate accounting here
-                # is a (logged) accounting bug, not a reason to make the
-                # caller think unload() itself failed.
-                warning(f"resource_gate: failed to release slot {self._slot_id}: {e}")
-            self._slot_id = None
+            self._release_own_slot()
+            self._server = None
+            if server is not None:
+                self._ever_spawned = False
+            self._cleanup_pending = False
+
+    def is_cleanup_pending(self):
+        with self._lifecycle_lock:
+            return self._cleanup_pending
 
     def get_pid(self) -> Optional[int]:
         """Return the PID of the llama-server process this loader spawned, if any."""
@@ -1803,57 +1845,61 @@ class ModelLoader:
             self._last_ensure_reason = "SWAP_GUARD busy — retry next tick"
             return False
         try:
-            if self._loaded and self._server and self._server.is_running():
-                restart_recommended = False
-                tm = None
-                try:
-                    from core.thermal import get_thermal_manager
-
-                    tm = get_thermal_manager()
-                    restart_recommended = tm.restart_recommended
-                except Exception:
-                    # Thermal check is best-effort only — any failure here (import
-                    # error, unexpected attribute, etc.) must never block normal
-                    # model loading/inference, so we fail open and keep the
-                    # server running on its current thread count.
-                    restart_recommended = False
-
-                if restart_recommended:
-                    # NEW-70: unload()/load_primary() are deliberately OUTSIDE
-                    # the thermal-check try/except above — a failure here means
-                    # the restart itself broke (possibly leaving no server
-                    # running at all), which is not the "best-effort thermal
-                    # check" case that except is for, and must not be silently
-                    # reported as success.
-                    try:
-                        info(
-                            f"Thermal: restarting server with {tm.current_threads} threads..."
-                        )
-                        self.unload()
-                        tm.restart_recommended = False
-                        return self.load_primary()
-                    except Exception as e:
-                        error(f"Thermal restart failed: {e}")
-                        # Matches load_primary()'s own catch-all convention
-                        # (~line 1520 above): a genuine unexpected failure,
-                        # not a gate denial, so it counts.
-                        self._load_failures += 1
-                        self._last_ensure_outcome = LOAD_OUTCOME_ERROR
-                        self._last_ensure_reason = f"thermal restart failed: {e}"
-                        return False
-
-                self._last_ensure_outcome = LOAD_OUTCOME_ALREADY_LOADED
-                self._last_ensure_reason = ""
-                return True
-
-            # ── Cold load ────────────────────────────────────────────────
-            # M1-D (2026-08-23): this used to first call
-            # _evict_planner_and_confirm_free() — deleted along with
-            # core/planner_loader.py, since there is no longer a second
-            # local model server to evict before loading this one.
-            return self.load_primary()
+            with self._lifecycle_lock:
+                return self._ensure_model_locked(model_type)
         finally:
             SWAP_GUARD.release()
+
+    def _ensure_model_locked(self, model_type):
+        if self._loaded and self._server and self._server.is_running():
+            restart_recommended = False
+            tm = None
+            try:
+                from core.thermal import get_thermal_manager
+
+                tm = get_thermal_manager()
+                restart_recommended = tm.restart_recommended
+            except Exception:
+                # Thermal check is best-effort only — any failure here (import
+                # error, unexpected attribute, etc.) must never block normal
+                # model loading/inference, so we fail open and keep the
+                # server running on its current thread count.
+                restart_recommended = False
+
+            if restart_recommended:
+                # NEW-70: unload()/load_primary() are deliberately OUTSIDE
+                # the thermal-check try/except above — a failure here means
+                # the restart itself broke (possibly leaving no server
+                # running at all), which is not the "best-effort thermal
+                # check" case that except is for, and must not be silently
+                # reported as success.
+                try:
+                    info(
+                        f"Thermal: restarting server with {tm.current_threads} threads..."
+                    )
+                    self.unload()
+                    tm.restart_recommended = False
+                    return self.load_primary()
+                except Exception as e:
+                    error(f"Thermal restart failed: {e}")
+                    # Matches load_primary()'s own catch-all convention
+                    # (~line 1520 above): a genuine unexpected failure,
+                    # not a gate denial, so it counts.
+                    self._load_failures += 1
+                    self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+                    self._last_ensure_reason = f"thermal restart failed: {e}"
+                    return False
+
+            self._last_ensure_outcome = LOAD_OUTCOME_ALREADY_LOADED
+            self._last_ensure_reason = ""
+            return True
+
+        # ── Cold load ────────────────────────────────────────────────
+        # M1-D (2026-08-23): this used to first call
+        # _evict_planner_and_confirm_free() — deleted along with
+        # core/planner_loader.py, since there is no longer a second
+        # local model server to evict before loading this one.
+        return self.load_primary()
 
     def get_loaded_model(self) -> Optional[str]:
         """Get the currently loaded model type."""
@@ -1966,6 +2012,9 @@ class ModelLoader:
             "loaded_at": self._loaded_at,
             "uptime_seconds": time.time() - self._loaded_at if self._loaded_at else 0,
             "load_failures": self._load_failures,
+            "cleanup_pending": self._cleanup_pending,
+            "slot_id": self._slot_id,
+            "pending_child_bound": self._slot_pid_bound,
             "server_running": self._server.is_running() if self._server else False,
         }
 

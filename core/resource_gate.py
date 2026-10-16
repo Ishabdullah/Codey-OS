@@ -3273,6 +3273,8 @@ def _precheck_port_liveness(state_dir: Optional[Path] = None) -> Dict[Tuple[int,
     for s in slots:
         pid = s.get("pid")
         port = s.get("port")
+        if s.get("owned_pending_child") is True and s.get("status", SLOT_STATUS_PENDING) == SLOT_STATUS_PENDING:
+            continue
         if pid is None or port is None:
             continue
         try:
@@ -3557,8 +3559,7 @@ def reserve_slot(
             slots[:] = [
                 s
                 for s in slots
-                if s.get("pid") is None
-                or _pid_alive(s["pid"], port=s.get("port"), precomputed=_port_liveness)
+                if _slot_pid_alive(s, _port_liveness)
             ]
 
         # Only PENDING slots count against reserved_bytes — see this
@@ -3642,6 +3643,34 @@ def reserve_slot(
         return decision, slot_id
 
 
+def bind_pending_slot_pid(slot_id: str, pid: int, state_dir: Optional[Path] = None) -> bool:
+    """Bind an already-admitted PENDING reservation to its owned child.
+
+    Preserve reserved cost/status until residency is confirmed. A child that
+    never reached health must not be reaped merely because its port is down
+    when PID liveness is permission-ambiguous after its launcher exits.
+    """
+    if type(pid) is not int or not 1 < pid <= 2**31 - 1:
+        raise ValueError("Owned child PID must be an integer greater than one")
+    found = False
+    with _LockedState(state_dir) as slots:
+        for slot in slots:
+            if slot.get("slot_id") == slot_id and slot.get("status", SLOT_STATUS_PENDING) == SLOT_STATUS_PENDING:
+                slot["pid"] = pid
+                slot["owned_pending_child"] = True
+                found = True
+                break
+    return found
+
+
+def _slot_pid_alive(slot, precomputed):
+    """Conservative liveness for an explicitly bound unconfirmed child."""
+    if slot.get("pid") is None:
+        return True
+    owned_pending = slot.get("owned_pending_child") is True and slot.get("status", SLOT_STATUS_PENDING) == SLOT_STATUS_PENDING
+    return _pid_alive(slot["pid"], port=None if owned_pending else slot.get("port"), precomputed=precomputed)
+
+
 def mark_resident(
     slot_id: str, state_dir: Optional[Path] = None, pid: Optional[int] = None
 ) -> bool:
@@ -3694,6 +3723,7 @@ def mark_resident(
         for s in slots:
             if s.get("slot_id") == slot_id:
                 s["status"] = SLOT_STATUS_RESIDENT
+                s.pop("owned_pending_child", None)
                 if pid is not None:
                     s["pid"] = pid
                 found = True
@@ -3730,8 +3760,7 @@ def list_slots(state_dir: Optional[Path] = None, reap_dead: bool = True) -> List
             live = [
                 s
                 for s in slots
-                if s.get("pid") is None
-                or _pid_alive(s["pid"], port=s.get("port"), precomputed=_port_liveness)
+                if _slot_pid_alive(s, _port_liveness)
             ]
             slots[:] = live
         return list(slots)

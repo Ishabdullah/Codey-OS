@@ -305,29 +305,23 @@ def shutdown():
     # If daemon is running, leave llama-server alive for it
     if _daemon_is_running():
         return
-    # Unload model and kill llama-server on port 8080 — scoped to the PID
-    # this loader actually spawned. Never pkill by bare process name: that
-    # would also kill unrelated llama-server instances (plannd on 8081, the
-    # embed server on 8082, or another session's server entirely).
+    # An unload failure may retain a live owned child. Never turn a
+    # previously captured numeric PID into broader group-kill authority.
     try:
-        from core.loader_v2 import get_loader
+        from core.loader_v2 import ModelTeardownError, get_loader
 
         loader = get_loader()
-        _pid = loader.get_pid()
         try:
             loader.unload()
+        except ModelTeardownError:
+            try:
+                loader.unload()  # one bounded retry through owned-handle checks
+            except ModelTeardownError:
+                warning("Model cleanup remains pending; ownership/accounting evidence retained.")
         except Exception:
-            # unload() threw before finishing its own kill step — fall back
-            # to killing only the PID we captured above, never a name pattern.
-            if _pid:
-                try:
-                    import os
-                    import signal
-
-                    os.killpg(os.getpgid(_pid), signal.SIGKILL)
-                except Exception:
-                    pass
+            warning("Model cleanup failed; no unverified PID fallback attempted.")
     except Exception:
+        # Shutdown must continue; no error path grants raw PID kill authority.
         pass
 
 

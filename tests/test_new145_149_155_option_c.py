@@ -289,6 +289,7 @@ def fake_resource_gate(monkeypatch):
     is the allow_upgrade wiring, not resource_gate's own admission math."""
     fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
     monkeypatch.setattr(rg, "reserve_slot", lambda *a, **k: (fake_decision, "fake-slot-id"))
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
     monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
@@ -603,6 +604,7 @@ def test_unload_resets_ever_spawned_after_genuine_spawn():
     loader = lv.ModelLoader()
     fake_server = MagicMock()
     fake_server.process = MagicMock(pid=1234)
+    fake_server.stop.side_effect = lambda: setattr(fake_server, "process", None) or True
     loader._server = fake_server
     loader._ever_spawned = True
     loader._loaded = True

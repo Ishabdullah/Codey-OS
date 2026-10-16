@@ -70,6 +70,8 @@ def test_stop_swallowed_teardown_exception_returns_false_not_true(monkeypatch):
     server = lv.LlamaServer("/fake/model.gguf", port=1234, n_ctx=4096)
     fake_proc = MagicMock()
     fake_proc.pid = 4242
+    fake_proc.poll.return_value = None
+    server._owned_session_pid = 4242
     server.process = fake_proc
     server._started = True
 
@@ -84,10 +86,10 @@ def test_stop_swallowed_teardown_exception_returns_false_not_true(monkeypatch):
     result = server.stop()
 
     assert result is False
-    assert len(warnings) == 1
-    assert "unexpected error during teardown" in warnings[0]
-    # Bookkeeping is still reset — this instance is done trying either way.
-    assert server.process is None
+    assert warnings == []  # failure is conveyed by the structured False result
+    # Failed teardown retains ownership for a safe retry.
+    assert server.process is fake_proc
+    assert server._cleanup_pending is True
     assert server._started is False
 
 
@@ -98,7 +100,9 @@ def test_stop_on_genuinely_spawned_process_still_kills_and_returns_true(monkeypa
     server = lv.LlamaServer("/fake/model.gguf", port=1234, n_ctx=4096)
     fake_proc = MagicMock()
     fake_proc.pid = 4242
-    fake_proc.wait.return_value = None
+    fake_proc.poll.return_value = None
+    server._owned_session_pid = 4242
+    fake_proc.wait.side_effect = lambda **kwargs: setattr(fake_proc.poll, "return_value", -15) or -15
     server.process = fake_proc
     server._started = True
 

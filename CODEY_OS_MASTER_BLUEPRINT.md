@@ -3127,18 +3127,23 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > bundle 164 passed; eight real fixture children all reaped. No models.
 > No pidfd API here; immediate rechecks leave a kernel signaling race.
 > **13c.2 (shell consumers, including codeyOS) and 13d (complete shell
-> operation audit) remain open**,
-> **13e is additionally required before group 13 closure:** NEW-956, a
-> confirmed High-severity owned-model teardown/accounting gap: failed or
-> unconfirmed stop drops handles and releases resource accounting. Actual
-> stop-AST/fake-child proof, no model load; not fixed yet. Architect scopes
-> it after 13c.1, independently of NEW-74 adopted-process authority.
-> NEW-957 records a 13c.1 placeholder-PID regression incident (unguarded
-> teardown, exact signal issuance unknown); prevention guards now reviewed.
-> 13c.1 metadata failure preserves owned handles with an explicit warning;
-> 13e follows immediately before shell migration. No model was spawned.
-> Groups 14/15 follow. Ownership repairs alone do not close audit coverage;
-> durable PID metadata alone does not fix NEW-956; no full WP2.1 closure claim.
+> operation audit) remain open**. NEW-959 records supported custom daemon
+> PID/socket/log path mismatch, scoped for shared resolution in 13c.2;
+> relative-path compatibility choice surfaced to Ish and remains pending.
+> **13e is code-complete, source reviewer APPROVED after two rounds and
+> independently disposable-process verified** (High NEW-956): owned
+> stop/reap confirmation, retained failed cleanup/accounting, immediate
+> PENDING child binding, conservative marked-child reaping, no replacement
+> until cleanup succeeds, and truthful daemon/main/LoRA/thermal/reset callers.
+> Reviewer caught interrupted LoRA cfg restoration; both variants fixed.
+> Frozen bundle 407 passed before that correction; affected bundle 64 passed,
+> coordinator corrected suite 54 passed; six real fixture children all reaped.
+> Physical RAM ceiling stays MemTotal-only; adopted-process policy unchanged.
+> Real admission/failed-load/model RAM paths are unit-only, no model load.
+> NEW-957 records the 13c.1 placeholder-PID incident (exact signal issuance
+> unknown); reviewed guards prevent recurrence without rewriting history.
+> Next 13c.2 then 13d; groups 14/15 follow. Ownership repairs alone do not
+> close operation audit coverage; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

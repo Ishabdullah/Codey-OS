@@ -462,3 +462,202 @@ and LlamaServer.stop before execution. Real signaling belongs only to retained
 disposable fixture handles with finally cleanup. NEW-957 preserves the initial
 unguarded-fixture incident and missing-output uncertainty; do not imply zero
 unknown signal attempts or reconstruct unavailable logs.
+
+
+## 13e refinements — independently inspected spawn/reaper/caller details
+
+Earliest binding must be inside LlamaServer._spawn_locked immediately after
+Popen assigns the owned handle, before identity publication, logging and the
+up-to-60-second health wait. ModelLoader retaining/binding only after start()
+returns leaves exactly the failed-start/interrupt interval unprotected. Retain
+reservation ID before calling start; provide a narrow core-owned spawn callback
+or equivalent reservation context. Genuine spawn invokes it; adoption never
+does. Pending binding must preserve status/cost/swap data. A False return from
+binding or mark_resident is a real failure, not just exceptions: current
+confirm_resident_and_mark_slot ignores mark_resident's False result. No healthy
+success without its expected slot. release_slot False meaning already absent
+is different from an I/O exception: safely absent accounting must not become
+permanent cleanup-pending debt.
+
+Actual reaper inspection: _pid_alive catches PermissionError and can conclude
+dead from precomputed health-port False; reserve_slot and list_slots both drop
+the row. A genuinely owned failed-start/loading child need not answer /health,
+so binding alone does not protect its PENDING reservation in this case.
+
+Narrow allowed refinement: bind_pending_slot_pid also marks the row as a
+core-owned PENDING child. For marker is True AND status PENDING only, liveness
+must treat PermissionError conservatively alive without port-health death
+inference (e.g. shared slot helper calls _pid_alive with port=None). ESRCH still
+reaps. Use same helper/selection at both reserve_slot/list_slots reap sites;
+precheck may skip marked rows because no port result is needed. Clear marker
+atomically on mark_resident; RESIDENT behavior must preserve existing NEW-432
+health inference even if a stale marker remains. Unmarked PENDING retains its
+existing semantics. No HTTP under flock or admission/ceiling math changes.
+
+Discriminating tests at BOTH reap sites: marked PENDING + PermissionError +
+unreachable port remains with unchanged status/cost/swap claim; ESRCH is reaped;
+RESIDENT with stale marker still follows original health inference; unmarked
+PENDING remains original behavior. This is conservative retention, not a new
+permission or a claim of identity-safe reaping after PID reuse.
+
+Caller ordering addition: rollback_to_backup currently copy2s backup to target,
+unlinks backup and mutates cfg before unload. Move the owned-unload precondition
+before those mutations; new teardown failure must preserve backup bytes, target
+bytes and original cfg, with no reload. This is failure propagation for the
+owned-model operation, not adopted-process kill authority or broader promotion/
+artifact authorization (group14). Retain existing adoption semantics separately.
+
+Final bounded assessment: the spec now covers genuine spawn, slow/failed start,
+resident-confirmation false/exception, owned stop/reap, failed cleanup retries,
+reservation binding/reaping/release, direct and ensure-model reload, singleton
+reset, daemon release/shutdown, main fallback and LoRA swap/rollback. Interruptions
+must preserve the same ownership/accounting invariants as ordinary failures.
+No source implementation approval is implied: independent reviewer still needs
+the actual diff and fixture evidence, particularly lock order and adoption.
+
+
+## 13c.2 API handoff refinements — committed identity implementation
+
+Actual API names: LifecycleRecord(pid_file, service, lock_fd=None,
+blocking=True); CLI accepts record/inspect/cleanup/signal/stop and --lock-fd.
+inspect/signal statuses are running=0, absent-dead=1, unsafe-unverifiable=2;
+completed stop/cleanup returns 0. Helpers print the state string; use exit status
+rather than collapsing unsafe into not-running. Use exact canonical service
+keys: daemon codeyOS, model llama-server-8080; display labels are separate.
+
+Lock inode is <pid_file>.lifecycle.lock; existing Aigentik aigentik.lock is NOT
+the same inode and cannot be inherited as that lock. Once outer shell owns the
+correct lock, helper invocations use --lock-fd with that exact inherited open
+file description. Do not independently reacquire it and deadlock. Long-lived
+service children close the FD explicitly; helper children inherit it only for
+their bounded call. CLI publish proves the target child belongs to its parent:
+record helper must be directly invoked by the launching shell, not inside
+command substitution adding an intervening shell. Redirect its state output
+if necessary rather than capturing record via $(...).
+
+Daemon startup handoff: shell holds lifecycle lock, spawns daemon with lock FD
+closed, directly publishes child record using helper's inherited lock FD, then
+releases. Python check_pid_file waits for release and recognizes own identity.
+Do not wait on daemon readiness while holding its lock. Core daemon shutdown
+already attempts nonblocking record cleanup so shell stop can await its exit.
+
+Remove top-level mkdir from sourced service library and public shell dispatch;
+parent environment preparation performs no directory writes. Identity helper
+__enter__ itself creates parent/lock, so invoke it within operation callback
+once13d exists. Missing-state READ status may return absent without constructing
+a root. Status inspection need not mutate stale records; explicit cleanup/start/
+stop remains responsible for controlled cleanup. No directory-creation exception
+is granted merely because a public command says status.
+
+### Selected narrow reconciliation: configured daemon PID/socket/log paths
+
+Confirmed Medium, nondefault-config compatibility defect; no live incidence
+claimed. Exact inspected evidence: utils/config.py331-334 default paths;
+core/daemon.py103-105 initializes globals to defaults; main around2307 calls
+check_pid_file BEFORE Daemon construction; Daemon.__init__876-882 then overrides
+PID_FILE/SOCKET_FILE/LOG_FILE from config daemon.pid_file/socket_file/log_file.
+codeyOS10-12, codeydOS29-30 and service_manager13-14 assume defaults. Fresh-process
+core.daemon.send_command around2186 uses default socket; observability.py218/252
+uses default PID. Thus custom paths are supported in daemon construction but
+ignored by its launcher, clients and initial duplicate check. Identity migration
+cannot claim equivalent ownership when records refer to different paths.
+
+Preserve this supported configuration with a single narrow resolver in existing
+core.daemon_config, using its parser/default merge rather than another JSON
+parser. resolve_daemon_paths(config=None) returns effective pid/socket/log paths;
+optional already-loaded config avoids second snapshots during Daemon init.
+Remove daemon_config's import-time CONFIG_DIR.mkdir; create directories at actual
+save/default-create boundaries. Resolver reads only; no new setup dependencies.
+Do not change arbitrary config handling, persistence schema, admission policy or
+relative-path semantics. Existing relative values remain relative to the invoking
+process cwd unless separately scoped; resolve once for each complete operation
+and use the same snapshot throughout it.
+
+Wire daemon duplicate check, publication/server startup, is_daemon_running and
+send_command to effective paths, including fresh CLI/planner imports. Preserve
+existing test monkeypatches through explicit optional paths/config fixtures,
+not by retaining conflicting production sources. Observability daemon PID and
+its uptime-mtime comparison use the same effective PID path. Shell shared manager,
+codeydOS and codeyOS resolve effective daemon pid/socket/log paths lazily inside
+operation mechanics (source remains write-free). Non-daemon service paths remain
+under selected state root. State DB display remains actual state.db convention;
+do not confuse daemon log/path override with moving every state artifact.
+
+Use finite field selection/data arguments between resolver and shell; never eval
+returned shell code or interpolate config values into generated Python. Preserve
+spaces in paths and existing inherited environment. Missing config retains
+defaults; existing invalid-config fallback remains consistent across consumers.
+No new public --internal bypass, config mutation feature or product fork.
+
+Tests: temporary root config with custom absolute pid/socket/log; duplicate check
+uses custom PID before constructing daemon; shell launch/stop/status/reload and
+codeyOS client share custom record/socket; fresh send_command/planner connection
+uses custom socket; observability PID+mtime aligns; defaults unchanged; read-only
+resolver/source of libraries on absent root creates no directory; custom-path
+fixtures include spaces. All sockets/children are disposable, no real services.
+If an unanticipated additional consumer cannot be reconciled narrowly, retain
+it explicitly rather than claiming all custom-path compatibility is closed.
+
+
+13c.2 test safety prerequisite (NEW-957 incident): before running any existing
+shell lifecycle tests, inspect fixture PIDs and helper/subprocess mocks. A test-
+looking integer is never safe to signal. Replace synthetic PID lifecycle calls
+with fully mocked identity helper/signals, or exact currently retained fixture
+Popen handles. Adding identity wrappers can make old partial mocks reach real
+helpers; cover every migrated entrypoint. Only explicit disposable-child tests
+may exercise actual signaling, with finally cleanup and no inherited live root.
+Custom-path reconciliation is coordinator-ledger NEW-959, Medium, scoped here.
+
+
+## Relative configured daemon paths — superseding refinement
+
+This supersedes the earlier sentence preserving invoking-cwd relative semantics.
+Actual launch trace: codeydOS199 nohup inherits caller cwd; its generated script
+only sets sys.path/CODEY_DIR around190-192. codey's $(cd ... && pwd) locates the
+repo in a subshell and does NOT change parent cwd. No daemon launch chdir was
+found. Therefore invoking-relative PID/socket/log paths already disagree when
+later clients run from another directory; merely sharing parser logic cannot
+fix NEW-959 while preserving that unstable interpretation.
+
+Pending option B (NOT SELECTED): use a shared stable path base, the directory
+containing daemon config.json (the selected CODEY_STATE_DIR root). Snapshot that config path/base to absolute
+once per complete operation. Absolute configured PID/socket/log values stay
+unchanged; relative configured values resolve against this shared config base,
+then become absolute before any identity/log/socket operation. All shell and
+Python consumers use those exact resolved values. Do NOT chdir the daemon/TUI
+to enforce path semantics: utils.config.WORKSPACE_ROOT derives from cwd and
+changing cwd would unintentionally change the agent's workspace.
+
+Document this explicit correction to relative-path semantics. It is not an
+automatic data/process-record migration: deployments previously using paths
+relative to a launch cwd should convert config values to those original absolute
+locations before rollout. Do not scan arbitrary directories for old PID records,
+adopt discovered processes or move/delete old files automatically. Existing
+absolute configurations and defaults require no migration. As with an operator
+changing configured absolute paths, launcher agreement on the new config does
+not prove an unrelated older-location service was stopped; retain that deployment
+limit honestly. Coordinator correction: this compatibility behavior requires Ish's decision;
+no stable-base implementation is authorized until that answer arrives.
+
+Tests: config root in temporary directory with relative custom PID/socket/log,
+launch fixture from directory A, inspect/stop/client from directory B; all select
+the same absolute config-root paths. Assert daemon/TUI cwd and WORKSPACE_ROOT
+remain the original intended workspace. Cover relative CODEY_STATE_DIR input
+by snapshotting it against entrypoint cwd once and passing/exporting the resulting
+absolute root across the operation's child processes; user-supplied absolute
+state root remains unchanged. No actual services/model loads.
+
+
+## Relative-path decision pending Ish — controlling status
+
+Coordinator has surfaced three options to Ish: (A, recommended) require absolute
+custom daemon paths and refuse ambiguous relative values; (B) stable state-root
+anchor with documented migration; (C) retain caller-relative behavior and its
+explicit residual. No option has been selected in this report. Earlier architect
+statements that stable anchoring needed no product decision are superseded:
+existing running instances/duplicate-start consequences make this a genuine
+compatibility choice. The exact launch-cwd trace above remains confirmed;
+the stable-anchor paragraphs/tests describe option B only, not approved scope.
+Keep dependent relative-path implementation pending Ish's answer. 13e and
+absolute-path/identity mechanics remain independently actionable. Do not silently
+rewrite deployment path semantics or choose a migration policy in implementation.

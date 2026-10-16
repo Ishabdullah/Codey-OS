@@ -46,6 +46,7 @@ class _FakeLlamaServer:
     def stop(self):
         self.process = None
         self._started = False
+        return True
 
     def is_running(self):
         return self._started
@@ -65,6 +66,7 @@ def reset_state():
 def _admit_everything(monkeypatch):
     fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-1"))
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
     monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})

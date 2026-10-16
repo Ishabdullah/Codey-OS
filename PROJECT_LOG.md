@@ -1,3 +1,34 @@
+## 2026-10-15 — WP2.1 13e: High model teardown/accounting defect NEW-956 fixed, two-round approval and disposable-process PASS
+
+**Change:** owned stop confirms/reaps after TERM or KILL and retains ownership/evidence on uncertainty. Loader retains child/reservation/cleanup state, refuses replacement while unresolved, binds the PENDING reservation immediately after actual spawn, and handles failed binding/resident marking/release truthfully. Both resource reapers preserve explicitly marked PENDING child reservations on ambiguous PID permissions without health-based premature release. Residency clears the marker; physical RAM ceiling/admission arithmetic is unchanged (MemTotal only, no swap/zram). Existing adopted-process authority is unchanged.
+
+**Callers:** daemon release observes cleanup pending even when not loaded, refuses false success/cooldown, and shutdown runs blocking unload in executor. Main cleanup retries owned-handle teardown without raw captured-PID kill fallback. Thermal/reset preserve retry state; LoRA swap restores configuration on failed teardown, rollback unloads before touching backup/target and reports failed reload. Reviewer first caught KeyboardInterrupt/SystemExit bypassing LoRA restoration; implementer corrected both branches and added four interruption cases. Mandatory source reviewer round 2 **APPROVED**.
+
+**Literal verification:**
+
+```text
+frozen loader/resource/caller bundle before LoRA interruption correction: 407 passed in 125.74s (0:02:05)
+affected corrected ownership/LoRA/guard bundle: 64 passed in 2.20s
+coordinator corrected ownership suite: 54 passed in 0.62s
+reviewer corrected independent checks: 63 passed in 1.81s
+static synthetic-PID guard: 1 passed in 0.28s
+focused lint and full new-test lint: All checks passed!
+git diff --check: no output
+Finally cleanup: retained exact Popen handles= 6 all_reaped= True
+```
+
+Independent live report `docs/wp2_1_group13e_live_verification.md` includes literal free-h and TERM/KILL/reap, failed-signal/wait retention and retry, no replacement, changed-record preservation and accounting-release failure/retry. Innocent fixture survived. Actual lightweight children were manually wired; reservation callbacks were fake. No model startup/RAM test, real admission-store mutation, existing services, network or live stores. Failed-load binding/caller integration remain unit-only. Earlier failed/mixed-source logs retained, not final evidence. Full suite/type-checker/baseline lint limitations remain; broad lint debt was not mass-rewritten.
+
+Next: architect-refined 13c.2 shell/client migration (NEW-959 absolute-path consistency; relative-path product choice pending Ish), then complete-operation audit 13d, groups 14/15. Group 13 and full WP2.1 DoD remain open. NEW-957 historical uncertainty is not erased by successful safeguarded checks.
+
+---
+
+## 2026-10-15 — WP2.1 13c.2 compatibility scoping: configured daemon path mismatch (NEW-959)
+
+Architect's fresh live-code read found daemon configuration overrides applied after duplicate checking while shell/fresh Python clients and observability continue using default PID/socket/log locations. Confirmed Medium for nondefault supported configurations; not fixed or live-verified yet. Narrow shared effective-path resolution is selected for absolute overrides. Subsequent launch-cwd tracing found a genuine compatibility choice for relative paths: the daemon inherits its launcher cwd. Ish was asked whether to require absolute settings/refuse ambiguous relative paths, anchor them with explicit migration, or retain the residual. Relative-path behavior changes remain pending that answer; 13e proceeds independently. No config/protocol rewrite. Scope also clarifies exact service names, lifecycle lock inode/FD inheritance, direct publication (avoid command-substitution parent changes), daemon lock release before readiness, unsafe-vs-dead outcomes, diagnostic-only orphan scans and removal of pre-boundary directory creation. Required High teardown/accounting repair 13e remains the current implementation; 13c.2 follows it.
+
+---
+
 ## 2026-10-15 — WP2.1 13c.1 durable identity/Python writers (NEW-958), reviewed and disposable-process PASS
 
 Strict PID/identity sidecars, lifecycle locks, validated inherited descriptors, bounded snapshots and compare-before-cleanup now support verified cross-process control. Daemon and loader publish identity; loader metadata failure warns and retains ownership. Shell migration remains 13c.2; High NEW-956 teardown/accounting repair is required immediately next, before shell migration.

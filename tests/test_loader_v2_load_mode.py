@@ -51,6 +51,7 @@ def _patch_gate(monkeypatch):
 
     monkeypatch.setattr(rg, "reserve_slot", fake_reserve_slot)
     monkeypatch.setattr(rg, "read_meminfo", fake_read_meminfo)
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
 

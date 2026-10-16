@@ -98,6 +98,7 @@ class FakeServerSpawned:
     def stop(self):
         self.process = None
         self._started = False
+        return True
 
     def is_running(self):
         return self._started
@@ -181,9 +182,10 @@ def _fake_server_with_pid(pid: int):
         def stop(self):
             self.process = None
             self._started = False
+            return True
 
         def is_running(self):
-            return self._started
+            return self._started and rg._pid_alive(pid)
 
     return _FakeServer
 
@@ -251,6 +253,7 @@ def test_load_primary_reserves_and_marks_resident_on_real_spawn(monkeypatch):
         "reserve_slot",
         lambda spec, **k: (reserve_calls.append(spec) or fake_decision, "slot-1"),
     )
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda slot_id, **k: mark_calls.append(slot_id) or True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
     # 2 pre-spawn reads (T9's own gate_meminfo capture ahead of reserve_slot()
@@ -333,6 +336,7 @@ def test_load_primary_reuse_path_releases_own_slot_does_not_mark_resident(monkey
     mark_calls = []
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-3"))
     monkeypatch.setattr(rg, "release_slot", lambda slot_id, **k: released.append(slot_id) or True)
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda slot_id, **k: mark_calls.append(slot_id) or True)
     monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
 
@@ -465,6 +469,7 @@ def test_unload_releases_slot(monkeypatch):
     fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
     released = []
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-4"))
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda slot_id, **k: released.append(slot_id) or True)
     # 2 pre-spawn reads -- see test_load_primary_reserves_and_marks_resident_
@@ -545,6 +550,7 @@ def test_load_primary_spawn_failure_sets_outcome(monkeypatch):
 def test_load_primary_success_sets_ok_outcome(monkeypatch):
     fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-y"))
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
     # 2 pre-spawn reads -- see test_load_primary_reserves_and_marks_resident_
@@ -603,6 +609,7 @@ def test_ensure_model_deferred_outcome_not_stale_from_prior_gate_denial(monkeypa
 def test_ensure_model_already_loaded_sets_outcome(monkeypatch):
     fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-w"))
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
     # 2 pre-spawn reads -- see test_load_primary_reserves_and_marks_resident_
@@ -637,6 +644,7 @@ def test_ensure_model_thermal_restart_failure_not_reported_as_success(monkeypatc
     proves ensure_model()'s own inner try/except covers the call."""
     fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-w"))
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
     monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(2))
@@ -675,6 +683,7 @@ def test_confirm_resident_marks_immediately_when_drop_observed(monkeypatch):
     first poll -- no need to wait out the timeout."""
     monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 100})
     marked = []
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda slot_id, **k: marked.append(slot_id) or True)
     sleeps = []
     monkeypatch.setattr(lv.time, "sleep", lambda s: sleeps.append(s))
@@ -717,6 +726,7 @@ def test_confirm_resident_marks_anyway_after_timeout_with_no_drop(monkeypatch):
     reserved_bytes)."""
     monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 1000})  # no drop
     marked = []
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda slot_id, **k: marked.append(slot_id) or True)
     monkeypatch.setattr(lv.time, "sleep", lambda s: None)  # don't actually wait
 
@@ -751,6 +761,8 @@ def test_embed_server_registers_slot_as_resident_on_start(monkeypatch, tmp_path)
 
     server = es.EmbedServer()
     server.model_path = fake_model
+    monkeypatch.setattr(es.os, "killpg", MagicMock())
+    monkeypatch.setattr(es.os, "getpgid", MagicMock(return_value=999))
 
     with patch.object(server, "_is_port_open", return_value=False), patch.object(
         server, "_port_is_bound", return_value=False
@@ -785,6 +797,8 @@ def test_embed_server_releases_slot_on_stop(monkeypatch, tmp_path):
 
     server = es.EmbedServer()
     server.model_path = fake_model
+    monkeypatch.setattr(es.os, "killpg", MagicMock())
+    monkeypatch.setattr(es.os, "getpgid", MagicMock(return_value=999))
 
     with patch.object(server, "_is_port_open", return_value=False), patch.object(
         server, "_port_is_bound", return_value=False
@@ -1171,6 +1185,7 @@ def test_load_primary_confirm_raises_slot_not_leaked_no_orphan(tmp_path, monkeyp
     def boom(slot_id, state_dir=None):
         raise OSError("simulated flock()/os.replace() failure under fd exhaustion")
 
+    monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", boom)
 
     _REAL_SPAWNED_PROCESSES.clear()

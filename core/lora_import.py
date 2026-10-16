@@ -346,7 +346,14 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
         # Reload. core/loader_v2.py:ModelLoader.load_primary() reads
         # cfg.MODEL_PATH fresh (NEW_ISSUES.md NEW-84 fix), so this mutation
         # now actually takes effect.
-        loader.unload()
+        try:
+            loader.unload()
+        except BaseException as exc:
+            cfg.MODEL_PATH = original
+            cfg.PLANNER_MODEL_PATH = original_planner
+            if not isinstance(exc, Exception):
+                raise
+            return False, "Model teardown failed; configuration restored and replacement not loaded"
         if loader.load_primary():
             success(f"Swapped to fine-tuned primary model: {model_path}")
             return True, f"Swapped to fine-tuned model"
@@ -397,7 +404,14 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
         cfg.MODEL_PATH = model_file
         cfg.PLANNER_MODEL_PATH = model_file
 
-        loader.unload()
+        try:
+            loader.unload()
+        except BaseException as exc:
+            cfg.MODEL_PATH = original
+            cfg.PLANNER_MODEL_PATH = original_planner
+            if not isinstance(exc, Exception):
+                raise
+            return False, "Model teardown failed; configuration restored and replacement not loaded"
         if loader.load_primary():
             success(f"Swapped to fine-tuned secondary model: {model_path}")
             return True, f"Swapped to fine-tuned model"
@@ -508,6 +522,10 @@ def rollback_to_backup(backup_path: str, model_variant: str) -> Tuple[bool, str]
 
     info(f"Rolling back to backup...")
     try:
+        from core.loader_v2 import get_loader
+
+        loader = get_loader()
+        loader.unload()
         shutil.copy2(backup, original_path)
         # Remove backup marker
         backup.unlink()
@@ -538,11 +556,8 @@ def rollback_to_backup(backup_path: str, model_variant: str) -> Tuple[bool, str]
         # an arbitrary file" gap this never resolved is now moot for the
         # same reason (there's only one loader, and it already reads
         # `cfg.MODEL_PATH` fresh).
-        from core.loader_v2 import get_loader
-
-        loader = get_loader()
-        loader.unload()
-        loader.load_primary()
+        if not loader.load_primary():
+            return False, "Backup restored, but model reload failed"
 
         success("Rolled back to original model")
         return True, "Rolled back successfully"
