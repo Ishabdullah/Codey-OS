@@ -1,3 +1,35 @@
+## 2026-10-16 — WP2.1 13c.2b.1 owned-spawn/readiness/guardian mechanism reviewed and live PASS; shell findings remain open
+
+**Change:** stdlib identity helper now owns actual service Popen through publication, with strict private pipe status and fixed payload-free diagnostics. Existing live/unsafe evidence blocks before spawn. Verified identity, bounded live observation and delivered published status commit handoff; failed publication/observation/readiness converges to TERM/wait/KILL/final wait. Unconfirmed cleanup retains the exact child and same inherited lifecycle lock as a failure guardian. Child inherits HUP resistance and no lock/readiness/control descriptors. Broken readiness/EOF never authorizes another spawn. No public service scripts changed; NEW-962/963 remain open until consumer migration, and no operation audit coverage is claimed yet.
+
+**Review correction:** first pass found real-fixture finally cleanup could time out without reaping helper/child. Test-only SIGUSR2 now sets a flag; a prestarted worker performs retained-handle cleanup outside signal context, writes confirmed completion and exits helper. Parent retains/signals/waits its actual helper Popen. Tests force timeout and preserve the original assertion failure. Production diff stayed unchanged through that correction. Reviewer round 2 **APPROVED**. An earlier mocked-hook assertion stalled a test with no OS child; only its exact owned runner was terminated after argv/parent/boot/start/UID checks. Final evidence comes from the corrected frozen run.
+
+```text
+final frozen identity/writer/path/mechanics regression: 189 passed in 11.78s
+coordinator fully mocked unit checks: 42 passed in 0.85s
+reviewer independent checks: 145 passed in 8.73s
+focused lint and full new-test lint: All checks passed!
+git diff --check: no output
+Finally parent cleanup: all retained helper/innocent Popen handles reaped= 9
+RESULT PASS
+```
+
+Independent report `docs/wp2_1_group13c2b1_live_verification.md` preserves literal RAM/output: eight actual service fixture children reaped; nine parent helper/innocent handles reaped. Actual main(spawn) publication, child-private-FD closure/HUP/log preservation, metadata failures and TERM/KILL, changed-record/innocent survival, guardian lock retention after parent close, competing pre-spawn refusal, helper TERM request, controlled retry, broken reader and EOF wait all exercised. Backstop available but unused in this independent run. Wrapper OS exit 0 is explicitly separate from captured main return 2 on failures.
+
+**Limits:** temporary helper wrapper retains out-of-band Popen for cleanup; this does not prove production __main__ OS exit mapping, application health/readiness or installed shell integration. No model, existing service, external network/live store or arbitrary numeric-PID signaling. In-memory ownership can be lost to forced helper death/host crash. Physical RAM policy unchanged.
+
+Next: architect's fresh b.2 handoff uses actual CLI API, safe non-following Python lock acquisition/exec into fixed private Bash mechanics, close-only shared-FD release and fixture stubs for setup/secrets/cloud effects before invoking scripts. All six service consumers, codeyOS/client/composites remain; relative path direction NEW-959 is still pending Ish. Then 13d operation audit, groups 14/15. Full WP2.1 DoD remains open.
+
+---
+
+## 2026-10-15 — WP2.1 shell lifecycle scope findings backfilled: High raw-PID signaling (NEW-962), lost ownership on publication failure (NEW-963)
+
+Coordinator reread current shell consumers while the scoped owned-spawn helper was being built. Architect confirmed two distinct pre-existing findings not already covered by NEW-412/952/956: raw nonempty PID-file text reaches kill -0/TERM/KILL without strict positive-PID/identity validation (including unrelated/reused and broader zero/negative targets), and failed post-spawn PID writes can leave untracked children or false success depending on errexit context. No signaling reproduction was run.
+
+Both are already covered by the architect's fresh 13c.2b spec, now explicitly ledgered NEW-962 High/NEW-963 Medium. They remain open until actual consumer migration, not merely helper implementation. b.1 owns Popen/publication/failure cleanup/retained guardian; b.2 must wire every service launch and stop/client/composite. Existing adopted-process policy and orphan diagnostic-only requirement remain; no broad kill authority. Relative daemon-path product choice is still pending Ish.
+
+---
+
 ## 2026-10-15 — WP2.1 13c.2a Python effective paths and truthful READ consumers (NEW-960/961 fixed; NEW-959 partial)
 
 **Change:** one frozen config/path snapshot before duplicate checking through daemon construction/publication/socket startup; fresh Python clients and observability resolve configured paths. Config imports no longer mkdir; actual config writes create their parent. Pure identity inspection uses stable bounded no-follow snapshots, creates no locks/directories and grants no mutation authority. Public plugin PID state is True/False/explicit unknown rather than startup-permission semantics; three advertised RPC handlers now exist. All seven manifest symbols are callable; existing unclassified capability refusal is unchanged.

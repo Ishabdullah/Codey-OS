@@ -13,8 +13,11 @@ import os
 import re
 import signal
 import stat
+import subprocess
+import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -396,6 +399,242 @@ def inspect_record(pid_file, service):
         return Inspection(UNSAFE)
 
 
+
+@dataclass(frozen=True)
+class SpawnReady:
+    outcome: str
+    child_pid: int | None = None
+    guardian_pid: int | None = None
+
+
+def parse_spawn_ready(data):
+    """Strict bounded private-pipe grammar; returned PIDs confer no authority."""
+    if not isinstance(data, bytes) or len(data) > 96:
+        raise UnsafeRecord("Invalid spawn readiness")
+    if data == b"failed-cleanup-confirmed\n":
+        return SpawnReady("failed-cleanup-confirmed")
+    matched = re.fullmatch(rb"published ([1-9][0-9]{0,9})\n", data)
+    if matched:
+        return SpawnReady("published", child_pid=parse_pid(matched[1]))
+    matched = re.fullmatch(rb"retained ([1-9][0-9]{0,9}) ([1-9][0-9]{0,9})\n", data)
+    if matched:
+        guardian, child = parse_pid(matched[1]), parse_pid(matched[2])
+        if guardian != child:
+            return SpawnReady("retained", child_pid=child, guardian_pid=guardian)
+    raise UnsafeRecord("Invalid spawn readiness")
+
+
+def _bounded_seconds(value, maximum):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= maximum:
+        raise UnsafeRecord("Invalid spawn timing")
+    return float(value)
+
+
+def _ready_pipe(fd, lock_fd):
+    if type(fd) is not int or not 3 <= fd <= _MAX_PID or fd == lock_fd:
+        raise UnsafeRecord("Invalid readiness descriptor")
+    if not stat.S_ISFIFO(os.fstat(fd).st_mode) or fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE != os.O_WRONLY:
+        raise UnsafeRecord("Readiness descriptor must be a writable pipe")
+    # One <= PIPE_BUF atomic write must not hang behind a broken reader.
+    os.set_blocking(fd, False)
+    return fd
+
+
+class OwnedLaunch:
+    """A single actual child and its publication/failed-launch ownership.
+
+    run() only relinquishes a successfully published child or a reaped child.
+    Failed cleanup never returns: this same helper retains its Popen and lock
+    as a guardian until it can reap. SIGKILL/host crash can defeat that purely
+    in-memory fallback; no durable marker is promised when writes fail.
+    """
+
+    def __init__(self, record, argv, *, log_file, ready_fd, cwd=None, startup_delay=0.5, timeout=5.0):
+        self.record = record
+        if not isinstance(argv, (list, tuple)):
+            raise UnsafeRecord("Service arguments must be an argv list")
+        self.argv = list(argv)
+        if not self.argv or any(not isinstance(arg, str) or "\0" in arg for arg in self.argv):
+            raise UnsafeRecord("Invalid service arguments")
+        if not isinstance(log_file, (str, os.PathLike)) or cwd is not None and not isinstance(cwd, (str, os.PathLike)):
+            raise UnsafeRecord("Invalid service paths")
+        self.log_file = log_file
+        self.ready_fd = _ready_pipe(ready_fd, record.inherited_fd)
+        self.cwd = cwd
+        self.startup_delay = _bounded_seconds(startup_delay, 5.0)
+        self.timeout = _bounded_seconds(timeout, 30.0)
+        self.child = None
+        self.publication = None
+        self.interrupted = False
+        self.ready_attempted = False
+        self.handed_off = False
+
+    def _report(self, outcome):
+        if self.ready_attempted:
+            return False
+        self.ready_attempted = True
+        try:
+            data = outcome.encode("ascii") + b"\n"
+            parse_spawn_ready(data)
+            return os.write(self.ready_fd, data) == len(data)
+        except BaseException:
+            return False
+        finally:
+            try:
+                os.close(self.ready_fd)
+            except BaseException:
+                pass
+            self.ready_fd = None
+
+    def _reap_owned(self):
+        if self.child is None:
+            return True
+        try:
+            if self.child.poll() is None:
+                try:
+                    self.child.terminate()
+                except ProcessLookupError:
+                    pass  # still confirm/reap through this actual Popen
+                try:
+                    self.child.wait(timeout=self.timeout)
+                except subprocess.TimeoutExpired:
+                    if self.child.poll() is None:
+                        try:
+                            self.child.kill()
+                        except ProcessLookupError:
+                            pass
+                    self.child.wait(timeout=self.timeout)
+            else:
+                self.child.wait(timeout=self.timeout)
+            return self.child.poll() is not None
+        except BaseException:
+            return False  # interruptions never discard the owned child
+
+    def _cleanup_record(self):
+        if self.publication is not None:
+            try:
+                self.record.cleanup(self.publication)
+            except BaseException:
+                pass  # child exit is confirmed; preserve uncertain/replaced evidence
+
+    @contextmanager
+    def _signal_requests(self):
+        previous = {}
+        def request_cleanup(*_):
+            self.interrupted = True
+        try:
+            for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT, signal.SIGQUIT):
+                previous[sig] = signal.signal(sig, signal.SIG_IGN if sig == signal.SIGHUP else request_cleanup)
+            yield
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
+
+    def run(self):
+        """Emit one private result and return 0 only after successful publication."""
+        with self._signal_requests():
+            try:
+                self.record._check_lock()
+                observed = self.record.inspect()
+                if observed.state != DEAD or not self.record.cleanup(observed):
+                    raise UnsafeRecord("Service launch blocked by existing evidence")
+                # Keep only our handle immediately after Popen returns. Every
+                # later operation, including file close, converges on cleanup.
+                with open(self.log_file, "ab", buffering=0) as log:
+                    self.child = subprocess.Popen(
+                        self.argv, cwd=self.cwd, stdin=subprocess.DEVNULL,
+                        stdout=log, stderr=subprocess.STDOUT, close_fds=True,
+                    )
+                if self.interrupted:
+                    raise UnsafeRecord("Service launch interrupted")
+                self.publication = self.record.publish(self.child.pid)
+                deadline = time.monotonic() + self.startup_delay
+                while True:
+                    if self.interrupted or self.child.poll() is not None:
+                        raise UnsafeRecord("Service launch did not remain live")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    time.sleep(min(0.05, remaining))
+                if self.record.inspect() != self.publication:
+                    raise UnsafeRecord("Service publication changed")
+                if self._report(f"published {self.child.pid}"):
+                    # Durable identity + live observation + delivered private
+                    # published result commit the handoff. Later restoration
+                    # errors must not turn that child into a failed guardian
+                    # outside the cleanup-request signal context.
+                    self.handed_off = True
+                    return 0
+                # Failed readiness delivery is a failed launch too.
+            except BaseException:
+                pass
+            return self.finish_failure()
+
+    def finish_failure(self):
+        """Never release an unconfirmed child, including after interrupted setup."""
+        if self._reap_owned():
+            self._cleanup_record()
+            self._report("failed-cleanup-confirmed")
+            return 2
+        self._report(f"retained {os.getpid()} {self.child.pid}")
+        # The private pipe is closed before this loop. Parent can return
+        # bounded failure while we retain both child and same lock FD.
+        while True:
+            try:
+                time.sleep(0.5)
+            except BaseException:
+                pass
+            if self._reap_owned():
+                self._cleanup_record()
+                return 2
+
+
+class _SpawnParser(argparse.ArgumentParser):
+    def error(self, message):
+        # argparse normally echoes unrecognized values, which may be secrets.
+        raise UnsafeRecord("Invalid owned-spawn arguments")
+
+
+def _spawn_main(argv):
+    ready_fd = None
+    try:
+        parser = _SpawnParser(add_help=False)
+        parser.add_argument("--pid-file", required=True)
+        parser.add_argument("--service", required=True)
+        parser.add_argument("--lock-fd", required=True, type=int)
+        parser.add_argument("--ready-fd", required=True, type=int)
+        parser.add_argument("--log-file", required=True)
+        parser.add_argument("--cwd")
+        parser.add_argument("--startup-delay", type=float, default=0.5)
+        parser.add_argument("--timeout", type=float, default=5.0)
+        parser.add_argument("command", nargs=argparse.REMAINDER)
+        args = parser.parse_args(argv)
+        ready_fd = _ready_pipe(args.ready_fd, args.lock_fd)
+        if not args.command or args.command[0] != "--":
+            raise UnsafeRecord("Service argv delimiter required")
+        with LifecycleRecord(args.pid_file, args.service, lock_fd=args.lock_fd) as record:
+            launch = OwnedLaunch(record, args.command[1:], log_file=args.log_file, ready_fd=ready_fd, cwd=args.cwd, startup_delay=args.startup_delay, timeout=args.timeout)
+            ready_fd = None  # launch owns closing this pipe, including guardian path
+            try:
+                return launch.run()
+            except BaseException:
+                if launch.handed_off:
+                    return 0
+                # All other signal-context exits occur before spawn or after
+                # confirmed reap; failed-live guardians stay inside run().
+                return launch.finish_failure()
+    except BaseException:
+        if ready_fd is not None:
+            try:
+                os.write(ready_fd, b"failed-cleanup-confirmed\n")
+            except OSError:
+                pass
+            finally:
+                os.close(ready_fd)
+        # Fixed, payload-free diagnostics; the service argv is never printed.
+        print("Owned service launch failed", file=sys.stderr)
+        return 2
+
 def _pid_argument(text):
     try:
         return parse_pid(text.encode("ascii"))
@@ -404,6 +643,9 @@ def _pid_argument(text):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "spawn":
+        return _spawn_main(argv[1:])
     parser = argparse.ArgumentParser(description="Validate recorded service process identity")
     parser.add_argument("operation", choices=("record", "inspect", "cleanup", "signal", "stop"))
     parser.add_argument("pid_file")

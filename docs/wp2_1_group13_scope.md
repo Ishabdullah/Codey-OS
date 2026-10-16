@@ -873,3 +873,120 @@ cleanup completion. Never signal a captured numeric helper PID or auto-spawn a
 replacement. Normal valid retained-guardian status may return bounded failure
 while the helper keeps the same lock and child ownership. Forced crash limits
 remain explicit.
+
+
+## 13c.2b consumer handoff — actual b.1 API and safe outer lock opening
+
+Fresh source read 2026-10-16 (b.1 source approved round2, live verification in
+progress; no public shell consumers migrated yet). Actual command:
+
+    python3 core/process_identity.py spawn --pid-file P --service KEY --lock-fd N --ready-fd W --log-file L [--cwd C] [--startup-delay .5] [--timeout 5] -- argv...
+
+Build argv arrays, never shell command strings. Retain existing service cwd,
+configured args/env and log destinations. Helper Popen owns the child, ignores
+HUP through its signal context, closes service-child extra FDs and directs
+stdout/stderr to append log; no shell nohup/$! child publication fallback remains.
+
+parse_spawn_ready(bytes) accepts exactly newline-terminated published PID,
+failed-cleanup-confirmed, or retained GUARDIAN_PID CHILD_PID. Numeric range is
+checked and guardian != child. CLI spawn return0 means successful handoff;
+failed-cleanup-confirmed returns2; retained emits its one record then stays alive
+holding lock until cleanup/reap, eventually exits2. Successful publication and
+private result delivery commit handoff; reporting pipe failure cleans owned
+child instead. Use the actual shared parser rather than looser shell split/
+regex assumptions. Private pipe only; service argv/secrets never become payload.
+
+### Safe outer lock acquisition choice
+
+Do not use Bash > lockpath: it truncates before validation. Bare Bash <> avoids
+truncation but can still follow a symlink/open a special file before core checks.
+Select a narrow stdlib lock-exec adapter for service mechanics: open expected
+.pid.lifecycle.lock with O_RDWR|O_CREAT|O_NOFOLLOW|O_NONBLOCK, validate regular
+FD/path inode, acquire LOCK_EX|LOCK_NB, revalidate, then exec fixed repository
+private Bash mechanics with only this FD deliberately inheritable. Reuse
+LifecycleRecord's validated locking where possible; do not duplicate weaker
+checks or accept arbitrary caller-selected shell text. Keep operations finite
+(start/stop/reload for core-selected service keys). This is subordinate mechanics,
+not a new public audit-skip option. 13d still owns the public authority envelope.
+
+The calling public shell runs this adapter as a bounded child for that service
+operation; it must not exec away the all-services coordinator. Adapter execs a
+fixed private Bash function/library, passing the numeric FD as positional data,
+not an env skip-lock/skip-audit token. Every helper use validates --lock-fd against
+the expected inode. It is necessary to preserve the shared open-description FD
+across adapter->Bash->spawn helper. Parent Bash closes its FD when finishing;
+NEVER flock -u on it (that would unlock guardian's shared description). Explicitly
+close unrelated lock/ready FDs in grandchildren; b1's service Popen close_fds does
+this for service children. Lock content is never written/truncated; lock inode
+never unlinked as recovery. Contention/symlink/FIFO/device/invalid lock is failure
+before any service spawn or side effect. Do not silently skip it as success.
+
+If implementer offers an equally safe smaller opener, reviewer must verify it
+cannot follow/open a special target, block on FIFO or alter content before type/
+inode validation; a racy Bash pre-test plus <> is not equivalent to O_NOFOLLOW/
+O_NONBLOCK regular-file validation. Opening/creating lock metadata is subordinate
+to the authorized operation, not a source-time library effect.
+
+### Private result/job protocol
+
+Use an anonymous pipe or carefully managed Bash coprocess with an actual saved
+helper job identity and readiness FD. Capture/duplicate needed coprocess FDs and
+job handle before completion can unset Bash coprocess variables. The helper must
+exec in that job (no intermediary whose PID is mistaken for guardian). Bound the
+line length; require newline/valid parser result. Published requires helper exit0
+before parent returns0. Cleanup-confirmed requires helper exit2 and returns
+failure. Retained must identify actual helper job and a distinct valid child;
+close parent pipe/FD and return failure while helper keeps lock, without waiting
+indefinitely. Neither protocol PID grants permission for a shell kill.
+
+Malformed/EOF/timeout readiness: keep outer lock, close the read pipe to force
+failed delivery, and wait actual helper job for owned cleanup/exit; NEVER kill a
+captured helper PID or release/retry because no valid record arrived. Signal
+interruptions preserve this ownership-resolution path. Valid retained result is
+the bounded return case. Unexpected crash limits are already documented; do not
+invent orphan kill/adoption on missing protocol. One complete operation must
+not leak its lock into unrelated services/TUI. Test rapid helper completion so
+FD/PID lifecycle races are exercised, not hidden by sleeps.
+
+### Callsite/config agreement
+
+Migrate all six shell launches plus daemon reload/stop/status, codeyOS inspection
+and composites as previously scoped. Daemon handoff: spawn helper publishes
+codeyOS identity, shell closes lock after helper success, core startup recognizes
+its own record. No wait for application health while blocking its startup lock.
+Use shared configured absolute/default path resolver. Relative custom values
+retain CURRENT caller-relative semantics for now; Ish's choice remains pending
+and no stable-anchor change is authorized. Preserve explicit relative residual.
+
+Resolver path output is finite data, not mixed console output: select a fixed
+field (pid/socket/log) via argv and emit only that value/data framing on its data
+FD. Redirect parser/config fallback warnings to stderr so malformed-config
+fallback cannot corrupt PID/socket/log values. No eval, shell fragment output or
+interpolation of returned paths into Python. Preserve spaces and one path
+snapshot across a complete operation; do not implement a config rewrite.
+
+### BEFORE any service fixture run: stub every external effect
+
+Audit whole function, not just service Popen. In particular start_litestream
+runs core/setup_litestream.py and timeout60 core/backup_secrets.py BEFORE its
+service spawn. The latter can encrypt/upload real secrets. It also reads HOME
+litestream/GCS credential paths. Aigentik can cause model requests, Cloudflare
+creates a real tunnel, and backup-docs can upload. No such side effect is allowed
+in this verification. Tests must isolate paths/home filesystem in test subprocess
+fixtures and stub/deny every setup/backup/timeout/cloud/interpreter command before
+calling start functions. Never change coordinator's real HOME or use real cloud
+credentials. A fake service executable alone is insufficient.
+
+Use a fail-closed subprocess-command allowlist in the fixture harness, including
+all Python config/query/setup script dispatches; unknown external commands fail
+the test rather than falling through to installed tools. Stubs must assert exact
+expected argv and return explicit temp config/paths. No live cloud/recipient/
+package install/model calls. Retain actual disposable child handles with finally
+cleanup, and audit old synthetic-PID tests before running them (NEW-957).
+
+New cases: special/symlink lock paths untouched; FIFO cannot block opener; no
+lock writes/truncation; guardian still excludes contender after outer shell
+returns failure (proves no flock-u); rapid published/failed helper exit; broken
+ready pipe resolves via actual job; all six launch sites exercise helper;
+malformed-config warning cannot corrupt finite path data; Litestream setup and
+secrets backup stubs were used, with explicit proof no real command escaped.

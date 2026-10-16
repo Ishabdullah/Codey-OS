@@ -3139,6 +3139,17 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > checks PASS. Initial failed broad import expectation and separate diagnostic
 > preserved: fixed schema/bootstrap imports remain group 12 mechanics;
 > no blanket write-free app-import claim or new authority enablement.
+> NEW-962 High/NEW-963 Medium additionally pin current shell raw-PID
+> signaling and publication-failure ownership loss. Both remain open until
+> all consumers migrate; owned-spawn helper alone is not closure.
+> **13c.2b.1 mechanism is code-complete, reviewer APPROVED and independently
+> disposable-process verified**: actual owned Popen, strict private readiness,
+> failed-launch cleanup or retained same-lock guardian, no duplicate fallback.
+> Frozen selected 189 passed, coordinator mocked suite 42 passed; eight inner
+> fixture children/nine parent helper+innocent handles reaped. Fixture cleanup
+> backstop corrected before approval. Application readiness/production CLI OS
+> exit mapping and installed shell integration are outside the live harness.
+> Next b.2 wires every consumer; no shell/audit closure is implied by b.1.
 > **13e is code-complete, source reviewer APPROVED after two rounds and
 > independently disposable-process verified** (High NEW-956): owned
 > stop/reap confirmation, retained failed cleanup/accounting, immediate
