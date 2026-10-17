@@ -46,10 +46,17 @@ def get_versions(path: str) -> list[tuple[str, str]]:
     return _history.get(str(p), [])
 
 
-def undo(path: str) -> str:
+def undo(path: str, confirm=None, filesystem=None) -> str:
     """
     Restore the previous version of a file.
     Returns status message.
+
+    The restore is mediated by the ActionGateway (WP2.1 slice 14b): ACT for
+    ordinary files, HIGH_IMPACT for Codey core files (see
+    tools.file_tools.classify_write_action). `confirm` is a zero-arg human
+    confirmation callback (or None when no human is available, in which case
+    a HIGH_IMPACT restore fails closed). History is only mutated after the
+    write actually succeeded.
     """
     p = Path(path).expanduser().resolve()
     key = str(p)
@@ -58,25 +65,59 @@ def undo(path: str) -> str:
     if not versions:
         return f"[ERROR] No history for {path}. Was it edited this session?"
 
+    from core.action_gateway import OUTCOME_ALLOWED, get_action_gateway
+    from tools.file_tools import _get_fs, classify_write_action
+
     timestamp, content = versions[-1]  # peek, don't pop yet
-    try:
-        # Snapshot current state before restoring (so /diff works after /undo)
-        current = p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
-        p.write_text(content, encoding="utf-8")
-        versions.pop()  # remove the restored version
-        # Add current (pre-undo) as new snapshot so you can diff/redo
-        undo_ts = datetime.now().strftime("%H:%M:%S") + " (pre-undo)"
-        versions.append((undo_ts, current))
-        remaining = len(versions)
-        msg = f"Restored {path} to version from {timestamp}"
-        if remaining > 0:
-            msg += f" ({remaining} older version{'s' if remaining>1 else ''} available)"
-        success(msg)
-        return msg
-    except Exception as e:
-        # Put it back if write failed
-        versions.append((timestamp, content))
-        return f"[ERROR] Could not restore {path}: {e}"
+    fs = filesystem if filesystem is not None else _get_fs()
+    restored = {}
+
+    def _restore() -> str:
+        # The gateway audits str(exception) on failure and these messages
+        # embed absolute paths (read_text, fs.restore). Everything in this
+        # thunk funnels into restored["error"] for the caller's return value
+        # and raises a fixed static error into the audit.
+        file_restored = False
+        try:
+            # Snapshot current state before restoring (so /diff works after /undo)
+            current = p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+            result = fs.restore(str(p), content)
+            file_restored = True
+            # Write confirmed: only now mutate history.
+            versions.pop()  # remove the restored version
+            # Add current (pre-undo) as new snapshot so you can diff/redo
+            undo_ts = datetime.now().strftime("%H:%M:%S") + " (pre-undo)"
+            versions.append((undo_ts, current))
+        except Exception as e:
+            # If the file was already written, say so rather than implying
+            # nothing changed (history may be stale; the file is correct).
+            restored["error"] = (
+                "file was restored but history update failed"
+                if file_restored
+                else str(e)
+            )
+            raise RuntimeError("restore failed") from None
+        restored["ok"] = True
+        return result
+
+    # Static audit label only: no path or file content reaches the ledger.
+    decision = get_action_gateway().gate_exec(
+        authority=classify_write_action(str(p)),
+        action="filehistory.undo",
+        command="undo restore",
+        confirm_available=confirm is not None,
+        execute=_restore,
+        confirm=confirm,
+    )
+    if decision.outcome != OUTCOME_ALLOWED or not restored.get("ok"):
+        return f"[ERROR] Could not restore {path}: {restored.get('error', decision.reason)}"
+
+    remaining = len(versions)
+    msg = f"Restored {path} to version from {timestamp}"
+    if remaining > 0:
+        msg += f" ({remaining} older version{'s' if remaining>1 else ''} available)"
+    success(msg)
+    return msg
 
 
 def diff(path: str) -> str:

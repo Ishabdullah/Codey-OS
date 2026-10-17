@@ -5828,6 +5828,8 @@ open, not closed, on this basis.
   OS-level pidfd support, which may be worth checking for availability
   on this device rather than assuming.
 
+- **Update 2026-10-17 (WP2.1 group 14d, rule 4; code complete, code-reviewer APPROVED, live-verified on disposable stubs; UNCOMMITTED, pending commit):** the bare `os.kill(pid, 9)` this entry's history describes is gone. `core/embed_server.py` `_capture_embed_occupant` + rewritten `_kill_port_occupant` now require an exact same-UID/exe/model/port argv bracketed by identical boot/start/UID reads, signal only through `loader_v2._kill_single_pid_term_then_kill` (revalidates before TERM and KILL, never process groups), and send zero signals to an occupant it cannot prove. See NEW-983 for the residuals (no gateway/audit row, legacy servers now refused, parser duplication). The "full elimination needs pidfd" caveat above is unchanged; the kernel race between the last /proc read and the signal remains.
+
 ### [NEW-87] `core/loader_v2.py`'s `ModelLoader.load_primary()` unconditionally overwrites `self._server` on repeated calls without an intervening `unload()`, dropping the reference to any prior `LlamaServer`/process
 
 - **Status: Suspected, pre-existing** — found by `code-reviewer` during
@@ -21942,6 +21944,7 @@ reconciliation (WP1.2) — its code changes are merged into `main` (see
 - **Status:** Open, not fixed in group 13a; discovered by implementer tests and independently confirmed by reviewer. `core/checkpoint.py::is_core_file` applies direct-child `Path.match('core/*.py')` (and equivalent tools/utils/prompts patterns), so nested core files miss both HIGH_IMPACT write classification and checkpoint enforcement. Group 13a reused, rather than silently expanded, this established classifier.
 - **Verbatim evidence:** `direct core classification: True`; `nested core classification: False`. Initial temporary-code-root tests targeting `core/private/module.py` failed `assert 'ACT' == 'HIGH_IMPACT'` for both confirmation variants (`2 failed, 61 passed in 1.47s`); final direct-child tests correctly exercise HIGH/refusal/checkpoint.
 - **Follow-up:** architect-scope recursive protected-code boundaries alongside group 14 executable artifacts; inspect actual protected roots/extensions, symlinks and workspace resolution before replacing patterns. Cross-reference `core/checkpoint.py::is_core_file`, `tools/file_tools.py::classify_write_action`, `core/filesystem.py`, NEW-950.
+- **Update 2026-10-17 (WP2.1 group 14a; code complete, code-reviewer APPROVED, UNCOMMITTED, pending commit; not live-verified, none required) — PARTIALLY addressed:** `core/checkpoint.py` now has `CORE_CLASSIFICATION_ROOTS=(core, tools, utils, prompts)` and `is_core_file` classifies any `*.py` under those four roots recursively; `CORE_PATTERNS` is retained unchanged as the checkpoint-backup constant (classification scope is now a separate constant from backup scope). New `tests/test_core_file_classification.py` (34 tests); 241 passed across related suites; old-vs-new classification identical over all 1757 repo files, i.e. no file is reclassified today because no nested `.py` exists under those roots. **Still open:** the wider roots (`ccos/plugins/**`, `bench/**`, `main.py`, launchers, `lib/`) are NEW-975 and wait on Ish fork 1 (14a-ext). Residuals: a directory literally named `x.py` inside a root classifies as core (fails closed); relative paths resolve against process cwd (the real guard is Filesystem's re-check of the validated absolute path); see NEW-986 for the fail-open `except` in `tools/file_tools.py`.
 
 
 ### [NEW-952] WP2.1 group 13b — plugin supervisor trusted PID files, lost child ownership and reported unsuccessful lifecycle work as successful
@@ -22140,3 +22143,63 @@ timeout-kill-unconfirmed {'returned': True, 'owned_handle_lost': True, 'started'
 - **Status:** Open, residuals from the NEW-970 reviewed change, 2026-10-17; none repaired.
 - **Evidence:** (1) Ctrl+C during `speak` now returns False and records a FAILED row (previously `stop_speaking` + True), so `main.py` `/voice speak` (`if not v.speak(...)` at ~1498-1500) prints "TTS unavailable. Install Termux:API." for an interrupt, and the `main.py` interrupt handler near ~2000 that calls `_v.stop_speaking()` is now effectively dead code. (2) The voice REPL's `except Exception: continue` swallows bugs silently. (3) A generic STT warning replaces the previous specific messages. (4) The adapter was not exercised against a real TTY.
 - **Disposition:** Low. Fix together with any later voice-surface work; keep separate from NEW-972 (asynchronous ownership debt, still open) and NEW-939 (voice config persistence).
+
+### [NEW-975] CONFIRMED mechanism, Medium (High only if a daemon/`--yolo`/`--fix` run is started with the repo inside its workspace — unverified) — "Codey itself" write classification covers only core/tools/utils/prompts; auto-executed plugin tree, `bench/**`, `main.py`, launchers and `lib/` are ACT-writable
+
+- **Status:** PARTIALLY addressed, 2026-10-17 (found by the group 14 architect scope, `docs/wp2_1_group14_scope.md`, provisional G14-F1). Slice 14a (NEW-951 partial) made classification recursive **within the four existing roots only**; no nested `.py` exists there today so nothing was reclassified. The wider roots are **not** covered and are blocked on Ish product fork 1 (14a-ext). Open.
+- **Evidence (architect source read, bounded):** the `ccos/plugins` tree is auto-executed (`main.py:1977` `get_render_text` -> `load_all`), `bench/**` is the promotion gate's evaluator (rule 1), and `allow_self_modification` is moot when the workspace contains the repo. Interactive default mode prompts per write. Not a new execution capability (NEW-904 already permits `python3 -c` as ACT); the new element is delayed execution at the next process's first REPL prompt, outside the originating confirmation, plus an editable evaluator.
+- **Disposition:** needs Ish's fork-1 answer (minimum / recommended `+ccos/plugins/**, bench/**` / maximal root set, plus extension set; `tools/setup_skills.sh` and `lib/*.sh` are executables). Keep classification scope a separate constant from checkpoint backup scope. Not live-verified.
+
+### [NEW-976] CONFIRMED, Medium, dormant-armed — skill recombiner writes generated plugins into the discovery root before any gate; registration carries no `GateDecision`
+
+- **Status:** Open, 2026-10-17 (group 14 scope G14-F2; slice 14f, not started). Dormant (recombiner not active), but armed: if activated it would place generated code where the plugin loader auto-executes it.
+- **Disposition:** rule 1 gap (self-improvement artifact outside the promotion gate). 14f scope; depends on NEW-975 / fork 1 for whether `ccos/plugins/**` becomes protected. Not repaired, not live-verified.
+
+### [NEW-977] CONFIRMED reachability, Medium — `--import-lora ... --lora-force-adopt` and `rollback_adoption` are reachable from the agent's shell tool classified ACT
+
+- **Status:** Open, 2026-10-17 (group 14 scope G14-F3; slice 14e, blocked on Ish fork 2). Confirmed reachable; **unconfirmed only under `--yolo`, `--fix` and daemon tasks** (default interactive mode shows a shell prompt). rule 4 + rule 1 adversarial review required when addressed.
+- **Disposition:** fork 2: is the flag itself the human act (then add only a gateway row) or must adoption/rollback also confirm on `/dev/tty` (recommended; breaks scripted adoption). Not repaired.
+
+### [NEW-978] CONFIRMED, Medium — `/undo` bypassed write classification, checkpoint and path validation (`core/filehistory.py:65`)
+
+- **Status:** FIXED in slice 14b, 2026-10-17 (group 14 scope G14-F4): **code complete, code-reviewer APPROVED (round 3), UNCOMMITTED, pending commit; not live-verified** (real tmp files only; `/undo` not driven end to end through a real `handle_command` with a real TTY).
+- **Fix:** `core/filehistory.py` undo now goes through `gate_exec` with `authority=classify_write_action` (ACT ordinary / HIGH_IMPACT core); confirmation only via the real-TTY `main._undo_confirmation`, none under yolo/daemon/noninteractive/non-tty. New `Filesystem.restore` (`core/filesystem.py`: path validation, `.git` rejection, core checkpoint, no parent mkdir). New `tests/test_undo_action_boundaries.py`; 96 passed in review. Review history kept: round 1 approved with warning (audit leaked absolute paths via `str(e)`), round 2 CHANGES REQUESTED (`read_text` outside try leaked a path), round 3 APPROVED; audit reason is now the static `"restore failed"` on every failure while user-facing text keeps the original message. Residuals in NEW-986.
+
+### [NEW-979] CONFIRMED (ruff cache write) / SUSPECTED (flake8, mypy config code execution), Low — auto-lint wrote `.ruff_cache` into the project; flake8/mypy config-driven code execution unverified
+
+- **Status:** ruff part FIXED in slice 14c, 2026-10-17 (group 14 scope G14-F5): **code complete, code-reviewer APPROVED, UNCOMMITTED, pending commit**; verified only by a real-ruff pytest in a tmp dir (not a full live run).
+- **Fix:** `core/linter.py` runs ruff through `gate_exec` (ACT, static label `linter.ruff`, argv `ruff check --no-cache --output-format=concise -- <path>`), with a regular-file-only guard that also protects the AST-fallback read. `flake8` and `mypy` are **never executed** (neither is installed on this device and config/plugin-loading isolation could not be verified from the artifact; rule 12) and `skipped_linters()` was added. The Suspected flake8/mypy config-code-execution concern is therefore unconfirmed but moot while they stay disabled; Ish fork 3b governs re-enabling them. New `tests/test_linter_action_envelope.py` (23 passed with `test_file_tools`; gateway suites 42 passed). Follow-ups in NEW-984 and NEW-985.
+- **Not changed:** pre-existing Ruff lint debt in the repo is unchanged.
+
+### [NEW-980] CONFIRMED, Low, dormant — optimizer `compare_and_upgrade` has no deploy-target containment; sandbox rejects its own working directories
+
+- **Status:** Open, 2026-10-17 (group 14 scope G14-F6, slice 14f). The live registry has no path-like `implementation`, so `optimize()` is inert; the sandbox rejecting its own cwds makes the path broken-safe rather than protected. Not repaired.
+
+### [NEW-981] CONFIRMED, informational — `ccos/core/sandbox.py` docstring over-promises isolation
+
+- **Status:** Open, 2026-10-17 (group 14 scope G14-F7). The sandbox is `shell=True` with ambient environment and a fail-open string filter; its docstring reads as stronger isolation than that. Correct the docstring (14f); no behavior claim here.
+
+### [NEW-982] CONFIRMED, Low — `/init` writes unreviewed LLM-generated text into `CODEY.md` (a system-prompt file) at a lower authority class than the automated `CODEY.md` writer
+
+- **Status:** Open, 2026-10-17 (group 14 scope G14-F8; slice 14g, blocked on Ish fork 5: HIGH with a confirm every time, consistent with `preferences.sync_to_codeymd`, vs ACT for creation plus HIGH only on overwrite). Not repaired.
+
+### [NEW-983] CONFIRMED residuals of the NEW-86 embed foreign-kill rewrite (slice 14d) — gateway/audit row not wired, legacy servers now refused, duplicated argv parser, test gaps
+
+- **Status:** Open follow-ups, 2026-10-17; the 14d change itself is code complete, code-reviewer APPROVED and live-verified on disposable stubs (`docs/wp2_1_group14d_live_verification.md`: corrected run 15/15 for case 4; the initial run had 6 FAILs, harness-only, kept in the report; faked: port-owner lookup because `/proc/net/tcp` was permission-denied on this device, replacement identity simulated by editing the captured dict; **not exercised:** real PID recycle, real `/proc/net/tcp` lookup, kill `PermissionError`, other-UID occupants). UNCOMMITTED, pending commit.
+- **Residuals:** (1) **No `gate_exec`/audit row for the embed kill and no `refuse_exec` row** — the group 14 spec asked for one; the group 13f "foreign-port authority narrowed" statement must be restated honestly, not claimed met. (2) No atomic slot release (helper is primary-only; the old code never released either). (3) Legacy embed servers whose argv has no explicit `-m`/`--port` or uses a relative/symlinked model path are now refused -> `start()` returns False -> BM25 fallback until the operator frees the port by hand (also recorded for `LIVE_TEST_QUEUE.md`). (4) The argv parser is duplicated between `embed_server` and `loader_v2` (drift risk; later extraction into a process-identity module). (5) Tests lack `/proc/net/tcp` unreadable, `--model=`/`--port=` equals forms and legacy argv without `--port`. (6) A refused occupant logs two errors. Related: NEW-86 update note.
+
+### [NEW-984] CONFIRMED, Low — linter envelope (slice 14c) leaves stale claims and config-file exposure
+
+- **Status:** Open follow-ups, 2026-10-17. (1) `get_available_linters()` still lists flake8/mypy, so `/review` can claim "available" for tools never executed. (2) `docs/commands.md:161` and `docs/architecture.md:163` still advertise `CODEY_LINTER=flake8|mypy`. (3) `.flake8`/`tox.ini`/`mypy.ini`/`ruff.toml` are not write-protected. (4) One audit row is written per auto-lint (volume; Ish fork 6). (5) Bare `ruff` PATH resolution unchanged; resolve()-then-ruff TOCTOU accepted; a workspace ruff config is still honored (ruff's config schema has no exec keys, but `extend` pulls other config). (6) No dedicated `/review` end-to-end test.
+
+### [NEW-985] CONFIRMED, pre-existing — `ccos/plugins/coding/static_analysis/test.py` has a collection `ImportError`
+
+- **Status:** Open, found 2026-10-17 during slice 14c review; not caused by it. HEAD `static_analysis.py` lacks `check_syntax`, which the test imports. Not repaired, not triaged beyond that.
+
+### [NEW-986] CONFIRMED residuals, Low — slices 14a/14b edge cases
+
+- **Status:** Open, 2026-10-17. (1) `tools/file_tools.py:117` fails open: `except (TypeError, ValueError, OSError): return ACT` for malformed paths — **Suspected** low (`Filesystem._validate_path` rejects later). (2) Core-file `/undo` without `--allow-self-mod` prompts for confirmation and is then refused by `_validate_path`, a UX asymmetry with `tool_write_file` (fails closed). (3) The post-restore history-mutation failure branch audits "failed" although the file was written (the user text says so; untested, practically unreachable). (4) An audit-I/O failure after restore propagates (existing gateway semantics). (5) `/undo` is not covered end to end through real `handle_command` with a real TTY (call-site/adapter tests only).
+
+### Note — repo-root hex-named directories (no new id)
+
+The group 14 architect saw 254 32-hex directories at the repo root (`resource_bus.db`/`.lock`, gitignored `.gitignore:58`, count re-checked 2026-10-17); already tracked as NEW-277 and NEW-451, so not re-logged. Also: the architect's two earliest import probes ran before `CODEY_STATE_DIR` pointed at scratch; `~/.codeyOS/checkpoints` already existed (mtime Oct 13), but a default-state-dir schema touch cannot be ruled out.

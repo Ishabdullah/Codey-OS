@@ -251,6 +251,27 @@ class Filesystem:
         except Exception as e:
             raise FilesystemAccessError(f"Failed to write {path}: {e}")
 
+    def restore(self, path: Union[str, Path], content: str) -> str:
+        """Overwrite an existing file with previously snapshotted content.
+
+        Used only by /undo (WP2.1 slice 14b). Same validation, Git-metadata
+        denial and core-file checkpointing as write(), but deliberately takes
+        NO snapshot (undo maintains its own pre-undo/redo history entry; a
+        snapshot here would double it) and creates no parent directories.
+        The caller owns authority/confirmation.
+        """
+        try:
+            path = self._validate_path(path)
+            self._reject_git_metadata_mutation(path)
+            if _is_core_file(str(path)):
+                self._require_checkpoint(path)
+            path.write_text(content, encoding="utf-8")
+            return f"Restored {path}"
+        except FilesystemAccessError:
+            raise
+        except Exception as e:
+            raise FilesystemAccessError(f"Failed to restore {path}: {e}")
+
     def make_parent_dirs(self, path: Union[str, Path]) -> Path:
         """Create a validated target's parents for recovery before a write.
 

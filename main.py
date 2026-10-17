@@ -808,6 +808,31 @@ def _voice_confirmation(yolo=False):
     return confirm
 
 
+def _undo_confirmation(yolo=False, path=""):
+    """Fresh default-No terminal prompt for a core-file /undo restore; None
+    (no confirmation path) under --yolo, daemon, non-interactive or non-tty."""
+    if (
+        yolo
+        or os.getenv("CODEY_DAEMON_MODE") == "1"
+        or os.getenv("CODEY_NON_INTERACTIVE") == "1"
+    ):
+        return None
+    try:
+        interactive = sys.stdin.isatty()
+    except Exception:
+        # Unknown stdin cannot provide human approval.
+        return None
+    if not interactive:
+        return None
+
+    def confirm():
+        prompt = f"Restore Codey core file {path} from history? [y/N]: "
+        answer = input(prompt)
+        return answer.strip().lower() in ("y", "yes")
+
+    return confirm
+
+
 def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[bool, list]:
     """Handle slash commands; /peer dispatch fails closed pending confirmation UI."""
     cmd = user_input.strip()
@@ -860,7 +885,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     console.print(f"  📄 {Path(path).name} — {', '.join(timestamps)}")
                 info("Usage: /undo <filename>")
         else:
-            result = undo(parts[1])
+            result = undo(parts[1], confirm=_undo_confirmation(yolo, parts[1]))
             error(result) if result.startswith("[ERROR]") else None
         return True, history
 

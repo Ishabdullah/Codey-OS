@@ -115,6 +115,73 @@ def _parse_mypy_output(output: str, filepath: str) -> List[LintIssue]:
     return issues
 
 
+# ── Gated, isolated tool execution (WP2.1 slice 14c) ──────────────────────────
+
+# flake8 and mypy are deliberately NOT executed. Both can load project-supplied
+# Python from workspace config (flake8 local plugins, mypy ``plugins =``), and
+# no isolation mechanism has been verified from an installed artifact (neither
+# is installed on the reference device). Re-enable only after a documented,
+# demonstrated isolation flag. Installed-but-skipped tools are listed by
+# skipped_linters().
+_SKIPPED_LINTERS = ("flake8", "mypy")
+
+
+def skipped_linters() -> List[str]:
+    """Installed linters that are intentionally not executed (isolation unverified)."""
+    return [t for t in _SKIPPED_LINTERS if shutil.which(t)]
+
+
+def _is_lintable_file(filepath: str) -> bool:
+    """True only if filepath resolves to an existing regular file (not FIFO/dir/device)."""
+    try:
+        return Path(filepath).resolve().is_file()
+    except (OSError, ValueError, RuntimeError):
+        # NUL bytes, symlink loops, permission errors: not provably a regular
+        # file, so refuse. Safe: refusal only skips external linting.
+        return False
+
+
+def _ruff_argv(filepath: str) -> List[str]:
+    # --no-cache: ruff otherwise writes .ruff_cache/ into the checked project.
+    # "--": a path beginning with '-' must never be parsed as an option.
+    # Workspace ruff config is intentionally still honored (declarative only).
+    return ["ruff", "check", "--no-cache", "--output-format=concise", "--", str(filepath)]
+
+
+def _run_ruff_gated(filepath: str, action: str) -> Optional[str]:
+    """Run ruff under an ACT gateway envelope; return combined output or None.
+
+    None means refused/failed/unavailable; callers degrade as before. The
+    audit label and failure reason are static (never paths or exception text).
+    """
+    from core.action_gateway import ACT, get_action_gateway
+
+    def _execute() -> str:
+        try:
+            out = subprocess.run(
+                _ruff_argv(filepath),
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            # Re-raise a static message: gate_exec audits str(exc), and the
+            # original text embeds argv (the file path).
+            raise RuntimeError("linter unavailable") from None
+        return out.stdout + out.stderr
+
+    decision = get_action_gateway().gate_exec(
+        authority=ACT,
+        action=action,
+        command=action,
+        confirm_available=False,
+        execute=_execute,
+    )
+    if not decision.allowed:
+        return None
+    return decision.detail.get("result")
+
+
 # ── Single-linter runner ───────────────────────────────────────────────────────
 
 
@@ -140,44 +207,21 @@ def run_linter(filepath: str, content: str = None) -> Tuple[List[LintIssue], str
     preferred = os.environ.get("CODEY_LINTER", "").lower()
 
     def _try_ruff():
-        try:
-            result = subprocess.run(
-                ["ruff", "check", "--output-format=concise", str(filepath)],
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            issues = _parse_colon_format(result.stdout + result.stderr, filepath)
-            return issues, "ruff"
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        out = _run_ruff_gated(filepath, "linter.ruff")
+        if out is None:
             return None
+        return _parse_colon_format(out, filepath), "ruff"
 
-    def _try_flake8():
-        try:
-            result = subprocess.run(
-                ["flake8", "--max-line-length=120", str(filepath)],
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            issues = _parse_colon_format(result.stdout, filepath)
-            return issues, "flake8"
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return None
-
-    # Try in priority order
-    for tool, runner in [("ruff", _try_ruff), ("flake8", _try_flake8)]:
-        if preferred and preferred != tool:
-            continue
-        if not shutil.which(tool):
-            continue
-        res = runner()
+    # flake8/mypy are skipped (isolation unverified); see _SKIPPED_LINTERS.
+    ruff_wanted = preferred in ("", "ruff") and shutil.which("ruff")
+    if ruff_wanted and _is_lintable_file(filepath):
+        res = _try_ruff()
         if res is not None:
             return res
 
     # Fallback: AST syntax check only
     src = content
-    if src is None and p.exists():
+    if src is None and _is_lintable_file(filepath):
         try:
             src = p.read_text(encoding="utf-8", errors="replace")
         except Exception:
@@ -204,44 +248,15 @@ def run_all_linters(filepath: str) -> List[Tuple[str, List[LintIssue]]]:
 
     results = []
 
-    if shutil.which("ruff"):
-        try:
-            out = subprocess.run(
-                ["ruff", "check", "--output-format=concise", str(filepath)],
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            results.append(("ruff", _parse_colon_format(out.stdout + out.stderr, filepath)))
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
+    if _is_lintable_file(filepath) and shutil.which("ruff"):
+        out = _run_ruff_gated(filepath, "linter.ruff")
+        if out is not None:
+            results.append(("ruff", _parse_colon_format(out, filepath)))
 
-    if shutil.which("flake8"):
-        try:
-            out = subprocess.run(
-                ["flake8", "--max-line-length=120", str(filepath)],
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            results.append(("flake8", _parse_colon_format(out.stdout, filepath)))
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
-
-    if shutil.which("mypy"):
-        try:
-            out = subprocess.run(
-                ["mypy", "--no-error-summary", str(filepath)],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            results.append(("mypy", _parse_mypy_output(out.stdout, filepath)))
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
+    # flake8/mypy are skipped (isolation unverified); see _SKIPPED_LINTERS.
 
     # Always include syntax check as baseline
-    if p.exists():
+    if _is_lintable_file(filepath):
         try:
             src = p.read_text(encoding="utf-8", errors="replace")
             err = check_syntax(src, filepath)

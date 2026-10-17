@@ -501,6 +501,65 @@ class EmbedServer:
                 continue
         return None
 
+    _PROC_ROOT = Path("/proc")
+
+    def _capture_embed_occupant(self, pid: int) -> Optional[dict]:
+        """Bracketed proof that `pid` is this embed server; None = refuse.
+
+        Requires, between two identical boot/start/UID reads: same UID as us,
+        live (non-zombie), /proc/<pid>/exe resolving to LLAMA_SERVER_BIN, and
+        argv with exactly one model (-m/--model) equal to the embed model and
+        exactly one --port equal to self.port. Same identity fields and
+        helpers as the NEW-969 primary-upgrade path (core/loader_v2.py).
+        """
+        from core import process_identity
+
+        root = self._PROC_ROOT
+        if not process_identity.valid_pid(pid) or type(self.port) is not int or not 0 < self.port < 65536:
+            return None
+        try:
+            first = process_identity.process_info(pid, root)
+            if first is None or first["uid"] != os.getuid() or first["state"] in ("Z", "X", "x"):
+                return None
+            directory = Path(root) / str(pid)
+            if (directory / "exe").resolve(strict=True) != Path(LLAMA_SERVER_BIN).resolve(strict=True):
+                return None
+            with (directory / "cmdline").open("rb") as stream:
+                raw = stream.read(65537)
+            if not raw or len(raw) > 65536 or not raw.endswith(b"\0"):
+                return None
+            argv = [os.fsdecode(value) for value in raw[:-1].split(b"\0")]
+            if not argv or not argv[0]:
+                return None
+            selected = {"model": [], "port": []}
+            for index, value in enumerate(argv[1:], 1):
+                for flag, kind in (("-m", "model"), ("--model", "model"), ("--port", "port")):
+                    if value == flag:
+                        if index + 1 >= len(argv):
+                            return None
+                        selected[kind].append(argv[index + 1])
+                    elif value.startswith(flag + "="):
+                        selected[kind].append(value[len(flag) + 1:])
+            if len(selected["model"]) != 1 or len(selected["port"]) != 1:
+                return None
+            port_text = selected["port"][0]
+            if not port_text.isascii() or not port_text.isdecimal() or int(port_text) != self.port:
+                return None
+            model = Path(selected["model"][0])
+            if not model.is_absolute():
+                model = (directory / "cwd").resolve(strict=True) / model
+            if model.resolve(strict=True) != Path(self.model_path).resolve(strict=True):
+                return None
+            second = process_identity.process_info(pid, root)
+            if second is None or second["state"] in ("Z", "X", "x"):
+                return None
+            if any(first.get(key) != second.get(key) for key in ("pid", "boot_id", "start_ticks", "uid")):
+                return None
+            return first
+        except (OSError, ValueError, RuntimeError, process_identity.UnsafeRecord):
+            # Any unreadable/unprovable evidence means refuse (no signal).
+            return None
+
     def _kill_port_occupant(self) -> bool:
         """Kill the exact process bound to the embed port, if identifiable.
 
@@ -536,77 +595,44 @@ class EmbedServer:
             )
             return False
 
-        # NEW-86: re-verify this PID is still the port's occupant
-        # immediately before the kill below, not just at identification
-        # time above. This is a narrow PID-recycling TOCTOU: if the real
-        # occupant exits naturally in the gap between identification and
-        # the os.kill() call, the OS is free to hand this exact PID
-        # number to an unrelated new process before that kill executes,
-        # and the old `_port_is_bound()` post-kill check alone can't
-        # catch it (the port is already free either way, by then, so it
-        # reports success without ever noticing the kill hit the wrong
-        # process). A stale cmdline snapshot compared only against
-        # itself a few microseconds later does NOT catch this: if the
-        # recycle already happened before identification even returned
-        # (the common case), both reads see the same, already-recycled
-        # process's cmdline and "match" — the actual property that
-        # matters is "is this PID still the port's occupant," so
-        # re-running the same port-ownership lookup and requiring the
-        # same PID come back is what actually discriminates. Not a
-        # cmdline *identity gate* (e.g. "must be llama-server") either —
-        # `_find_port_occupant_pid()`'s own docstring notes the
-        # legitimate occupant need not be our own llama-server, so a
-        # gate like that would wrongly refuse to clear a real foreign
-        # squatter.
-        #
-        # Coverage caveat, not fully closed by this fix: this re-scan is
-        # exactly as strong as `_find_port_occupant_pid()` itself, which
-        # has two internal paths of different strength. Its primary
-        # `/proc/net/tcp`(+tcp6) socket scan DOES re-observe the port
-        # directly (a real recycle-to-anything, including another
-        # llama-server on this device — generation runs on 8080/8081 —
-        # would be caught). But that primary path is unreadable in this
-        # dev sandbox (confirmed: `head -1 /proc/net/tcp` ->
-        # "Permission denied"; on-device Termux/Android behavior is
-        # unverified here, needs live-verifier confirmation), in which
-        # case `_find_port_occupant_pid()` falls back to
-        # `_find_pid_via_registered_slot()` — a lookup against this
-        # object's own static `resource_gate` registry entry, re-checked
-        # for liveness and llama-server cmdline, but NOT re-observing the
-        # port at all. On that fallback path, this re-verification still
-        # narrows the window (it re-checks liveness+cmdline later in
-        # time, so it catches recycle-to-a-non-llama-server-process) but
-        # does NOT catch a recycle where the new process happens to also
-        # be some other llama-server on this device — NEW-83's original,
-        # narrower blast radius, not fully eliminated on that path.
-        # Doesn't fully close the window on either path — only OS-level
-        # pidfd support could do that, not evaluated this round — but
-        # shrinks it from "identification time" to "immediately before
-        # the syscall," and this re-scan is only paid on this
-        # already-cold, port-occupied-at-start path.
+        # NEW-86: re-verify this PID is still the port's occupant, then
+        # (14d) prove it is OUR embed server before any signal. The port
+        # re-scan is exactly as strong as `_find_port_occupant_pid()` (on the
+        # registered-slot fallback it does not re-observe the port), so the
+        # decisive check is the exact identity bracket below: boot id /
+        # start ticks / UID read before and after exe + argv evidence, and
+        # re-read before every signal by the shared loader_v2 helper. Any
+        # occupant that cannot be proven to be this embed server (unrelated
+        # process, other model/port, other UID, legacy, recycled PID) is
+        # refused with zero signals. Never a process-group kill.
+        signalled = False
         reverified_pid = self._find_port_occupant_pid()
-
-        if reverified_pid != pid:
+        expected = self._capture_embed_occupant(pid) if reverified_pid == pid else None
+        if expected is None:
             error(
-                f"embed_server: PID {pid} no longer identifies as the "
-                f"port {self.port} occupant immediately before kill — "
-                f"likely exited and the PID number was recycled to a "
-                f"different process. Refusing to kill it."
+                f"embed_server: occupant of port {self.port} could not be proven "
+                f"to be the embed server (identity or port ownership changed or "
+                f"unprovable) — refusing to signal anything. Free the port "
+                f"manually and retry."
             )
         else:
-            info(f"Killing stale embed server PID {pid} occupying port {self.port}")
-            try:
-                os.kill(pid, 9)
-            except ProcessLookupError:
-                # Already gone between the re-check and kill — fine, port is free.
-                pass
-            except Exception as e:
-                error(f"embed_server: failed to kill occupant PID {pid}: {e}")
+            from core import loader_v2
+
+            info(f"Stopping stale embed server PID {pid} occupying port {self.port}")
+            outcome = loader_v2._kill_single_pid_term_then_kill(
+                pid, self._STOP_TIMEOUT_S, expected=expected, proc_root=self._PROC_ROOT
+            )
+            signalled = outcome.attempted
+            if outcome.outcome != "exited":
+                error(
+                    f"embed_server: stale embed server PID {pid} exit not confirmed "
+                    f"({outcome.outcome}{', PID replaced' if outcome.replaced else ''}) "
+                    f"— port {self.port} not cleared; no further signals sent."
+                )
                 return False
 
-        import time as _time
-
-        _time.sleep(2)  # give kernel time to release the port
+        if signalled:
+            time.sleep(2)  # give kernel time to release the port
 
         if self._port_is_bound():
             # Port is still held. If we actually killed PID {pid} above,

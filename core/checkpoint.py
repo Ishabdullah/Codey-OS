@@ -28,13 +28,26 @@ from utils.logger import info, success, warning
 # Checkpoint directory
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Core files that should be checkpointed before modification
+# Checkpoint-BACKUP scope: only the top-level directory component of each
+# pattern is used (create_checkpoint backs up every *.py under it,
+# recursively). Deliberately separate from CORE_CLASSIFICATION_ROOTS below
+# so widening what is classified as core never silently changes what is
+# backed up (NEW-951 / WP2.1 slice 14a).
 CORE_PATTERNS = [
     "core/*.py",
     "tools/*.py",
     "utils/*.py",
     "prompts/*.py",
 ]
+
+# Classification scope for is_core_file(): any *.py at any depth under
+# these CODE_DIR roots is a Codey-OS core file (NEW-951).
+CORE_CLASSIFICATION_ROOTS = (
+    "core",
+    "tools",
+    "utils",
+    "prompts",
+)
 
 
 @dataclass
@@ -52,15 +65,17 @@ def is_core_file(file_path: str) -> bool:
     """Check if a file is a Codey-OS file that needs checkpointing."""
     path = Path(file_path).resolve()
 
-    # Only files under the specific core directories (core/, tools/, utils/,
-    # prompts/) count — NOT the entire repo (CODE_DIR is the repo root).
-    for pattern in CORE_PATTERNS:
-        base_dir = CODE_DIR / pattern.split("/")[0]
+    # Only *.py files at any depth under the specific core directories
+    # (core/, tools/, utils/, prompts/) count — NOT the entire repo
+    # (CODE_DIR is the repo root). Recursive since NEW-951; the old
+    # Path.match("<root>/*.py") only matched direct children.
+    for root in CORE_CLASSIFICATION_ROOTS:
+        base_dir = CODE_DIR / root
         try:
             path.relative_to(base_dir)
         except ValueError:
             continue
-        if path.match(pattern):
+        if path.name.endswith(".py"):
             return True
 
     return False

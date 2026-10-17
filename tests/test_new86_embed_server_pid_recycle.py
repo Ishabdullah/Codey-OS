@@ -30,6 +30,7 @@ live-verifier confirmation.
 from unittest.mock import patch
 
 from core.embed_server import EmbedServer
+from core.loader_v2 import ForeignStopOutcome
 
 
 class TestKillPortOccupantPidRecycleGuard:
@@ -103,8 +104,16 @@ class TestKillPortOccupantPidRecycleGuard:
             srv, "_find_port_occupant_pid", return_value=4242
         ), patch("os.kill") as fake_kill, patch("time.sleep"), patch.object(
             srv, "_port_is_bound", return_value=False
-        ):
+        ), patch.object(
+            srv, "_capture_embed_occupant", return_value={"pid": 4242}
+        ), patch(
+            "core.loader_v2._kill_single_pid_term_then_kill",
+            return_value=ForeignStopOutcome("exited", True),
+        ) as fake_stop:
             ok = srv._kill_port_occupant()
 
-        fake_kill.assert_called_once_with(4242, 9)
+        # 14d: signalling is delegated to the identity-bracketed TERM->KILL
+        # helper; no raw SIGKILL of the integer PID happens here any more.
+        assert fake_stop.call_args.args[0] == 4242
+        fake_kill.assert_not_called()
         assert ok is True

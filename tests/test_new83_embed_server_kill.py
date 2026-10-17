@@ -22,6 +22,7 @@ from unittest.mock import patch
 import pytest
 
 from core.embed_server import EmbedServer
+from core.loader_v2 import ForeignStopOutcome
 
 
 class TestFindPortOccupantPid:
@@ -223,11 +224,19 @@ class TestKillPortOccupant:
             "os.kill"
         ) as fake_kill, patch("subprocess.run") as fake_run, patch(
             "time.sleep"
-        ), patch.object(srv, "_port_is_bound", return_value=False):
+        ), patch.object(srv, "_port_is_bound", return_value=False
+        ), patch.object(
+            srv, "_capture_embed_occupant", return_value={"pid": 4242}
+        ), patch(
+            "core.loader_v2._kill_single_pid_term_then_kill",
+            return_value=ForeignStopOutcome("exited", True),
+        ) as fake_stop:
             ok = srv._kill_port_occupant()
 
         assert ok is True
-        fake_kill.assert_called_once_with(4242, 9)
+        # 14d: only the resolved, identity-proven PID reaches the bracketed helper.
+        assert fake_stop.call_args.args[0] == 4242
+        fake_kill.assert_not_called()
         # The whole point of NEW-83: no bare name-pattern kill anywhere.
         fake_run.assert_not_called()
 
@@ -253,11 +262,17 @@ class TestKillPortOccupant:
             "subprocess.run"
         ) as fake_run, patch("time.sleep"), patch.object(
             srv, "_port_is_bound", return_value=True
-        ):
+        ), patch.object(
+            srv, "_capture_embed_occupant", return_value={"pid": 4242}
+        ), patch(
+            "core.loader_v2._kill_single_pid_term_then_kill",
+            return_value=ForeignStopOutcome("exited", True),
+        ) as fake_stop:
             ok = srv._kill_port_occupant()
 
         assert ok is False
-        fake_kill.assert_called_once_with(4242, 9)
+        assert fake_stop.call_args.args[0] == 4242
+        fake_kill.assert_not_called()
         fake_killpg.assert_not_called()
         fake_run.assert_not_called()
 

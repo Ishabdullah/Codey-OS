@@ -3245,6 +3245,34 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > debt, no production wait=False caller; not fixed). Group13 stays OPEN until
 > commit and NEW-972 disposition; groups 14/15 not started; no full WP2.1
 > closure claim. Ownership repairs alone do not close operation audit coverage.
+>
+> **Group 14 (self-improvement artifact boundaries) — slices 14a/14b/14c/14d
+> executed (2026-10-17); code complete and code-reviewer APPROVED,
+> UNCOMMITTED/pending commit (no hash); group14 stays OPEN.** Spec:
+> `docs/wp2_1_group14_scope.md` (slices 14a-14i, 7 Ish forks). **14a**
+> (NEW-951, PARTIAL): recursive `*.py` classification within the four existing
+> roots `core/tools/utils/prompts` only (`CORE_CLASSIFICATION_ROOTS`; backup
+> `CORE_PATTERNS` unchanged), 34 new tests, old-vs-new identical over 1757
+> files; wider roots (`ccos/plugins/**`, `bench/**`, `main.py`, launchers,
+> `lib/`) still open as NEW-975 pending Ish fork 1. **14b** (NEW-978 fixed):
+> `/undo` through `gate_exec` + new `Filesystem.restore`, real-TTY-only
+> confirm, 3 review rounds, 96 passed. **14c** (NEW-979 ruff part fixed):
+> ruff via `gate_exec` ACT (`--no-cache`), flake8/mypy never executed
+> (uninstalled, isolation unverified); 23+ tests; follow-ups NEW-984/985.
+> **14d** (NEW-86 foreign embed kill, rule 4): exact-identity bracketed capture,
+> signals only via `_kill_single_pid_term_then_kill`, unprovable occupants get
+> zero signals; 17 new tests, 148 passed/1 skipped; the only slice **live-
+> verified** (disposable stubs, `docs/wp2_1_group14d_live_verification.md`,
+> corrected 15/15, initial 6 harness-only FAILs retained; port-owner lookup and
+> recycle simulated, no real PID recycle/`PermissionError`/other-UID).
+> **Honest limits:** 14d has NO `gate_exec`/audit/`refuse_exec` row (NEW-983),
+> so the 13f foreign-port narrowing is not claimed met; legacy embed servers
+> with non-matching argv are now refused (BM25 fallback until manual port
+> cleanup). 14a-c not live-verified. **Not started:** 14a-ext (fork 1), 14e
+> (fork 2, NEW-977), 14f (NEW-976/980/981), 14g (fork 5, NEW-982), 14h (fork
+> 4), 14i (fork 6). Findings G14-F1..F8 are NEW-975..982; residuals NEW-983..986.
+> Group13 remains OPEN (NEW-972); group15 not started; no full WP2.1 closure
+> claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
