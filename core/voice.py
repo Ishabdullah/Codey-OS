@@ -121,7 +121,8 @@ class VoiceManager:
             wait: If True, block until speech finishes. Set False for
                   background/non-blocking use (user can Ctrl+C to interrupt).
         Returns:
-            True if TTS process started successfully, False otherwise.
+            True after successful synchronous speech, or asynchronous launch.
+            False on refusal, interruption, or execution failure.
         """
         if not self.tts_available():
             return False
@@ -145,19 +146,38 @@ class VoiceManager:
             cmd += ["-l", self.tts_language]
         cmd.append(prose)
 
-        try:
-            if wait:
-                proc = subprocess.run(cmd, timeout=180)
-                return proc.returncode == 0
-            else:
-                self._speak_proc = subprocess.Popen(cmd)
-                return True
-        except KeyboardInterrupt:
-            # Ctrl+C during speech — stop gracefully
-            self.stop_speaking()
-            return True
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return False
+        from core.action_gateway import ACT, get_action_gateway
+
+        interrupted = None
+
+        def execute():
+            nonlocal interrupted
+            try:
+                if wait:
+                    proc = subprocess.run(cmd, timeout=180)
+                    if proc.returncode != 0:
+                        raise RuntimeError("Voice speech exited with nonzero status")
+                else:
+                    # Launch mediation only. Async overlap/stop ownership is the
+                    # separately tracked NEW-972 debt; no new background caller.
+                    self._speak_proc = subprocess.Popen(cmd)
+            except (KeyboardInterrupt, SystemExit) as exc:
+                interrupted = exc
+                raise RuntimeError("Voice speech interrupted") from None
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Voice speech timed out") from None
+            except Exception:
+                # Never place speech text, argv or exception output in audit.
+                raise RuntimeError("Voice speech execution failed") from None
+            return "Voice speech completed" if wait else "Voice speech launched"
+
+        decision = get_action_gateway().gate_exec(
+            authority=ACT, action="voice.speak", command="voice.speak",
+            confirm_available=False, execute=execute,
+        )
+        if isinstance(interrupted, SystemExit):
+            raise interrupted
+        return decision.allowed
 
     def stop_speaking(self):
         """Stop any in-progress TTS subprocess."""
@@ -171,12 +191,11 @@ class VoiceManager:
 
     # ── STT ─────────────────────────────────────────────────────────────────
 
-    def listen(self, timeout: int = 20) -> Optional[str]:
-        """
-        Capture one speech utterance via termux-speech-to-text.
+    def listen(self, timeout: int = 20, *, confirm=None) -> Optional[str]:
+        """Capture one utterance only after this attempt's explicit approval.
 
-        Returns transcribed text string, or None if failed or empty.
-        Prints a "Listening..." indicator while waiting.
+        Availability and no-speech checks remain harmless. The real microphone
+        subprocess is HIGH_IMPACT and refuses without a human callback.
         """
         if not self.stt_available():
             warning(
@@ -184,51 +203,63 @@ class VoiceManager:
             )
             return None
 
-        info("[Voice] Listening... (speak now, Ctrl+C to cancel)")
-        try:
-            result = subprocess.run(
-                ["termux-speech-to-text"],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            raw = result.stdout.strip()
-            if not raw:
-                warning("[Voice] No speech captured.")
-                return None
+        from core.action_gateway import HIGH_IMPACT, get_action_gateway
 
-            # termux-speech-to-text outputs JSON: {"text": "...", "error": "Unset"}
+        captured = None
+        interrupted = None
+
+        def execute():
+            nonlocal captured, interrupted
             try:
-                data = json.loads(raw)
-                stt_text = data.get("text", "").strip()
-                stt_err = data.get("error", "Unset")
-                if stt_err and stt_err.lower() not in ("unset", "none", ""):
-                    warning(f"[Voice] STT error: {stt_err}")
-                    return None
-                if not stt_text:
-                    warning("[Voice] Empty transcription.")
-                    return None
-                success(f"[Voice] Heard: {stt_text}")
-                return stt_text
-            except json.JSONDecodeError:
-                # Some versions of termux-speech-to-text output plain text
+                info("[Voice] Listening... (speak now, Ctrl+C to cancel)")
+                result = subprocess.run(
+                    ["termux-speech-to-text"], capture_output=True,
+                    text=True, timeout=timeout,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError("Voice recording exited with nonzero status")
+                raw = result.stdout.strip()
                 if raw:
-                    success(f"[Voice] Heard: {raw}")
-                    return raw
-                return None
+                    try:
+                        data = json.loads(raw)
+                    except json.JSONDecodeError:
+                        # Existing Termux versions may return plain text.
+                        captured = raw
+                    else:
+                        if not isinstance(data, dict):
+                            raise RuntimeError("Invalid voice recording response")
+                        text = data.get("text", "")
+                        error = data.get("error", "Unset")
+                        if not isinstance(text, str) or (error is not None and not isinstance(error, str)):
+                            raise RuntimeError("Invalid voice recording response")
+                        if error and error.lower() not in ("unset", "none", ""):
+                            raise RuntimeError("Voice recording reported an error")
+                        captured = text.strip() or None
+            except (KeyboardInterrupt, SystemExit) as exc:
+                interrupted = exc
+                raise RuntimeError("Voice recording interrupted") from None
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Voice recording timed out") from None
+            except Exception:
+                # Transcript, raw output and dynamic errors stay out of audit.
+                raise RuntimeError("Voice recording execution failed") from None
+            return "Voice recording completed"
 
-        except KeyboardInterrupt:
-            info("[Voice] Listen cancelled.")
+        decision = get_action_gateway().gate_exec(
+            authority=HIGH_IMPACT, action="voice.listen", command="voice.listen",
+            confirm_available=callable(confirm),
+            confirm=confirm if callable(confirm) else None, execute=execute,
+        )
+        if isinstance(interrupted, SystemExit):
+            raise interrupted
+        if not decision.allowed:
+            warning("[Voice] Recording refused or failed.")
             return None
-        except subprocess.TimeoutExpired:
-            warning("[Voice] STT timed out — no speech detected.")
-            return None
-        except FileNotFoundError:
-            warning("[Voice] termux-speech-to-text not found.")
-            return None
-        except Exception as e:
-            warning(f"[Voice] STT error: {e}")
-            return None
+        if captured:
+            success(f"[Voice] Heard: {captured}")
+        else:
+            warning("[Voice] No speech captured.")
+        return captured
 
     # ── Mode control ─────────────────────────────────────────────────────────
 

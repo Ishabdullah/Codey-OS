@@ -17,11 +17,13 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 import core.resource_gate as rg
 import utils.config as cfg
+from core import process_identity
 from utils.config import (
     CODEY_STATE_DIR,
     LLAMA_SERVER_BIN,
@@ -212,59 +214,124 @@ def confirm_resident_and_mark_slot(
         raise RuntimeError("Resident reservation could not be confirmed")
 
 
-def _kill_single_pid_term_then_kill(pid: int, wait_s: float = 8.0) -> None:
-    """
-    NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): kill exactly the
-    ONE positively-identified PID of a resident server this loader did NOT
-    spawn (resolved via the resource-gate slot store / `/proc`, not this
-    process's own `subprocess.Popen` child) — deliberately NOT
-    `os.killpg(os.getpgid(pid), ...)`.
+_FOREIGN_ID_FIELDS = ("pid", "boot_id", "start_ticks", "uid")
 
-    **Deviation from this round's own prompt, flagged explicitly per its
-    "don't deviate without flagging back" instruction:** the prompt asked
-    for `LlamaServer.stop()`'s TERM-then-8s-wait-then-KILL body to be
-    reused verbatim against the resolved PID. `stop()`'s primary branch
-    calls `os.killpg(os.getpgid(self.process.pid), SIGTERM)` — correct
-    for `stop()`'s own normal case (a real child this loader's own
-    `subprocess.Popen` spawned, in a process group this loader created via
-    `preexec_fn=os.setsid`), but wrong here: `os.killpg()` on a PID merely
-    *resolved* via `/proc` would kill that PID's entire foreign process
-    group, broader than the one PID positively identified — exactly the
-    over-reach `core/embed_server.py:_kill_port_occupant()` already has an
-    explicit, reviewed decision against for this identical
-    foreign-port-occupant scenario (see that method's own docstring).
-    Mirrors `stop()`'s TERM-then-wait-then-KILL *shape* (same escalation,
-    same 8s default), scoped to `os.kill(pid, ...)` instead.
 
-    **Accepted latency note:** liveness is polled via `os.kill(pid, 0)`
-    (same precedent as `resource_gate._pid_alive()`/`core/daemon.py:
-    check_pid_file()`), which reports a PID that has exited but not yet
-    been reaped by ITS OWN parent (a zombie, since this loader is not that
-    parent) as still "alive" — so if the killed server's parent is slow to
-    reap it, this helper burns the full `wait_s` before falling through to
-    SIGKILL. Harmless (the port itself frees at process exit, well before
-    the OS transitions it to a zombie, so the caller's own
-    `_is_port_in_use()` poll is unaffected) but adds up to `wait_s` of
-    latency to an upgrade in that case — not something this round tries
-    to eliminate.
-    """
+def _same_foreign_identity(first, second):
+    return first is not None and second is not None and all(first.get(key) == second.get(key) for key in _FOREIGN_ID_FIELDS)
+
+
+def _foreign_state(expected, proc_root=Path("/proc")):
+    """Never confuse a recycled integer or inaccessible proc entry with exit."""
     try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return  # already gone
-    deadline = time.time() + wait_s
-    while time.time() < deadline:
+        current = process_identity.process_info(expected["pid"], proc_root)
+    except (OSError, ValueError, process_identity.UnsafeRecord):
+        return "unsafe"
+    if current is None:
+        return "dead"
+    if not _same_foreign_identity(expected, current):
+        return "replaced"
+    return "dead" if current["state"] in ("Z", "X", "x") else "running"
+
+
+def _capture_foreign_primary(pid, model_path, port, resolve, wanted_n_ctx, proc_root=Path("/proc")):
+    """Bracket canonical exe/argv and fresh eligibility with immutable reads.
+
+    Android may forbid socket enumeration. Exact executable/model/port argv
+    evidence is permitted there; same-UID argv is not a hostile-code boundary.
+    """
+    if not process_identity.valid_pid(pid) or type(port) is not int or not 0 < port < 65536:
+        return None
+    try:
+        first = process_identity.process_info(pid, proc_root)
+        if first is None or first["uid"] != os.getuid() or first["state"] in ("Z", "X", "x"):
+            return None
+        directory = Path(proc_root) / str(pid)
+        executable = (directory / "exe").resolve(strict=True)
+        expected_executable = Path(LLAMA_SERVER_BIN).resolve(strict=True)
+        if executable != expected_executable:
+            return None
+        with (directory / "cmdline").open("rb") as stream:
+            raw = stream.read(65537)
+        if not raw or len(raw) > 65536 or not raw.endswith(b"\0"):
+            return None
+        argv = [os.fsdecode(value) for value in raw[:-1].split(b"\0")]
+        if not argv or not argv[0]:
+            return None
+        selected = {"model": [], "port": []}
+        for index, value in enumerate(argv[1:], 1):
+            for flag, kind in (("-m", "model"), ("--model", "model"), ("--port", "port")):
+                if value == flag:
+                    if index + 1 >= len(argv):
+                        return None
+                    selected[kind].append(argv[index + 1])
+                elif value.startswith(flag + "="):
+                    selected[kind].append(value[len(flag) + 1:])
+        if len(selected["model"]) != 1 or len(selected["port"]) != 1:
+            return None
+        requested_port = selected["port"][0]
+        if not requested_port.isascii() or not requested_port.isdecimal() or int(requested_port) != port:
+            return None
+        model = Path(selected["model"][0])
+        if not model.is_absolute():
+            model = (directory / "cwd").resolve(strict=True) / model
+        if model.resolve(strict=True) != Path(model_path).resolve(strict=True):
+            return None
+        resolved_pid, context = resolve()
+        if resolved_pid != pid or type(context) is not int or not 0 < context < wanted_n_ctx:
+            return None
+        second = process_identity.process_info(pid, proc_root)
+        if not _same_foreign_identity(first, second) or second["state"] in ("Z", "X", "x"):
+            return None
+        return first
+    except (OSError, ValueError, RuntimeError, process_identity.UnsafeRecord):
+        return None
+
+
+@dataclass(frozen=True)
+class ForeignStopOutcome:
+    outcome: str
+    attempted: bool = False
+    replaced: bool = False
+
+
+def _kill_single_pid_term_then_kill(pid: int, wait_s: float = 8.0, *, expected=None, proc_root=Path("/proc")) -> ForeignStopOutcome:
+    """Signal only a previously proven foreign generation; never process groups.
+
+    Read-before-signal still has a narrow kernel race without pidfd support.
+    An absent/zombie original is exited; replacement is never escalated and its
+    numerically ambiguous accounting must be retained by the caller.
+    """
+    if not process_identity.valid_pid(pid) or not expected or expected.get("pid") != pid or expected.get("uid") != os.getuid():
+        return ForeignStopOutcome("unsafe")
+    if isinstance(wait_s, bool) or not isinstance(wait_s, (int, float)) or not 0 <= wait_s < float("inf"):
+        return ForeignStopOutcome("unsafe")
+    attempted = False
+    for requested_signal in (signal.SIGTERM, signal.SIGKILL):
+        state = _foreign_state(expected, proc_root)
+        if state == "dead":
+            return ForeignStopOutcome("exited", attempted)
+        if state != "running":
+            return ForeignStopOutcome("unconfirmed" if attempted else "unsafe", attempted, state == "replaced")
         try:
-            os.kill(pid, 0)
+            os.kill(pid, requested_signal)
+            attempted = True
         except ProcessLookupError:
-            return  # confirmed gone
-        except PermissionError:
-            pass  # exists, not ours — keep waiting (see _pid_alive() precedent)
-        time.sleep(0.2)
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass  # gone between the last poll and here — fine
+            # Re-read, rather than treating a signal exception as exit proof.
+            attempted = True
+        except OSError:
+            return ForeignStopOutcome("unconfirmed", True)
+        deadline = time.monotonic() + wait_s
+        while True:
+            state = _foreign_state(expected, proc_root)
+            if state == "dead":
+                return ForeignStopOutcome("exited", attempted)
+            if state != "running":
+                return ForeignStopOutcome("unconfirmed", attempted, state == "replaced")
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(min(.2, max(0, deadline - time.monotonic())))
+    return ForeignStopOutcome("unconfirmed", attempted)
 
 
 # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27):
@@ -474,50 +541,36 @@ class LlamaServer:
             )
             return _UPGRADE_NOT_SAFE
 
-        info(
-            f"resource_gate: upgrading undersized resident coder server "
-            f"(pid={pid}, port={self.port}, n_ctx={in_lock_n_ctx} -> "
-            f"{self.n_ctx}) — daemon confirmed idle."
-        )
-
-        # ── Residual TOCTOU window, accepted (judgment call 1, 2026-08-27
-        # scoping pass) ──────────────────────────────────────────────────
-        # A narrow window remains between daemon_task_in_progress()
-        # returning False above and the kill below actually landing — the
-        # daemon could claim a new task in that gap. Accepted as small
-        # (one status round-trip, sub-second in the common case) and
-        # self-recovering: the daemon's own in-flight HTTP call to the
-        # killed server fails with a connection error, handled by the
-        # existing task-failure path as a normal failure, not a crash.
-        # Not something this round tries to close further.
-        #
-        # `_kill_single_pid_term_then_kill()`, not `LlamaServer.stop()` —
-        # see that function's own docstring for the explicit, flagged
-        # deviation from this round's prompt (stop()'s os.killpg() would
-        # over-reach a foreign PID's process group; embed_server.py
-        # already has a reviewed decision against exactly that for this
-        # identical foreign-port-occupant scenario).
-        _kill_single_pid_term_then_kill(pid)
-
-        # Release the killed server's resource-gate slot, if one exists, so
-        # accounting doesn't leak a phantom resident slot for a PID that's
-        # now dead.
+        # Snapshot only the original row; never re-find and delete a successor.
         try:
-            existing_slot = rg.find_resident_slot(model_id="primary", port=self.port)
-            if existing_slot is not None:
-                rg.release_slot(existing_slot["slot_id"])
-        except Exception as e:
-            # Accounting-only — the kill above already happened regardless
-            # of whether this bookkeeping succeeds; must not turn into a
-            # reason to abort the upgrade already committed to.
-            warning(
-                f"resource_gate: failed to release upgraded-away slot for "
-                f"port {self.port}: {e}"
-            )
-
+            original_slot = rg.find_resident_slot(model_id="primary", port=self.port, reap_dead=False)
+            original_slot = dict(original_slot) if original_slot is not None else None
+            if original_slot is not None and (original_slot.get("pid") != pid or original_slot.get("model_id") != "primary" or original_slot.get("port") != self.port):
+                return _UPGRADE_NOT_SAFE
+        except Exception:  # noqa: BLE001 - uncertain accounting cannot authorize teardown
+            return _UPGRADE_NOT_SAFE
+        expected = _capture_foreign_primary(pid, self.model_path, self.port,
+                                            self._resolve_resident_pid_and_n_ctx, self.n_ctx)
+        if expected is None:
+            return _UPGRADE_NOT_SAFE
+        outcome = _kill_single_pid_term_then_kill(pid, expected=expected)
+        if outcome.outcome != "exited":
+            return _UPGRADE_PORT_STUCK if outcome.attempted else _UPGRADE_NOT_SAFE
+        # A free port alone is never process-exit confirmation. Recheck after
+        # port probing too, before accounting or a subsequent spawn.
         deadline = time.time() + 10.0
         while time.time() < deadline:
             if not self._is_port_in_use():
+                if _foreign_state(expected) != "dead":
+                    return _UPGRADE_PORT_STUCK
+                if original_slot is not None:
+                    try:
+                        if not rg.release_slot_if_unchanged(
+                            original_slot, confirm_dead=lambda: _foreign_state(expected) == "dead"
+                        ):
+                            return _UPGRADE_PORT_STUCK
+                    except Exception:  # noqa: BLE001 - retain accounting and refuse respawn
+                        return _UPGRADE_PORT_STUCK
                 return _UPGRADE_KILLED
             time.sleep(0.25)
 

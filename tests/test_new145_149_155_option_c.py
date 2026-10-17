@@ -37,7 +37,19 @@ def _run(coro):
 
 
 @pytest.fixture(autouse=True)
-def reset_singletons():
+def reset_singletons(monkeypatch, tmp_path):
+    # NEW957 guard: synthetic Popen/PID fixtures never reach live signals,
+    # publication, foreign proc evidence or resource storage.
+    def forbidden(*a, **k):
+        pytest.fail("unguarded synthetic process effect")
+    monkeypatch.setattr(lv.os, "kill", forbidden)
+    monkeypatch.setattr(lv.os, "killpg", forbidden)
+    monkeypatch.setattr(lv.os, "getpgid", forbidden)
+    monkeypatch.setattr(lv.subprocess, "Popen", forbidden)
+    monkeypatch.setattr(lv.process_identity, "process_info", forbidden)
+    monkeypatch.setattr(lv, "_capture_foreign_primary", lambda pid, *a, **k: {"pid": pid, "boot_id": "fixture", "start_ticks": 100, "uid": lv.os.getuid()})
+    monkeypatch.setattr(lv, "_foreign_state", lambda *a, **k: "dead")
+    monkeypatch.setenv("CODEY_ACTION_GATEWAY_AUDIT", str(tmp_path / "audit.jsonl"))
     lv._loader = None
     yield
     lv._loader = None
@@ -292,6 +304,7 @@ def fake_resource_gate(monkeypatch):
     monkeypatch.setattr(rg, "bind_pending_slot_pid", lambda *a, **k: True)
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "release_slot_if_unchanged", lambda *a, **k: True)
     monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
     monkeypatch.setattr(rg, "find_resident_slot", lambda *a, **k: None)
     yield
@@ -371,13 +384,14 @@ def test_start_allow_upgrade_true_daemon_idle_kills_and_respawns(tmp_path, monke
 
     killed_pids = []
 
-    def _fake_kill(pid, wait_s=8.0):
+    def _fake_kill(pid, wait_s=8.0, **kwargs):
         killed_pids.append(pid)
+        return lv.ForeignStopOutcome("exited", True)
 
     with patch.object(server, "_is_port_in_use", side_effect=_is_port_in_use), patch.object(
         server, "_resident_n_ctx_if_smaller", return_value=16384
     ), patch("core.daemon.daemon_task_in_progress", return_value=False), patch.object(
-        rg, "find_resident_slot", return_value={"pid": 9999, "n_ctx": 16384, "slot_id": "s1"}
+        rg, "find_resident_slot", return_value={"pid": 9999, "n_ctx": 16384, "slot_id": "s1", "model_id": "primary", "port": port}
     ), patch.object(rg, "pid_cmdline_contains", return_value=True), patch.object(
         lv, "_kill_single_pid_term_then_kill", _fake_kill
     ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process), patch.object(
@@ -420,7 +434,7 @@ def test_start_allow_upgrade_true_daemon_idle_releases_old_slot_on_upgrade(
     fake_process.poll.return_value = None
     fake_process.pid = 4242
 
-    old_slot = {"pid": 9999, "n_ctx": 16384, "slot_id": "old-slot-being-upgraded-away"}
+    old_slot = {"pid": 9999, "n_ctx": 16384, "slot_id": "old-slot-being-upgraded-away", "model_id": "primary", "port": port}
     release_slot_mock = MagicMock(return_value=True)
 
     with patch.object(server, "_is_port_in_use", side_effect=_is_port_in_use), patch.object(
@@ -428,16 +442,18 @@ def test_start_allow_upgrade_true_daemon_idle_releases_old_slot_on_upgrade(
     ), patch("core.daemon.daemon_task_in_progress", return_value=False), patch.object(
         rg, "find_resident_slot", return_value=old_slot
     ), patch.object(rg, "pid_cmdline_contains", return_value=True), patch.object(
-        lv, "_kill_single_pid_term_then_kill", lambda pid, wait_s=8.0: None
+        lv, "_kill_single_pid_term_then_kill", lambda pid, wait_s=8.0, **kwargs: lv.ForeignStopOutcome("exited", True)
     ), patch.object(
-        rg, "release_slot", release_slot_mock
+        rg, "release_slot_if_unchanged", release_slot_mock
     ), patch("core.process_identity.LifecycleRecord"), patch.object(lv.LlamaServer, "stop", return_value=False), patch("subprocess.Popen", return_value=fake_process), patch.object(
         server, "_check_health", return_value=True
     ), patch.object(lv.time, "sleep", return_value=None):
         result = server.start()
 
     assert result is True
-    release_slot_mock.assert_called_once_with("old-slot-being-upgraded-away")
+    release_slot_mock.assert_called_once()
+    assert release_slot_mock.call_args.args == (old_slot,)
+    assert callable(release_slot_mock.call_args.kwargs["confirm_dead"])
 
 
 def test_start_allow_upgrade_true_never_uses_killpg(tmp_path, monkeypatch, fake_resource_gate):
@@ -479,10 +495,10 @@ def test_start_allow_upgrade_true_never_uses_killpg(tmp_path, monkeypatch, fake_
     with patch.object(server, "_is_port_in_use", side_effect=_is_port_in_use), patch.object(
         server, "_resident_n_ctx_if_smaller", return_value=16384
     ), patch("core.daemon.daemon_task_in_progress", return_value=False), patch.object(
-        rg, "find_resident_slot", return_value={"pid": 9999, "n_ctx": 16384, "slot_id": "s1"}
+        rg, "find_resident_slot", return_value={"pid": 9999, "n_ctx": 16384, "slot_id": "s1", "model_id": "primary", "port": port}
     ), patch.object(rg, "pid_cmdline_contains", return_value=True), patch.object(
         lv.os, "kill", side_effect=_fake_os_kill
-    ), patch.object(
+    ), patch.object(lv, "_foreign_state", side_effect=["running", "dead", "dead"]), patch.object(
         lv.os, "killpg"
     ) as mock_killpg, patch.object(
         lv.os, "getpgid"
@@ -522,7 +538,7 @@ def test_start_allow_upgrade_true_reresolves_n_ctx_under_lock_not_just_pid(
         # upgraded to 65536 by someone else in the meantime.
         rg,
         "find_resident_slot",
-        return_value={"pid": 9999, "n_ctx": 65536, "slot_id": "s1"},
+        return_value={"pid": 9999, "n_ctx": 65536, "slot_id": "s1", "model_id": "primary", "port": port},
     ), patch.object(rg, "pid_cmdline_contains", return_value=True), patch.object(
         lv, "_kill_single_pid_term_then_kill"
     ) as mock_kill:
@@ -558,9 +574,9 @@ def test_start_allow_upgrade_true_port_stuck_fails_outright(tmp_path, monkeypatc
     with patch.object(server, "_is_port_in_use", side_effect=_always_in_use), patch.object(
         server, "_resident_n_ctx_if_smaller", return_value=16384
     ), patch("core.daemon.daemon_task_in_progress", return_value=False), patch.object(
-        rg, "find_resident_slot", return_value={"pid": 9999, "n_ctx": 16384, "slot_id": "s1"}
+        rg, "find_resident_slot", return_value={"pid": 9999, "n_ctx": 16384, "slot_id": "s1", "model_id": "primary", "port": port}
     ), patch.object(rg, "pid_cmdline_contains", return_value=True), patch.object(
-        lv, "_kill_single_pid_term_then_kill", lambda pid, wait_s=8.0: None
+        lv, "_kill_single_pid_term_then_kill", lambda pid, wait_s=8.0, **kwargs: lv.ForeignStopOutcome("exited", True)
     ), patch.object(lv.time, "sleep", return_value=None), patch.object(
         lv.time, "time", side_effect=_fake_time
     ):

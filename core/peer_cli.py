@@ -397,8 +397,46 @@ def escalate(
 
         if result is True:
             prompt = mgr.build_prompt(user_message, errors, files)
-            output = mgr.call(cli, prompt)
-            summary = mgr.summarize_result(cli.name, output, user_message)
+            # The affirmative (Enter/y, or a valid switch) was obtained from
+            # a real human prompt just above; it covers only this selected
+            # peer and prompt. It is handed to the gate as a one-shot
+            # callback result, not re-prompted and not a reusable bypass.
+            approved = result is True
+            dispatched: List[str] = []
+
+            def _dispatch() -> str:
+                try:
+                    out = mgr.call(cli, prompt)
+                except Exception:
+                    # Fixed text only: the raw exception may carry the peer
+                    # prompt or output and the gateway audits str(e).
+                    raise RuntimeError("peer dispatch raised") from None
+                dispatched.append(out)
+                if mgr.is_peer_error(out):
+                    # Sentinel is a launch/dispatch failure: audit FAILED.
+                    raise RuntimeError("peer dispatch reported an error")
+                return out
+
+            from core.action_gateway import HIGH_IMPACT, get_action_gateway
+
+            decision = get_action_gateway().gate_exec(
+                authority=HIGH_IMPACT,
+                action="peer_cli.escalate",
+                command=f"{cli.name} :: human_confirmed_escalation",
+                confirm_available=True,
+                confirm=lambda: approved,
+                execute=_dispatch,
+            )
+            if not decision.allowed:
+                warning(f"Peer CLI ({cli.name}) escalation {decision.outcome}.")
+                if dispatched:
+                    # Existing failure handling: pass the sentinel through.
+                    return mgr.summarize_result(cli.name, dispatched[0], user_message)
+                return f"[PEER_ERROR: peer escalation {decision.outcome}]"
+
+            # Summarizing/reporting happens after, and outside, the gated
+            # dispatch so it cannot rewrite an executed action's audit.
+            summary = mgr.summarize_result(cli.name, decision.detail["result"], user_message)
             success(f"Peer CLI ({cli.name}) done — Codey is reading the result…")
             return summary
 

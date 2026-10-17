@@ -3228,13 +3228,23 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > selected/reviewer58 passed. Initial shell instrumentation FAIL retained,
 > focused resumed PASS; actual bare UDS/SQLite native PASS. Model/service
 > dependencies remain fixtures, no full daemon/model/readiness claim.
-> Completeness audit still requires High NEW-969 foreign-primary identity/
-> accounting, High NEW-970 native microphone/TTS and Medium NEW-971 peer audit.
-> Required reached-boundary follow-ups preserve existing authority/confirmation.
-> NEW-972 asynchronous voice ownership is separate low callable debt with no
-> production wait=False caller; not claimed fixed. No group13 closure yet.
-> Next the required NEW-969/970/971 lifecycle/device/peer slices; groups 14/15 follow. Ownership repairs alone do not
-> close operation audit coverage; no full WP2.1 closure claim.
+> **NEW-969/970/971 (2026-10-17): code complete and code-reviewer APPROVED;
+> UNCOMMITTED at time of writing (pending commit).** NEW-969 (foreign-primary
+> upgrade identity/accounting; `loader_v2.py`, `resource_gate.py`): reviewer
+> 90 passed; live-verified on a disposable fake llama-server ELF with real
+> /proc and flock, 48/48 PASS. NEW-970 (native microphone/TTS mediation;
+> `voice.py`, `main.py`): reviewer 34 passed; fake-executable PATH live run
+> 35/35 PASS (initial 33/2 harness-only failure preserved).
+> Evidence `docs/wp2_1_group13_969_970_live_verification.md`. Residuals:
+> 969 kernel race between last /proc read and kill, simulated (not real) PID
+> recycle, SIGKILL/PermissionError unexercised; 970 interrupt/error-message
+> regressions (NEW-974). NEW-971 (peer escalation audit; `peer_cli.py`):
+> reviewer approved, 16 new tests/95 across six files, NOT live-verified
+> (fake managers); failure-behavior change and stale docstring logged NEW-973.
+> NEW-972 asynchronous voice ownership remains explicitly OPEN (low callable
+> debt, no production wait=False caller; not fixed). Group13 stays OPEN until
+> commit and NEW-972 disposition; groups 14/15 not started; no full WP2.1
+> closure claim. Ownership repairs alone do not close operation audit coverage.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

@@ -785,6 +785,29 @@ def print_diff(diff_output: str):
             console.print(line)
 
 
+def _voice_confirmation(yolo=False):
+    """Offer a fresh default-No microphone prompt only in a human terminal."""
+    if (
+        yolo
+        or os.getenv("CODEY_DAEMON_MODE") == "1"
+        or os.getenv("CODEY_NON_INTERACTIVE") == "1"
+    ):
+        return None
+    try:
+        interactive = sys.stdin.isatty()
+    except Exception:
+        # Unknown stdin cannot provide human approval.
+        return None
+    if not interactive:
+        return None
+
+    def confirm():
+        answer = input("Record one microphone utterance now? [y/N]: ")
+        return answer.strip().lower() in ("y", "yes")
+
+    return confirm
+
+
 def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[bool, list]:
     """Handle slash commands; /peer dispatch fails closed pending confirmation UI."""
     cmd = user_input.strip()
@@ -1434,7 +1457,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         elif sub == "off":
             v.turn_off()
         elif sub == "listen":
-            text = v.listen()
+            text = v.listen(confirm=_voice_confirmation(yolo))
             if text:
                 info(f"Voice input: {text}")
                 # Run as agent task immediately
@@ -1940,7 +1963,7 @@ def repl(
 
                 _v = _get_voice()
                 if _v.enabled and _v.stt_available():
-                    spoken = _v.listen()
+                    spoken = _v.listen(confirm=_voice_confirmation(yolo))
                     if spoken:
                         user_input = spoken
                     else:

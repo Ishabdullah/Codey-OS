@@ -3741,6 +3741,36 @@ def release_slot(slot_id: str, state_dir: Optional[Path] = None) -> bool:
     return found
 
 
+def release_slot_if_unchanged(original: dict, state_dir: Path | None = None, *, confirm_dead=None) -> bool:
+    """Remove exactly a captured row under one lock; never a rebound successor.
+
+    False includes absent/changed rows: the foreign-upgrade caller refuses a
+    new spawn because accounting identity could not be confirmed atomically.
+    No HTTP work occurs under this resource-store lock. The optional
+    ``confirm_dead`` callback runs under the lock after the row compare and
+    must do only bounded /proc reads (no HTTP, sleeps or waits); anything but
+    a literal True, or an exception, preserves the row and returns False.
+    """
+    if not isinstance(original, dict) or not all(key in original for key in ("slot_id", "pid", "model_id", "port")):
+        return False
+    if not isinstance(original["slot_id"], str) or not original["slot_id"] or type(original["pid"]) is not int or not 1 < original["pid"] < 2**31 or original["model_id"] != "primary" or type(original["port"]) is not int or not 0 < original["port"] < 65536:
+        return False
+    with _LockedState(state_dir) as slots:
+        matches = [index for index, row in enumerate(slots) if row.get("slot_id") == original["slot_id"]]
+        # JSON comparison preserves scalar types too (True is not PID/cost 1).
+        if len(matches) != 1 or json.dumps(slots[matches[0]], sort_keys=True) != json.dumps(original, sort_keys=True):
+            return False
+        if confirm_dead is not None:
+            try:
+                confirmed = confirm_dead()
+            except Exception:  # noqa: BLE001 - unconfirmed exit keeps accounting; caller refuses respawn
+                return False
+            if confirmed is not True:
+                return False
+        del slots[matches[0]]
+    return True
+
+
 def list_slots(state_dir: Optional[Path] = None, reap_dead: bool = True) -> List[dict]:
     """
     Return currently-registered slots. If `reap_dead` (default True), slots
