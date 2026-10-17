@@ -1,6 +1,6 @@
-## 2026-10-17 — WP2.1 group 14 slices 14a/14b/14c/14d executed: code complete and reviewer-approved, UNCOMMITTED (pending commit); group 14 remains OPEN
+## 2026-10-17 — WP2.1 group 14 slices 14a/14b/14c/14d executed: code complete and reviewer-approved, committed as `249b61b`; group 14 remains OPEN
 
-**Status tiers (kept distinct):** all four fork-free slices are code complete and code-reviewer APPROVED; **none is committed yet** (pending commit; no hash exists). Only 14d is live-verified (disposable stubs). 14a/14b/14c are not live-verified. Spec: `docs/wp2_1_group14_scope.md` (architect, 31-row inventory, slices 14a-14i, 7 Ish forks, untracked). Preceding commits `876e1b6` (NEW-969/970/971) and `295956b` (docs hash). Provisional findings G14-F1..F8 were allocated NEW-975..NEW-982; slice residuals NEW-983..NEW-986 (details in `NEW_ISSUES.md`; NEW-86 and NEW-951 carry update notes).
+**Status tiers (kept distinct):** all four fork-free slices are code complete and code-reviewer APPROVED; **committed as `249b61b`**. Only 14d is live-verified (disposable stubs). 14a/14b/14c are not live-verified. Spec: `docs/wp2_1_group14_scope.md` (architect, 31-row inventory, slices 14a-14i, 7 Ish forks, untracked). Preceding commits `876e1b6` (NEW-969/970/971) and `295956b` (docs hash). Provisional findings G14-F1..F8 were allocated NEW-975..NEW-982; slice residuals NEW-983..NEW-986 (details in `NEW_ISSUES.md`; NEW-86 and NEW-951 carry update notes).
 
 **14a — recursive classification (NEW-951, PARTIAL):** `core/checkpoint.py` `CORE_CLASSIFICATION_ROOTS=(core, tools, utils, prompts)`; `is_core_file` classifies any `*.py` under them recursively; `CORE_PATTERNS` kept unchanged as the backup constant; new `tests/test_core_file_classification.py` (34). Reviewer APPROVED; 241 passed across related suites; old-vs-new classification identical over all 1757 repo files (no nested `.py` exists today, so nothing reclassified). Wider roots (`ccos/plugins/**`, `bench/**`, `main.py`, launchers, `lib/`) are NOT covered: NEW-975, blocked on Ish fork 1 (14a-ext). Residuals: a directory named `x.py` inside a root classifies core (fails closed); relative paths resolve against cwd (Filesystem's re-check of the validated absolute path is the real guard); fail-open `except` at `tools/file_tools.py:117` (Suspected, low; NEW-986). Not live-verified (none required).
 
@@ -16,7 +16,7 @@
 
 ---
 
-## 2026-10-17 — WP2.1 group13 NEW-969/970/971 code complete and reviewer-approved (969/970 live-verified); UNCOMMITTED, group13 remains open
+## 2026-10-17 — WP2.1 group13 NEW-969/970/971 code complete and reviewer-approved (969/970 live-verified); committed as `876e1b6`, group13 remains open
 
 **Status tiers (kept distinct):** all three changes are code complete and code-reviewer APPROVED but **committed as `876e1b6` (pushed)**. NEW-969 and NEW-970 are additionally live-verified on disposable fixtures; NEW-971 is NOT live-verified.
 

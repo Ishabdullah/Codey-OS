@@ -3248,7 +3248,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 >
 > **Group 14 (self-improvement artifact boundaries) — slices 14a/14b/14c/14d
 > executed (2026-10-17); code complete and code-reviewer APPROVED,
-> UNCOMMITTED/pending commit (no hash); group14 stays OPEN.** Spec:
+> committed as `249b61b`; group14 stays OPEN.** Spec:
 > `docs/wp2_1_group14_scope.md` (slices 14a-14i, 7 Ish forks). **14a**
 > (NEW-951, PARTIAL): recursive `*.py` classification within the four existing
 > roots `core/tools/utils/prompts` only (`CORE_CLASSIFICATION_ROOTS`; backup
