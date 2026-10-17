@@ -3229,7 +3229,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > focused resumed PASS; actual bare UDS/SQLite native PASS. Model/service
 > dependencies remain fixtures, no full daemon/model/readiness claim.
 > **NEW-969/970/971 (2026-10-17): code complete and code-reviewer APPROVED;
-> UNCOMMITTED at time of writing (pending commit).** NEW-969 (foreign-primary
+> Committed `876e1b6` (pushed).** NEW-969 (foreign-primary
 > upgrade identity/accounting; `loader_v2.py`, `resource_gate.py`): reviewer
 > 90 passed; live-verified on a disposable fake llama-server ELF with real
 > /proc and flock, 48/48 PASS. NEW-970 (native microphone/TTS mediation;
