@@ -3218,7 +3218,22 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > passed; actual ordinary six-second cleanup exits normally without KILL,
 > records cleaned and all fixture handles reaped. No real daemon/model timing
 > or arbitrary-hang guarantee; authority/admission/publication unchanged.
-> Next 13d; groups 14/15 follow. Ownership repairs alone do not
+> **13d audit pass complete, both source slices reviewer APPROVED and
+> independently verified (2026-10-17; NEW-966/968 fixed):** finite shell
+> ACT/READ envelopes await actual fixed-worker disposition, one row per
+> composite/restart, truthful exit/interruption and redacted config/status.
+> Native sync queue/cancel/release callbacks are gated, queries READ-audited;
+> all planning-only outcomes never enqueue, actual release stays inside executor
+> and SWAP_GUARD through cancellation. Shell reviewer75 passed; native139
+> selected/reviewer58 passed. Initial shell instrumentation FAIL retained,
+> focused resumed PASS; actual bare UDS/SQLite native PASS. Model/service
+> dependencies remain fixtures, no full daemon/model/readiness claim.
+> Completeness audit still requires High NEW-969 foreign-primary identity/
+> accounting, High NEW-970 native microphone/TTS and Medium NEW-971 peer audit.
+> Required reached-boundary follow-ups preserve existing authority/confirmation.
+> NEW-972 asynchronous voice ownership is separate low callable debt with no
+> production wait=False caller; not claimed fixed. No group13 closure yet.
+> Next the required NEW-969/970/971 lifecycle/device/peer slices; groups 14/15 follow. Ownership repairs alone do not
 > close operation audit coverage; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**

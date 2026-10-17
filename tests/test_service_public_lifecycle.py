@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -58,22 +59,36 @@ if name == 'timeout':
     os.execv(str(base / 'bin/python3'), [str(base / 'bin/python3'), *args[2:]])
 if name != 'python3': blocked()
 if len(args) > 1 and args[0] == str(root / 'core/service_lifecycle.py'):
-    if args[1] not in ('lock-exec', 'status', 'paths', 'parse-ready', 'usable-daemon', 'logs', 'config-create'): blocked()
+    if args[1] not in ('lock-exec', 'status', 'paths', 'parse-ready', 'usable-daemon', 'logs', 'config-create', 'config-show', 'daemon-status'): blocked()
     if args[1] == 'parse-ready':
         for fd in (200, 210, 211, 212, 213, 214, 215):
             try: os.fstat(fd)
             except OSError: pass
             else: raise RuntimeError('parser inherited lifecycle lock')
     record('adapter:' + args[1])
-    if args[1] in ('lock-exec', 'status'):
-        from core import service_lifecycle as lifecycle
-        actual_discover = lifecycle.discover_untracked
-        allowed = {int(value) for value in os.environ.get('FIXTURE_DISCOVERY_PIDS', '').split(',') if value}
-        def discover(*values, **options):
-            return [pid for pid in actual_discover(*values, **options) if pid in allowed] if allowed else []
-        lifecycle.discover_untracked = discover
-        sys.exit(lifecycle.main(args[1:]))
-    os.execv(sys.executable, [sys.executable, *args])
+    from core import service_lifecycle as lifecycle
+    from core import service_actions as actions
+    actual_popen = actions.subprocess.Popen
+    def worker_popen(argv, **kwargs):
+        if argv[:4] != [sys.executable, '-c', actions._WORKER_BOOTSTRAP, str(root)]: blocked()
+        actions._validate(argv[4:])
+        return actual_popen([str(base / 'bin/python3'), *argv[1:]], **kwargs)
+    actions.subprocess.Popen = worker_popen
+    sys.exit(lifecycle.main(args[1:]))
+if len(args) >= 3 and args[:2] == ['-c', __import__('core.service_actions', fromlist=['_WORKER_BOOTSTRAP'])._WORKER_BOOTSTRAP]:
+    if args[2] != str(root): blocked()
+    from core import service_actions as actions
+    from core import service_lifecycle as lifecycle
+    actions._validate(args[3:])
+    actual_discover = lifecycle.discover_untracked
+    allowed = {int(value) for value in os.environ.get('FIXTURE_DISCOVERY_PIDS', '').split(',') if value}
+    def discover(*values, **options):
+        return [pid for pid in actual_discover(*values, **options) if pid in allowed] if allowed else []
+    lifecycle.discover_untracked = discover
+    def models():
+        record('model-status-stub'); print('Model: fixture disabled')
+    actions._show_daemon_models = models
+    sys.exit(actions._worker_main(args[3:]))
 if len(args) > 1 and args[0] == str(root / 'core/process_identity.py'):
     action = args[1]
     if action not in ('inspect', 'stop', 'signal', 'spawn'): blocked()
@@ -140,12 +155,6 @@ if args == [str(root / 'core/setup_litestream.py')]:
 if args == [str(root / 'core/backup_secrets.py')]:
     record('backup-secrets-stub')
     sys.exit(0)
-if len(args) > 1 and args[0] == '-c' and 'Loaded raw config:' in args[1]:
-    record('config-display-stub'); print('Config file: fixture'); sys.exit(0)
-if args == ['-']:
-    source = sys.stdin.read()
-    if 'def port_healthy(port):' not in source: blocked()
-    record('model-status-stub'); print('Model: fixture disabled'); sys.exit(0)
 if len(args) > 1 and args[:2] == ['-m', 'telemetry.cli']:
     record('metrics-stub', argv=args[2:], cwd=os.getcwd()); sys.exit(17)
 if args and args[0] == str(root / 'core/cli_client.py'):
@@ -178,7 +187,7 @@ def harness(tmp_path):
     litestream.parent.mkdir(parents=True)
     litestream.write_text(f"#!{sys.executable}\n" + STUB)
     litestream.chmod(0o700)
-    env = dict(os.environ, HOME=str(home), CODEY_STATE_DIR=str(state), CODEY_OS_DIR=str(ROOT), PYTHONPATH=str(ROOT), PATH=str(bin_dir), TMPDIR=str(tmp_path), AIGENTIK_DIR=str(app), CLOUDFLARE_TUNNEL_TOKEN="fixture-secret-never-print", FIXTURE_REPO=str(ROOT), FIXTURE_BASE=str(tmp_path), FIXTURE_BASH=BASH, FIXTURE_RESULTS=str(tmp_path / "results"))
+    env = dict(os.environ, HOME=str(home), CODEY_STATE_DIR=str(state), CODEY_OS_DIR=str(ROOT), PYTHONPATH=str(ROOT), PATH=str(bin_dir), TMPDIR=str(tmp_path), AIGENTIK_DIR=str(app), CLOUDFLARE_TUNNEL_TOKEN="fixture-secret-never-print", FIXTURE_REPO=str(ROOT), FIXTURE_BASE=str(tmp_path), FIXTURE_BASH=BASH, FIXTURE_RESULTS=str(tmp_path / "results"), CODEY_ACTION_GATEWAY_AUDIT=str(tmp_path / "audit.jsonl"))
     for name in ("GOOGLE_APPLICATION_CREDENTIALS", "CODEY_CONFIG_PATH", "RESTORICON_DB_PATH", "RESTORICON_API_HOST", "RESTORICON_API_PORT"):
         env.pop(name, None)
     item = SimpleNamespace(root=tmp_path, bin=bin_dir, home=home, state=state, app=app, env=env)
@@ -239,12 +248,22 @@ def configure_daemon(harness):
     return paths
 
 
-def test_library_source_and_public_status_do_not_create_missing_root(harness):
+def test_source_is_pure_and_public_status_audits_read_outside_selected_root(harness):
     source = subprocess.run([BASH, "-c", 'source "$1"', "fixture", str(ROOT / "lib/service_manager.sh")], env=harness.env, capture_output=True, text=True, timeout=5, check=False)
     assert source.returncode == 0 and not harness.state.exists()
     result = run_public(harness, "codey", "status")
     assert result.returncode == 0 and "absent-dead" in result.stdout
-    assert not harness.state.exists()
+    # Existing gateway import initializes only the fixed empty schema/checkpoint
+    # bootstrap. The audited public read does not create lifecycle/config state.
+    assert {path.name for path in harness.state.iterdir()} == {"state.db", "checkpoints"}
+    assert list((harness.state / "checkpoints").iterdir()) == []
+    with sqlite3.connect(harness.state / "state.db") as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert tables == {"state", "task_queue", "episodic_log", "model_state", "project_files", "working_memory", "checkpoints", "sqlite_sequence"}
+        for table in tables:
+            assert connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] == 0
+    audit = [json.loads(line) for line in (harness.root / "audit.jsonl").read_text().splitlines()]
+    assert len(audit) == 1 and audit[0]["authority"] == "READ"
     assert not any(event["label"].startswith("identity:") for event in events(harness))
 
 
@@ -263,6 +282,9 @@ def test_all_six_start_profiles_use_owned_helper_and_stub_every_setup_effect(har
     again = run_public(harness, "codey", "start")
     assert again.returncode == 0
     assert len([event for event in events(harness) if event["label"] == "profile"]) == 6
+    audit = [json.loads(line) for line in (harness.root / "audit.jsonl").read_text().splitlines()]
+    assert len(audit) == 2 and all(row["authority"] == "ACT" and row["outcome"] == "allowed" for row in audit)
+    assert all(row["action"] == "service.all.start" for row in audit)
 
 
 def test_composite_stop_attempts_every_service_and_restart_aborts_failed_stop(harness):
@@ -522,6 +544,8 @@ def test_codeydos_config_creates_only_selected_disposable_config(harness):
     result = run_public(harness, "codeydOS", "config")
     assert result.returncode == 0, result.stderr
     assert json.loads((harness.state / "config.json").read_text())["daemon"]["pid_file"] == str(harness.state / "codeyOS.pid")
+    audit = [json.loads(line) for line in (harness.root / "audit.jsonl").read_text().splitlines()]
+    assert len(audit) == 1 and audit[0]["authority"] == "ACT" and audit[0]["outcome"] == "allowed"
     assert not any(event["label"].startswith("identity:") for event in events(harness))
 
 

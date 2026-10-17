@@ -46,37 +46,7 @@ show_service_logs() {
 }
 
 show_service_config() {
-    python3 -c "
-import sys, json
-sys.path.insert(0, '$CODEY_OS_DIR')
-from utils.config import (
-    get_config_file_path, load_user_config,
-    get_cloudflare_tunnel_token, get_restoricon_api_config,
-    get_aigentik_config
-)
-cfg_path = get_config_file_path()
-print(f'Config file: {cfg_path} (exists: {cfg_path.is_file()})')
-print('\nActive configurations:')
-print(f'  • Cloudflare Token: {\"configured\" if get_cloudflare_tunnel_token() else \"not set\"}')
-print(f'  • Restoricon API:   {get_restoricon_api_config()}')
-print(f'  • Aigentik:         {get_aigentik_config()}')
-print('\nLoaded raw config:')
-
-# NEW-281: redact secret-shaped values before printing the raw config --
-# 'Loaded raw config' previously dumped tunnel_token/api_key/secret values
-# in the clear.
-def _redact(obj):
-    if isinstance(obj, dict):
-        return {
-            k: ('***redacted***' if any(s in k.lower() for s in ('token', 'secret', 'api_key')) else _redact(v))
-            for k, v in obj.items()
-        }
-    if isinstance(obj, list):
-        return [_redact(v) for v in obj]
-    return obj
-
-print(json.dumps(_redact(load_user_config()), indent=2))
-"
+    python3 "$CODEY_OS_DIR/core/service_lifecycle.py" config-show
 }
 
 show_help() {

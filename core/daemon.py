@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from core.action_gateway import ACT, OUTCOME_ALLOWED, READ, get_action_gateway
 from core.daemon_config import get_config, resolve_daemon_paths
 from core.state import StateStore, get_state_store
 from core.task_executor import TaskExecutor, emit_task_timeout_correction
@@ -201,54 +202,68 @@ class DaemonServer:
         """Register a command handler."""
         self._handlers[cmd] = handler
 
+    def _gate_response(self, operation: str, authority: str, execute: Callable) -> Dict:
+        """Execute a synchronous state operation; keep private errors out of audit."""
+        response = []
+
+        def run():
+            try:
+                result = execute()
+            except Exception as exc:
+                # Preserve the existing RPC error privately. Only a static
+                # marker reaches the gateway's exception-to-audit path.
+                response.append({"status": "error", "message": str(exc)})
+                raise RuntimeError("Daemon operation failed") from None
+            response.append(result)
+            if result.get("status") == "error":
+                raise RuntimeError("Daemon operation failed")
+            return result
+
+        decision = get_action_gateway().gate_exec(
+            authority=authority, action=f"daemon.{operation}",
+            command=f"daemon:{operation}", confirm_available=False, execute=run,
+        )
+        if response:
+            return response[0]
+        if decision.outcome != OUTCOME_ALLOWED:
+            unavailable = {"status": "error", "message": "Daemon operation unavailable"}
+            if operation == "release_model_slot":
+                unavailable.update(released=False, outcome=RELEASE_OUTCOME_ERROR)
+            return unavailable
+        return {"status": "error", "message": "Daemon operation returned no response"}
+
+    def _record_task_bookkeeping(self, action: str, details: str, response: Dict):
+        """Logging failure cannot undo a committed queue mutation or invite retry."""
+        try:
+            self.state.log_action(action, details)
+        except Exception:
+            response["warning"] = "Task operation committed; episodic logging failed"
+            try:
+                warning("Daemon task operation committed; episodic logging failed")
+            except Exception:
+                pass  # A diagnostic sink cannot change the committed result.
+
     async def _handle_ping(self, data: Dict) -> Dict:
         """Handle ping command."""
-        return {"status": "ok", "message": "pong"}
+        return self._gate_response("ping", READ, lambda: {"status": "ok", "message": "pong"})
 
     async def _handle_command(self, data: Dict) -> Dict:
-        """Handle a user command (prompt).
+        """Queue operator commands, or return oracle plans without queue writes.
 
-        Two distinct contracts, selected by `plan_only` (7.4 sub-task C,
-        NEW-112): repo-wide search found exactly one live caller of this
-        handler — `core/planner_service.py`'s `_request_daemon_plan()`,
-        always sending `plan_only: True` — a synchronous planning-oracle RPC
-        used by the interactive CLI to get plan text back for local,
-        step-by-step `run_agent()` execution. That path's behavior below is
-        UNCHANGED from before this sub-task, and is deliberately exempt from
-        the daemon's interactive-session dispatch gate: the caller of this
-        RPC *is* the interactive session asking on its own behalf, not the
-        daemon doing background work while a user is looking away.
-
-        `plan_only` falsy is the real, currently-unused-in-production
-        "submit a new prompt for the daemon to execute" entry point (per
-        `daemon_control.py`'s own docstring) — this now just enqueues the
-        raw prompt and returns immediately; planning (if any) happens later
-        on the pull side, in `_process_planner_tasks()`, gated by
-        `can_dispatch_task()` like any other dispatch.
+        codeyOS --bg submits plan_only=False. Interactive planner_service asks
+        plan_only=True and executes locally; no-plan/failure must never enqueue
+        a hidden background duplicate (NEW-966). NEW-112's old no-background-
+        caller claim did not describe the supported CLI.
         """
+        if not isinstance(data, dict):
+            return self._gate_response("command", ACT, lambda: {"status": "error", "message": "Invalid command data"})
         prompt = data.get("prompt", "")
+        if not data.get("plan_only", False):
+            return self._gate_response("command", ACT, lambda: self._enqueue_command(data))
         if not prompt:
             return {"status": "error", "message": "No prompt provided"}
 
-        # Log to episodic log
-        self.state.log_action("command_received", prompt[:200])
-
-        if not data.get("plan_only", False):
-            # Real "submit a new prompt for the daemon to execute" path —
-            # no live caller today (NEW-112), but real intended-future
-            # functionality. No synchronous planning here: this returns
-            # immediately, and needs_planning=1 tells the pull side
-            # (_process_planner_tasks()) to plan this row before dispatch.
-            # `no_plan` (same flag the old code checked before this sub-task)
-            # is still honored here — it means "do not plan this at all,"
-            # not just "don't plan it synchronously at enqueue time," so a
-            # caller that explicitly asked to skip planning must not have
-            # needs_planning set for it on the pull side either.
-            needs_planning = 0 if data.get("no_plan", False) else 1
-            task_id = self.state.add_task(prompt, needs_planning=needs_planning)
-            return {"status": "ok", "message": "Task queued", "task_id": task_id}
-
-        # ── plan_only=True: synchronous planning-oracle RPC (unchanged) ──────
+        # ── plan_only=True: planning-oracle response, never background enqueue ──
         no_plan = data.get("no_plan", False)
         if not no_plan:
             try:
@@ -294,34 +309,33 @@ class DaemonServer:
                     send_plan_request_async(prompt, enable_thinking=enable_thinking),
                     timeout=outer_timeout,
                 )
-                if steps and len(steps) > 1:
-                    info(f"plannd: returned {len(steps)}-step plan (plan_only)")
-                    return {
-                        "status": "ok",
-                        "message": f"Plan created: {len(steps)} steps",
-                        "task_ids": [],
-                        "plan": steps,
-                    }
-                # plannd returned ≤1 step — fall through to single-task path
-                if steps:
-                    info("plannd returned only 1 step — using single-task path")
+                return {
+                    "status": "ok", "message": "Plan response",
+                    "task_ids": [], "plan": steps if isinstance(steps, list) else [],
+                }
             except asyncio.TimeoutError:
-                warning(f"plannd request timed out after {outer_timeout:.0f}s — falling back to direct task")
+                _embed_notice(warning, "Planner request timed out; returning no plan")
             except ConnectionRefusedError:
-                # plannd not running — silent fallback
-                pass
-            except Exception as _e:
-                warning(f"plannd unavailable ({_e}) — falling back to direct task")
+                pass  # Planner unavailable: caller performs its local fallback.
+            except Exception:
+                _embed_notice(warning, "Planner unavailable; returning no plan")
 
-        # ── Fallback: single direct task (existing behaviour) ────────────────
-        task_id = self.state.add_task(prompt)
-        return {
-            "status": "ok",
-            "message": f"Task queued with ID {task_id}",
-            "task_id": task_id,
-        }
+        return {"status": "ok", "message": "No plan available", "task_ids": [], "plan": []}
+
+    def _enqueue_command(self, data: Dict) -> Dict:
+        prompt = data.get("prompt", "")
+        if not isinstance(prompt, str) or not prompt:
+            return {"status": "error", "message": "No prompt provided"}
+        needs_planning = 0 if data.get("no_plan", False) else 1
+        task_id = self.state.add_task(prompt, needs_planning=needs_planning)
+        response = {"status": "ok", "message": "Task queued", "task_id": task_id}
+        self._record_task_bookkeeping("command_received", prompt[:200], response)
+        return response
 
     async def _handle_status(self, data: Dict) -> Dict:
+        return self._gate_response("status", READ, lambda: self._status_response(data))
+
+    def _status_response(self, data: Dict) -> Dict:
         """Handle status query."""
         pending = len(self.state.get_tasks_by_status("pending"))
         running_tasks = self.state.get_tasks_by_status("running")
@@ -378,6 +392,9 @@ class DaemonServer:
         }
 
     async def _handle_health(self, data: Dict) -> Dict:
+        return self._gate_response("health", READ, lambda: self._health_response(data))
+
+    def _health_response(self, data: Dict) -> Dict:
         """Handle health check query."""
         import resource
 
@@ -423,6 +440,9 @@ class DaemonServer:
         }
 
     async def _handle_task(self, data: Dict) -> Dict:
+        return self._gate_response("task", READ, lambda: self._task_response(data))
+
+    def _task_response(self, data: Dict) -> Dict:
         """Handle task query (get task by ID or list all)."""
         task_id = data.get("id")
 
@@ -439,6 +459,9 @@ class DaemonServer:
             return {"status": "ok", "tasks": tasks}
 
     async def _handle_cancel(self, data: Dict) -> Dict:
+        return self._gate_response("cancel", ACT, lambda: self._cancel_response(data))
+
+    def _cancel_response(self, data: Dict) -> Dict:
         """Handle task cancellation."""
         task_id = data.get("id")
         if not task_id:
@@ -446,8 +469,9 @@ class DaemonServer:
 
         cancelled = self.state.cancel_task(task_id)
         if cancelled:
-            self.state.log_action("task_cancelled", f"Task {task_id}")
-            return {"status": "ok", "message": f"Task {task_id} cancelled"}
+            response = {"status": "ok", "message": f"Task {task_id} cancelled"}
+            self._record_task_bookkeeping("task_cancelled", f"Task {task_id}", response)
+            return response
         else:
             task = self.state.get_task(task_id)
             if task:
@@ -456,6 +480,34 @@ class DaemonServer:
 
     @staticmethod
     def _release_model_slot_sync(loader, port: int):
+        """Audit the real synchronous release, including failed confirmation."""
+        result = []
+        failures = []
+
+        def execute():
+            try:
+                outcome = DaemonServer._release_model_slot_operation(loader, port)
+            except Exception as exc:
+                failures.append(exc)
+                raise RuntimeError("Daemon model release failed") from None
+            result.append(outcome)
+            if outcome == (True, False):
+                raise RuntimeError("Daemon model release unconfirmed")
+            return outcome
+
+        get_action_gateway().gate_exec(
+            authority=ACT, action="daemon.release_model_slot",
+            command="daemon:release_model_slot:primary", confirm_available=False,
+            execute=execute,
+        )
+        if failures:
+            raise failures[0]
+        if result:
+            return result[0]
+        raise RuntimeError("Daemon model release unavailable")
+
+    @staticmethod
+    def _release_model_slot_operation(loader, port: int):
         """
         Blocking body of a release attempt — run via `run_in_executor` since
         `unload()` can block on `process.wait(timeout=8)` (core/loader_v2.py
@@ -473,11 +525,13 @@ class DaemonServer:
         process this loader didn't spawn (nothing for `stop()` to wait on
         there).
         """
-        pending = getattr(loader, "is_cleanup_pending", lambda: False)()
+        pending = getattr(loader, "is_cleanup_pending", lambda: False)() is True
         if not loader.is_loaded() and not pending:
             return False, True
 
-        loader.unload()
+        unloaded = loader.unload()
+        if unloaded is False or getattr(loader, "is_cleanup_pending", lambda: False)() is True:
+            raise RuntimeError("Model cleanup remained pending")
 
         from core.loader_v2 import probe_port_health
 
@@ -541,81 +595,109 @@ class DaemonServer:
         real planner slot, was never reachable through this handler at all.
         With `core/planner_loader.py` deleted and planning collapsed onto
         the primary server, `"planner"` is no longer a meaningful value
-        here; only `"primary"` is accepted now, and this handler's only
-        live caller (`main.py`'s `_load_primary_with_gate_recovery()`) has
-        only ever sent `"primary"` — see `ccos/plugins/system/daemon_control/
-        daemon_control.py`'s own note on this handler's sole live caller.
+        here; only `"primary"` is accepted now. main.py's recovery path
+        and the independent tools/release_model_cli.py operator command both
+        reach this handler; neither caller exempts the server mutation gate.
         """
+        if not isinstance(data, dict):
+            return self._gate_response("release_model_slot", ACT, lambda: {
+                "status": "error", "released": False,
+                "outcome": RELEASE_OUTCOME_INVALID_MODEL, "message": "Invalid release request data",
+            })
         model_id = data.get("model_id")
         if model_id != "primary":
-            return {
+            return self._gate_response("release_model_slot", ACT, lambda: {
                 "status": "error",
                 "released": False,
                 "outcome": RELEASE_OUTCOME_INVALID_MODEL,
                 "message": f"model_id must be 'primary', got {model_id!r}",
-            }
+            })
 
         now = time.monotonic()
         last_release = self._release_slot_last_release.get(model_id)
         if last_release is not None and (now - last_release) < RELEASE_SLOT_COOLDOWN_S:
             remaining = RELEASE_SLOT_COOLDOWN_S - (now - last_release)
-            return {
+            return self._gate_response("release_model_slot", ACT, lambda: {
                 "status": "ok",
                 "released": False,
                 "outcome": RELEASE_OUTCOME_COOLDOWN,
                 "message": f"released {model_id!r} too recently — retry in {remaining:.1f}s",
-            }
+            })
 
         try:
             from core.thermal import get_thermal_manager
 
             if get_thermal_manager().is_inference_active():
-                return {
+                return self._gate_response("release_model_slot", ACT, lambda: {
                     "status": "ok",
                     "released": False,
                     "outcome": RELEASE_OUTCOME_BUSY_TASK,
                     "message": "a task is actively executing — declined to avoid "
                     "releasing a model out from under in-flight inference",
-                }
-        except Exception as e:
+                })
+        except Exception:
             # Fail closed: if we can't confirm the daemon is idle, treat it
             # as busy rather than risk releasing a model mid-inference.
-            warning(f"release_model_slot: thermal busy-check failed ({e}) — declining as busy")
-            return {
+            _embed_notice(warning, "release_model_slot: idle check failed; declining as busy")
+            return self._gate_response("release_model_slot", ACT, lambda: {
                 "status": "ok",
                 "released": False,
                 "outcome": RELEASE_OUTCOME_BUSY_TASK,
                 "message": "could not confirm daemon idle state — declined",
-            }
+            })
 
         from core.loader_v2 import SWAP_GUARD, get_loader
         from utils.config import PRIMARY_SERVER_PORT
 
         if not SWAP_GUARD.acquire(blocking=False):
-            return {
+            return self._gate_response("release_model_slot", ACT, lambda: {
                 "status": "ok",
                 "released": False,
                 "outcome": RELEASE_OUTCOME_BUSY_SWAP,
                 "message": "a primary load/restart is already in flight — declined",
-            }
+            })
 
+        entered = []
         try:
-            loader = get_loader()
-            port = PRIMARY_SERVER_PORT
-
-            loop = asyncio.get_event_loop()
             try:
-                did_unload, confirmed = await loop.run_in_executor(
-                    None, self._release_model_slot_sync, loader, port
-                )
+                loader = get_loader()
+                port = PRIMARY_SERVER_PORT
+
+                def release():
+                    entered.append(True)
+                    return self._release_model_slot_sync(loader, port)
+
+                future = asyncio.get_running_loop().run_in_executor(None, release)
+                try:
+                    did_unload, confirmed = await asyncio.shield(future)
+                except asyncio.CancelledError:
+                    # Keep SWAP_GUARD until the actual worker resolves. Cancelling
+                    # the request cannot authorize another transition mid-unload.
+                    while not future.done():
+                        try:
+                            await asyncio.shield(future)
+                        except asyncio.CancelledError:
+                            continue
+                        except Exception:
+                            break  # Worker already recorded its failed attempt.
+                    if not future.cancelled():
+                        try:
+                            cancelled_result = future.result()
+                        except Exception:
+                            pass  # Preserve caller cancellation; failure was audited.
+                        else:
+                            if cancelled_result == (True, True):
+                                self._release_slot_last_release[model_id] = time.monotonic()
+                    raise
             except Exception as e:
-                error(f"release_model_slot: unload of {model_id!r} raised: {e}")
-                return {
-                    "status": "error",
-                    "released": False,
-                    "outcome": RELEASE_OUTCOME_ERROR,
-                    "message": str(e),
+                _embed_notice(error, "release_model_slot: model release failed")
+                response = {
+                    "status": "error", "released": False,
+                    "outcome": RELEASE_OUTCOME_ERROR, "message": str(e),
                 }
+                if not entered:
+                    return self._gate_response("release_model_slot", ACT, lambda: response)
+                return response
         finally:
             SWAP_GUARD.release()
 
@@ -629,7 +711,7 @@ class DaemonServer:
 
         if confirmed:
             self._release_slot_last_release[model_id] = time.monotonic()
-            info(f"release_model_slot: released {model_id!r} on external request")
+            _embed_notice(info, "release_model_slot: primary released on external request")
             return {
                 "status": "ok",
                 "released": True,
@@ -637,7 +719,7 @@ class DaemonServer:
                 "message": f"{model_id!r} released and confirmed freed",
             }
 
-        warning(
+        _embed_notice(warning,
             f"release_model_slot: unload of {model_id!r} issued but not confirmed "
             f"freed within {RELEASE_CONFIRM_TIMEOUT_S}s"
         )

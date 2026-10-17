@@ -13,78 +13,7 @@ DAEMON_DIR="${CODEY_STATE_DIR:-$HOME/.codeyOS}"
 source "$CODEY_OS_DIR/lib/service_manager.sh"
 
 show_status() {
-    local result=0
-    svc_status daemon || result=$?
-    # Check model server port and print model status via Python
-    python3 - <<PYEOF
-import sys, urllib.request
-sys.path.insert(0, "$CODEY_OS_DIR")
-
-def port_healthy(port):
-    try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/health", timeout=2
-        ) as r:
-            if r.status != 200:
-                return False
-            import json as _json
-            body = _json.loads(r.read().decode())
-            # llama-server sets status="loading model" while weights are loading
-            return body.get("status") == "ok"
-    except Exception:
-        return False
-
-try:
-    from utils.config import QWEN_MMAP, QWEN_MLOCK
-    mmap_str = "mmap: enabled" if QWEN_MMAP else "mmap: disabled"
-except Exception:
-    mmap_str = "mmap: unknown"
-
-try:
-    from utils.config import (
-        CODEY_BACKEND as _cb, CODEY_PLANNER_BACKEND as _pb,
-        is_remote_backend as _is_remote,
-        is_remote_planner_backend as _is_remote_planner,
-    )
-except Exception:
-    _cb = "local"
-    _pb = "local"
-    _is_remote = lambda: False
-    _is_remote_planner = lambda: False
-
-try:
-    from utils.config import (
-        OPENROUTER_MODEL, OPENROUTER_PLANNER_MODEL,
-        UNLIMITEDCLAUDE_MODEL, UNLIMITEDCLAUDE_PLANNER_MODEL,
-    )
-except Exception:
-    OPENROUTER_MODEL = OPENROUTER_PLANNER_MODEL = "unknown"
-    UNLIMITEDCLAUDE_MODEL = UNLIMITEDCLAUDE_PLANNER_MODEL = "unknown"
-
-# Model line (M1-D, 2026-08-23: this single server also handles planning
-# and summarization now — see the Planner line below).
-if _is_remote():
-    _coder_m = UNLIMITEDCLAUDE_MODEL if _cb == "unlimitedclaude" else OPENROUTER_MODEL
-    print(f"Model:          {_cb} ({_coder_m})")
-else:
-    if port_healthy(8080):
-        print(f"Model:          loaded   ({mmap_str})")
-    else:
-        print("Model:          not loaded")
-
-# Planner line — local planning shares the primary model/port above (no
-# separate port-8081 process exists anymore); only a remote planner
-# backend is a genuinely separate thing worth reporting here.
-if _is_remote_planner():
-    _planner_m = UNLIMITEDCLAUDE_PLANNER_MODEL if _pb == "unlimitedclaude" else OPENROUTER_PLANNER_MODEL
-    _planner_suffix = f" [{_pb}]" if _pb != _cb else ""
-    print(f"Planner:        {_pb} ({_planner_m}){_planner_suffix}")
-else:
-    print("Planner:        local (shares the model above, thinking mode)")
-PYEOF
-
-
-    return "$result"
+    python3 "$CODEY_OS_DIR/core/service_lifecycle.py" daemon-status
 }
 kill_llama_server_gracefully() { svc_operation llama-server-8080 stop; }
 restart_all() { svc_operation daemon restart; }

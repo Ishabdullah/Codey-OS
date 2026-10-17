@@ -142,10 +142,14 @@ def discover_untracked(service, cwd, argv, tracked=None):
     return sorted(found)
 
 
-def lock_exec(service, operation):
-    """Lock the entire operation; nested private mechanics reuse held FDs."""
+def validate_lock_request(service, operation):
     if operation not in _OPERATIONS or service not in (*_SERVICES, "all") or operation == "reload" and service != "daemon" or service == "all" and operation in ("reload", "preflight") or service == "llama-server-8080" and operation != "stop":
         raise identity.UnsafeRecord("Unsupported service operation")
+
+
+def lock_exec(service, operation):
+    """Lock the entire operation; nested private mechanics reuse held FDs."""
+    validate_lock_request(service, operation)
     targets = set(_START_ORDER if service == "all" else (service,))
     if "daemon" in targets and operation in ("start", "stop", "restart"):
         targets.add("llama-server-8080")
@@ -310,6 +314,8 @@ def main(argv=None):
         inspected = commands.add_parser("status", add_help=False)
         inspected.add_argument("service", choices=(*_SERVICES, "all"))
         commands.add_parser("config-create", add_help=False)
+        commands.add_parser("config-show", add_help=False)
+        commands.add_parser("daemon-status", add_help=False)
         paths = commands.add_parser("paths", add_help=False)
         paths.add_argument("--field", choices=("pid", "socket", "log", "all"), default="all")
         paths.add_argument("--encoding", choices=("json", "nul"), default="json")
@@ -317,19 +323,18 @@ def main(argv=None):
         ready = commands.add_parser("parse-ready", add_help=False)
         ready.add_argument("--expected-helper", type=int, required=True)
         args = parser.parse_args(argv)
-        if args.command == "lock-exec":
-            lock_exec(args.service, args.operation)
-        elif args.command == "usable-daemon":
-            return usable_daemon(args.pid_file, args.socket_file)
-        elif args.command == "logs":
-            show_logs(args.service)
-        elif args.command == "status":
-            return status(args.service)
-        elif args.command == "config-create":
+        if args.command in ("lock-exec", "status", "logs", "config-create", "config-show", "daemon-status"):
             if not __package__:
                 sys.path.insert(0, str(_REPO_ROOT))
-            from core.daemon_config import create_default_config
-            print(f"Default config created at: {create_default_config()}")
+            from core.service_actions import run_public
+            values = [args.command]
+            if args.command in ("lock-exec", "status", "logs"):
+                values.append(args.service)
+            if args.command == "lock-exec":
+                values.append(args.operation)
+            return run_public(values)
+        elif args.command == "usable-daemon":
+            return usable_daemon(args.pid_file, args.socket_file)
         elif args.command == "paths":
             path_data(args.field, args.encoding, args.data_fd)
         else:

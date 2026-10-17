@@ -1628,3 +1628,249 @@ seconds, then exits normally; parent helper must observe normal exit without
 KILL. Retain exact handles/finally cleanup; no slow models or actual daemon.
 Fixed-clock tests cover45/90 boundaries quickly. Mandatory reviewer plus disposable
 process verification; can implement independently from frozen13f/13g source.
+
+
+## Completeness follow-ups NEW-968–NEW-972 — bounded implementation handoffs
+
+Architect source audit 2026-10-16; coordinator reserves these five IDs after967.
+At this append all five ledger headers were absent; this artifact does not
+allocate ledger rows or assert fixes. 13d shell/native implementers are active;
+only this scope file is changed. Required reached boundaries968–971 must finish
+before group13 closure. NEW972 is separately retained callable ownership debt,
+not evidence that production currently launches async speech.
+
+### NEW-968 — independently requested daemon model release ACT
+
+Evidence: core/daemon.py _handle_release_model_slot -> run_in_executor ->
+_release_model_slot_sync (source audit lines477,511,628). Both main.py225
+_load_primary_with_gate_recovery and tools/release_model_cli.py78 submit this
+RPC. The standalone operator caller prevents calling the entire RPC subordinate
+load bookkeeping. No capability-authority table changes or model policy changes.
+
+Put one ACT gate around the actual synchronous unload/confirmation operation
+inside the existing executor worker, preserving handler validation, fixed primary
+eligibility, busy/thermal/cooldown checks, SWAP_GUARD acquisition and finally
+release. Do not pass a coroutine into gate_exec, perform blocking teardown on the
+asyncio thread, or gate the eventual response after mutation. Metadata uses fixed
+operation/model labels; no prompts, loader exception text or config secrets.
+An already-unloaded/no-pending loader remains a clean no-op, without a fake unload.
+An unload legacy return None is compatible successful completion; explicit False,
+remaining cleanup_pending or exception is failed teardown. Never convert False
+into confirmed release merely because the health port is unhealthy. After a
+successful return retain bounded port confirmation and existing adopted semantics:
+releasing a non-owning adopted reference does not grant authority to kill it; its
+still-serving port yields unconfirmed, not released. Cooldown advances only after
+confirmed release. Denial/failure yields released=False with truthful existing
+error/unconfirmed outcome mapping and fixed diagnostics; exactly one audit row
+for an attempted operation. Do not wrap lower loader mechanics with a second gate.
+
+Tests: fake loader unloaded/success-None/success-True/False/pending/raise, health
+port present/absent, adopted still-serving, gate refusal zero unload, worker runs
+actual sync callback once and does not block event-loop heartbeat. Failed audit
+metadata must omit sentinel secrets. Existing disposable DaemonServer/UDS fixture
+can exercise RPC with fake loader, no real Daemon/models or service state. Native
+13d implementer owns this addition; preserve source-freeze boundaries.
+
+### NEW-969 — High severity foreign-primary upgrade identity/accounting
+
+Evidence: core/loader_v2.py _kill_single_pid_term_then_kill (215–268) sends TERM
+and polls kill(pid,0), then sends KILL to the same integer without a start-identity
+recheck. _upgrade_resident_if_safe (406–527) invokes it at500 then independently
+finds a current primary/port slot and releases it before exit/port confirmation.
+Actual reachability: ModelLoader._load_primary_locked constructs LlamaServer with
+allow_upgrade=interactive (1550); LlamaServer.start calls upgrade under its existing
+per-port flock when a resident context is undersized. Thus a recycled PID can
+receive escalation, and a replacement slot can lose accounting. Distinct from
+NEW956 owned-Popen teardown and from accepted daemon-idle TOCTOU in OptionC.
+
+Preserve NEW145/149/155 OptionC eligibility exactly: interactive allow_upgrade,
+confirmed daemon idle, fresh in-lock resident PID AND undersized n_ctx, slot-first
+resolution because /proc socket enumeration is restricted on this device. No
+new model admission math, authority to kill arbitrary adopted processes, process
+-group signaling, kill-by-name, HTTP under resource flock, or prompting policy.
+High here describes severity; the approved internal upgrade mechanism does not
+become a new public HIGH confirmation UI in this ownership correction.
+
+Before first signal capture strict positive PID, immutable boot_id/start_ticks/
+uid via existing stdlib process_identity.process_info; require UID matches current
+user. CURRENT identity captured from an old numeric slot PID is NOT sufficient:
+that PID may already belong to an unrelated replacement before capture. Tie the
+candidate to this actual eligible resident, not just pid_cmdline_contains or
+kill0: strict canonical expected llama-server executable and its parsed primary
+model/port argv, with actual socket ownership proof if available, OR a valid
+matching durable service identity for this expected primary/port plus expected
+executable/model/port evidence. Re-read immutable identity around this eligibility
+proof and freshly resolve undersized context under the existing per-port lock;
+all evidence must describe the same process generation. For slot-first restricted
+Android proc deployments, expected executable/model/port argv bound between two
+matching immutable identity reads is a permitted narrow evidence path; a stale
+slot label or generic llama-server substring alone is not. Parse finite accepted
+actual loader flags (-m/--model, --port and existing invocation spellings), reject
+missing/ambiguous/wrong-model/wrong-port flags; canonicalize expected path data
+without executing anything. Unknown legacy evidence/PermissionError fails closed,
+never grants new adopted kill authority. Do not claim same-UID argv evidence is
+a security boundary against hostile arbitrary same-UID Python code. Snapshot the
+original matching slot if present (slot_id,pid,model_id,port
+and other original row fields). Compare immutable fields only; state/parent are
+not identity. Before every TERM/KILL and each bounded liveness decision re-read
+identity. Same integer with changed start/boot/uid is a replacement, never a signal
+target. PermissionError is uncertainty, never permission to escalate. Zombie or
+confirmed absent original process counts as exited, without trying to wait/reap a
+foreign nonchild. Retain narrow unavoidable check-to-signal kernel race (no pidfd
+claim); do not advertise immutable-read checks as a fully atomic signal primitive.
+
+Replace None-returning helper with explicit outcomes distinguishing no signal/
+unsafe, confirmed original exit, and attempted-but-unconfirmed; bound escalation
+and final confirmation. Before any destructive attempt, unsafe eligibility can
+retain existing NOT_SAFE/fresh reuse behavior. Once signaled, uncertain exit or a
+replacement/occupied port must fail start through PORT_STUCK or equally explicit
+failure, never silently adopt/spawn over uncertain state. KILLED requires original
+exit AND free port. A free health/socket port alone does not prove original exit.
+
+Release accounting only for the original captured slot after confirmed original
+exit, not a fresh find_resident_slot result. Add a narrow conditional release
+helper in resource_gate if necessary: under ONE _LockedState transaction compare
+the captured row identity (at minimum slot_id,pid,model_id,port; conservatively
+compare original row fields), remove only that row, leave changed/missing rows
+unchanged. No read-then-unconditional-release race; no nested resource flock.
+If numeric PID has already been replaced and slot cannot distinguish generations,
+retain uncertain row rather than deleting a possible replacement. No rewrite of
+general resource reaper or admission policy. Port probing and signal waits occur
+outside resource-store flock; retain existing per-port lifecycle serialization.
+
+Tests MUST mock all os.kill/process-info/proc functions before helper invocation;
+never use synthetic test PID as authority for a real signal. Explicit pre-capture
+stale-slot PID now belonging to unrelated process, another llama model/port or
+same-named wrong executable must produce ZERO signals; test capture with fresh
+identity alone cannot bless it. Matrix: nonpositive/bool PID, foreign UID,
+unreadable identity, identity change during eligibility proof/before TERM/between
+TERM and KILL, PermissionError polling, original absent/zombie, TERM exit, escalation
+with confirmed exit, timeout, replacement busy port, initial unsafe no signals,
+slot absent/unchanged/rebound/replaced, conditional-release failure/exception
+retains accounting or reports truthful existing failure without deleting another
+row, no slot release on uncertain cleanup, no spawn/reuse after attempted failure.
+Test original-identity-exit but unchanged numeric PID now replacement conservatively
+retains generation-ambiguous slot; preserve the caller's new-load reservation on
+failed cleanup until ordinary failure handling releases only its own proven slot.
+Test interactive/background/adequate-context/
+daemon-busy eligibility unchanged. Adversarial review and real lightweight child
+fixture required: retained Popen spawned by verifier, fake resident resolution to
+that exact handle, no model executable or preexisting PID; verify TERM/KILL scope,
+exit confirmation and replacement-slot retention, finally reap actual fixture only.
+Implement after native13d source freeze if shared loader/daemon tests collide.
+
+### NEW-970 — reached synchronous native voice boundaries
+
+Evidence: core/voice.py speak115 and listen174 directly run termux subprocesses;
+main.py /voice listen1437, /voice speak1476 and blank-input voice REPL1943 /
+response speech1977 reach them without shell mediation. NEW939 covers voice
+configuration persistence only. Existing plugin_manager _MANIFEST_RAISE_TAGS
+explicitly makes audio:record HIGH_IMPACT (lines62–73), so native microphone cannot
+be silently READ. Output TTS is ACT. No new capability-table policy or blanket
+confirmation for all device reads.
+
+Keep actual synchronous process execution inside VoiceManager's own gateway
+boundary, so direct API callers default safe: listen(timeout=20, *, confirm=None)
+uses HIGH with confirm_available=callable(confirm), actual callback passed to
+existing gate_exec; absent/declined/interrupted/failed callback refuses without
+recording. Never use voice enabled, explicit /voice text, yolo, TTY alone or an
+environment marker as obtained approval. One confirmation per recording attempt,
+not one indefinite approval when voice mode is enabled. Reuse main's established
+push/graph-clear adapter convention (1060ff/1644ff): only !yolo, TTY and neither
+CODEY_DAEMON_MODE nor CODEY_NON_INTERACTIVE provide a real callback; callback asks
+y/yes with default No, EOF/interrupt unavailable. Factor a small main helper if
+needed and supply it at BOTH /voice listen and blank-input voice-REPL sites.
+Unknown stdin state/no callback defaults refusal. Existing main policy gates
+provide this UX contract; no product fork needed. Recording unavailable/refused
+returns None without dispatching any agent task; enabled mode may continue waiting
+for typed input under the existing caller loop. Do not record spoken prompt as
+confirmation. Preserve explicit timeout and KeyboardInterrupt behavior.
+
+speak(wait=True) uses one ACT callback around actual subprocess.run. No repeated
+microphone gate for TTS; do not classify private speech text as public publication.
+Audit fixed action/operation labels and perhaps timeout/selected engine identifiers
+only if safe, never transcript, response text, raw argv/stdout/stderr or dynamic
+exception text. No recording/text in command field. Failures must audit FAILED:
+nonzero exit is not success even if stdout contains text; timeout/missing command/
+execution error must be fixed diagnostics. Parse STT JSON/plain-text only after
+successful process exit, preserve valid no-speech behavior as empty/None rather
+than submitting task. Do not change config persistence or unrelated voice UX.
+Implementation must adapt native return types (bool/Optional[str]) from actual
+gateway detail without treating allowed-but-failed/sentinel errors as success.
+The preexisting availability/prose-empty checks may return without an effect.
+
+Tests mocked Termux only: microphone no callback/False/EOF/KeyboardInterrupt/
+callback-error zero run and no task; actual True once one run/audit; both main
+caller adapters tested with yolo/noninteractive/TTY states; nonzero-with-text cannot
+submit; JSON/plain/empty/error/timeout; TTS success/nonzero/refusal/error no secrets
+in audit bytes. No real microphone, Android API, recipients, network or models.
+A disposable fixed executable replacing Termux via isolated PATH may validate
+argv/status and confirmation scheduling without any device access. Reviewer must
+check all actual main listen/speak call sites and no double gateway nesting.
+
+### NEW-971 — actual human peer escalation dispatch HIGH
+
+Evidence: core/agent.py2356/2364 and2422/2430 call
+peer_cli.escalate_or_park; nonparked path461 calls escalate. escalate351–407
+calls mgr.confirm and at400 invokes mgr.call without gateway. Existing tool peer
+delegation is gated HIGH (agent.py tool_peer_delegate plus autonomous fallback),
+main.py /peer1554ff is already gated/refused without confirmation, and
+peer_cli.execute_parked_escalation538ff is already gated. Do not weaken or double
+gate those paths, and do not put a new unconditional gate in shared mgr.call or
+peer_shell run_* mechanics. Peer discovery's fixed version checks are not dispatch.
+
+At escalate's actual confirmed branch wrap exactly mgr.call(cli,prompt) in one
+HIGH gate. Retain current mgr.confirm UX, including Enter/y approval, actual
+selected enabled peer switch, n/EOF/interrupt decline, redirect text, unavailable
+peer behavior and fallback loop. A valid switched peer is the user's existing
+explicit selection; validate it exists before dispatch. This previously obtained
+approval is scoped to this selected peer and current prompt only: pass
+confirm_available=True and callback returning that captured affirmative to the
+gate, not a second prompt or a public reusable approval flag. No executing on
+redirect/decline or allowing headless nonparked paths to fabricate confirmation.
+Keep parking behavior untouched. Return truthful refused/failed sentinel through
+existing peer failure handling, without calling success/summarizing a refusal as
+executed. Gateway execute thunk must recognize mgr.is_peer_error raw sentinel and
+raise fixed diagnostic if needed so peer launch/dispatch errors audit FAILED;
+subsequent summarization/bookkeeping stays outside callback and cannot change
+an already executed action into a false execution failure. Avoid secret peer
+prompt/error-output in new audit fields; fixed operation plus finite peer name.
+No new actor/scope/permissions capability changes; preserve existing policy.
+
+Tests fake manager/CLI: affirmative and valid switch exactly one actual call /
+one HIGH audit, decline/redirect/EOF/no peers no call, execution raise/sentinel
+FAILED with no output/prompt leak; summarizer/bookkeeping failure cannot rewrite
+actual dispatch audit. Test both agent exhausted-retry branches reach this same
+boundary, parked branch remains no dispatch, and existing main/tool/parked gates
+remain one each. Never launch external peer CLIs (some autoapprove arbitrary
+code). Fixture-only actual gateway/audit is sufficient; no real peer side effects.
+Voice/peer source can implement separately from loader after coordination freezes.
+
+### NEW-972 — Low callable async voice ownership debt, retained separately
+
+core/voice.py speak(wait=False) overwrites _speak_proc even if prior child lives;
+stop_speaking TERM/wait2/KILL has no final wait before clearing ownership. A source
+caller census found NO production wait=False invocation; reached main call sites
+use default wait=True. This is a confirmed callable defect, not reached evidence
+of current overlapping speech, and is NOT closed merely by970's synchronous gate.
+Do not silently choose cancel-previous vs refuse-overlap vs queue UX under970 or
+add new background speech callers. Separately scope desired overlap contract,
+retain exact Popen until confirmed reap, final-wait after KILL, return truthful
+failure and retry semantics before implementing. Fake owned handles plus actual
+lightweight disposable child needed then; no arbitrary-PID tests. Coordinator
+retains972 as explicit finding if not separately scoped/fixed; no claim that all
+VoiceManager lifecycle forms are repaired. No product choice is required for970's
+reached synchronous recording gate; async UX scope is its own pending decision.
+
+### Required ordering and residual ownership
+
+Native13d owns968; standalone loader correction969 follows source freeze and gets
+mandatory adversarial lifecycle review plus disposable verification. 970/971
+need their own implementer/reviewer handoffs and actual gateway fixtures. IDs and
+statuses remain coordinator-owned. Do not close group13 until required reached
+boundaries969–971 and13d/968 pass;972 remains separately named callable debt.
+Linter/config-plugin execution (agent.py799, main /review, static_analysis adapter),
+installer and standalone setup/backup operations, generated-code/LoRA/sandbox
+activation, NEW86 foreign-embed residual, NEW939 and deferred904/905/913/914,
+GCS943/944 and relative custom-path decision all retain concrete group14/final15
+caller dispositions; none receives a broad operator/bootstrap exemption here.
