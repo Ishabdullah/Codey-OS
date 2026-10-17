@@ -14,11 +14,13 @@ Pipeline:
 """
 
 import json
+import re
+import shutil
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ccos.core.capability_registry import (
     Capability,
@@ -502,7 +504,8 @@ class SkillRecombiner:
     """
 
     def __init__(self, min_pattern_freq: int = 2, min_success: float = 0.75,
-                 plugin_base: Optional[Path] = None):
+                 plugin_base: Optional[Path] = None,
+                 staging_base: Optional[Path] = None):
         self._detector = PatternDetector(
             min_frequency=min_pattern_freq,
             min_success_rate=min_success,
@@ -513,13 +516,40 @@ class SkillRecombiner:
         self._memory = get_ccos_memory()
         self._tracker = get_performance_tracker()
         self._results: List[RecombinationResult] = []
+        # plugin_base is the PROMOTION target and sits inside the
+        # PluginManager discovery roots (ccos/plugins/*). Candidates are never
+        # written there directly (WP2.1 14f, NEW-976).
         self._plugin_base = plugin_base or (
             Path(__file__).parent.parent / "plugins" / "compound"
         )
+        # Candidates are generated into staging_base, which must be OUTSIDE
+        # every discovery root and OUTSIDE sandbox ALLOWED_DIRS: the latter
+        # would silently make the sandbox accept candidate execution, i.e.
+        # activation without a gated grant (rule 1). Default
+        # ccos/data/staging/compound matches the optimizer's staging layout.
+        if staging_base is not None:
+            self._staging_base = Path(staging_base)
+        elif plugin_base is None:
+            self._staging_base = (
+                Path(__file__).parent.parent / "data" / "staging" / "compound"
+            )
+        else:
+            # Custom plugin_base (tests): a sibling, never a child, of it.
+            pb = Path(plugin_base)
+            self._staging_base = pb.parent / (pb.name + "_staging")
 
-    def analyze_and_generate(self) -> List[RecombinationResult]:
+    def analyze_and_generate(
+        self,
+        gate_decision=None,
+        confirm: Optional[Callable[[], bool]] = None,
+    ) -> List[RecombinationResult]:
         """
         Full pipeline: analyze history → detect patterns → generate skills → validate → register.
+
+        Promotion out of staging and registration require an approving
+        bench.gate.GateDecision (default no_evaluator(): never promotes),
+        CODEY_SELF_IMPROVE=on, AND a real human `confirm` callback through a
+        HIGH_IMPACT gateway gate (fail-closed without one).
 
         Returns list of recombination results.
         """
@@ -539,14 +569,23 @@ class SkillRecombiner:
         # Step 3: Generate and validate skills for each pattern
         results = []
         for pattern in patterns[:5]:  # Top 5 patterns
-            result = self._process_pattern(pattern)
+            result = self._process_pattern(
+                pattern, gate_decision=gate_decision, confirm=confirm)
             if result:
                 results.append(result)
 
         return results
 
-    def _process_pattern(self, pattern: DetectedPattern) -> Optional[RecombinationResult]:
+    def _process_pattern(
+        self,
+        pattern: DetectedPattern,
+        gate_decision=None,
+        confirm: Optional[Callable[[], bool]] = None,
+    ) -> Optional[RecombinationResult]:
         """Process a single detected pattern into a validated skill."""
+        if gate_decision is None:
+            from bench.gate import no_evaluator
+            gate_decision = no_evaluator()
         # Generate skill definition
         skill = self._generator.generate_skill(pattern)
 
@@ -572,8 +611,15 @@ class SkillRecombiner:
             skill=skill,
         )
 
-        # Generate plugin files
-        plugin_dir = self._plugin_base / skill.name.replace(".", "_")
+        # Generate plugin files into STAGING (outside discovery roots and
+        # sandbox ALLOWED_DIRS), never into the plugin tree.
+        dir_name = skill.name.replace(".", "_")
+        if not re.fullmatch(r"[A-Za-z0-9_]+", dir_name):
+            result.error = "unsafe skill name"
+            result.details = "Refused: skill name is not a safe directory name"
+            self._results.append(result)
+            return result
+        plugin_dir = self._staging_base / dir_name
         plugin_dir.mkdir(parents=True, exist_ok=True)
 
         # Write manifest
@@ -590,7 +636,9 @@ class SkillRecombiner:
 
         result.plugin_path = str(plugin_dir)
 
-        # Validate in sandbox
+        # Validate in sandbox. The sandbox deliberately rejects the staging
+        # dir (outside ALLOWED_DIRS) until a gated activation is granted, so
+        # with the real sandbox this fails closed (broken-safe).
         sandbox_result = self._sandbox.run_command(
             f"python3 {plugin_dir / 'test.py'}",
             timeout=30,
@@ -605,30 +653,77 @@ class SkillRecombiner:
             return result
 
         from ccos.core import self_improve as _si
-        if not _si.may_deploy():  # shadow mode: generated + sandbox-tested, not registered
-            result.details = "Shadow mode: generated and sandbox-tested, not registered"
+        if not _si.may_deploy():  # shadow mode: generated + sandbox-tested, staged only
+            result.details = "Shadow mode: generated and sandbox-tested, staged only, not deployed"
             self._results.append(result)
             return result
 
-        # Register as new capability
-        capability = Capability(
-            name=skill.name,
-            description=skill.description,
-            implementation=str(plugin_dir / "pipeline.py"),
-            category=skill.category,
-            dependencies=skill.dependencies,
-            test_path=str(plugin_dir / "test.py"),
-            status=CapabilityStatus.EXPERIMENTAL,  # Start as experimental
-            version=skill.version,
-            metadata={
-                "compound": True,
-                "pipeline_steps": [s.capability for s in skill.steps],
-                "source_pattern": str(pattern.sequence),
-                "frequency": pattern.frequency,
-                "estimated_success_rate": pattern.avg_success_rate,
-            },
+        # Rule 1: deployment needs an approving promotion-gate decision, not
+        # just the env switch.
+        if not getattr(gate_decision, "promote", False):
+            result.details = "Not deployed (promotion gate declined); left in staging"
+            self._record_refusal(skill.name, "promotion gate declined")
+            self._results.append(result)
+            return result
+
+        deployed_dir = self._plugin_base / dir_name
+
+        def _deploy() -> str:
+            # Runs only after the gateway's HIGH_IMPACT confirmation. Any
+            # failure is re-raised as a FIXED message: gate_exec audits
+            # str(exc), which could otherwise carry paths or generated text.
+            created = False
+            try:
+                if deployed_dir.exists() or deployed_dir.is_symlink():
+                    raise FileExistsError
+                deployed_dir.mkdir(parents=True)
+                created = True
+                for fname in ("manifest.json", "pipeline.py", "test.py"):
+                    shutil.copy2(plugin_dir / fname, deployed_dir / fname)
+                capability = Capability(
+                    name=skill.name,
+                    description=skill.description,
+                    implementation=str(deployed_dir / "pipeline.py"),
+                    category=skill.category,
+                    dependencies=skill.dependencies,
+                    test_path=str(deployed_dir / "test.py"),
+                    status=CapabilityStatus.EXPERIMENTAL,  # Start as experimental
+                    version=skill.version,
+                    metadata={
+                        "compound": True,
+                        "pipeline_steps": [s.capability for s in skill.steps],
+                        "source_pattern": str(pattern.sequence),
+                        "frequency": pattern.frequency,
+                        "estimated_success_rate": pattern.avg_success_rate,
+                    },
+                )
+                self._registry.register(capability)
+            except Exception:
+                if created:
+                    # Remove only the directory this call created.
+                    shutil.rmtree(deployed_dir, ignore_errors=True)
+                raise RuntimeError("compound skill deployment failed") from None
+            return "deployed"
+
+        from core.action_gateway import HIGH_IMPACT, get_action_gateway
+        decision = get_action_gateway().gate_exec(
+            authority=HIGH_IMPACT,
+            action="skill_recombiner.deploy",
+            command="compound skill promotion",
+            confirm_available=callable(confirm),
+            confirm=confirm,
+            execute=_deploy,
         )
-        self._registry.register(capability)
+        if not decision.allowed:
+            # Recorded here, outside the thunk: on REFUSED the thunk never ran.
+            result.details = f"Not deployed ({decision.outcome}); left in staging"
+            if decision.outcome == "failed":
+                result.error = "deployment failed"
+            self._record_refusal(skill.name, f"gateway {decision.outcome}")
+            self._results.append(result)
+            return result
+
+        result.plugin_path = str(deployed_dir)
         result.registered = True
         result.details = (
             f"Registered compound skill from pattern {pattern.sequence} "
@@ -645,6 +740,15 @@ class SkillRecombiner:
 
         self._results.append(result)
         return result
+
+    def _record_refusal(self, skill_name: str, why: str) -> None:
+        """Record a non-deployment. Static text only: no generated code or paths."""
+        self._memory.events.log(
+            event_type="skill_deploy_refused",
+            source=skill_name,
+            details=why,
+            metadata={},
+        )
 
     def get_results(self) -> List[Dict[str, Any]]:
         """Get all recombination results."""
@@ -678,6 +782,25 @@ class SkillRecombiner:
         if not cap:
             return {"success": False, "error": f"Skill not found: {skill_name}"}
 
+        def _run() -> Dict[str, Any]:
+            return self._execute_loaded_skill(skill_name, cap, input_data)
+
+        # WP2.1 14f: running generated code is HIGH_IMPACT. No caller exists
+        # and no confirmation path is offered, so this fails closed (hardening,
+        # not enablement). Static audit label: no skill name, path or code.
+        from core.action_gateway import HIGH_IMPACT, get_action_gateway
+        decision = get_action_gateway().gate_exec(
+            authority=HIGH_IMPACT,
+            action="skill_recombiner.execute",
+            command="compound skill execution",
+            confirm_available=False,
+            execute=_run,
+        )
+        if not decision.allowed:
+            return {"success": False, "error": f"Execution not permitted ({decision.outcome})"}
+        return decision.detail["result"]
+
+    def _execute_loaded_skill(self, skill_name: str, cap, input_data: Any) -> Dict[str, Any]:
         impl_path = Path(cap.implementation)
         if not impl_path.exists():
             return {"success": False, "error": f"Implementation not found: {impl_path}"}

@@ -13,6 +13,7 @@ On-device merge requires llama.cpp with full model loading.
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -40,6 +41,89 @@ from utils.logger import info, success, warning
 # core/planner_loader.py (the loader that used to read `PLANNER_MODEL_PATH`
 # on its own, separate 1.5B server) is deleted — "secondary" and "primary"
 # now swap the exact same physical server.
+
+# =============================================================================
+# Human confirmation (WP2.1 slice 14e, NEW-977)
+# =============================================================================
+#
+# Adoption, swap and rollback replace the live model file and reload the
+# model server, so they are HIGH_IMPACT actions. The "is a human present"
+# question is answered HERE, by a /dev/tty prompt owned by this module, not by
+# an adapter supplied at the CLI call site: the documented recovery path is
+# `python3 -c "from core.lora_import import rollback_adoption; ..."` (main.py),
+# which has no caller able to pass a callback. `--lora-force-adopt` bypasses
+# the benchmark promotion gate only; it is NOT itself the human act.
+#
+# /dev/tty is used (not stdin/stdout) because stdout/stderr are captured when
+# the shell tool spawns a CLI. A process with no controlling terminal (daemon,
+# detached child) cannot open it, so every unattended path fails closed.
+
+_TTY_PATH = "/dev/tty"
+
+
+def _open_tty() -> int:
+    """Open the controlling terminal read/write and return the fd. Raises
+    OSError when the process has none (the gateway treats that as
+    'confirmation unavailable' and refuses). Separate function so tests can
+    substitute a pty. A raw fd, not a text file: open(path, "r+") raises
+    'File or stream is not seekable' on a terminal device."""
+    return os.open(_TTY_PATH, os.O_RDWR | os.O_NOCTTY)
+
+
+def _confirm_on_tty(prompt: str) -> bool:
+    """Ask the human on /dev/tty. True only for an explicit y/yes; decline,
+    empty answer, EOF and any I/O failure never return True."""
+    fd = _open_tty()
+    try:
+        # Discard stale typeahead (an earlier stray "y\n") BEFORE prompting, so
+        # only an answer typed after the prompt appears can approve. Fail
+        # closed: if the flush fails (or termios is unavailable) we cannot
+        # prove the input queue is clean, so raise and the gateway refuses.
+        try:
+            import termios
+        except ImportError as exc:
+            raise OSError("termios unavailable; refusing to confirm") from exc
+        try:
+            termios.tcflush(fd, termios.TCIFLUSH)
+        except (OSError, termios.error) as exc:
+            raise OSError("cannot flush tty input; refusing to confirm") from exc
+        os.write(fd, prompt.encode("utf-8", errors="replace"))
+        line = b""
+        while len(line) < 256:
+            chunk = os.read(fd, 1)
+            if not chunk:
+                break  # EOF
+            if chunk == b"\n":
+                line += chunk
+                break
+            line += chunk
+    finally:
+        os.close(fd)
+    if line == b"":
+        raise EOFError("no answer on tty")
+    return line.decode("utf-8", errors="replace").strip().lower() in ("y", "yes")
+
+
+def _gate_lora_action(action: str, command: str, prompt: str, execute):
+    """Run `execute` as HIGH_IMPACT behind a per-attempt /dev/tty confirm.
+
+    `action` and `command` are static audit labels: gate_exec writes them to
+    the ledger, so they must never carry paths, payload or exception text.
+    Dynamic details belong only in `prompt`, which goes to the human's tty.
+    """
+    from core.action_gateway import HIGH_IMPACT, get_action_gateway
+
+    return get_action_gateway().gate_exec(
+        authority=HIGH_IMPACT,
+        action=action,
+        command=command,
+        # A confirmation path exists in principle; whether a human actually
+        # answers is decided by the confirm callback, which fails closed.
+        confirm_available=True,
+        execute=execute,
+        confirm=lambda: _confirm_on_tty(prompt),
+    )
+
 
 # =============================================================================
 # LoRA Adapter Validation
@@ -520,50 +604,77 @@ def rollback_to_backup(backup_path: str, model_variant: str) -> Tuple[bool, str]
             f"which may be a fine-tuned file's path (NEW-91/NEW-163)"
         )
 
-    info(f"Rolling back to backup...")
-    try:
-        from core.loader_v2 import get_loader
+    prompt = (
+        "\n[HIGH IMPACT] Roll back the live model to a backup.\n"
+        f"  restore onto: {original_path!a}\n"
+        f"  from backup:  {backup!a} (the backup file is deleted afterwards)\n"
+        "  This overwrites that model file and reloads the model server.\n"
+        "Proceed? [y/N]: "
+    )
 
-        loader = get_loader()
-        loader.unload()
-        shutil.copy2(backup, original_path)
-        # Remove backup marker
-        backup.unlink()
+    def _rollback_span() -> Tuple[bool, str]:
+        info(f"Rolling back to backup...")
+        try:
+            from core.loader_v2 import get_loader
 
-        # Reset the config pointer(s) back to the original base path, in
-        # sync with each other — mirrors swap_to_finetuned_model()'s own
-        # MODEL_PATH/PLANNER_MODEL_PATH lockstep mutation (see that
-        # function's comments; both "primary" and "secondary" variants
-        # target the same physical server as of M1-D, 2026-08-23), so a
-        # rollback leaves the config pointing at the just-restored base
-        # file rather than still pointing at the fine-tuned path.
-        cfg.MODEL_PATH = original_path
-        cfg.PLANNER_MODEL_PATH = original_path
+            loader = get_loader()
+            loader.unload()
+            shutil.copy2(backup, original_path)
+            # Remove backup marker
+            backup.unlink()
 
-        # Reload model. NEW-24 (NEW_ISSUES.md): the "secondary" branch below
-        # used to call `loader.load_secondary()`, which does not exist on
-        # `ModelLoader` (an unconditional `loader.unload()` was also called
-        # for BOTH branches, which is itself wrong for the secondary case —
-        # it stopped the primary's server, not the planner's). Fixed at the
-        # time to use a distinct `core.planner_loader.PlannerLoader` for
-        # "secondary" (the same underlying 1.5B model — see
-        # swap_to_finetuned_model()'s matching comment for why).
-        #
-        # M1-D (2026-08-23): that PlannerLoader/module no longer exists —
-        # planning collapsed onto the same primary server. Both variants now
-        # reload through the SAME `core.loader_v2.get_loader()`, since
-        # there's only one server left to reload; the "loader can't target
-        # an arbitrary file" gap this never resolved is now moot for the
-        # same reason (there's only one loader, and it already reads
-        # `cfg.MODEL_PATH` fresh).
-        if not loader.load_primary():
-            return False, "Backup restored, but model reload failed"
+            # Reset the config pointer(s) back to the original base path, in
+            # sync with each other — mirrors swap_to_finetuned_model()'s own
+            # MODEL_PATH/PLANNER_MODEL_PATH lockstep mutation (see that
+            # function's comments; both "primary" and "secondary" variants
+            # target the same physical server as of M1-D, 2026-08-23), so a
+            # rollback leaves the config pointing at the just-restored base
+            # file rather than still pointing at the fine-tuned path.
+            cfg.MODEL_PATH = original_path
+            cfg.PLANNER_MODEL_PATH = original_path
 
-        success("Rolled back to original model")
-        return True, "Rolled back successfully"
+            # Reload model. NEW-24 (NEW_ISSUES.md): the "secondary" branch below
+            # used to call `loader.load_secondary()`, which does not exist on
+            # `ModelLoader` (an unconditional `loader.unload()` was also called
+            # for BOTH branches, which is itself wrong for the secondary case —
+            # it stopped the primary's server, not the planner's). Fixed at the
+            # time to use a distinct `core.planner_loader.PlannerLoader` for
+            # "secondary" (the same underlying 1.5B model — see
+            # swap_to_finetuned_model()'s matching comment for why).
+            #
+            # M1-D (2026-08-23): that PlannerLoader/module no longer exists —
+            # planning collapsed onto the same primary server. Both variants now
+            # reload through the SAME `core.loader_v2.get_loader()`, since
+            # there's only one server left to reload; the "loader can't target
+            # an arbitrary file" gap this never resolved is now moot for the
+            # same reason (there's only one loader, and it already reads
+            # `cfg.MODEL_PATH` fresh).
+            if not loader.load_primary():
+                return False, "Backup restored, but model reload failed"
 
-    except Exception as e:
-        return False, f"Rollback failed: {e}"
+            success("Rolled back to original model")
+            return True, "Rolled back successfully"
+
+        except Exception as e:
+            return False, f"Rollback failed: {e}"
+
+    # WP2.1 slice 14e (NEW-977): covers rollback_adoption() too, which calls
+    # this function. Nothing below the confirm runs on refusal.
+    from core.action_gateway import OUTCOME_FAILED, OUTCOME_REFUSED
+
+    decision = _gate_lora_action(
+        "lora_import.rollback", "lora model rollback", prompt, _rollback_span
+    )
+    if decision.outcome == OUTCOME_REFUSED:
+        return False, (
+            "Rollback refused: no human confirmation on /dev/tty "
+            "(declined, unavailable or no terminal); nothing was changed"
+        )
+    if decision.outcome == OUTCOME_FAILED:
+        # _rollback_span() converts its own errors to (False, msg), so this
+        # is only an unexpected escape; the gateway audited a static label.
+        return False, "Rollback failed"
+    return decision.detail["result"]
 
 
 def rollback_adoption(registry_id: str) -> Tuple[bool, str]:
@@ -682,102 +793,115 @@ def import_lora_adapter(
     info_dict = get_adapter_info(adapter_path)
     results["adapter_info"] = info_dict
 
-    # Create backup
-    backup_path = create_backup_before_import(model_variant)
-    results["backup_path"] = backup_path
+    prompt = (
+        "\n[HIGH IMPACT] Adopt a LoRA adapter: back up the live model, "
+        "optionally merge, then swap the model server onto the result.\n"
+        f"  adapter:   {adapter_path!a}\n"
+        f"  variant:   {model_variant!a}   merge on device: {bool(merge_on_device)}\n"
+        f"  operator override of the promotion gate: {bool(operator_override)}\n"
+        "Proceed? [y/N]: "
+    )
+    # Original exception, kept out of the audit ledger (gate_exec records
+    # str(exc)) but re-raised to the caller afterwards, as before 14e.
+    escaped = []
 
-    if backup_path is None:
-        # No backup means no way to undo the swap below -- refuse rather
-        # than adopt an unrollbackable model (blueprint DoD: "no adapter
-        # can be adopted that cannot be un-adopted"). Must happen before
-        # the merge_on_device branch so merge/swap is never reached.
-        # Applies even under operator_override -- a human override still
-        # cannot create a rollback path that doesn't exist.
-        record_adoption_attempt(
-            model_variant=model_variant, gate_decision=gate_decision,
-            adapter_path=adapter_path, adopted=False,
-            operator_override=operator_override,
-        )
-        results["error"] = (
-            "Refused: could not create a backup of the current model "
-            "(original model missing or copy failed) -- adopting without "
-            "a backup would leave no way to roll back"
-        )
-        return results
+    def _adopt_span() -> None:
+        # Create backup
+        backup_path = create_backup_before_import(model_variant)
+        results["backup_path"] = backup_path
 
-    if merge_on_device:
-        # Full merge on-device (requires llama.cpp, lots of RAM)
-        if model_variant == "primary":
-            base_model = str(cfg.MODEL_PATH)
-            output_name = "codeyOS-finetuned-primary.gguf"
-        else:
-            # PLANNER_MODEL_PATH, not SECONDARY_MODEL_PATH — see module-level
-            # NOTE at the top of this file (NEW_ISSUES.md NEW-84). M1-D
-            # (2026-08-23): base_model resolves to the SAME file as the
-            # "primary" branch above (PLANNER_MODEL_PATH == MODEL_PATH,
-            # both the single Qwen3.5-4B) — output_name is still kept
-            # distinct so a "planner-focused" fine-tune's merged artifact
-            # doesn't silently overwrite a "coder-focused" one on disk;
-            # "-1.5b" is dropped since there is no 1.5B model anymore.
-            base_model = str(cfg.PLANNER_MODEL_PATH)
-            output_name = "codeyOS-finetuned-planner.gguf"
-
-        output_path = Path.home() / "models" / "codey-finetuned" / output_name
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        success, msg = merge_lora_with_llama_cpp(
-            adapter_path, base_model, str(output_path), quantize
-        )
-
-        if not success:
-            # Same condition NEW-811's fix already covers at the two other
-            # post-gate early returns: the gate already ran (passed or was
-            # overridden), validate_lora_adapter() passed, and
-            # create_backup_before_import() succeeded -- real work
-            # happened, so this attempt must be auditable even though
-            # nothing was adopted.
-            record_adoption_attempt(
-                model_variant=model_variant, gate_decision=gate_decision,
-                adapter_path=adapter_path, adopted=False,
-                operator_override=operator_override,
-            )
-            results["error"] = msg
-            return results
-
-        # Swap to new model
-        swap_success, swap_msg = swap_to_finetuned_model(str(output_path), model_variant)
-        results["success"] = swap_success
-        results["model_path"] = str(output_path)
-        results["message"] = swap_msg
-        results["registry_id"] = record_adoption_attempt(
-            model_variant=model_variant, gate_decision=gate_decision,
-            adapter_path=adapter_path, model_path=str(output_path),
-            backup_path=backup_path, adopted=swap_success,
-            operator_override=operator_override,
-        )
-
-    else:
-        # Expect pre-merged GGUF (user merged on Colab/PC)
-        # Look for .gguf file in adapter directory
-        adapter_dir = Path(adapter_path)
-        gguf_files = list(adapter_dir.glob("*.gguf"))
-
-        if not gguf_files:
-            # Try to find in parent directory
-            gguf_files = list(adapter_dir.parent.glob("*.gguf"))
-
-        if not gguf_files:
-            # NEW-811: same reasoning as the validate_lora_adapter early
-            # return above -- the gate already ran, so record the attempt.
+        if backup_path is None:
+            # No backup means no way to undo the swap below -- refuse rather
+            # than adopt an unrollbackable model (blueprint DoD: "no adapter
+            # can be adopted that cannot be un-adopted"). Must happen before
+            # the merge_on_device branch so merge/swap is never reached.
+            # Applies even under operator_override -- a human override still
+            # cannot create a rollback path that doesn't exist.
             record_adoption_attempt(
                 model_variant=model_variant, gate_decision=gate_decision,
                 adapter_path=adapter_path, adopted=False,
                 operator_override=operator_override,
             )
             results["error"] = (
-                "No GGUF file found. Please merge adapter first or use --merge-on-device"
+                "Refused: could not create a backup of the current model "
+                "(original model missing or copy failed) -- adopting without "
+                "a backup would leave no way to roll back"
             )
-            results["instructions"] = """
+            return
+
+        if merge_on_device:
+            # Full merge on-device (requires llama.cpp, lots of RAM)
+            if model_variant == "primary":
+                base_model = str(cfg.MODEL_PATH)
+                output_name = "codeyOS-finetuned-primary.gguf"
+            else:
+                # PLANNER_MODEL_PATH, not SECONDARY_MODEL_PATH — see module-level
+                # NOTE at the top of this file (NEW_ISSUES.md NEW-84). M1-D
+                # (2026-08-23): base_model resolves to the SAME file as the
+                # "primary" branch above (PLANNER_MODEL_PATH == MODEL_PATH,
+                # both the single Qwen3.5-4B) — output_name is still kept
+                # distinct so a "planner-focused" fine-tune's merged artifact
+                # doesn't silently overwrite a "coder-focused" one on disk;
+                # "-1.5b" is dropped since there is no 1.5B model anymore.
+                base_model = str(cfg.PLANNER_MODEL_PATH)
+                output_name = "codeyOS-finetuned-planner.gguf"
+
+            output_path = Path.home() / "models" / "codey-finetuned" / output_name
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            success, msg = merge_lora_with_llama_cpp(
+                adapter_path, base_model, str(output_path), quantize
+            )
+
+            if not success:
+                # Same condition NEW-811's fix already covers at the two other
+                # post-gate early returns: the gate already ran (passed or was
+                # overridden), validate_lora_adapter() passed, and
+                # create_backup_before_import() succeeded -- real work
+                # happened, so this attempt must be auditable even though
+                # nothing was adopted.
+                record_adoption_attempt(
+                    model_variant=model_variant, gate_decision=gate_decision,
+                    adapter_path=adapter_path, adopted=False,
+                    operator_override=operator_override,
+                )
+                results["error"] = msg
+                return
+
+            # Swap to new model
+            swap_success, swap_msg = swap_to_finetuned_model(str(output_path), model_variant)
+            results["success"] = swap_success
+            results["model_path"] = str(output_path)
+            results["message"] = swap_msg
+            results["registry_id"] = record_adoption_attempt(
+                model_variant=model_variant, gate_decision=gate_decision,
+                adapter_path=adapter_path, model_path=str(output_path),
+                backup_path=backup_path, adopted=swap_success,
+                operator_override=operator_override,
+            )
+
+        else:
+            # Expect pre-merged GGUF (user merged on Colab/PC)
+            # Look for .gguf file in adapter directory
+            adapter_dir = Path(adapter_path)
+            gguf_files = list(adapter_dir.glob("*.gguf"))
+
+            if not gguf_files:
+                # Try to find in parent directory
+                gguf_files = list(adapter_dir.parent.glob("*.gguf"))
+
+            if not gguf_files:
+                # NEW-811: same reasoning as the validate_lora_adapter early
+                # return above -- the gate already ran, so record the attempt.
+                record_adoption_attempt(
+                    model_variant=model_variant, gate_decision=gate_decision,
+                    adapter_path=adapter_path, adopted=False,
+                    operator_override=operator_override,
+                )
+                results["error"] = (
+                    "No GGUF file found. Please merge adapter first or use --merge-on-device"
+                )
+                results["instructions"] = """
 To merge the adapter:
 1. On PC with llama.cpp:
    python convert-lora.py --base-model model.gguf --lora-adapter adapter/ --output merged.gguf
@@ -789,22 +913,56 @@ To merge the adapter:
 3. Then run:
    codeyOS --import-lora /path/to/merged-q4.gguf --lora-model {model_variant}
 """.format(adapter_path=adapter_path, model_variant=model_variant)
-            return results
+                return
 
-        # Use first GGUF file
-        merged_model = gguf_files[0]
-        info(f"Found merged model: {merged_model}")
+            # Use first GGUF file
+            merged_model = gguf_files[0]
+            info(f"Found merged model: {merged_model}")
 
-        # Swap to new model
-        swap_success, swap_msg = swap_to_finetuned_model(str(merged_model), model_variant)
-        results["success"] = swap_success
-        results["model_path"] = str(merged_model)
-        results["message"] = swap_msg
-        results["registry_id"] = record_adoption_attempt(
+            # Swap to new model
+            swap_success, swap_msg = swap_to_finetuned_model(str(merged_model), model_variant)
+            results["success"] = swap_success
+            results["model_path"] = str(merged_model)
+            results["message"] = swap_msg
+            results["registry_id"] = record_adoption_attempt(
+                model_variant=model_variant, gate_decision=gate_decision,
+                adapter_path=adapter_path, model_path=str(merged_model),
+                backup_path=backup_path, adopted=swap_success,
+                operator_override=operator_override,
+            )
+
+    def _execute() -> str:
+        try:
+            _adopt_span()
+        except Exception as exc:  # noqa: BLE001 - kept in `escaped`, re-raised below
+            escaped.append(exc)
+            raise RuntimeError("lora adoption span failed") from None
+        return "lora adoption span finished"
+
+    # WP2.1 slice 14e (NEW-977, fork 2): the mutating span (backup, merge,
+    # swap, record) runs only after a per-attempt human confirmation on
+    # /dev/tty. The promotion-gate check, adapter validation and adapter-info
+    # read above are unchanged and stay outside it (CLAUDE.md rule 1).
+    from core.action_gateway import OUTCOME_FAILED, OUTCOME_REFUSED
+
+    decision = _gate_lora_action(
+        "lora_import.adopt", "lora adapter adoption", prompt, _execute
+    )
+    if decision.outcome == OUTCOME_REFUSED:
+        # Recorded here, outside the thunk: the thunk never ran, so nothing
+        # inside it could have written this registry row (NEW-811 convention).
+        record_adoption_attempt(
             model_variant=model_variant, gate_decision=gate_decision,
-            adapter_path=adapter_path, model_path=str(merged_model),
-            backup_path=backup_path, adopted=swap_success,
+            adapter_path=adapter_path, adopted=False,
             operator_override=operator_override,
         )
+        results["error"] = (
+            "Refused: no human confirmation on /dev/tty (declined, "
+            "unavailable or no terminal); nothing was copied, merged or swapped"
+        )
+        return results
+    if decision.outcome == OUTCOME_FAILED:
+        results["success"] = False
+        raise escaped[0]
 
     return results

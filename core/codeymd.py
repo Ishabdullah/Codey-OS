@@ -32,11 +32,22 @@ def read_codeymd(start: str = None) -> str:
         return ""
 
 
-def write_codeymd(content: str, directory: str = None) -> str:
+def write_codeymd(content: str, directory: str = None, filesystem=None) -> str:
+    """Write CODEY.md through the Filesystem write policy (workspace
+    validation, Git-metadata denial, /undo snapshot of an existing file).
+
+    WP2.1 slice 14g: this is a behavior-steering write and must only be
+    called from inside an ActionGateway HIGH_IMPACT gate (main.run_init);
+    it performs no confirmation itself.
+    """
     directory = Path(directory or os.getcwd())
     path = directory / CODEYMD_FILENAME
     try:
-        path.write_text(content, encoding="utf-8")
+        if filesystem is None:
+            from core.filesystem import get_filesystem
+
+            filesystem = get_filesystem()
+        filesystem.write(str(path), content)
         return str(path)
     except Exception as e:
         return f"[ERROR] {e}"

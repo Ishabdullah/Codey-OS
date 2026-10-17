@@ -15,7 +15,7 @@ Rules:
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ccos.core.capability_registry import (
     get_capability_registry,
@@ -75,12 +75,48 @@ class CapabilityOptimizer:
     6. Register new version ONLY if better
     """
 
-    def __init__(self, data_base: Optional[Path] = None):
+    def __init__(self, data_base: Optional[Path] = None,
+                 plugin_roots: Optional[List[Path]] = None):
         self._registry = get_capability_registry()
         self._tracker = get_performance_tracker()
         self._sandbox = get_sandbox()
         self._optimization_log: List[OptimizationResult] = []
         self._data_base = data_base or (Path(__file__).parent.parent / "data")
+        # Approved deploy-target roots (WP2.1 14f, NEW-980): compare_and_upgrade
+        # overwrites a capability's implementation file only if it resolves
+        # inside one of these.
+        self._plugin_roots = [Path(r) for r in (
+            plugin_roots if plugin_roots is not None
+            else [Path(__file__).parent.parent / "plugins"])]
+
+    def _resolve_deploy_target(self, implementation: Any) -> Optional[Path]:
+        """Return the resolved path of an existing regular file under an
+        approved plugin root, else None.
+
+        Refuses non-strings, URL / `module:function` style pointers, missing
+        paths, non-regular files, and anything whose symlink/`..`-resolved
+        location lies outside every approved root.
+        """
+        if not isinstance(implementation, str) or not implementation:
+            return None
+        if "\x00" in implementation or "://" in implementation:
+            return None
+        try:
+            target = Path(implementation).resolve(strict=True)
+            if not target.is_file():
+                return None
+            for root in self._plugin_roots:
+                try:
+                    target.relative_to(root.resolve())
+                    return target
+                except ValueError:
+                    continue
+        except (OSError, RuntimeError, ValueError):
+            # Unresolvable (missing, symlink loop, bad path): not a valid
+            # target. Returning None makes the caller refuse deployment, i.e.
+            # fail closed.
+            return None
+        return None
 
     def find_optimization_targets(self, min_uses: int = 3) -> List[Dict[str, Any]]:
         """
@@ -335,6 +371,7 @@ class CapabilityOptimizer:
         self, capability: str, new_version: str, new_path: str,
         test_passed: bool, test_results: Dict[str, Any],
         gate_decision=None,
+        confirm: Optional[Callable[[], bool]] = None,
     ) -> OptimizationResult:
         """
         Deploy a candidate ONLY if the promotion gate approved it.
@@ -345,6 +382,11 @@ class CapabilityOptimizer:
         bench.gate.GateDecision, and CODEY_SELF_IMPROVE must be "on". Anything
         else returns improved=False and deploys nothing. Scores are never
         invented: new_score equals old_score until real usage measures it.
+
+        WP2.1 14f: even then, the target must be an existing regular file
+        inside an approved plugin root (checked before any backup or copy),
+        and the file mutation runs under a HIGH_IMPACT gateway gate that
+        needs a real `confirm` callback (fail-closed without one).
         """
         cap = self._registry.get(capability)
         if not cap:
@@ -390,21 +432,50 @@ class CapabilityOptimizer:
                 details=f"Gate approved but CODEY_SELF_IMPROVE={_si.mode()} (needs 'on'); not deployed")
 
         # Gate approved — register new version
-        # Copy improved file to a versioned backup location
+        # Deploy-target containment (14f): before any backup or copy.
+        target = self._resolve_deploy_target(cap.implementation)
+        if target is None:
+            return OptimizationResult(
+                capability=capability, old_version=old_version, new_version=new_version,
+                improved=False, old_score=old_score, new_score=old_score, test_passed=True,
+                details="Not deployed: implementation is not an existing regular file "
+                        "inside an approved plugin root")
+
         backup_dir = self._data_base / "versions" / capability.replace(".", "_")
-        backup_dir.mkdir(parents=True, exist_ok=True)
         backup_path = backup_dir / f"v{new_version}_{Path(new_path).name}"
-        shutil.copy2(new_path, backup_path)
 
-        # Also backup the original
-        original_backup = backup_dir / f"v{old_version}_{Path(cap.implementation).name}"
-        if Path(cap.implementation).exists() and not original_backup.exists():
-            shutil.copy2(cap.implementation, original_backup)
+        def _deploy() -> str:
+            # Copy improved file to a versioned backup location
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(new_path, backup_path)
 
-        # Replace the live implementation
-        try:
-            shutil.copy2(new_path, cap.implementation)
-        except Exception as e:
+            # Also backup the original
+            original_backup = backup_dir / f"v{old_version}_{target.name}"
+            if target.exists() and not original_backup.exists():
+                shutil.copy2(target, original_backup)
+
+            # Replace the live implementation (resolved, contained target)
+            shutil.copy2(new_path, target)
+            return "deployed"
+
+        # gate_exec audits str(exc); re-raise a fixed message so paths from an
+        # OSError never reach the ledger.
+        def _guarded() -> str:
+            try:
+                return _deploy()
+            except Exception:
+                raise RuntimeError("capability deployment failed") from None
+
+        from core.action_gateway import HIGH_IMPACT, get_action_gateway
+        decision = get_action_gateway().gate_exec(
+            authority=HIGH_IMPACT,
+            action="capability_optimizer.deploy",
+            command="capability upgrade deploy",
+            confirm_available=callable(confirm),
+            confirm=confirm,
+            execute=_guarded,
+        )
+        if not decision.allowed:
             return OptimizationResult(
                 capability=capability,
                 old_version=old_version,
@@ -413,7 +484,7 @@ class CapabilityOptimizer:
                 old_score=old_score,
                 new_score=0,
                 test_passed=True,
-                details=f"Failed to deploy: {e}",
+                details=f"Not deployed ({decision.outcome}): {decision.reason}",
             )
 
         # Update registry

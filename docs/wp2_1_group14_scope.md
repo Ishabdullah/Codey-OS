@@ -664,3 +664,21 @@ Provisional labels were allocated as: G14-F1 -> NEW-975, F2 -> NEW-976, F3 -> NE
 | 14a-ext, 14e, 14f, 14g, 14h, 14i | Not started; blocked on Ish forks 1, 2, 5, 4, 6 respectively (14f also depends on fork 1). |
 
 Group 14 remains OPEN.
+
+## Execution status 2 (appended 2026-10-17 after Ish answered the forks; the text above is unchanged architect scope)
+
+Ish's instruction: "for all your questions go with what you recommend". Decisions recorded: **fork 1** "Codey itself" for HIGH classification = `core, tools, utils, prompts` + `ccos/plugins/**` + `bench/**` (recursive `*.py`). **Fork 2** LoRA adopt AND rollback require a real per-attempt `/dev/tty` confirmation; `--lora-force-adopt` is NOT itself the human act. **Fork 3** plugin tree protected by write classification only, no activation allowlist: **14h is dropped as not-to-do** unless Ish reopens. **Forks 4/5** `/init` CODEY.md write is HIGH_IMPACT always with real confirmation. **Fork 3b** flake8/mypy stay disabled in `/review` (re-enable only if isolation is verified from an installed artifact). **Fork 7** embed foreign kill = exact-identity-or-refuse (already implemented in 14d). **Still open:** fork 6 (audit volume for per-turn session/queue saves; belongs to 14i), NEW-959, GCS NEW-943/944 (untouched).
+
+| Slice | State (2026-10-17, later) |
+|---|---|
+| 14a, 14b, 14c, 14d | Committed as `249b61b` (see "Execution status" above, whose "uncommitted" wording is superseded). |
+| 14a-ext (NEW-975) | Executed. `CORE_CLASSIFICATION_ROOTS` = `core, tools, utils, prompts, ccos/plugins, bench`; exactly 89 existing files ACT->HIGH (53 plugins, 36 bench), pinned by an independently derived set test; 66 passed new/changed, 156 related. Code complete, reviewer APPROVED, **pending commit**, not live-verified. Backup scope (`CORE_PATTERNS`) unchanged on purpose; `--allow-self-mod` still a confirmation channel for HIGH writes; launchers, `lib/`, `main.py`, `.codeyignore` remain ACT. |
+| 14e (NEW-977) | Executed (rule 4 + rule 1). `core/lora_import.py` real-`/dev/tty` gate with typeahead flush, rollback gated once, adopt span gated after gate/validation; `bench/gate.py` untouched. 36 new tests (`tests/test_lora_action_boundaries.py`; the spec named `test_lora_import_action_gateway.py`), reviewer APPROVED rounds 1 and 2, 78 passed with gateway suites, 5 clean consecutive runs. Not live-verified (real `/dev/tty` and device not tested). 4 pre-existing HEAD failures: NEW-987. **Pending commit.** |
+| 14f (NEW-976/980/981) | Executed (rule 1). Recombiner staging outside discovery roots + approving `GateDecision` + HIGH confirm; `execute_compound_skill` always refused; optimizer containment + confirm-gated deploy (dormant); sandbox docstring only. 16 new tests; reviewer APPROVED; `ccos/tests` 177 passed (+ pre-existing `test_plugin_manager` failure identical at HEAD). Departs from spec: the "sandbox rejects its own cwds" premise was verified false, so no sandbox change. Deploy branch is unreachable in production by design (staging outside `ALLOWED_DIRS`). Not live-verified; **pending commit**. |
+| 14g (NEW-982 + NEW-939) | Executed. `/init` infer+write in one HIGH gate with real confirm; `write_codeymd` via `Filesystem.write`; `/ignore` via `gate_append` ACT; dormant peer-design write via `tool_write_file`. 21 new tests; 2346 passed across 60 related files; reviewer APPROVED. **Behavior change:** `/init`/`--init` now refuse under `--yolo`/daemon/noninteractive/non-tty (NEW-991). Not live-verified; **pending commit**. |
+| 14h | **Dropped** (fork 3: no activation allowlist). Reopen only on Ish's say-so. |
+| 14i | **Not started** (voice config, `--finetune` export, per-turn session and queue saves; needs fork 6). |
+
+New findings from this stretch: NEW-987 (pre-existing failing lora tests), NEW-988 (finetune plugin `test.py`/manifest drift), NEW-989 (optimizer `new_path` containment + post-copy bookkeeping), NEW-990 (14e/14f residuals), NEW-991 (`--init` behavior change, docs not updated). Updates to NEW-975/976/977/980/981/982/984 are in `NEW_ISSUES.md`.
+
+**Group 14 remains OPEN** (14i not started; 14a-ext/14e/14f/14g uncommitted and not live-verified). Group 13 remains OPEN (NEW-972; NEW-971 not live-verified). Group 15 not started. WP2.1 not closed.

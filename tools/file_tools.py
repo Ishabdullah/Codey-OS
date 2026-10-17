@@ -91,7 +91,8 @@ def classify_write_action(path: str) -> str:
     class (WP2.1 slice 3, CODEY_OS_MASTER_BLUEPRINT.md §21).
 
     - HIGH_IMPACT when the target is a Codey-OS core file (core/, tools/,
-      utils/, prompts/ — see core.checkpoint.is_core_file) — "modify
+      utils/, prompts/, ccos/plugins/, bench/ — see
+      core.checkpoint.is_core_file) — "modify
       Codey itself" is the one HIGH_IMPACT category that clearly applies
       to these tools.
     - ACT otherwise (ordinary workspace file writes).

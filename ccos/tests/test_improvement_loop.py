@@ -191,7 +191,10 @@ print("PASS")
         from ccos.core.sandbox import Sandbox, ALLOWED_DIRS
         sandbox = Sandbox(allowed_dirs=ALLOWED_DIRS + [tmpdir])
 
-        optimizer = CapabilityOptimizer(data_base=Path(tmpdir) / "data")
+        # 14f: deploy target must be inside an approved root (this test's tmp
+        # plugin dir) and the HIGH_IMPACT gate needs a real confirm callback.
+        optimizer = CapabilityOptimizer(data_base=Path(tmpdir) / "data",
+                                        plugin_roots=[plugin_dir])
         optimizer._registry = registry
         optimizer._tracker = tracker
         optimizer._sandbox = sandbox
@@ -237,7 +240,7 @@ print("PASS")
         approved = GateDecision(True, ["test-approved"])
         opt_result = optimizer.compare_and_upgrade(
             "test.optimize_me", new_version, new_path, test_passed, test_results,
-            gate_decision=approved,
+            gate_decision=approved, confirm=lambda: True,
         )
         assert opt_result.improved, "Should deploy when the gate approves"
         assert opt_result.new_score == opt_result.old_score

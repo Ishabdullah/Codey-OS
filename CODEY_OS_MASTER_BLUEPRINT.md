@@ -3273,6 +3273,53 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > 4), 14i (fork 6). Findings G14-F1..F8 are NEW-975..982; residuals NEW-983..986.
 > Group13 remains OPEN (NEW-972); group15 not started; no full WP2.1 closure
 > claim.
+>
+> **Group 14 update (2026-10-17, later): slices 14a-ext, 14e, 14f, 14g
+> executed after Ish answered the forks ("go with what you recommend");
+> code complete and code-reviewer APPROVED, NOT live-verified, pending commit
+> (uncommitted in the working tree); group14 stays OPEN.** Fork decisions:
+> fork 1 "Codey itself" = `core, tools, utils, prompts` + `ccos/plugins/**` +
+> `bench/**` (recursive `*.py`); fork 2 LoRA adopt AND rollback need a real
+> per-attempt `/dev/tty` confirmation, `--lora-force-adopt` is not itself the
+> human act; fork 3 plugin tree protected by write classification only, NO
+> activation allowlist, so **14h is dropped as not-to-do** unless Ish reopens;
+> forks 4/5 `/init` CODEY.md write HIGH_IMPACT always with real confirmation;
+> flake8/mypy stay disabled in `/review` (re-enable only if isolation is
+> verified from an installed artifact); fork 7 embed foreign kill =
+> exact-identity-or-refuse (already in 14d). Still open: fork 6 (audit volume
+> for per-turn session/queue saves, belongs to 14i), NEW-959, GCS NEW-943/944.
+> **14a-ext (NEW-975, roots now done):** `CORE_CLASSIFICATION_ROOTS` =
+> `core, tools, utils, prompts, ccos/plugins, bench`; exactly 89 existing files
+> moved ACT->HIGH (53 under `ccos/plugins/**`, 36 under `bench/**`), pinned by
+> an independently derived set test; 66 passed new/changed, 156 related.
+> `CORE_PATTERNS` backup scope deliberately unchanged, so rollback of
+> plugin/bench edits relies on git history (residual). `--allow-self-mod`
+> still counts as a confirmation channel for HIGH writes (Ish 2026-10-08), so
+> plugin/bench files stay writable after checkpoint in such a run (policy
+> residual tied to plugin auto-exec at `main.py:1977`). Launchers, `lib/`,
+> `main.py`, `.codeyignore` remain ACT. **14e (NEW-977, rule 4 + rule 1):**
+> `core/lora_import.py` `_confirm_on_tty` (raw `/dev/tty`, y/yes only,
+> typeahead flushed, fail closed), rollback gated once, adopt
+> backup/merge/swap/record in one gated span with the promotion-gate check
+> and validation BEFORE the prompt (`bench/gate.py` untouched); 36 new tests
+> (pty only; real `/dev/tty` never opened), reviewer APPROVED rounds 1 and 2
+> (round 2 fixed stale typeahead approving). **14f (NEW-976/980/981, rule
+> 1):** recombiner stages outside discovery roots and deploys only on an
+> approving `GateDecision` plus a real HIGH confirm, `execute_compound_skill`
+> always refused, optimizer deploy contained and confirm-gated (dormant),
+> sandbox docstring corrected (not a security boundary); 16 new tests,
+> reviewer APPROVED. Nothing activates or relaxes self-improvement;
+> `CODEY_SELF_IMPROVE`/`CODEY_TRAJECTORY` not enabled, bench not run (NEW-761
+> unchanged). **14g (NEW-982 + NEW-939 items):** `/init` inference and write
+> both inside one HIGH gate with real confirmation; `write_codeymd` via
+> `Filesystem.write`; `/ignore` via `gate_append` ACT; 21 new tests, 2346
+> passed across 60 related files; **behavior change:** `/init` and `--init`
+> under `--yolo`/daemon/non-tty now REFUSE (previously `--yolo` wrote
+> unprompted). **Honest limits:** none of these four slices is live-verified
+> (no real `/dev/tty`, model, or device run); 4 lora tests fail identically
+> at HEAD (NEW-987); other residuals NEW-988..991. **Not started: 14i** (voice
+> config, `--finetune` export, session/queue saves; fork 6). Group14 OPEN;
+> group13 OPEN; group15 not started; WP2.1 not closed.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

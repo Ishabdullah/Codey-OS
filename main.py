@@ -491,18 +491,50 @@ def _remove_tui_pid_file():
         pass
 
 
-def run_init():
+def _init_confirmation(yolo=False, overwrite=False):
+    """Fresh default-No terminal prompt for the /init CODEY.md write; None
+    (no confirmation path) under --yolo, daemon, non-interactive or non-tty."""
+    if (
+        yolo
+        or os.getenv("CODEY_DAEMON_MODE") == "1"
+        or os.getenv("CODEY_NON_INTERACTIVE") == "1"
+    ):
+        return None
+    try:
+        interactive = sys.stdin.isatty()
+    except Exception:
+        # Unknown stdin cannot provide human approval.
+        return None
+    if not interactive:
+        return None
+
+    def confirm():
+        verb = "Generate and OVERWRITE the existing" if overwrite else "Generate and write a new"
+        answer = input(f"{verb} CODEY.md in this project? [y/N]: ")
+        return answer.strip().lower() in ("y", "yes")
+
+    return confirm
+
+
+def run_init(yolo=False):
+    """Generate CODEY.md. WP2.1 slice 14g: the model-authored write that steers
+    future agent behavior is HIGH_IMPACT always (Ish, 2026-10-17), with a real
+    per-attempt confirmation; refused (nothing generated or written) without
+    one. Generated text and paths never reach the audit ledger."""
+    from core.action_gateway import (HIGH_IMPACT, OUTCOME_ALLOWED,
+                                     OUTCOME_FAILED, get_action_gateway)
     from core.codeymd import find_codeymd, get_init_prompt, write_codeymd
+    from core.filesystem import get_filesystem
     from core.inference_v2 import infer
     from core.project import detect_project
+    from utils.config import AGENT_CONFIG
 
     existing = find_codeymd()
     if existing:
         warning(f"CODEY.md already exists at {existing}")
-        ans = console.input("Overwrite? [y/N]: ").strip().lower()
-        if ans not in ("y", "yes"):
-            info("Aborted.")
-            return
+    confirm = _init_confirmation(
+        yolo, overwrite=bool(existing) and existing.parent == Path(os.getcwd())
+    )
     proj = detect_project()
     info(f"Analyzing {proj['type']} project in {proj['cwd']}...")
     messages = [
@@ -512,13 +544,46 @@ def run_init():
         },
         {"role": "user", "content": get_init_prompt(proj)},
     ]
-    info("Generating CODEY.md...")
-    content = infer(messages, stream=False)
-    if content.startswith("[ERROR]"):
-        error(f"Generation failed: {content}")
-        return
-    path = write_codeymd(content)
-    success(f"CODEY.md written to {path}") if not path.startswith("[ERROR]") else error(path)
+    failure = {}
+
+    def _generate_and_write() -> str:
+        # Runs only after the human approved this attempt. gate_exec audits
+        # str(exc), so every failure is re-raised as a fixed string; the real
+        # detail is shown to the operator via `failure`, never the ledger.
+        try:
+            info("Generating CODEY.md...")
+            content = infer(messages, stream=False)
+            if content.startswith("[ERROR]"):
+                failure["detail"] = f"Generation failed: {content}"
+                raise ValueError("generation failed")
+            # Resolve the Filesystem only now: constructing it on the refusal
+            # path would replace the process-wide singleton for nothing.
+            fs = get_filesystem(
+                allow_self_modification=AGENT_CONFIG.get("allow_self_modification", False)
+            )
+            path = write_codeymd(content, filesystem=fs)
+            if path.startswith("[ERROR]"):
+                failure["detail"] = path
+                raise ValueError("write failed")
+            return path
+        except Exception as e:
+            failure.setdefault("detail", f"CODEY.md was not written ({type(e).__name__})")
+            raise RuntimeError("CODEY.md generation or write failed") from None
+
+    decision = get_action_gateway().gate_exec(
+        authority=HIGH_IMPACT,
+        action="main.run_init_codeymd",
+        command="write CODEY.md",
+        confirm_available=confirm is not None,
+        confirm=confirm,
+        execute=_generate_and_write,
+    )
+    if decision.outcome == OUTCOME_ALLOWED:
+        success(f"CODEY.md written to {decision.detail['result']}")
+    elif decision.outcome == OUTCOME_FAILED:
+        error(failure.get("detail", "CODEY.md was not written"))
+    else:
+        info(f"CODEY.md not written: {decision.reason}")
 
 
 def _try_daemon_plan(prompt: str, no_plan: bool = False, tier: str = "hard"):
@@ -1222,7 +1287,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         return True, history
 
     if low == "/init":
-        run_init()
+        run_init(yolo=yolo)
         return True, history
 
     if low == "/memory":
@@ -1347,12 +1412,27 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         else:
             pattern = parts[1].strip()
             ignore_file = Path(os.getcwd()) / ".codeyignore"
-            try:
-                with open(ignore_file, "a") as f:
-                    f.write(f"\n{pattern}")
+            # WP2.1 slice 14g: .codeyignore steers what the agent can read, so
+            # the append is mediated (Filesystem policy + ACT audit row).
+            from core.action_gateway import (ACT, OUTCOME_ALLOWED,
+                                             get_action_gateway)
+            from core.filesystem import get_filesystem
+            from utils.config import AGENT_CONFIG
+
+            decision = get_action_gateway().gate_append(
+                authority=ACT,
+                action="main.ignore_append",
+                path=str(ignore_file),
+                content=f"\n{pattern}",
+                confirm_available=False,
+                filesystem=get_filesystem(
+                    allow_self_modification=AGENT_CONFIG.get("allow_self_modification", False)
+                ),
+            )
+            if decision.outcome == OUTCOME_ALLOWED:
                 success(f"Added '{pattern}' to .codeyignore")
-            except Exception as e:
-                error(f"Could not update .codeyignore: {e}")
+            else:
+                error(f"Could not update .codeyignore: {decision.reason}")
         return True, history
 
     if low == "/learning":
@@ -2196,7 +2276,7 @@ def main():
             shutdown()
             return
         _warn_if_model_load_incomplete(loader, ok)
-        run_init()
+        run_init(yolo=args.yolo)
         shutdown()
         return
 

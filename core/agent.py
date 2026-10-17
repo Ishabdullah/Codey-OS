@@ -1691,12 +1691,17 @@ def run_agent(
 
                         _design_fname = f"{_peer_name}_design.md"
                         _design_path = _os.path.join(_os.getcwd(), _design_fname)
-                        try:
-                            with open(_design_path, "w", encoding="utf-8") as _dfile:
-                                _dfile.write(_output)
+                        # WP2.1 slice 14g: no raw open(..., "w"). Dormant today
+                        # (the HIGH_IMPACT peer gate above always refuses, so
+                        # _output is never reached), but if a confirm UI ever
+                        # makes this reachable the write must still go through
+                        # tool_write_file: workspace validation, core-file
+                        # classification, overwrite confirmation, gateway audit.
+                        _design_result = tool_write_file(_design_path, _output)
+                        if _design_result.startswith(("[ERROR]", "[BLOCKED]", "[CANCELLED]")):
+                            warning(f"Could not save design file: {_design_result}")
+                        else:
                             success(f"Design saved to {_design_fname} ({len(_output)} chars)")
-                        except Exception as _de:
-                            warning(f"Could not save design file: {_de}")
                         # Plan will handle the next step (implement from design)
                         return _summary, history
 

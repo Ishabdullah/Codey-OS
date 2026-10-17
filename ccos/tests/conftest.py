@@ -67,6 +67,14 @@ def _isolate_performance_and_reflection_singletons(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_action_gateway_audit(tmp_path, monkeypatch):
+    """WP2.1 14f: recombiner/optimizer deploys and compound-skill execution now
+    go through ActionGateway.gate_exec, which appends to an audit ledger.
+    Point it at a per-test tmp file so CCOS tests never write the real one."""
+    monkeypatch.setenv("CODEY_ACTION_GATEWAY_AUDIT", str(tmp_path / "gateway_audit_test.jsonl"))
+
+
+@pytest.fixture(autouse=True)
 def _self_improve_on_for_legacy_tests(monkeypatch, request):
     """Legacy CCOS tests exercise the self-improvement modules directly, so they run with
     CODEY_SELF_IMPROVE=on. Tests that check the OFF default opt out with @pytest.mark.si_default."""

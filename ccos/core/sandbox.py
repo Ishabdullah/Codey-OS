@@ -1,13 +1,28 @@
 """
-Sandbox — Isolated execution environment.
+Sandbox -- best-effort command guard. NOT a security boundary.
 
-All plugin installations, generated code execution, and testing
-happens inside this sandbox. Rules:
+What it actually does: a substring blocklist for a few destructive commands,
+an allowlist check on the working directory, and a best-effort scan for
+path-shaped tokens that resolve outside the allowed directories, plus a
+timeout and an output-size cap.
 
-- No direct system file access outside allowed directories
-- No destructive commands (rm -rf /, etc.)
-- No background persistence without approval
-- Resource limits (timeout, output size)
+What it does NOT do: commands run via `subprocess.run(..., shell=True)` as
+the same OS user, with the caller's full ambient environment (including any
+credentials in it), no namespace/chroot/seccomp/container, no network or
+filesystem isolation, and no process-tree limits. The path-token scan and the
+blocklist are string filters that fail open (variable expansion, `cd`, quoting,
+interpreters, or an already-allowed script can all reach anywhere the user
+can). Executing code here must be treated as executing it on the host.
+
+Rules the code does try to enforce (mitigations, not guarantees):
+
+- Working directory must be inside an allowed directory
+- Obvious destructive commands are refused
+- Timeout and output-size limits
+
+Generated-candidate staging dirs are deliberately outside ALLOWED_DIRS, so
+the sandbox refuses to run them until a gated activation is deliberately
+granted (WP2.1 14f / CLAUDE.md rule 1).
 """
 
 import os

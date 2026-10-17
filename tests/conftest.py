@@ -144,3 +144,20 @@ def _isolate_ccos_performance_and_reflection_singletons(tmp_path, monkeypatch):
         monkeypatch.setattr(refl, "_engine", None)
         monkeypatch.setattr(refl, "REFLECTIONS_PATH", str(tmp_path / "reflections_test.jsonl"))
     yield
+
+
+@pytest.fixture(autouse=True)
+def _lora_import_tty_confirm_approves_by_default(monkeypatch):
+    """
+    WP2.1 slice 14e (NEW-977): core.lora_import adopt/rollback now require a
+    per-attempt human "y" on /dev/tty. Pre-14e tests exercise the adopt and
+    rollback mechanics themselves with fake loaders and tmp files, so they
+    get an approving stand-in for the prompt rather than touching the real
+    terminal (which would block or fail closed under pytest).
+    tests/test_lora_action_boundaries.py overrides this fixture's patch to
+    test the real tty adapter and the refuse/decline/EOF/no-tty paths.
+    """
+    from core import lora_import
+
+    monkeypatch.setattr(lora_import, "_confirm_on_tty", lambda prompt: True)
+    yield

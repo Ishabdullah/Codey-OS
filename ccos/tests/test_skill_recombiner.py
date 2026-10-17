@@ -265,10 +265,12 @@ def test_full_recombination_pipeline():
 
     # Create recombiner with temp stores, including a temp plugin dir so this
     # test doesn't write generated compound skills into the real repo tree.
-    with tempfile.TemporaryDirectory() as plugin_tmpdir:
+    with tempfile.TemporaryDirectory() as plugin_tmpdir, \
+            tempfile.TemporaryDirectory() as staging_tmpdir:
         recombiner = SkillRecombiner(
             min_pattern_freq=2, min_success=0.5,
             plugin_base=Path(plugin_tmpdir),
+            staging_base=Path(staging_tmpdir),
         )
         recombiner._memory = memory
         recombiner._registry = registry
@@ -340,12 +342,14 @@ def test_compound_skill_execution():
         recombiner = SkillRecombiner()
         recombiner._registry = registry
 
+        # WP2.1 14f: execution of generated code is HIGH_IMPACT with no
+        # confirmation path, so it is refused (fail closed) and never runs.
+        # (Gateway audit goes to a tmp ledger: see ccos/tests/conftest.py.)
         result = recombiner.execute_compound_skill(skill.name)
         assert isinstance(result, dict)
-        assert "success" in result
-        assert "steps_completed" in result
-        print(f"  [PASS] Execution result: success={result.get('success')}, "
-              f"steps={result.get('steps_completed')}")
+        assert result.get("success") is False
+        assert "steps_completed" not in result
+        print(f"  [PASS] Execution refused (fail-closed): {result.get('error')}")
 
     Path(reg_path).unlink(missing_ok=True)
     return True

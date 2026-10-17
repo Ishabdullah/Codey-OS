@@ -41,12 +41,17 @@ CORE_PATTERNS = [
 ]
 
 # Classification scope for is_core_file(): any *.py at any depth under
-# these CODE_DIR roots is a Codey-OS core file (NEW-951).
+# these CODE_DIR roots is a Codey-OS core file (NEW-951). WP2.1 slice
+# 14a-ext (Ish fork 1, 2026-10-17) adds ccos/plugins (the plugin tree is
+# auto-discovered and executed) and bench (promotion-gate integrity). This
+# is classification only: CORE_PATTERNS (backup scope) is unchanged.
 CORE_CLASSIFICATION_ROOTS = (
     "core",
     "tools",
     "utils",
     "prompts",
+    "ccos/plugins",
+    "bench",
 )
 
 

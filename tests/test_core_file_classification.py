@@ -16,6 +16,8 @@ from tools.file_tools import ACT, HIGH_IMPACT, classify_write_action
 
 REAL_CODE_DIR = checkpoint.CODE_DIR
 ROOTS = ("core", "tools", "utils", "prompts")
+EXT_ROOTS = ("ccos/plugins", "bench")  # slice 14a-ext (Ish fork 1)
+BACKUP_PATTERNS = ["core/*.py", "tools/*.py", "utils/*.py", "prompts/*.py"]
 
 
 @pytest.fixture
@@ -57,7 +59,6 @@ def test_py_at_any_depth_under_each_root_is_core_high(code_dir, root, rel):
         "tools/x/y.sh",
         "main.py",
         "ccos/core/x.py",
-        "bench/gate.py",
         "tests/sub/test_x.py",
         "corex/a/b.py",
         "coreish.py",
@@ -94,28 +95,18 @@ def test_nul_byte_falls_back_to_act(code_dir):
 
 
 def test_classification_roots_separate_from_backup_constant():
-    assert checkpoint.CORE_CLASSIFICATION_ROOTS == ROOTS
+    assert checkpoint.CORE_CLASSIFICATION_ROOTS == ROOTS + EXT_ROOTS
     assert checkpoint.CORE_CLASSIFICATION_ROOTS is not checkpoint.CORE_PATTERNS
     # Backup constant value unchanged.
-    assert checkpoint.CORE_PATTERNS == [
-        "core/*.py",
-        "tools/*.py",
-        "utils/*.py",
-        "prompts/*.py",
-    ]
+    assert checkpoint.CORE_PATTERNS == BACKUP_PATTERNS
 
 
 def test_widening_classification_does_not_change_backup_scope(code_dir, monkeypatch):
     monkeypatch.setattr(
-        checkpoint, "CORE_CLASSIFICATION_ROOTS", ROOTS + ("bench",)
+        checkpoint, "CORE_CLASSIFICATION_ROOTS", ROOTS + ("scripts",)
     )
-    assert checkpoint.is_core_file(str(code_dir / "bench" / "gate.py")) is True
-    assert checkpoint.CORE_PATTERNS == [
-        "core/*.py",
-        "tools/*.py",
-        "utils/*.py",
-        "prompts/*.py",
-    ]
+    assert checkpoint.is_core_file(str(code_dir / "scripts" / "gate.py")) is True
+    assert checkpoint.CORE_PATTERNS == BACKUP_PATTERNS
 
 
 def test_create_checkpoint_backup_still_recursive_over_backup_constant(
@@ -197,7 +188,10 @@ def test_real_tree_has_no_nested_py_under_roots():
     assert nested == []
 
 
-def test_real_tree_classification_identical_to_pre_14a():
+def test_real_tree_classification_changes_only_for_ext_roots_py():
+    """14a-ext: versus the pre-14a algorithm, the ONLY real-tree files whose
+    classification changes are *.py under ccos/plugins/** and bench/**
+    (ACT -> HIGH). Every other file is unchanged."""
     files = [
         p
         for p in REAL_CODE_DIR.rglob("*")
@@ -208,12 +202,25 @@ def test_real_tree_classification_identical_to_pre_14a():
         not in ("node_modules", ".venv", "venv")
     ]
     assert files, "expected a non-empty repo tree"
-    diffs = [
-        str(p)
+    changed = {
+        str(p.relative_to(REAL_CODE_DIR))
         for p in files
         if checkpoint.is_core_file(str(p)) != _old_is_core_file(str(p), REAL_CODE_DIR)
-    ]
-    assert diffs == []
-    # Sanity: the comparison is not vacuous.
+    }
+    expected = {
+        str(p.relative_to(REAL_CODE_DIR))
+        for p in files
+        if p.suffix == ".py"
+        and p.relative_to(REAL_CODE_DIR).parts[:2] == ("ccos", "plugins")
+        or (p.suffix == ".py" and p.relative_to(REAL_CODE_DIR).parts[0] == "bench")
+    }
+    assert changed == expected
+    # Sanity: non-vacuous, and every change is old-ACT -> new-HIGH.
+    assert "ccos/plugins/_pathutil.py" in changed
+    assert "bench/gate.py" in changed
+    assert "bench/tasks/t01_slugify/starter/slug.py" in changed
+    for rel in changed:
+        assert not _old_is_core_file(str(REAL_CODE_DIR / rel), REAL_CODE_DIR)
+        assert classify_write_action(str(REAL_CODE_DIR / rel)) == HIGH_IMPACT
     assert checkpoint.is_core_file(str(REAL_CODE_DIR / "core" / "checkpoint.py"))
     assert not checkpoint.is_core_file(str(REAL_CODE_DIR / "main.py"))
