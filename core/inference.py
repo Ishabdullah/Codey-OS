@@ -74,35 +74,17 @@ def _start_server():
         )
         time.sleep(1.5)
 
-    # Ensure the dedicated embed server (nomic on port 8082) is up —
-    # health-check-only, never an unconditional start(). TODO.md 7.4b
-    # sub-task A / NEW-144: this process (the TUI/CLI, running `infer()`)
-    # does not own the embed server's lifecycle — `core/daemon.py`'s
-    # `_main_loop` does (it starts it eagerly at daemon startup and stops
-    # it in its own `finally:` block on graceful shutdown; see that
-    # module for the full "who owns embed" story). Calling
-    # `start_embed_server()` unconditionally here would fall into
-    # `EmbedServer.start()`'s "port is bound -> treat as stale, kill and
-    # replace" branch every single time, because `start()`'s own
-    # "already running" fast path only recognizes THIS process's own
-    # `self.process` — it has no memory of a healthy embed server a
-    # DIFFERENT process (the daemon) spawned, so it would kill and
-    # respawn the daemon's already-healthy embed server on every
-    # `infer()` call. `EmbedServer.is_healthy()` is a real HTTP
-    # `/health` check against the known port, independent of which
-    # process spawned it — if that already reports healthy, this call
-    # site must leave it alone entirely and never call `start()`. Only
-    # calls `start()` (which may start it fresh, or fall into its
-    # kill-and-replace path against a genuinely stale/misconfigured
-    # occupant) when the health check itself reports unhealthy — e.g. an
-    # interactive-only invocation that bypassed daemon startup, where no
-    # other process owns the embed lifecycle yet.
+    # A healthy foreign occupant remains health-only (NEW-144). Our own
+    # pending cleanup must be retried even if that child still answers health;
+    # EmbedServer.start serializes cleanup and refuses an unresolved replacement.
     try:
-        from core.embed_server import get_embed_server
+        from core.embed_server import get_embed_server, start_embed_server
 
         _embed = get_embed_server()
-        if not _embed.is_healthy():
-            _embed.start()
+        if getattr(_embed, "cleanup_pending", False) is True or not _embed.is_healthy():
+            # The health snapshot may race global stop. Resolve/start the
+            # current singleton under its global guard, not this stale object.
+            start_embed_server()
     except Exception:
         pass  # embed server is optional — BM25 fallback remains active
 

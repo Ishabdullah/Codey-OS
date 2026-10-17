@@ -30,6 +30,17 @@ from utils.config import CODEY_STATE_DIR
 from utils.logger import (error, info, set_log_level, setup_file_logging,
                           warning)
 
+
+def _embed_notice(log, message):
+    """Embedding diagnostics cannot alter ownership or shutdown cleanup."""
+    try:
+        log(message)
+    except Exception:
+        # A failed console/file sink cannot block subsequent cleanup or turn
+        # a confirmed embed operation into a different lifecycle outcome.
+        pass
+
+
 # ==================== Resource-gate slot-release outcomes ====================
 # 7.4 sub-task 4 (NEW-69 prerequisite): `release_model_slot` command outcomes.
 # String constants (not an enum) to match the existing LOAD_OUTCOME_*
@@ -1115,14 +1126,16 @@ class Daemon:
 
         # Start dedicated embedding server (nomic-embed on port 8082)
         try:
-            from core.embed_server import start_embed_server
+            from core.embed_server import get_embed_server, start_embed_server
 
             if start_embed_server():
-                info("Embed server started (port 8082)")
+                _embed_notice(info, "Embed server ready (port 8082)")
+            elif getattr(get_embed_server(), "cleanup_pending", False) is True:
+                _embed_notice(warning, "Embed startup cleanup pending — replacement blocked; BM25-only KB search active")
             else:
-                warning("Embed server unavailable — BM25-only KB search active")
+                _embed_notice(warning, "Embed server unavailable — BM25-only KB search active")
         except Exception as _e:
-            warning(f"Embed server startup skipped: {_e}")
+            _embed_notice(warning, f"Embed server startup failed: {_e}")
 
         # Start file watch manager
         self.file_watch.start()
@@ -1278,28 +1291,22 @@ class Daemon:
                     # 7B model server watchdog (local only)
                     if not _is_remote():
                         self._watchdog_check_model()
-                    # Embed server watchdog
+                    # Retry cleanup even if the owned child is still alive.
                     try:
-                        from core.embed_server import get_embed_server
+                        from core.embed_server import get_embed_server, start_embed_server
 
-                        if not get_embed_server().is_running():
-                            warning("Embed server died — restarting...")
-                            from core.embed_server import start_embed_server
-
-                            start_embed_server()
+                        _embed = get_embed_server()
+                        if getattr(_embed, "cleanup_pending", False) is True or not _embed.is_running():
+                            if start_embed_server():
+                                _embed_notice(info, "Embed server ready after watchdog recovery")
+                            elif getattr(_embed, "cleanup_pending", False) is True:
+                                _embed_notice(warning, "Embed watchdog cleanup pending — replacement blocked")
+                            else:
+                                _embed_notice(warning, "Embed watchdog recovery unavailable — BM25-only KB search active")
                     except Exception as e:
-                        # NEW-88: this used to be a bare `except Exception:
-                        # pass`, silently swallowing a failure with no trace —
-                        # same class of problem the 7B model watchdog
-                        # (_watchdog_check_model(), same watchdog loop) was
-                        # already fixed to avoid. Left broad (not narrowed to
-                        # a specific exception type) because this wraps both
-                        # an is_running() liveness probe and a
-                        # start_embed_server() subprocess spawn, each with
-                        # its own unpredictable failure modes — but now
-                        # logged instead of silent, matching this file's
-                        # established best-effort-but-not-silent posture.
-                        warning(f"Embed server watchdog check failed: {e}")
+                        # Probe/start errors are visible, while an owned child
+                        # and failed-cleanup singleton remain available to retry.
+                        _embed_notice(warning, f"Embed server watchdog check failed: {e}")
 
                 # Small sleep to avoid busy loop
                 await asyncio.sleep(0.5)
@@ -1314,23 +1321,27 @@ class Daemon:
             # (core/loader_v2.py) — a failure here can leave BOTH an orphaned
             # detached llama-server process AND a leaked gate slot, which
             # would wrongly count against every future admission decision on
-            # this device, so this is logged rather than silently swallowed
-            # (unlike the embed-server shutdown right below, which has no
-            # comparable gate-accounting side effect).
+            # this device, so this is logged rather than silently swallowed.
+            # Embedding below also has best-effort residency accounting, though
+            # it remains exempt from admission and primary-model eviction.
             try:
                 from core.loader_v2 import get_loader
 
                 await asyncio.get_running_loop().run_in_executor(None, get_loader().unload)
             except Exception as e:
-                warning(f"7B model unload during shutdown failed: {e}")
+                # A broken diagnostic sink must not skip the owned embedding
+                # cleanup that follows this primary-model failure.
+                _embed_notice(warning, f"7B model unload during shutdown failed: {e}")
 
             # Stop embed server
             try:
                 from core.embed_server import stop_embed_server
 
-                stop_embed_server()
-            except Exception:
-                pass
+                await asyncio.get_running_loop().run_in_executor(None, stop_embed_server)
+            except Exception as e:
+                # stop_embed_server retains its singleton on failure. This
+                # in-memory retry state cannot survive the daemon's own exit.
+                _embed_notice(warning, f"Owned embed cleanup during shutdown failed; pending ownership is not durable after daemon exit: {e}")
 
             # Cleanup
             await self.server.stop()

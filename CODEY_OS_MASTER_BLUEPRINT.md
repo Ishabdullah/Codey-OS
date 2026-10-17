@@ -3158,10 +3158,14 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > fixture handles reaped. That b.2 round left public consumers unchanged;
 > b.3 below completes them. No operation audit closure is implied by these
 > mechanics. Relative configured-path choice remains pending.
-> **13f now scoped, NEW-964 High open:** embed stop/replacement can lose live
-> owned handle/accounting/singleton. Pinned fake-only proof and narrow repair
-> preserve accounted-but-exempt policy; no admission gate or adopted kill
-> authority added. Repair/review/disposable verification required before closing13.
+> **13f complete, whole source reviewer APPROVED round 2 and independent
+> disposable verification PASS (NEW-964 fixed):** exact owned cleanup/slot/
+> singleton retention, final reap and no replacement, safe diagnostics and
+> global singleton caller coordination. Selected69 passed, reviewer51 passed;
+> eight actual fixture children reaped. Caller concurrency/interrupts unit-only;
+> manual child attachment/fake accounting, no real model/startup/foreign-port
+> proof. Accounted-but-exempt/adopted authority unchanged; memory durability
+> after owner exit and best-effort registration remain explicit limits.
 > **13e is code-complete, source reviewer APPROVED after two rounds and
 > independently disposable-process verified** (High NEW-956): owned
 > stop/reap confirmation, retained failed cleanup/accounting, immediate
@@ -3208,11 +3212,13 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > identity/socket transport preserves quoted/newline payloads; invalid input
 > makes no requests, no generated programs, all fixture handles/sockets cleaned.
 > Main/responses are fixtures, no application execution or server authority claim.
-> NEW-967 Medium additionally confirms a pre-existing shutdown-budget mismatch:
-> shell daemon TERM5s can expire before primary8+8/embedding5+5 cleanup.
-> Independent finite daemon45s-per-phase correction is scoped/open; other
-> service budgets and all authority/admission policies remain unchanged.
-> Next 13f, NEW-967 budget correction and 13d; groups 14/15 follow. Ownership repairs alone do not
+> **NEW-967 fixed, source reviewer APPROVED and disposable verification PASS:**
+> finite daemon45s per TERM/KILL phase (max90), others5s unchanged, fixes
+> pre-existing owner grace shorter than child cleanup. Dedicated/reviewer11
+> passed; actual ordinary six-second cleanup exits normally without KILL,
+> records cleaned and all fixture handles reaped. No real daemon/model timing
+> or arbitrary-hang guarantee; authority/admission/publication unchanged.
+> Next 13d; groups 14/15 follow. Ownership repairs alone do not
 > close operation audit coverage; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**

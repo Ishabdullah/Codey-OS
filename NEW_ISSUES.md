@@ -11317,6 +11317,8 @@ finding for the same bug. See `NEW-39`.)*
   the same review pass.
 
 ### [NEW-203] `EmbedServer.stop()`'s docstring asserts an adopted server always has `self.process is None` — a real edge case makes that false, though the resulting behavior stays safe
+
+- **Record correction — 2026-10-16, WP2.1 13f/NEW-964:** the earlier blanket claim that signaling an already-dead owned child is harmless did not exclude PID reuse. Owned stop now polls/reaps a dead handle before any PID/group lookup and clears it before adopting a different occupant; pending owned cleanup prevents adoption/replacement. Existing non-owning adoption authority stays unchanged. Guarded unit and actual already-reaped-child verification forbid PID/group signaling; historical explanation above is not a current safety argument.
 - **Status: RESOLVED (docstring only, per the finding's own fix
   direction) — 2026-09-09.** Re-confirmed the edge case is real in
   current code before touching anything: `start()`'s early-return fast
@@ -11367,6 +11369,7 @@ finding for the same bug. See `NEW-39`.)*
 
 
 ## Found during the 2026-08-26 Phase A1 "concurrency test" scoping (§6.2 of `CODEY_MASTER_PLAN.md`) — desk-only, vendored llama.cpp source read (`~/llama.cpp` commit `91d2fc38`) + real production log evidence, NO model loaded this round, NOT fixed, logged only
+
 
 ### [NEW-204] `llama-server` has been running every real production launch with 4 concurrent slots (`kv_unified=true`) the whole time — the master plan's "no flag is set anywhere" framing was factually true but its implied conclusion ("concurrency is off/untested") was wrong
 
@@ -22058,10 +22061,12 @@ timeout-kill-unconfirmed {'returned': True, 'owned_handle_lost': True, 'started'
 
 ### [NEW-964] CONFIRMED, High — embedding teardown loses live-child ownership/accounting and permits unsafe replacement
 
-- **Status:** Open, architect-confirmed 2026-10-16; bounded 13f implementation contract in `docs/wp2_1_group13_scope.md`. Distinct from NEW-956, which repaired the primary LlamaServer/ModelLoader only.
+- **Status:** FIXED within owned lifecycle/accounting-retry contract, 2026-10-16; whole source code-reviewer APPROVED round 2 and independent disposable-process verification PASS. Prior proof below used only fake OS/child.
 - **Evidence:** `core/embed_server.py::EmbedServer.stop` suppresses signal/wait errors, clears self.process in finally, releases/forgets the slot and logs stopped without confirmed child exit; timeout KILL has no final wait. `stop_embed_server` discards the singleton unconditionally. `start` can pass a live unhealthy owned child into replacement logic and overwrite its handle. Pinned actual-stop AST with fake OS/child only demonstrates live child with lost handle/slot, zero waits after signal failure or only one timed-out wait, and false stopped log. No real PID signaling/model reproduction performed.
 - **Repair:** bounded TERM/wait/KILL/final reap; retain exact owned handle, existing slot, cleanup debt and singleton on uncertainty; refuse replacement/adoption until cleanup resolves; reap stale dead handle before PID-based work; propagate truthful daemon/inference/watchdog outcomes. Serialize instance/singleton lifecycle and close startup logs deterministically. Preserve borrowed/adopted authority and distinguish own observation slot from another owner's slot.
 - **Product limits:** preserve embedding's existing accounted-but-exempt contract: no reserve_slot/can_admit policy, no new admission or eviction authority, registration remains best-effort/nonfatal after health. No new pre-health reservation/durability guarantee. Retention protects retries only while the owner lives; daemon exit/host death/forced kill can still lose in-memory state. Existing foreign-port cleanup/adoption policy remains separate.
+- **Repair/evidence (13f):** retained exact Popen/slot/pending/singleton, confirmed TERM/KILL final reap, no replacement until cleanup, observation ownership and startup-log cleanup. Non-authoritative lifecycle diagnostics preserve outcomes/original interruption; primary warning cannot skip embedding; inference restarts only current globally serialized singleton. Whole round2 source APPROVED; selected69 passed23 deselected, independent51 passed; actual closed Rich and deterministic singleton-race regressions. `docs/wp2_1_group13f_live_verification.md` first-run PASS verifies eight ordinary owned handles finally reaped, signal/wait/accounting failure retention/retry, no replacement, release-after-reap, dead-handle no group lookup and innocent preservation. Manually attached children/fake slot callbacks; caller races/interrupts unit-only. No model/admission/durability/foreign-port closure.
+
 
 ### [NEW-965] CONFIRMED, Medium — installed command symlinks select the bin directory as repository root
 
@@ -22079,6 +22084,7 @@ timeout-kill-unconfirmed {'returned': True, 'owned_handle_lost': True, 'started'
 
 ### [NEW-967] CONFIRMED, Medium — shell daemon grace expires before bounded owned-child shutdown
 
-- **Status:** Open, architect-confirmed 2026-10-16; independent fixed-profile correction scoped in `docs/wp2_1_group13_scope.md`. No actual model/service reproduction performed.
+- **Status:** FIXED 2026-10-16; finite daemon-only45s-per-phase profile reviewer APPROVED and independent disposable ordinary-child verification PASS. Other-service5s and generic identity API unchanged.
 - **Evidence:** private shell stop omits timeout override; LifecycleRecord.stop defaults to five seconds for each TERM/KILL phase. Daemon shutdown sequentially awaits primary owned cleanup (8+8 seconds) then embedding (5+5) before socket/finalization. A primary ignoring TERM alone can need eight seconds, exceeding the shell's five-second grace, so shell escalation can kill the owner before model cleanup/embedding shutdown finishes. Prior codeydOS also used ten half-second waits; this is a pre-existing budget defect, distinct from b.3's repaired metadata-lock deadlock.
 - **Repair:** finite core-owned daemon/codeyOS profile passes timeout45; other services keep5. Same API budget applies EACH phase (maximum90 seconds), explicitly bounded and no environment/config/user-policy override. Preserve publication, admission, uncertain-exit ownership, adopted authority and signal scope. Verify fake-clock boundaries/identity rechecks and a retained disposable daemon-like child's ordinary cleanup longer than five seconds without forced kill; no real models.
+- **Validation:** frozen two-file source APPROVED; dedicated11 passed1.82s and independent11 passed, fake-clock45/90/other5/10 boundaries and immediate identity rechecks/replacement preservation, profile trace/restart ordering; syntax/Ruff/guards clean. `docs/wp2_1_new967_live_verification.md` PASS: real private canonical profile+validated inheritedFD+identity stop permits six-second ordinary TERM cleanup, normal exit0 after6.190s without KILL, confirmed-dead record cleanup and innocent survival; three owned Popen handles reaped, both source hashes match. This is a lightweight simulated cleanup, not real daemon/model timing.

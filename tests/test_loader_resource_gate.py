@@ -745,6 +745,7 @@ def test_confirm_resident_marks_anyway_after_timeout_with_no_drop(monkeypatch):
 
 
 def test_embed_server_registers_slot_as_resident_on_start(monkeypatch, tmp_path):
+    monkeypatch.setattr(es, "CODEY_STATE_DIR", tmp_path / "embed-state")
     fake_model = tmp_path / "embed.gguf"
     fake_model.write_bytes(b"x" * 4096)
 
@@ -784,6 +785,7 @@ def test_embed_server_registers_slot_as_resident_on_start(monkeypatch, tmp_path)
 
 
 def test_embed_server_releases_slot_on_stop(monkeypatch, tmp_path):
+    monkeypatch.setattr(es, "CODEY_STATE_DIR", tmp_path / "embed-state")
     fake_model = tmp_path / "embed.gguf"
     fake_model.write_bytes(b"x" * 4096)
 
@@ -794,6 +796,9 @@ def test_embed_server_releases_slot_on_stop(monkeypatch, tmp_path):
     fake_process = MagicMock()
     fake_process.poll.return_value = None
     fake_process.pid = 999
+    # A successful wait confirms exit; a perpetually-live poll cannot model reap.
+    fake_process.wait.side_effect = lambda timeout: setattr(fake_process.poll, "return_value", 0) or 0
+
 
     server = es.EmbedServer()
     server.model_path = fake_model
@@ -823,6 +828,7 @@ def test_embed_server_adopts_healthy_occupant_instead_of_killing(monkeypatch, tm
     healthy occupant rather than kill-and-replace it (NEW-146: the daemon's
     own start() calls were not covered by NEW-144's inference.py-only
     guard)."""
+    monkeypatch.setattr(es, "CODEY_STATE_DIR", tmp_path / "embed-state")
     fake_model = tmp_path / "embed.gguf"
     fake_model.write_bytes(b"x" * 4096)
 
@@ -855,6 +861,7 @@ def test_embed_server_adopts_healthy_occupant_instead_of_killing(monkeypatch, tm
 
 
 def test_embed_server_adoption_does_not_double_register_existing_slot(monkeypatch, tmp_path):
+    monkeypatch.setattr(es, "CODEY_STATE_DIR", tmp_path / "embed-state")
     fake_model = tmp_path / "embed.gguf"
     fake_model.write_bytes(b"x" * 4096)
 
@@ -880,6 +887,7 @@ def test_embed_server_still_kills_unhealthy_occupant(monkeypatch, tmp_path):
     """The original NEW-144 threat model (port bound, but NOT answering
     /health) must still hit the kill-and-replace path -- the new adoption
     branch must not swallow this case."""
+    monkeypatch.setattr(es, "CODEY_STATE_DIR", tmp_path / "embed-state")
     fake_model = tmp_path / "embed.gguf"
     fake_model.write_bytes(b"x" * 4096)
 
@@ -900,6 +908,7 @@ def test_embed_server_stop_releases_slot_even_when_adopted(monkeypatch, tmp_path
     self.process is None for an adopted process (never ours to kill) --
     regression test for the leak this same fix introduced and then closed
     in the same round (see stop()'s own docstring)."""
+    monkeypatch.setattr(es, "CODEY_STATE_DIR", tmp_path / "embed-state")
     fake_model = tmp_path / "embed.gguf"
     fake_model.write_bytes(b"x" * 4096)
 

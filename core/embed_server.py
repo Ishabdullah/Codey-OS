@@ -14,7 +14,7 @@ Benefits:
 Lifecycle:
 - Auto-started by daemon (_main_loop) and inference.py (_start_server)
 - Auto-restarted by daemon watchdog every 30s if dead
-- Stopped on daemon shutdown or codeydOS stop (pkill llama-server)
+- Owned child teardown is confirmed/reaped; adopted servers are not signaled
 
 Usage:
     from core.embed_server import get_embed_server, start_embed_server
@@ -22,11 +22,13 @@ Usage:
 """
 
 import os
+import signal
 import subprocess
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from threading import RLock
 from typing import Optional
 
 import core.resource_gate as rg
@@ -35,6 +37,20 @@ from utils.logger import error, info, success, warning
 
 # Host is always localhost
 _HOST = "127.0.0.1"
+
+
+def _diagnostic(log, message):
+    """Console/file logging cannot decide child ownership or cleanup results."""
+    try:
+        log(message)
+    except Exception:
+        # A broken diagnostic sink must not turn confirmed reap into failure,
+        # abandon startup cleanup, or mask the operation's original interrupt.
+        pass
+
+
+class EmbedTeardownError(RuntimeError):
+    """Owned embedding cleanup is incomplete and must be retried."""
 
 
 class EmbedServer:
@@ -51,14 +67,63 @@ class EmbedServer:
         self.process: Optional[subprocess.Popen] = None
         self._started = False
         self._slot_id: Optional[str] = None
+        self._lifecycle_lock = RLock()
+        self._owned_session_pid = None
+        self._cleanup_pending = False
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
+    @property
+    def cleanup_pending(self) -> bool:
+        with self._lifecycle_lock:
+            return self._cleanup_pending
+
     def start(self) -> bool:
-        """Start the embed server subprocess. Idempotent."""
-        # Already running as our own subprocess?
-        if self.process and self.process.poll() is None and self._check_health():
-            return True
+        """Start/adopt only after any previous owned cleanup is resolved."""
+        with self._lifecycle_lock:
+            try:
+                result = self._start()
+            except BaseException as exc:
+                try:
+                    self._cleanup_after_failed_start()
+                except BaseException:
+                    if isinstance(exc, Exception):
+                        raise
+                    # Preserve the original interruption even if cleanup is
+                    # interrupted too; the owned handle/pending state remain.
+                if not isinstance(exc, Exception):
+                    raise
+                _diagnostic(warning, "Embedding startup failed; inspect owned cleanup state before retry")
+                return False
+            if not result:
+                self._cleanup_after_failed_start()
+            return result
+
+    def _cleanup_after_failed_start(self):
+        if self._cleanup_pending:
+            return  # An earlier stop in this attempt already retained retry debt.
+        if self.process is not None or self._slot_id is not None or self._cleanup_pending:
+            try:
+                self.stop()
+            except EmbedTeardownError:
+                _diagnostic(warning, "Embedding startup cleanup pending; replacement blocked")
+
+    def _start(self) -> bool:
+        """Lifecycle lock is held across ownership, startup and accounting."""
+        if self.process is not None:
+            if not self._cleanup_pending and self.process.poll() is None and self._check_health():
+                return True
+            # A dead handle is reaped before any port/PID lookup. A live but
+            # unhealthy owned child follows owned stop, never the foreign killer.
+            try:
+                self.stop()
+            except EmbedTeardownError:
+                return False
+        elif self._cleanup_pending or (self._slot_id is not None and not self._started):
+            try:
+                self.stop()
+            except EmbedTeardownError:
+                return False
 
         # ── Adopt a healthy occupant instead of killing it (NEW-146) ────────
         # NEW-144's original fix only guarded core/inference.py's caller
@@ -81,7 +146,7 @@ class EmbedServer:
         # that failure mode explicit rather than relying on `_check_health()`
         # alone to imply it.
         if self._port_is_bound() and self._check_health():
-            info(f"Adopting already-healthy embed server on port {self.port}, not restarting it")
+            _diagnostic(info, f"Adopting already-healthy embed server on port {self.port}, not restarting it")
             self._started = True
             if self._slot_id is None:
                 try:
@@ -99,8 +164,17 @@ class EmbedServer:
                 except Exception as e:
                     # Accounting-only, same posture as the genuine-spawn
                     # registration below — must never block adoption itself.
-                    warning(f"resource_gate: failed to register adopted embed server slot: {e}")
+                    _diagnostic(warning, f"resource_gate: failed to register adopted embed server slot: {e}")
             return True
+
+        # Detach an observation we registered for a now-unhealthy adopted
+        # occupant before registering a replacement. Borrowed slots were never
+        # assigned to _slot_id and therefore remain untouched.
+        if self._slot_id is not None:
+            try:
+                self.stop()
+            except EmbedTeardownError:
+                return False
 
         # Kill any stale llama-server occupying the embed port — it may have
         # different settings (wrong ctx, old ubatch) from a previous run, OR
@@ -116,25 +190,25 @@ class EmbedServer:
         # reporting a misleading "Timeout waiting for embed server" instead
         # of the real cause.
         if self._port_is_bound():
-            info(f"Stale process on port {self.port} — replacing with fresh embed server...")
+            _diagnostic(info, f"Stale process on port {self.port} — replacing with fresh embed server...")
             if not self._kill_port_occupant():
                 # Occupant PID unknown/unkillable — do not proceed to bind
                 # against a port we couldn't safely clear (see
                 # _kill_port_occupant()'s docstring: never kill by name).
-                error(f"embed_server: could not clear port {self.port}, aborting start")
+                _diagnostic(error, f"embed_server: could not clear port {self.port}, aborting start")
                 return False
 
         if not self.model_path.exists():
-            warning(f"Embed model not found: {self.model_path}")
-            warning("Run: bash tools/setup_skills.sh   to set up the embedding model")
+            _diagnostic(warning, f"Embed model not found: {self.model_path}")
+            _diagnostic(warning, "Run: bash tools/setup_skills.sh   to set up the embedding model")
             return False
 
         llama_bin = Path(LLAMA_SERVER_BIN)
         if not llama_bin.exists():
-            error(f"llama-server binary not found: {LLAMA_SERVER_BIN}")
+            _diagnostic(error, f"llama-server binary not found: {LLAMA_SERVER_BIN}")
             return False
 
-        info(f"Starting embed server (nomic) on port {self.port}...")
+        _diagnostic(info, f"Starting embed server (nomic) on port {self.port}...")
 
         cmd = [
             str(llama_bin),
@@ -160,34 +234,34 @@ class EmbedServer:
         log_file = CODEY_STATE_DIR / "embed-server.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
-        log_fd = open(log_file, "a")
-        log_fd.write(f"\n--- embed server start: {' '.join(cmd)}\n")
-        log_fd.flush()
+        # Close the parent's log stream on every path. Once Popen returns,
+        # ownership is assigned before logging/health/accounting can fail.
+        with open(log_file, "a") as log_fd:
+            log_fd.write(f"\n--- embed server start: {' '.join(cmd)}\n")
+            log_fd.flush()
+            self.process = subprocess.Popen(
+                cmd, stdout=log_fd, stderr=subprocess.STDOUT,
+                preexec_fn=os.setsid if os.name != "nt" else None,
+            )
+            self._owned_session_pid = self.process.pid if os.name != "nt" else None
 
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=log_fd,
-            stderr=subprocess.STDOUT,
-            preexec_fn=os.setsid if os.name != "nt" else None,
-        )
-
-        info(f"Embed server PID: {self.process.pid}, log: {log_file}")
+        _diagnostic(info, f"Embed server PID: {self.process.pid}, log: {log_file}")
 
         # Wait up to 30 s for the server to become healthy
         for _ in range(60):
             time.sleep(0.5)
             if self.process.poll() is not None:
-                error(f"Embed server died (exit {self.process.poll()})")
+                _diagnostic(error, f"Embed server died (exit {self.process.poll()})")
                 try:
                     with open(log_file) as f:
                         tail = f.read()[-800:]
-                    error(f"Embed log tail:\n{tail}")
+                    _diagnostic(error, f"Embed log tail:\n{tail}")
                 except Exception:
                     pass
                 return False
             if self._check_health():
                 self._started = True
-                success(f"Embed server ready on port {self.port}")
+                _diagnostic(success, f"Embed server ready on port {self.port}")
                 # ── Resource gate: accounted-but-exempt (TODO.md 7.4 sub-task 2) ──
                 # The embed server is a third, always-resident model process
                 # (per this module's own docstring: "Never evicted by model
@@ -212,105 +286,90 @@ class EmbedServer:
                     # Accounting-only and exempt from admission by design —
                     # a failure to register must never stop the embed server
                     # itself from starting/serving (it isn't gated on this).
-                    warning(f"resource_gate: failed to register embed server slot: {e}")
+                    _diagnostic(warning, f"resource_gate: failed to register embed server slot: {e}")
                 return True
 
-        error("Timeout waiting for embed server")
-        self.stop()
+        _diagnostic(error, "Timeout waiting for embed server")
         return False
+
+    _STOP_TIMEOUT_S = 5.0
+
+    def _signal_owned(self, proc, requested_signal):
+        """Only the retained live child can anchor its original session group."""
+        if proc.poll() is not None:
+            return
+        if os.name != "nt" and self._owned_session_pid == proc.pid:
+            try:
+                group = os.getpgid(proc.pid)
+                if group == self._owned_session_pid and proc.poll() is None:
+                    os.killpg(group, requested_signal)
+                    return
+            except ProcessLookupError:
+                return  # wait/poll must still establish the child's exit.
+        if requested_signal == signal.SIGKILL:
+            proc.kill()
+        else:
+            proc.terminate()
 
     def stop(self):
-        """Stop the embed server subprocess.
+        """Confirm owned child exit/reap, then release only our registration.
 
-        Only kills the process this object actually holds a `Popen` handle
-        for (`self.process`) — an adopted server (NEW-146's lease/registry
-        fix) is never ours to kill, matching this project's existing
-        "never own what you didn't spawn" posture elsewhere
-        (`core/loader_v2.py`'s reuse branch, CLAUDE.md rule 3). The slot
-        release below is deliberately NOT nested inside the `if
-        self.process:` block: an adopted server still has a real
-        `self._slot_id` (registered for observability), and leaving the
-        release nested there would leak that slot forever on an adopted
-        server's `stop()` — exactly the accounting-blind gap this same
-        round's lease/registry item exists to close, just re-introduced
-        through this method if left as it was.
-
-        NEW-203: `start()`'s adoption branch usually — but not always —
-        leaves `self.process` as `None`. If THIS object's own earlier
-        spawn already died (`self.process` still holds a stale, dead
-        `Popen` handle `start()` hasn't cleared yet) and adoption of a
-        DIFFERENT, healthy occupant then happens before that stale
-        `self.process` is reset, this object ends up with a non-`None`
-        `self.process` even though it adopted, not owned, the real
-        server. In that case the kill logic below still only targets
-        `self.process`'s own PID — its own already-dead prior spawn, not
-        the adopted server — so it harmlessly no-ops (or raises the
-        already-handled `ProcessLookupError`) rather than ever touching
-        the real adopted server it doesn't own.
+        Adopted servers have no owned Popen and are never signaled. A stale
+        handle is polled/reaped before PID lookup: the old NEW-203 claim that
+        signaling a dead child's integer was harmless did not exclude PID reuse.
+        In-memory retention does not survive owner exit or forced termination.
         """
-        if self.process:
-            try:
-                import signal as _signal
-
-                if os.name != "nt":
-                    try:
-                        os.killpg(os.getpgid(self.process.pid), _signal.SIGTERM)
-                    except ProcessLookupError:
-                        self.process.terminate()
-                else:
-                    self.process.terminate()
+        with self._lifecycle_lock:
+            self._cleanup_pending = True
+            self._started = False
+            proc = self.process
+            if proc is not None:
                 try:
-                    self.process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(os.getpgid(self.process.pid), _signal.SIGKILL)
-                    except Exception:
-                        self.process.kill()
-            except Exception:
-                try:
-                    self.process.kill()
-                except Exception:
-                    pass
-            finally:
+                    if proc.poll() is None:
+                        self._signal_owned(proc, signal.SIGTERM)
+                        try:
+                            proc.wait(timeout=self._STOP_TIMEOUT_S)
+                        except subprocess.TimeoutExpired:
+                            self._signal_owned(proc, signal.SIGKILL)
+                            proc.wait(timeout=self._STOP_TIMEOUT_S)
+                    else:
+                        proc.wait(timeout=self._STOP_TIMEOUT_S)
+                    if proc.poll() is None:
+                        raise EmbedTeardownError("Embedding child exit not confirmed")
+                except Exception as exc:
+                    # Do not erase the only handle or release its slot when
+                    # signal/wait fails. Interrupts also retain pending state.
+                    raise EmbedTeardownError("Embedding owned child cleanup pending") from exc
                 self.process = None
-        self._started = False
-        if self._slot_id:
-            try:
-                rg.release_slot(self._slot_id)
-            except Exception as e:
-                # Same posture as the registration try/except above —
-                # accounting-only, must never block the actual stop.
-                warning(f"resource_gate: failed to release embed server slot: {e}")
-            self._slot_id = None
-        info("Embed server stopped")
+                self._owned_session_pid = None
+            if self._slot_id is not None:
+                try:
+                    rg.release_slot(self._slot_id)
+                except Exception as exc:
+                    # Child is reaped, but retain the exact accounting ID for
+                    # retry. False means already absent and is safely resolved.
+                    raise EmbedTeardownError("Embedding slot release pending") from exc
+                self._slot_id = None
+            self._cleanup_pending = False
+            _diagnostic(info, "Embed server stopped")
 
     def is_running(self) -> bool:
-        if self.process is not None and self.process.poll() is None:
-            return True
-        if self._started:
-            return self._check_health()
-        return False
+        with self._lifecycle_lock:
+            if self.process is not None and self.process.poll() is None:
+                return True
+            if self._started:
+                return self._check_health()
+            return False
 
     def is_healthy(self) -> bool:
-        """Public health-check-only probe, independent of whether THIS
-        Python object spawned the embed server (`self.process`/`self._started`
-        are per-process, per-object state — see `is_running()` above and
-        `start()`'s docstring). A real `/health` HTTP request against the
-        known port, so a caller in a different OS process than whichever
-        one actually owns the embed lifecycle (see `NEW-144` in
-        `NEW_ISSUES.md`) can positively confirm "a healthy embed server is
-        already up" without needing `self.process` to be set.
+        """Probe actual health without changing ownership or cleanup state.
 
-        Callers that do NOT own the embed lifecycle (today: only
-        `core/inference.py:_start_server()` — see that module's own
-        comment) MUST call this first and skip `start()` entirely when it
-        returns True, rather than calling `start()` unconditionally:
-        `start()`'s only "already running" fast path checks `self.process`,
-        so a foreign-but-healthy occupant falls through to `start()`'s
-        kill-and-replace branch (`NEW-144`'s exact bug) if this guard isn't
-        applied first.
+        A healthy adopted occupant can answer even when this object has no
+        Popen. Callers must independently inspect cleanup_pending before treating
+        health as permission to skip a required owned-cleanup retry.
         """
-        return self._check_health()
+        with self._lifecycle_lock:
+            return self._check_health()
 
     # ── Health helpers ─────────────────────────────────────────────────────────
 
@@ -617,23 +676,27 @@ class EmbedServer:
 # ── Global singleton ───────────────────────────────────────────────────────────
 
 _embed_server: Optional[EmbedServer] = None
+_embed_server_lock = RLock()
 
 
 def get_embed_server() -> EmbedServer:
     global _embed_server
-    if _embed_server is None:
-        _embed_server = EmbedServer()
-    return _embed_server
+    with _embed_server_lock:
+        if _embed_server is None:
+            _embed_server = EmbedServer()
+        return _embed_server
 
 
 def start_embed_server() -> bool:
-    """Start the global embed server. Idempotent."""
-    return get_embed_server().start()
+    """Start the global embed server. Idempotent and serialized with stop."""
+    with _embed_server_lock:
+        return get_embed_server().start()
 
 
 def stop_embed_server():
-    """Stop the global embed server."""
+    """Clear the singleton only after confirmed child and slot cleanup."""
     global _embed_server
-    if _embed_server is not None:
-        _embed_server.stop()
-        _embed_server = None
+    with _embed_server_lock:
+        if _embed_server is not None:
+            _embed_server.stop()
+            _embed_server = None

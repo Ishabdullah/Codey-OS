@@ -13,7 +13,12 @@ _codey_locked_identity() {
             python3 "$_CODEY_LIFECYCLE_ROOT/core/process_identity.py" inspect "$pid_file" "$service_key" --lock-fd "$lock_fd"
             ;;
         stop)
-            python3 "$_CODEY_LIFECYCLE_ROOT/core/process_identity.py" stop "$pid_file" "$service_key" --lock-fd "$lock_fd"
+            # The daemon sequentially reaps owned primary/embedding children.
+            # identity.stop applies this budget to EACH TERM/KILL phase:
+            # codeyOS allows up to 90s of timed waits; other services retain 10s.
+            local stop_timeout=5
+            [ "$service_key" != codeyOS ] || stop_timeout=45
+            python3 "$_CODEY_LIFECYCLE_ROOT/core/process_identity.py" stop "$pid_file" "$service_key" --timeout "$stop_timeout" --lock-fd "$lock_fd"
             ;;
         reload)
             [ "$service_key" = codeyOS ] || return 2
