@@ -1441,3 +1441,190 @@ claim its remaining action boundaries closed. NEW-939 residual files/KB/export/
 config APIs remain explicitly for further bounded work/final census. NEW-951 is
 group14 protected executable scope; deferred NEW-904/905/913/914 and GCS943/944
 unchanged. No broad group/WP2.1 closure claim follows from these handoffs.
+
+
+## Controlling 13d handoff — refreshed against committed b.3 cdd1343
+
+2026-10-16 source read: lib/service_manager.sh now calls core/service_lifecycle.py
+lock-exec/status/logs; codeydOS lifecycle uses those mechanics and config-create,
+but show_status has an additional model/planner READ heredoc; codey/codey-start/
+codey-stop call aggregate mechanics then parent environment/TUI exec. Existing
+lock_exec os.execvpe replaces its process, so wrapping it in gate_exec IN THAT
+same process would lose the post-operation audit entirely. Older13d subprocess
+suggestions must be interpreted through the concrete hook below. 13f/13g source
+are separate frozen review slices; do not edit core.daemon while those integrate.
+
+### Public gateway, private worker, actual child result
+
+Keep core/service_lifecycle.py as finite public command parser and make each
+complete service operation enter one gateway envelope BEFORE any lock/profile/
+service effects. The execute callback Popen-spawns a fixed installed private
+worker invocation and waits for its actual exit; worker calls existing lock_exec
+(or READ/config-display mechanics) directly. Only after worker completion does
+the callback return normally or raise a static operation-failed exception so
+ActionGateway records ALLOWED/FAILED. No audit-before-exec placeholder, coroutine
+return or parent exec replacement inside gate callback. Preserve actual exit code
+through public CLI; a failed composite notes possible earlier effects without
+claiming rollback/no attempt. Keep stdout/stderr/stdin inherited and streamed,
+never capture/log full service output, config, argv secrets or prompts.
+
+Concrete private-worker pattern: a fixed literal Python bootstrap inserts the
+installed repo path supplied as argv data, imports a private finite function,
+then passes remaining argv data to it. The source string is constant; no caller
+text interpolated. The private function dispatches only the same core-owned
+service/operation map, revalidates finite inputs, and calls lock_exec/status/etc.
+It is an installed private Python mechanism, not an additional supported CLI
+mode. NO public --internal/--skip-audit option, environment bypass, caller-supplied
+approval token, arbitrary function name or shell snippet. Public lock-exec CLI
+itself must be gated, so direct supported use cannot bypass wrapper coverage.
+Do not start worker by recursively calling that gated public CLI.
+
+Direct import/call of private mechanics is not cryptographically prevented;
+a same-UID actor with arbitrary Python execution can call these functions just
+as other core functions. This is the accepted installed-code/private-mechanics
+contract, not a claim to solve NEW-904 or hostile arbitrary code. Preserve actual
+FD/inode validation and fixed profiles. process_identity spawn/stop, parse-ready,
+finite paths and usable-daemon remain subordinate identity/coordination primitives,
+not new agent capabilities or independent arbitrary admin commands. Never expose
+private activation via capability table or claim scalar FD/path is approval.
+
+Worker preserves caller cwd/PATH/state and existing b.3 complete-lock-set order;
+public gateway acquires no lifecycle locks before spawning it. Worker inherits
+no unrelated FDs; only lock_exec deliberately hands its validated selected locks
+to private Bash. Guardian behavior and close-without-LOCK_UN remain unchanged.
+Do not use subprocess.run's exception path to kill the worker on KeyboardInterrupt
+before it resolves owned cleanup. Retain exact Popen and wait its disposition;
+propagate interruption/failure honestly with static audit reason and nonzero
+status. No raw PID signaling, detached retries, timeout-kill shortcut or extra
+service spawn by the public wrapper. Tests pin interrupted wait/guardian paths.
+
+### Finite operation/authority table
+
+- ACT: lock-exec start/stop/restart for one configured service or all; daemon
+  reload; configured model cleanup stop; config-create. Idempotent start/absent
+  stop/optional unavailable service keeps its existing meaningful outcome.
+- READ: status for one/all, logs, redacted config-show, daemon status including
+  its existing model/planner display. Preflight is coordination READ; creating
+  its synchronization metadata belongs inside callback, not source-time code.
+- Internal data/ready primitives: finite paths, usable-daemon, parse-ready and
+  process identity helpers retain narrow subordinate contract, no second public
+  lifecycle action/audit or new authority decision.
+
+Use static action/command labels containing only service/operation. Nonzero
+worker status yields FAILED with its actual exit code and returns that code;
+READ daemon-status1 means its existing absence-status convention, not refusal
+or a statement that no READ occurred. Do not add ACT fail-closed behavior.
+Source/parser validation fails before execution, never prints unknown caller
+payload in diagnostics. Audit sink stays existing best-effort; no recursive
+ledger gate. Help remains local presentation, no service action is implied.
+
+One all-start/stop/restart produces ONE public envelope; nested private service
+steps don't re-enter public CLI. All-restart keeps complete stop-all/start-all
+under existing shared locks and aborts start after failed stop. A caller through
+tools.shell has its own outer command audit, but this does not exempt supported
+standalone service CLI from its own operation envelope.
+
+Move config-show's current root-interpolated python-c implementation into a
+fixed core READ display function/worker; preserve its existing secret-key
+redaction and output intent, do not copy config values into audit. Move codeydOS
+show_status's additional model/planner READ into the finite status worker so
+public status has one complete envelope, not nested svc_status plus unaccounted
+heredoc. Preserve existing status meanings/ports; NEW-410/custom-port debt is not
+silently resolved by this audit wrapper. Dedicated tests cover public commands,
+not merely direct gateway helpers.
+
+### Bootstrap and fixed CLI boundary
+
+codey default/prompt passthrough, codey-start and codey start-with-prompt audit
+only the service-start phase. After successful callback result the original
+parent shell prepares write-free CODEY_DIR/PYTHONPATH/credential-path environment
+and execs codeyOS with original argv. Failed bootstrap never launches TUI. Do not
+make the gateway parent supervise the entire TUI lifetime or alter its signal/
+exit behavior. 13g fixed client owns safe transport/fidelity; direct conversational
+main execution still obtains its existing actual tool/action gates, not advance
+authorization of arbitrary future actions from this service-start envelope.
+
+### Native daemon mutations and NEW-966
+
+After13f/13g integrate, gate actual synchronous enqueue/cancel operations inside
+async handlers using gate_exec and sync thunks. Never pass a coroutine to the
+sync gateway or record success before awaited work. Server gate covers direct
+socket callers as well as fixed CLI. Validate existing request semantics; ACT
+no-confirmation behavior unchanged. DB exception and normal status=error result
+must not be audited ALLOWED. Capture original response privately and raise only
+a static safe failure marker inside thunk; map decision back to original response
+without prompt/detail leakage. Post-commit episodic logging failure is separate
+bookkeeping, not refusal or proof mutation never happened. Preserve committed
+result and report warning; avoid retry-causing false failure where practical.
+
+Known synchronous READ response handlers (ping/status/health/task) may use the
+same sync-response helper with READ to make their concrete disposition explicit;
+no model/load or new capability classification. Planning-only async oracle is
+subordinate configured inference under existing group9 mechanism contract; its
+critical independent mutation bypass is removed by NEW-966, not by pretending
+its async operation ran inside a sync callback.
+
+NEW-966 is now coordinator-ledger Confirmed Medium. ALL plan_only=True outcomes
+return plan/no-plan and never add_task: multi-step,one-step,empty,None,no_plan,
+timeout/connection/generic planner failure. Existing oracle client returns only
+lists length>1 and otherwise performs local direct fallback. Supported response:
+status ok, task_ids[], plan steps or []; no queued task_id. Preserve intended
+plan_only=False operator background enqueue and needs_planning/no_plan flags.
+Correct NEW-112/documentation's stale no-background-caller claim; codeyOS --bg
+actually submits command without plan_only. No new yolo/spending/promotion policy.
+
+### Tests/dependencies/retained boundaries
+
+13g is required for truthful child exit/data transport;13f and13h remain required
+owned lifecycle/activation repairs. Public whole-operation tests exercise all
+wrappers (including symlink installation), direct service_lifecycle public CLI,
+exactly one row/composite, restart no nested rows, actual exit7 and partial2,
+unsafe identity/refusal no worker, worker interruption waits actual cleanup,
+bootstrap before fake TUI and argv/env/exit preservation, static audit no marker
+secret, config/status READ coverage and no source-time directory creation.
+
+Native handler tests and actual disposable DaemonServer/SQLite UDS: direct
+command adds one audited task; cancel outcomes truthful; planning-only mocked
+planner matrix produces zero tasks and real planner_service no-plan fallback.
+No full Daemon, watchdog, model, cloud/recipient or existing service. Every setup/
+backup/secrets/Litestream effect remains allowlisted/stubbed before public service
+fixtures, with exact Popen finally cleanup. Independent reviewer and disposable
+verification required; no broad suite/model run is implied.
+
+Remaining NEW-939 generic taskqueue JSON persistence/config setters/CLI ignore/
+CODEY.md/sessions/voice/design/KB/export/model artifacts require their own caller-
+level scopes, not admin exemptions. NEW-951 protected code is group14. Installer
+and standalone setup/backup scripts require final15 caller disposition; merely
+being operator scripts is insufficient. Preserve relative-path decision pending
+Ish, deferred904/905/913/914 and GCS943/944. No whole group/WP2.1 closure from13d.
+
+## NEW-967 — finite daemon shutdown grace (independent profile correction)
+
+Coordinator-selected Confirmed Medium, preexisting budget defect; header967 was
+absent at source inspection. Different from b.3 metadata-lock deadlock. Actual
+lib/service_lifecycle.sh _codey_locked_identity stop invokes process_identity stop
+without --timeout, whose default is5 seconds EACH TERM/KILL phase. Daemon finally
+sequentially awaits primary stop8+8 and embedding stop5+5, then socket/finalization.
+Thus primary ignoring TERM alone can consume8>5; caller can forcibly kill daemon
+before its owned model cleanup/embedding stage finishes. Old codeydOS used10
+iterations of sleep.5 before forced kill, so this is not introduced by13f/b.3.
+
+Narrow fix in fixed private service profile/table: daemon (canonical key codeyOS)
+stop passes --timeout45; every other service retains5. Applies to direct daemon
+stop/restart and daemon phase of all-stop/restart through the same one helper.
+No environment/config/user CLI policy override; no publication, admission,
+authority, adopted-process or embedded-child kill scope changes. Existing stop
+API uses the supplied budget for EACH phase: daemon maximum90 seconds is explicit.
+Do not quietly assume total45 or introduce a new generic timeout API in this slice.
+45 covers current sequential owned-child26-second waits plus finalization margin;
+it is not a guarantee against arbitrary hung work/IO or shutdown failure.
+
+Tests: fixture command trace proves only codeyOS receives45 and other profiles5;
+fake-clock real stop control flow emits no KILL at5/8/26, emits KILL at45 if still
+running, preserves45 final confirmation budget and identity rechecks/replacements.
+Daemon restart never starts replacement before stop completes. Real disposable
+daemon-like Python child handles TERM, simulates ordinary cleanup longer than5
+seconds, then exits normally; parent helper must observe normal exit without
+KILL. Retain exact handles/finally cleanup; no slow models or actual daemon.
+Fixed-clock tests cover45/90 boundaries quickly. Mandatory reviewer plus disposable
+process verification; can implement independently from frozen13f/13g source.

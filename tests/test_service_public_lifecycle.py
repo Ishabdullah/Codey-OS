@@ -148,15 +148,13 @@ if args == ['-']:
     record('model-status-stub'); print('Model: fixture disabled'); sys.exit(0)
 if len(args) > 1 and args[:2] == ['-m', 'telemetry.cli']:
     record('metrics-stub', argv=args[2:], cwd=os.getcwd()); sys.exit(17)
-if args and Path(args[0]).parent == Path(os.environ['CODEY_STATE_DIR']) and Path(args[0]).name.startswith('status_') and os.environ.get('FIXTURE_ALLOW_RPC') == '1':
-    source = Path(args[0]).read_text()
-    if 'health = send_command("health", {})' not in source: blocked()
-    record('status-rpc-fixture')
-    os.execv(sys.executable, [sys.executable, *args])
-if args and Path(args[0]).parent == Path(os.environ['CODEY_STATE_DIR']) and Path(args[0]).name.startswith('run_'):
-    source = Path(args[0]).read_text()
-    if 'from main import main' not in source: blocked()
-    record('direct-main-stub', argv=args[1:], cwd=os.getcwd()); sys.exit(0)
+if args and args[0] == str(root / 'core/cli_client.py'):
+    if args[1:] == ['status'] and os.environ.get('FIXTURE_ALLOW_RPC') == '1':
+        record('status-rpc-fixture')
+        os.execv(sys.executable, [sys.executable, *args])
+    if args[1:] == ['plain prompt'] or args[1:] == ['hello']:
+        record('direct-main-stub', argv=args[1:], cwd=os.getcwd()); sys.exit(0)
+    blocked()
 blocked()
 '''
 

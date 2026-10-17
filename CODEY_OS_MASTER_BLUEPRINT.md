@@ -3120,7 +3120,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > rounds; coordinator 77 passed, two existing warnings; seven disposable
 > lifecycle scenarios PASS, all fixture children reaped. NEW-953 logs
 > pre-existing post-spawn registration partial failure, repaired in 13h below;
-> NEW-954/955 codeyOS generated-source/exit residuals are required 13g work.
+> NEW-954/955 generated-source/exit residuals were repaired in 13g below.
 > **13c.1 is code-complete, source reviewer APPROVED and independently
 > disposable-process verified** (NEW-958): strict durable identity/locks,
 > daemon/loader writers, fail-closed cross-process control. Final guarded
@@ -3177,7 +3177,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > Additional live-caller scope: NEW-965 installed-symlink root mismatch across
 > all six wrappers is included in b.3. NEW-966 planning-only fallback enqueue
 > is open for 13d; actual server enqueue/cancel need ACT boundaries. 13g fixes
-> CLI data transport/exit fidelity (NEW-954/955) before audit; 13h plugin
+> CLI data transport/exit fidelity (NEW-954/955), completed below before audit; 13h plugin
 > activation staging/rollback/owned cleanup (NEW-953) is complete, source
 > reviewer APPROVED round 3 and resumed disposable-process verified. Staged
 > validation, exact rollback and retained failed cleanup; both dispatch paths
@@ -3200,7 +3200,19 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > parent-held model lock. Public application launch is simulated; no model or
 > installed-service/audit claim. Legacy codeyOS RPC status still writes a
 > temporary script pending13g; NEW-959 relative path choice remains pending.
-> Next 13g/13f and 13d; groups 14/15 follow. Ownership repairs alone do not
+> **13g complete, source reviewer APPROVED and actual public-client/UDS
+> verification PASS (NEW-954/955 fixed):** fixed argv/JSON client replaces all
+> generated Python/temp cleanup; positive IDs before connection, lazy main,
+> real error/timeout and foreground return/interrupt/signal fidelity. Dedicated
+> 156 passed, independent156 passed, existing public47 passed. Actual configured
+> identity/socket transport preserves quoted/newline payloads; invalid input
+> makes no requests, no generated programs, all fixture handles/sockets cleaned.
+> Main/responses are fixtures, no application execution or server authority claim.
+> NEW-967 Medium additionally confirms a pre-existing shutdown-budget mismatch:
+> shell daemon TERM5s can expire before primary8+8/embedding5+5 cleanup.
+> Independent finite daemon45s-per-phase correction is scoped/open; other
+> service budgets and all authority/admission policies remain unchanged.
+> Next 13f, NEW-967 budget correction and 13d; groups 14/15 follow. Ownership repairs alone do not
 > close operation audit coverage; no full WP2.1 closure claim.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
