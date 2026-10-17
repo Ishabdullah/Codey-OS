@@ -3276,7 +3276,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 >
 > **Group 14 update (2026-10-17, later): slices 14a-ext, 14e, 14f, 14g
 > executed after Ish answered the forks ("go with what you recommend");
-> code complete and code-reviewer APPROVED, NOT live-verified, pending commit
+> code complete and code-reviewer APPROVED, NOT live-verified, committed as `96ad7f4`
 > (uncommitted in the working tree); group14 stays OPEN.** Fork decisions:
 > fork 1 "Codey itself" = `core, tools, utils, prompts` + `ccos/plugins/**` +
 > `bench/**` (recursive `*.py`); fork 2 LoRA adopt AND rollback need a real
