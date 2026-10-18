@@ -3277,7 +3277,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > **Group 14 update (2026-10-17, later): slices 14a-ext, 14e, 14f, 14g
 > executed after Ish answered the forks ("go with what you recommend");
 > code complete and code-reviewer APPROVED, NOT live-verified, committed as `96ad7f4`
-> (uncommitted in the working tree); group14 stays OPEN.** Fork decisions:
+> (committed as `96ad7f4`); group14 stays OPEN.** Fork decisions:
 > fork 1 "Codey itself" = `core, tools, utils, prompts` + `ccos/plugins/**` +
 > `bench/**` (recursive `*.py`); fork 2 LoRA adopt AND rollback need a real
 > per-attempt `/dev/tty` confirmation, `--lora-force-adopt` is not itself the
@@ -3323,8 +3323,8 @@ reviewed by `/root/code_reviewer`, APPROVED).
 >
 > **Group 14 update (2026-10-18): slice 14i (NEW-939 low-severity writers +
 > fork 6) executed after Ish's "carry on as you recommend"; code complete,
-> code-reviewer APPROVED after 3 review rounds, NOT live-verified, pending
-> commit.** (Note: the "uncommitted in the working tree" parenthetical in the
+> code-reviewer APPROVED after 3 review rounds, NOT live-verified, committed as `3981457`
+> (pushed).** (Note: the "uncommitted in the working tree" parenthetical in the
 > preceding paragraph is stale; 14a-ext/14e/14f/14g were committed as `96ad7f4`.)
 > `core/bookkeeping_persist.py` (new, `persist_coalesced`); `save_session`,
 > `clear_session`, `TaskQueue.save`, voice `_save_config` and
