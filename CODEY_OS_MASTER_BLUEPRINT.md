@@ -3349,7 +3349,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > then `pop` once; nothing lost (hashes matched), no other agent was running.
 > **Status:** slices executed 14a, 14b, 14c, 14d, 14a-ext, 14e, 14f, 14g, 14i
 > (14h dropped by fork 3); **group 14 execution is complete as scoped but the
-> group stays OPEN**: 14i uncommitted, only 14d live-verified, NEW-975 residual
+> group stays OPEN**: 14i committed as `3981457`, 14b/14c/14d/14e and NEW-971 live-verified (with limits), NEW-975 residual
 > (launchers, `lib/`, `main.py` not in roots), NEW-904/905/913/914 deferred,
 > NEW-959 unanswered, fork 3b flake8/mypy disabled, the finetune bypass, and
 > residuals NEW-983..993. Group13 OPEN (NEW-972 unscoped; NEW-971 not live-
