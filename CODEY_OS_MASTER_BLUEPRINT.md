@@ -3354,6 +3354,40 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > NEW-959 unanswered, fork 3b flake8/mypy disabled, the finetune bypass, and
 > residuals NEW-983..993. Group13 OPEN (NEW-972 unscoped; NEW-971 not live-
 > verified); group15 (final census) NOT started; WP2.1 NOT closed.
+>
+> **Live-verification and linter-fix update (2026-10-18; tiers kept distinct).**
+> **LIVE-VERIFIED on-device, with limits:** NEW-971 (`876e1b6`; fake peer CLIs
+> only, real `core.peer_cli`/pty/gateway audit file/blackboard; real Ctrl-C
+> delivery NOT proven, case 3d patched `console.input`; a nonzero-exit peer
+> returns `[PEER_ERROR: <peer> failed — exited with code N]` via
+> `run_prompted`, while the literal `[PEER_ERROR: peer escalation failed]`
+> applies only when `mgr.call` raises) — `docs/wp2_1_new971_live_verification.md`;
+> and slices 14b (`/undo`, 44/44; real Ctrl-C at the prompt NOT verified),
+> 14c (ruff envelope, 28/28) and 14e (LoRA adopt/rollback tty gate, 69/69,
+> including a real `^C`) — `docs/wp2_1_group14_b_c_e_live_verification.md`
+> (faked: loader stub, fake `convert-lora.py`, tiny files, fake flake8/mypy).
+> Device finding NEW-996: a real `^C`/SIGINT on a pty does not interrupt Python
+> `input()` here (it does interrupt `os.read`). **The live run also found a
+> pre-existing bug, NEW-995:** `core/linter.py` `_parse_colon_format` silently
+> dropped every ruff violation when cwd was an ancestor of the file's directory
+> (false-clean in auto-lint, `/review`, CCOS static_analysis). **Fix: code
+> complete, code-reviewer APPROVED round 3 (after two CHANGES REQUESTED), pending
+> commit, NOT live-verified beyond the reviewer's real-ruff runs:** structural
+> regex parser, fail-visible `LINT-PARSE` synthetic issue on unparsed output,
+> a 104-name `_ERROR_RULE_NAMES` literal generated from ruff 0.17.1 plus a drift
+> test; ruff syntax errors now carry severity error and are shown to the model
+> in write results (previously logged as warnings only); new
+> `tests/test_linter_output_parsing.py`; 124 passed. Residuals NEW-998; the
+> implementer wrote the first rule-name set from memory (rule 12) and the
+> reviewer caught it (NEW-999). **Decisions (Ish, 2026-10-18):** live
+> verifications first (done); NEW-959 = require absolute daemon paths, to be
+> scoped and implemented as its own slice (NOT done); NEW-972 explicitly
+> DEFERRED (no production `wait=False` caller). **Status:** group 13 open only
+> for the NEW-972 deferral and NEW-970 residuals; group 14 execution complete
+> as scoped but OPEN (NEW-975 residual, NEW-904/905/913/914, fork 3b, NEW-992
+> finetune bypass, residuals NEW-983..999; 14a/14f/14g/14i not individually
+> live-verified); next: the NEW-959 slice, then group 15 (final census /
+> adversarial verification); WP2.1 NOT closed.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

@@ -15,6 +15,7 @@ User can override by setting CODEY_LINTER env var to "ruff", "flake8", etc.
 
 import ast
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -55,37 +56,216 @@ def check_syntax(content: str, filename: str = "<string>") -> Optional[str]:
 # ── Output parsers ─────────────────────────────────────────────────────────────
 
 
+# 'path:line:col: CODE message'. The path is matched non-greedily up to the first
+# ':<digits>:<digits>: ' so a path containing ':' still parses UNLESS it itself
+# contains a ':<digits>:<digits>: ' sequence (then the match splits early, the path
+# no longer resolves to the file, and the line surfaces as LINT-PARSE, fail-visible).
+_COLON_LINE_RE = re.compile(r"^(?P<path>.+?):(?P<line>\d+):(?P<col>\d+): (?P<rest>\S.*)$")
+_FOUND_RE = re.compile(r"^Found (\d+) errors?\.?$")
+# Lines ruff/flake8 print that are neither violations nor failures.
+_NOISE_PREFIXES = ("All checks", "[*]", "No fixes available", "warning:")
+
+# Severity rule (applied to the normalized code: trailing ':' stripped):
+#   1. Classic codes (ruff/flake8 'F401', 'E501', 'E999', 'I001', ...): first letter
+#      E or F -> "error", anything else -> "warning". Unchanged from before.
+#   2. ruff 0.17 prints kebab-case rule NAMES instead of codes (e.g. 'unused-import'
+#      for F401, 'lambda-assignment' for E731 in preview mode). Names carry no
+#      category letter, so EXACT membership in _ERROR_RULE_NAMES -> "error"; every
+#      other name -> "warning". There is deliberately NO substring matching
+#      (RUF027 'missing-f-string-syntax' is a warning).
+# _ERROR_RULE_NAMES provenance: generated from ruff 0.17.1 on 2026-10-18 via
+#   ruff rule --all --output-format json
+# = names of all rules whose code matches ^[EF]\d (103 rules, includes preview-only
+# ones and E999 'syntax-error'), plus 'invalid-syntax' (ruff's code-less parse-error
+# name; it is emitted in output but absent from the rule dump) = 104 names.
+# MUST be regenerated when ruff is upgraded; test_error_rule_names_match_ruff_dump
+# fails on drift.
+_ERROR_RULE_NAMES = frozenset(
+    {
+        "ambiguous-class-name",
+        "ambiguous-function-name",
+        "ambiguous-variable-name",
+        "assert-tuple",
+        "bare-except",
+        "blank-line-after-decorator",
+        "blank-line-between-methods",
+        "blank-lines-after-function-or-class",
+        "blank-lines-before-nested-definition",
+        "blank-lines-top-level",
+        "break-outside-loop",
+        "continue-outside-loop",
+        "default-except-not-last",
+        "expressions-in-star-assignment",
+        "f-string-missing-placeholders",
+        "forward-annotation-syntax-error",
+        "future-feature-not-defined",
+        "if-tuple",
+        "import-shadowed-by-loop-var",
+        "indentation-with-invalid-multiple",
+        "indentation-with-invalid-multiple-comment",
+        "invalid-print-syntax",
+        "invalid-syntax",
+        "io-error",
+        "is-literal",
+        "lambda-assignment",
+        "late-future-import",
+        "line-too-long",
+        "missing-whitespace",
+        "missing-whitespace-after-keyword",
+        "missing-whitespace-around-arithmetic-operator",
+        "missing-whitespace-around-bitwise-or-shift-operator",
+        "missing-whitespace-around-modulo-operator",
+        "missing-whitespace-around-operator",
+        "missing-whitespace-around-parameter-equals",
+        "mixed-spaces-and-tabs",
+        "module-import-not-at-top-of-file",
+        "multi-value-repeated-key-literal",
+        "multi-value-repeated-key-variable",
+        "multiple-imports-on-one-line",
+        "multiple-leading-hashes-for-block-comment",
+        "multiple-spaces-after-comma",
+        "multiple-spaces-after-keyword",
+        "multiple-spaces-after-operator",
+        "multiple-spaces-before-keyword",
+        "multiple-spaces-before-operator",
+        "multiple-starred-expressions",
+        "multiple-statements-on-one-line-colon",
+        "multiple-statements-on-one-line-semicolon",
+        "no-indented-block",
+        "no-indented-block-comment",
+        "no-space-after-block-comment",
+        "no-space-after-inline-comment",
+        "none-comparison",
+        "not-in-test",
+        "not-is-test",
+        "over-indented",
+        "percent-format-expected-mapping",
+        "percent-format-expected-sequence",
+        "percent-format-extra-named-arguments",
+        "percent-format-invalid-format",
+        "percent-format-missing-argument",
+        "percent-format-mixed-positional-and-named",
+        "percent-format-positional-count-mismatch",
+        "percent-format-star-requires-sequence",
+        "percent-format-unsupported-format-character",
+        "raise-not-implemented",
+        "redefined-while-unused",
+        "redundant-backslash",
+        "return-outside-function",
+        "string-dot-format-extra-named-arguments",
+        "string-dot-format-extra-positional-arguments",
+        "string-dot-format-invalid-format",
+        "string-dot-format-missing-arguments",
+        "string-dot-format-mixing-automatic",
+        "syntax-error",
+        "tab-after-comma",
+        "tab-after-keyword",
+        "tab-after-operator",
+        "tab-before-keyword",
+        "tab-before-operator",
+        "too-few-spaces-before-inline-comment",
+        "too-many-blank-lines",
+        "true-false-comparison",
+        "type-comparison",
+        "undefined-export",
+        "undefined-local",
+        "undefined-local-with-import-star",
+        "undefined-local-with-import-star-usage",
+        "undefined-local-with-nested-import-star-usage",
+        "undefined-name",
+        "unexpected-indentation",
+        "unexpected-indentation-comment",
+        "unexpected-spaces-around-keyword-parameter-equals",
+        "unused-annotation",
+        "unused-import",
+        "unused-variable",
+        "useless-semicolon",
+        "whitespace-after-decorator",
+        "whitespace-after-open-bracket",
+        "whitespace-before-close-bracket",
+        "whitespace-before-parameters",
+        "whitespace-before-punctuation",
+        "yield-outside-function",
+    }
+)
+
+
+def _normalize_code(code: str) -> str:
+    """Strip the trailing ':' ruff 0.17 prints after rule names ('invalid-syntax:')."""
+    return code.rstrip(":") or code
+
+
+def _severity_for(code: str) -> str:
+    """Severity for a normalized lint code; see the rule table above."""
+    if code in _ERROR_RULE_NAMES:
+        return "error"
+    return "error" if code[0] in ("E", "F") else "warning"
+
+
+def _same_file(displayed: str, filepath: str) -> bool:
+    """True if a path as printed by the linter names the same file as filepath.
+
+    ruff prints cwd-relative paths for files under cwd and absolute ones
+    otherwise, so compare by resolved identity rather than by string prefix.
+    """
+    try:
+        shown = Path(displayed)
+        if not shown.is_absolute():
+            shown = Path(os.getcwd()) / shown
+        return shown.resolve() == Path(filepath).resolve()
+    except (OSError, ValueError, RuntimeError):
+        # Unresolvable path: cannot prove identity; the caller then reports the
+        # line as unparsed (fail-visible), never as clean.
+        return False
+
+
 def _parse_colon_format(output: str, filepath: str) -> List[LintIssue]:
     """
     Parse standard 'file:line:col: CODE message' format used by ruff and flake8.
+
+    Lines are attributed to filepath when their path resolves to the same file
+    (absolute, cwd-relative, bare basename or './'-prefixed). Fail-visible: if
+    the output reports violations that could not be parsed, a single synthetic
+    LINT-PARSE issue is appended instead of silently returning a clean result.
     """
-    issues = []
-    fname = Path(filepath).name
+    issues: List[LintIssue] = []
+    unparsed = 0
+    expected = 0
     for raw_line in output.splitlines():
         line = raw_line.strip()
-        if not line or line.startswith("Found") or line.startswith("All checks"):
+        if not line:
             continue
-        # Strip leading filename prefix if present
-        for prefix in (filepath + ":", fname + ":"):
-            if line.startswith(prefix):
-                line = line[len(prefix) :]
-                break
-        parts = line.split(":", 2)
-        if len(parts) >= 3:
-            try:
-                lineno = int(parts[0])
-                col = int(parts[1]) if parts[1].strip().isdigit() else 0
-                rest = parts[2].strip()
-                # Split code from message: "E302 expected 2 blank lines..."
-                space = rest.find(" ")
-                code = rest[:space].strip() if space > 0 else rest
-                msg = rest[space + 1 :].strip() if space > 0 else ""
-                if not code:
-                    continue
-                severity = "error" if code and code[0] in ("E", "F") else "warning"
-                issues.append(LintIssue(filepath, lineno, col, code, msg, severity))
-            except (ValueError, IndexError):
-                continue
+        found = _FOUND_RE.match(line)
+        if found:
+            expected = int(found.group(1))
+            continue
+        if line.startswith(_NOISE_PREFIXES):
+            continue
+        m = _COLON_LINE_RE.match(line)
+        if m and _same_file(m.group("path"), filepath):
+            rest = m.group("rest").strip()
+            space = rest.find(" ")
+            code = _normalize_code(rest[:space].strip() if space > 0 else rest)
+            msg = rest[space + 1 :].strip() if space > 0 else ""
+            severity = _severity_for(code)
+            issues.append(
+                LintIssue(filepath, int(m.group("line")), int(m.group("col")), code, msg, severity)
+            )
+        else:
+            unparsed += 1
+    if unparsed or expected > len(issues):
+        issues.append(
+            LintIssue(
+                filepath,
+                0,
+                0,
+                "LINT-PARSE",
+                f"linter reported violations that could not be parsed "
+                f"({expected} reported, {len(issues)} parsed, {unparsed} unrecognised line(s)); "
+                "run the linter directly",
+                "error",
+            )
+        )
     return issues
 
 
