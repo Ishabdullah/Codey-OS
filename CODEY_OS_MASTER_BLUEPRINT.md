@@ -3320,6 +3320,40 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > at HEAD (NEW-987); other residuals NEW-988..991. **Not started: 14i** (voice
 > config, `--finetune` export, session/queue saves; fork 6). Group14 OPEN;
 > group13 OPEN; group15 not started; WP2.1 not closed.
+>
+> **Group 14 update (2026-10-18): slice 14i (NEW-939 low-severity writers +
+> fork 6) executed after Ish's "carry on as you recommend"; code complete,
+> code-reviewer APPROVED after 3 review rounds, NOT live-verified, pending
+> commit.** (Note: the "uncommitted in the working tree" parenthetical in the
+> preceding paragraph is stale; 14a-ext/14e/14f/14g were committed as `96ad7f4`.)
+> `core/bookkeeping_persist.py` (new, `persist_coalesced`); `save_session`,
+> `clear_session`, `TaskQueue.save`, voice `_save_config` and
+> `prepare_finetune_data` now run through `gate_exec` as ACT. Fork 6 mechanism:
+> `gate_exec` takes an optional `coalesce_key`; a per-instance LRU (cap 1024)
+> of `sha256(len(action):action NUL key)` -> last outcome skips a row only for
+> allowed-after-allowed / failed-after-failed, honored ONLY for ACT; the first
+> row, outcome changes and every refusal are always written; keys are never
+> logged; default `None` is byte-identical to HEAD. Design history: round 1
+> ("gate once per target then write directly") was CHANGES REQUESTED (policy not
+> re-consulted on later saves, unbounded failure volume); round 2 gated every
+> save and coalesced in the gateway, APPROVED with W1/W2 (fixed, round 3
+> APPROVED). 154 passed in the final gateway-group run; reviewer mutation
+> checks (ACT guard removal fails 3 tests, digest revert fails 1). One known
+> failing test is pre-existing (NEW-987, identical at HEAD). **Honest limits:**
+> the finetune plugin (`export_dataset`, `generate_notebook`, `_write_jsonl`)
+> is NOT enveloped (NEW-992), so finetune is not claimed covered; repeat saves
+> are not individually audited and coalesce state is per process (NEW-993); ACT
+> has no refusal policy, so this is audit plus a future-policy hook, not
+> enforcement; `clear_session`/`TaskQueue.save` raise `RuntimeError` on a
+> future refusal. Incident NEW-994: the implementer subagent ran `git stash`
+> then `pop` once; nothing lost (hashes matched), no other agent was running.
+> **Status:** slices executed 14a, 14b, 14c, 14d, 14a-ext, 14e, 14f, 14g, 14i
+> (14h dropped by fork 3); **group 14 execution is complete as scoped but the
+> group stays OPEN**: 14i uncommitted, only 14d live-verified, NEW-975 residual
+> (launchers, `lib/`, `main.py` not in roots), NEW-904/905/913/914 deferred,
+> NEW-959 unanswered, fork 3b flake8/mypy disabled, the finetune bypass, and
+> residuals NEW-983..993. Group13 OPEN (NEW-972 unscoped; NEW-971 not live-
+> verified); group15 (final census) NOT started; WP2.1 NOT closed.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

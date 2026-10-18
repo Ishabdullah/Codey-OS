@@ -855,6 +855,47 @@ def prepare_finetune_data(
     """
     Main entry point for fine-tuning data preparation.
 
+    The whole export (output directory, dataset files, notebooks) runs as one
+    audited ACT envelope with a static label. Exceptions from the export,
+    including export-hygiene fail-closed errors, propagate unchanged; the
+    audit row carries no paths, counts or example content.
+    """
+    from core.action_gateway import ACT, get_action_gateway
+
+    outcome = {}
+    original_error = None
+
+    def run():
+        nonlocal original_error
+        try:
+            outcome["results"] = _prepare_finetune_data(days, min_quality, model_variant, output_dir)
+        except Exception as exc:
+            # gate_exec audits str(exc) (may hold paths/content): audit fixed
+            # text, then re-raise the original to the caller below.
+            original_error = exc
+            raise RuntimeError("finetune export failed") from None
+        return "finetune export finished"
+
+    decision = get_action_gateway().gate_exec(
+        authority=ACT,
+        action="finetune_prep.prepare_finetune_data",
+        command="export finetune dataset",
+        confirm_available=False,
+        execute=run,
+    )
+    if not decision.allowed:
+        if original_error is not None:
+            raise original_error
+        return {"error": f"Finetune export {decision.outcome}: {decision.reason}"}
+    return outcome["results"]
+
+
+def _prepare_finetune_data(
+    days: int, min_quality: float, model_variant: str, output_dir: Optional[str]
+) -> Dict[str, str]:
+    """
+    Fine-tuning data preparation body (see prepare_finetune_data).
+
     Args:
         days: Days of history to include
         min_quality: Minimum quality threshold

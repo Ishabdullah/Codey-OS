@@ -54,19 +54,43 @@ class VoiceManager:
             pass  # silently fall back to defaults
 
     def _save_config(self):
-        """Persist voice settings to disk."""
-        try:
-            _VOICE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            data = {
-                "enabled": self.enabled,
-                "tts_rate": self.tts_rate,
-                "tts_pitch": self.tts_pitch,
-                "tts_engine": self.tts_engine,
-                "tts_language": self.tts_language,
-            }
-            _VOICE_CONFIG_PATH.write_text(json.dumps(data, indent=2))
-        except Exception:
-            pass
+        """Persist voice settings to disk (ACT, audited; best-effort).
+
+        Failure stays non-raising, as before: the setters and turn_on/turn_off
+        must not start raising because a config file could not be written.
+        """
+        from core.action_gateway import ACT, get_action_gateway
+
+        data = {
+            "enabled": self.enabled,
+            "tts_rate": self.tts_rate,
+            "tts_pitch": self.tts_pitch,
+            "tts_engine": self.tts_engine,
+            "tts_language": self.tts_language,
+        }
+
+        def persist():
+            try:
+                _VOICE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                _VOICE_CONFIG_PATH.write_text(json.dumps(data, indent=2))
+            except Exception:
+                # Fixed text only: gate_exec audits str(exc), which carries
+                # the config path.
+                raise RuntimeError("voice config write failed") from None
+            return "voice config persisted"
+
+        # Outcome intentionally not acted on. A refused or failed decision is
+        # already recorded in the audit ledger by gate_exec, nothing was (or
+        # only partially could be) written, and the in-memory settings remain
+        # authoritative for this session, so swallowing here is safe and
+        # matches the previous silent-failure behavior.
+        get_action_gateway().gate_exec(
+            authority=ACT,
+            action="voice.save_config",
+            command="persist voice_config.json",
+            confirm_available=False,
+            execute=persist,
+        )
 
     # ── Availability ─────────────────────────────────────────────────────────
 

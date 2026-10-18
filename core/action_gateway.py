@@ -41,9 +41,12 @@ reimplementing file-write mechanics. Actual file writes are delegated to
 before-self-modification, snapshotting), never duplicated here.
 """
 
+import hashlib
 import json
 import os
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -63,6 +66,11 @@ AUTHORITY_CLASSES = (READ, ACT, HIGH_IMPACT)
 OUTCOME_ALLOWED = "allowed"
 OUTCOME_REFUSED = "refused"
 OUTCOME_FAILED = "failed"
+
+# Cap on distinct coalesce keys remembered per ActionGateway (gate_exec's
+# optional `coalesce_key`). Least-recently-used keys are evicted past this;
+# eviction can only cause an extra audit row, never a missing one.
+COALESCE_MAX_KEYS = 1024
 
 
 @dataclass
@@ -134,10 +142,39 @@ class ActionGateway:
 
     def __init__(self, audit_file: Optional[Path] = None):
         self._audit_file = audit_file
+        # digest(action, coalesce_key) -> last outcome recorded for it.
+        self._coalesce: "OrderedDict[str, str]" = OrderedDict()
+        self._coalesce_lock = threading.Lock()
 
     def _audit(self, **fields: Any) -> None:
         record = {"ts": time.time(), **fields}
         _append_audit(record, self._audit_file)
+
+    def _audit_exec(self, coalesce_key: Optional[str], **fields: Any) -> None:
+        """Audit a gate_exec outcome, optionally suppressing a repeat row.
+
+        With `coalesce_key=None` this is exactly `_audit`. With a key, the
+        row is skipped only when the previous outcome recorded for the same
+        (action, key) was the same non-refused outcome. The first row, any
+        outcome change, and every refusal are written. The key is hashed and
+        held in memory only; it never reaches the ledger. State is updated
+        even if the best-effort sink write fails (a lost row is not retried).
+        """
+        if coalesce_key is None:
+            self._audit(**fields)
+            return
+        outcome = fields["outcome"]
+        digest = hashlib.sha256(
+            f"{len(fields['action'])}:{fields['action']}\0{coalesce_key}".encode("utf-8", "surrogatepass")
+        ).hexdigest()
+        with self._coalesce_lock:
+            repeat = outcome != OUTCOME_REFUSED and self._coalesce.get(digest) == outcome
+            self._coalesce[digest] = outcome
+            self._coalesce.move_to_end(digest)
+            while len(self._coalesce) > COALESCE_MAX_KEYS:
+                self._coalesce.popitem(last=False)
+        if not repeat:
+            self._audit(**fields)
 
     def gate_write(
         self,
@@ -364,6 +401,7 @@ class ActionGateway:
         confirm_available: bool,
         execute: Callable[[], str],
         confirm: Optional[Callable[[], bool]] = None,
+        coalesce_key: Optional[str] = None,
     ) -> GatewayDecision:
         """Mediate a shell-exec through an arbitrary `execute` thunk.
 
@@ -388,9 +426,21 @@ class ActionGateway:
             confirm: optional human confirmation callback, called once only
                 for HIGH_IMPACT with an available path. Decline or callback
                 failure refuses without executing; READ/ACT ignore it.
+            coalesce_key: optional in-memory identity (e.g. a file path) for
+                high-frequency repeat actions. Policy, confirmation and
+                execution are unaffected (every call is fully mediated); only
+                the audit row is suppressed when the previous outcome for the
+                same (action, key) was identical and not a refusal. Refusals
+                and outcome changes are always written; the key is never
+                recorded. None (default) audits every call. Honored only
+                for authority == ACT; for READ and HIGH_IMPACT it is ignored
+                (treated as None) so a high-impact action never loses an
+                allowed/failed audit row.
         """
         if authority not in AUTHORITY_CLASSES:
             raise ValueError(f"Unknown authority class: {authority!r}")
+        if authority != ACT:
+            coalesce_key = None
 
         if authority == HIGH_IMPACT and not confirm_available:
             # Ish's decision (final): HIGH_IMPACT with no confirmation
@@ -403,7 +453,8 @@ class ActionGateway:
                 "failing closed per policy (not attempted).",
                 detail={"action": action, "command": command},
             )
-            self._audit(
+            self._audit_exec(
+                coalesce_key,
                 authority=authority,
                 action=action,
                 command=command,
@@ -431,7 +482,8 @@ class ActionGateway:
                     reason=reason,
                     detail={"action": action, "command": command},
                 )
-                self._audit(
+                self._audit_exec(
+                    coalesce_key,
                     authority=authority,
                     action=action,
                     command=command,
@@ -452,7 +504,8 @@ class ActionGateway:
                 reason=str(e),
                 detail={"action": action, "command": command},
             )
-            self._audit(
+            self._audit_exec(
+                coalesce_key,
                 authority=authority,
                 action=action,
                 command=command,
@@ -472,7 +525,8 @@ class ActionGateway:
         # be arbitrarily large or contain secrets, and the ledger's job
         # is recording that an action happened and how it was classified,
         # not mirroring full command output to disk.
-        self._audit(
+        self._audit_exec(
+            coalesce_key,
             authority=authority,
             action=action,
             command=command,

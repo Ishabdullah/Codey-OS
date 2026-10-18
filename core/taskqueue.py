@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+from core.bookkeeping_persist import persist_coalesced
+
 SESSIONS_DIR = Path.home() / ".codey_sessions"
 
 STATUS_PENDING = "pending"
@@ -83,7 +85,6 @@ class TaskQueue:
     def _queue_path(self):
         if self._path:
             return self._path
-        SESSIONS_DIR.mkdir(exist_ok=True)
         key = hashlib.md5(self.project_dir.encode()).hexdigest()[:8]
         proj = Path(self.project_dir).name
         ts = datetime.now().strftime("%H%M%S")
@@ -99,7 +100,23 @@ class TaskQueue:
             "created_at": self.created_at,
             "tasks": [asdict(t) for t in self.tasks],
         }
-        path.write_text(json.dumps(data, indent=2))
+
+        def write():
+            SESSIONS_DIR.mkdir(exist_ok=True)
+            path.write_text(json.dumps(data, indent=2))
+
+        # Every planned task saves: gated on every save, audit rows coalesced
+        # per queue file (the name embeds a creation timestamp).
+        ok, error, reason = persist_coalesced(
+            action="taskqueue.save",
+            command="persist task queue file",
+            target_key=str(path),
+            write=write,
+        )
+        if not ok:
+            if error is not None:
+                raise error
+            raise RuntimeError(f"Task queue persistence refused: {reason}")
 
     @classmethod
     def load(cls, path):

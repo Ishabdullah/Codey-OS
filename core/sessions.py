@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from core.bookkeeping_persist import persist_coalesced
 from utils.logger import info, success, warning
 
 SESSIONS_DIR = Path.home() / ".codey_sessions"
@@ -37,9 +38,10 @@ def redact_secrets(text: str) -> str:
     return text
 
 
-def _session_path(project_dir: str = None) -> Path:
+def _session_path(project_dir: str = None, create: bool = True) -> Path:
     """Get session file path for a project directory."""
-    SESSIONS_DIR.mkdir(exist_ok=True)
+    if create:
+        SESSIONS_DIR.mkdir(exist_ok=True)
     cwd = project_dir or os.getcwd()
     # Hash the path to make a safe filename
     key = hashlib.sha256(cwd.encode()).hexdigest()[:12]
@@ -52,7 +54,8 @@ def save_session(history: list, project_dir: str = None, max_turns: int = 6):
     """Save conversation history to disk. Keeps last max_turns turns."""
     if not history:
         return
-    path = _session_path(project_dir)
+    # Pure path computation: the directory is created inside the mediated write.
+    path = _session_path(project_dir, create=False)
     # Keep only recent history and redact secrets
     keep = history[-max_turns * 2 :]
     safe_history = []
@@ -67,10 +70,22 @@ def save_session(history: list, project_dir: str = None, max_turns: int = 6):
         "turns": len(safe_history) // 2,
         "history": safe_history,
     }
-    try:
+
+    def write():
+        SESSIONS_DIR.mkdir(exist_ok=True)
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except Exception as e:
-        warning(f"Could not save session: {e}")
+
+    # Every turn: gated on every save, audit rows coalesced per session file
+    # (see core/bookkeeping_persist.py).
+    ok, error, reason = persist_coalesced(
+        action="sessions.save_session",
+        command="persist session file",
+        target_key=str(path),
+        write=write,
+    )
+    if not ok:
+        # Saving stays best-effort for the REPL (nine call sites): warn, never raise.
+        warning(f"Could not save session: {error if error is not None else reason}")
 
 
 def load_session(project_dir: str = None, path: str = None, max_age_hours: int = 2) -> list:
@@ -107,9 +122,34 @@ def load_session(project_dir: str = None, path: str = None, max_age_hours: int =
 
 def clear_session(project_dir: str = None):
     """Delete saved session for current project."""
-    path = _session_path(project_dir)
+    path = _session_path(project_dir, create=False)
     if path.exists():
-        path.unlink()
+        from core.action_gateway import ACT, get_action_gateway
+
+        original_error = None
+
+        def remove():
+            nonlocal original_error
+            try:
+                path.unlink()
+            except Exception as exc:
+                # Audit a fixed text (str(exc) carries the path); the caller
+                # still sees the original exception below.
+                original_error = exc
+                raise RuntimeError("session removal failed") from None
+            return "session cleared"
+
+        decision = get_action_gateway().gate_exec(
+            authority=ACT,
+            action="sessions.clear_session",
+            command="clear session file",
+            confirm_available=False,
+            execute=remove,
+        )
+        if not decision.allowed:
+            if original_error is not None:
+                raise original_error
+            raise RuntimeError(f"Session clear {decision.outcome}: {decision.reason}")
         success("Session cleared.")
     else:
         info("No saved session found.")
