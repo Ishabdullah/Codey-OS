@@ -142,7 +142,7 @@ def _worker_main(values):
         elif values[0] == "status":
             return mechanics.status(values[1])
         elif values[0] == "logs":
-            mechanics.show_logs(values[1])
+            return mechanics.show_logs(values[1])
         elif values[0] == "config-create":
             from core.daemon_config import create_default_config
             print(f"Default config created at: {create_default_config()}")
@@ -153,7 +153,15 @@ def _worker_main(values):
             _show_daemon_models()
             return result
         return 0
-    except Exception:  # noqa: BLE001 - retain ownership/sanitize private failures
+    except Exception as error:  # noqa: BLE001 - retain ownership/sanitize private failures
+        # A path refusal carries an operator-safe message (field + escaped value);
+        # every other failure stays the fixed sanitized text.
+        mechanics = sys.modules.get("core.service_lifecycle")
+        config = sys.modules.get("core.daemon_config")
+        if ((mechanics is not None and isinstance(error, mechanics.ServicePathRefused))
+                or (config is not None and isinstance(error, config.DaemonPathError))):
+            print(str(error), file=sys.stderr)
+            return 2
         print("Service mechanics unavailable or unsafe.", file=sys.stderr)
         return 2
 

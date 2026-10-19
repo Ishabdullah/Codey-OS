@@ -611,6 +611,12 @@ Custom-path reconciliation is coordinator-ledger NEW-959, Medium, scoped here.
 
 ## Relative configured daemon paths — superseding refinement
 
+**Historical options notice (2026-10-18):** Ish selected absolute-only refusal.
+S1-S3 are implemented, reviewer-approved and live-verified; see
+`docs/wp2_1_new959_scope.md` and `docs/wp2_1_new959_live_verification.md`.
+The option-B/option-C discussion below is retained as decision history, not
+current implementation guidance.
+
 This supersedes the earlier sentence preserving invoking-cwd relative semantics.
 Actual launch trace: codeydOS199 nohup inherits caller cwd; its generated script
 only sets sys.path/CODEY_DIR around190-192. codey's $(cd ... && pwd) locates the

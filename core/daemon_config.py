@@ -7,8 +7,9 @@ Provides defaults for all settings.
 """
 
 import json
+import os
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Dict, Optional
 
 from utils.config import (CODEY_STATE_DIR, DAEMON_CONFIG_FILE, DAEMON_LOG_FILE,
@@ -17,6 +18,44 @@ from utils.config import (CODEY_STATE_DIR, DAEMON_CONFIG_FILE, DAEMON_LOG_FILE,
 # Configuration directory
 CONFIG_DIR = CODEY_STATE_DIR
 CONFIG_FILE = DAEMON_CONFIG_FILE
+
+_MAX_PATH_BYTES = 4096
+
+
+class DaemonPathError(ValueError):
+    """An effective daemon path is not a usable absolute path (NEW-959)."""
+
+
+def _refusal(field, value, source):
+    shown = repr(value)[:120]
+    message = f"Daemon path {field} must be absolute; got {shown} ({source})."
+    if field.startswith("daemon."):
+        message += (" If a daemon was started under this relative value, set the key to"
+                    " the absolute location it was started in before stopping it; tools"
+                    " will not scan for, adopt, move or stop it.")
+    elif field == "CODEY_STATE_DIR":
+        message += (" Set CODEY_STATE_DIR to an absolute directory; the tools will not"
+                    " scan for or stop a daemon started under a relative root.")
+    return DaemonPathError(message)
+
+
+def validate_daemon_path(field, value, source):
+    """Predicate only: never abspath/normpath/resolve/anchor a value."""
+    text = str(value) if isinstance(value, PurePath) else value
+    if not isinstance(text, str) or not text or "\0" in text:
+        raise _refusal(field, value, source)
+    try:
+        too_long = len(os.fsencode(text)) > _MAX_PATH_BYTES
+    except UnicodeError:
+        too_long = True
+    if too_long or not PurePath(text).is_absolute():
+        raise _refusal(field, value, source)
+
+
+def require_absolute_state_root():
+    """A relative CODEY_STATE_DIR also relocates config.json and the defaults."""
+    validate_daemon_path("CODEY_STATE_DIR", str(CODEY_STATE_DIR), "state directory")
+
 
 # Default configuration
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -122,6 +161,7 @@ class DaemonConfig:
 
     def create_default_config(self) -> Path:
         """Create a default config file if it doesn't exist."""
+        resolve_daemon_paths(self)
         if not self.config_file.exists():
             self.config_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.config_file, "w") as f:
@@ -167,17 +207,31 @@ class DaemonPaths:
     socket_file: Path
     log_file: Path
 
+    def __post_init__(self):
+        for name in ("pid_file", "socket_file", "log_file"):
+            validate_daemon_path(f"daemon.{name}", getattr(self, name), "path snapshot")
+
 
 def resolve_daemon_paths(config=None):
     """Read configured daemon paths without creating state directories.
 
-    Absolute custom values remain absolute. Relative values currently retain
-    their existing invoking-cwd interpretation; the product decision on their
-    supported future interpretation remains separately pending.
+    Each effective value (after default merge and leading-~ expansion) must be
+    a non-empty absolute path; relative values and a relative CODEY_STATE_DIR
+    are refused with DaemonPathError, never anchored, resolved or rewritten.
     """
     selected = get_config() if config is None else config
-    return DaemonPaths(
-        pid_file=Path(selected.get("daemon", "pid_file", default=str(DAEMON_PID_FILE))),
-        socket_file=Path(selected.get("daemon", "socket_file", default=str(DAEMON_SOCKET_FILE))),
-        log_file=Path(selected.get("daemon", "log_file", default=str(DAEMON_LOG_FILE))),
-    )
+    require_absolute_state_root()
+    source = f"config file {getattr(selected, 'config_file', CONFIG_FILE)}"
+    defaults = {"pid_file": DAEMON_PID_FILE, "socket_file": DAEMON_SOCKET_FILE, "log_file": DAEMON_LOG_FILE}
+    values = {}
+    for name, default in defaults.items():
+        field = f"daemon.{name}"
+        configured = selected.all.get("daemon", {})
+        original = configured.get(name, str(default)) if isinstance(configured, dict) else str(default)
+        try:
+            value = selected.get("daemon", name, default=str(default))
+        except (TypeError, RuntimeError):  # e.g. ~nosuchuser expansion
+            raise _refusal(field, original, source) from None
+        validate_daemon_path(field, value, source)
+        values[name] = Path(value)
+    return DaemonPaths(**values)

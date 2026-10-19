@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from core.action_gateway import ACT, OUTCOME_ALLOWED, READ, get_action_gateway
-from core.daemon_config import get_config, resolve_daemon_paths
+from core.daemon_config import DaemonPathError, get_config, resolve_daemon_paths
 from core.state import StateStore, get_state_store
 from core.task_executor import TaskExecutor, emit_task_timeout_correction
 from utils.config import CODEY_STATE_DIR
@@ -130,8 +130,9 @@ def check_pid_file(paths=None) -> bool:
             if observed.state == DEAD:
                 return not record.cleanup(observed)
             return True
-    except (OSError, UnsafeRecord):
-        # Inaccessible/malformed identity is not permission to spawn another.
+    except (OSError, UnsafeRecord, DaemonPathError):
+        # Inaccessible/malformed identity (or an invalid configured path) is not
+        # permission to spawn another.
         return True
 
 
@@ -2388,10 +2389,22 @@ def daemon_ping() -> Dict:
 
 
 def main(*, paths=None):
-    """Start with the handed path snapshot, or resolve once for direct CLI."""
+    """Start with the handed path snapshot, or resolve once for direct CLI.
+
+    An invalid (non-absolute) configured path exits 2 before any side effect.
+    """
     config = get_config()
     if paths is None:
-        paths = resolve_daemon_paths(config)
+        try:
+            paths = resolve_daemon_paths(config)
+        except DaemonPathError as refusal:
+            # Exit 2 is distinct from the duplicate-block exit 1. This refusal runs
+            # before the pid file, lock, socket, logs, models or any daemon work.
+            # Import-time state creation by other modules (e.g. a relative
+            # CODEY_STATE_DIR creating state.db/checkpoints on `python -m
+            # core.daemon`, NEW-855 class) can precede it: known separate residual.
+            error(str(refusal))
+            sys.exit(2)
     if check_pid_file(paths):
         error("Daemon startup blocked by a running daemon or unsafe/unverifiable process record")
         sys.exit(1)

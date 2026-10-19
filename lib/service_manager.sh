@@ -2,7 +2,6 @@
 # Public service orchestration; identity mechanics live in fixed core profiles.
 # Sourcing only prepares functions/environment names and never creates state.
 CODEY_OS_DIR="${CODEY_OS_DIR:-$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)}"
-DAEMON_DIR="${CODEY_STATE_DIR:-$HOME/.codeyOS}"
 source "$CODEY_OS_DIR/lib/bootstrap_environment.sh"
 
 svc_operation() {

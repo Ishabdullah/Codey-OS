@@ -6,6 +6,15 @@ Default location: `~/.codeyOS/config.json`
 
 Generate with: `codeydOS config`
 
+`CODEY_STATE_DIR` must be an absolute directory. Effective daemon
+`pid_file`, `socket_file`, and `log_file` values must also be absolute after
+a leading `~/` is expanded. Values such as `./state`, `$HOME/state`, and
+bare relative paths are refused; environment variables inside path values are
+not expanded. The service tools do not guess a previous working directory,
+migrate relative records, or scan for a daemon started under an invalid path.
+Correct the configured value to its absolute location before attempting to
+stop such a daemon.
+
 ```json
 {
   "daemon": {
@@ -30,6 +39,9 @@ Generate with: `codeydOS config`
   }
 }
 ```
+
+The displayed `state.db_path` key is currently documentary only; the live
+state store does not read it. Use `CODEY_STATE_DIR` to select the state root.
 
 ---
 

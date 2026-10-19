@@ -3388,6 +3388,19 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > finetune bypass, residuals NEW-983..999; 14a/14f/14g/14i not individually
 > live-verified); next: the NEW-959 slice, then group 15 (final census /
 > adversarial verification); WP2.1 NOT closed.
+>
+> **Status update (2026-10-18, later) — NEW-959 COMPLETE.** The selected
+> absolute-only policy landed as three reviewed slices: S1 validates effective
+> daemon/config/client paths and refuses before lifecycle effects; S2 adds
+> private shell and process-identity CLI defense in depth; S3 applies the state
+> root rule to all six non-daemon lifecycle records and snapshots litestream
+> cwd. All three received mandatory lifecycle-reviewer approval and disposable
+> on-device PASS. The initial S1 live run found and drove repair of a real
+> `codeydOS config` bypass. Final regression: 540 passed; see
+> `docs/wp2_1_new959_live_verification.md`. NEW-959 is FIXED; excluded residual
+> surfaces are NEW-1000..1005. **Next: group 15 final census / adversarial
+> verification. WP2.1 remains OPEN until that census reconciles groups 13/14
+> residuals and the full definition of done.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

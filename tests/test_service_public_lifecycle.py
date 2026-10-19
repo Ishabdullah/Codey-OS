@@ -342,7 +342,7 @@ def test_installed_relative_symlink_chain_with_spaces_resolves_real_root(harness
         assert event["cwd"] == str(ROOT) and child.returncode == 17
 
 
-@pytest.mark.parametrize("values", [[], ["p", "s"], ["p", "s", "l", "extra"], ["", "s", "l"], ["p\0", "s", "l"], ["p" * 4097, "s", "l"]])
+@pytest.mark.parametrize("values", [[], ["p", "s"], ["p", "s", "l", "extra"], ["", "s", "l"], ["p\0", "s", "l"], ["p" * 4097, "s", "l"], ["relative p", "/custom socket", "/custom log"], ["/p", "rel/s", "/l"], ["/p", "/s", "./l"]])
 def test_daemon_bootstrap_rejects_invalid_path_schema_before_import(values, monkeypatch):
     calls = []
     monkeypatch.setitem(sys.modules, "core.daemon", SimpleNamespace(main=lambda **kwargs: calls.append(kwargs)))
@@ -354,8 +354,8 @@ def test_daemon_bootstrap_rejects_invalid_path_schema_before_import(values, monk
 def test_daemon_bootstrap_hands_snapshot_to_shared_guard_without_reselection(monkeypatch):
     calls = []
     monkeypatch.setitem(sys.modules, "core.daemon", SimpleNamespace(main=lambda **kwargs: calls.append(kwargs)))
-    daemon_bootstrap.main(["relative p", "/custom socket", "/custom log"])
-    assert [str(value) for value in (calls[0]["paths"].pid_file, calls[0]["paths"].socket_file, calls[0]["paths"].log_file)] == ["relative p", "/custom socket", "/custom log"]
+    daemon_bootstrap.main(["/absolute p", "/custom socket", "/custom log"])
+    assert [str(value) for value in (calls[0]["paths"].pid_file, calls[0]["paths"].socket_file, calls[0]["paths"].log_file)] == ["/absolute p", "/custom socket", "/custom log"]
 
 
 @pytest.mark.parametrize("service,function", [("aigentik", "aigentik"), ("litestream", "litestream"), ("backup-docs", "backup_docs")])
@@ -547,6 +547,32 @@ def test_codeydos_config_creates_only_selected_disposable_config(harness):
     audit = [json.loads(line) for line in (harness.root / "audit.jsonl").read_text().splitlines()]
     assert len(audit) == 1 and audit[0]["authority"] == "ACT" and audit[0]["outcome"] == "allowed"
     assert not any(event["label"].startswith("identity:") for event in events(harness))
+
+
+def test_codeydos_config_refuses_existing_relative_daemon_paths_unchanged(harness):
+    harness.state.mkdir()
+    config = harness.state / "config.json"
+    config.write_text(json.dumps({"daemon": {"pid_file": "relative.pid"}}))
+    before = config.read_bytes()
+
+    result = run_public(harness, "codeydOS", "config")
+
+    assert result.returncode == 2
+    assert "daemon.pid_file" in result.stderr and "absolute" in result.stderr
+    assert "Default config created" not in result.stdout + result.stderr
+    assert config.read_bytes() == before
+    assert not any(
+        event["label"].startswith("identity:")
+        or event["label"] == "profile"
+        or event["label"].endswith("-stub")
+        for event in events(harness)
+    )
+    assert not list(harness.state.glob("*.pid"))
+    assert not list(harness.state.glob("*.lifecycle.lock"))
+    audit = [json.loads(line) for line in (harness.root / "audit.jsonl").read_text().splitlines()]
+    assert len(audit) == 1
+    assert audit[0]["action"] == "service.config-create"
+    assert audit[0]["authority"] == "ACT" and audit[0]["outcome"] == "failed"
 
 
 def test_public_client_requires_identity_and_uses_one_custom_socket_snapshot(harness):

@@ -167,6 +167,138 @@ def test_finite_operations_reject_arbitrary_dispatch_before_root_creation(sandbo
     assert not sandbox.state.exists() and not sandbox.trace.exists()
 
 
+@pytest.mark.parametrize("operation", ["preflight", "stop", "reload"])
+def test_shell_identity_refuses_relative_pid_before_interpreter(sandbox, operation):
+    script = 'source "$1"; _codey_locked_identity 200 "$2" codeyOS relative.pid'
+    result = subprocess.run(
+        [str(sandbox.bin / "bash"), "-c", script, "fixture", str(LIBRARY), operation],
+        env=sandbox.env, capture_output=True, text=True, timeout=5, check=False,
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (2, "", "")
+    assert not sandbox.state.exists() and not sandbox.trace.exists()
+    assert list(sandbox.root.glob("*.lifecycle.lock")) == []
+
+
+@pytest.mark.parametrize(
+    "pid_file,log_file,service_cwd",
+    [
+        ("relative.pid", "/absolute log", "/absolute cwd"),
+        ("/absolute pid", "relative.log", "/absolute cwd"),
+        ("/absolute pid", "/absolute log", "relative-cwd"),
+    ],
+)
+def test_shell_spawn_refuses_each_relative_path_before_effects(
+    sandbox, pid_file, log_file, service_cwd
+):
+    script = (
+        'source "$1"; _codey_spawn_owned 200 codeyOS '
+        '"$2" "$3" "$4" fixture-command'
+    )
+    result = subprocess.run(
+        [
+            str(sandbox.bin / "bash"), "-c", script, "fixture",
+            str(LIBRARY), pid_file, log_file, service_cwd,
+        ],
+        env=sandbox.env, capture_output=True, text=True, timeout=5, check=False,
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (2, "", "")
+    assert not sandbox.state.exists() and not sandbox.trace.exists()
+    assert list(sandbox.root.glob("*.lifecycle.lock")) == []
+
+
+@pytest.mark.parametrize("operation", ["record", "inspect", "cleanup", "signal", "stop"])
+def test_identity_cli_regular_operations_refuse_relative_pid_exactly(
+    monkeypatch, capsys, operation
+):
+    forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("must not be reached on refusal")
+    )
+    monkeypatch.setattr(identity, "inspect_record", forbidden)
+    monkeypatch.setattr(identity.LifecycleRecord, "__enter__", forbidden)
+    monkeypatch.setattr(identity.os, "kill", forbidden)
+    monkeypatch.setattr(identity.os, "killpg", forbidden)
+    args = [operation, "relative.pid", "fixture"]
+    if operation == "record":
+        args.extend(["--pid", "12345"])
+    assert identity.main(args) == 2
+    captured = capsys.readouterr()
+    assert captured.out == identity.UNSAFE + "\n" and captured.err == ""
+
+
+@pytest.mark.parametrize(
+    "pid_file,log_file,cwd",
+    [
+        ("relative.pid", "/absolute log", "/absolute cwd"),
+        ("/absolute pid", "relative.log", "/absolute cwd"),
+        ("/absolute pid", "/absolute log", "relative-cwd"),
+    ],
+)
+def test_identity_spawn_cli_refuses_each_relative_path_exactly(
+    monkeypatch, capsys, pid_file, log_file, cwd
+):
+    forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("must not be reached on refusal")
+    )
+    monkeypatch.setattr(identity, "_ready_pipe", forbidden)
+    monkeypatch.setattr(identity.LifecycleRecord, "__enter__", forbidden)
+    monkeypatch.setattr(identity, "OwnedLaunch", forbidden)
+    monkeypatch.setattr(identity.subprocess, "Popen", forbidden)
+    monkeypatch.setattr(identity.os, "kill", forbidden)
+    monkeypatch.setattr(identity.os, "killpg", forbidden)
+    args = [
+        "spawn", "--pid-file", pid_file, "--service", "fixture",
+        "--lock-fd", "200", "--ready-fd", "201",
+        "--log-file", log_file, "--cwd", cwd, "--", "fixture-command",
+    ]
+    assert identity.main(args) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "Owned service launch failed\n"
+
+
+def test_identity_cli_accepts_literal_absolute_spaces_dotdot_and_omitted_cwd(
+    monkeypatch, capsys
+):
+    calls = []
+
+    class Record:
+        def __init__(self, pid_file, service, lock_fd=None):
+            calls.append(("record", pid_file, service, lock_fd))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Launch:
+        handed_off = False
+
+        def __init__(self, record, argv, **kwargs):
+            calls.append(("launch", argv, kwargs))
+
+        def run(self):
+            return 0
+
+    monkeypatch.setattr(identity, "_ready_pipe", lambda ready_fd, lock_fd: 201)
+    monkeypatch.setattr(identity, "LifecycleRecord", Record)
+    monkeypatch.setattr(identity, "OwnedLaunch", Launch)
+    assert identity.main([
+        "spawn", "--pid-file", "/tmp/with space/../service.pid",
+        "--service", "fixture", "--lock-fd", "200",
+        "--ready-fd", "201", "--log-file", "/tmp/log space/../service.log",
+        "--", "fixture-command",
+    ]) == 0
+    assert calls == [
+        ("record", "/tmp/with space/../service.pid", "fixture", 200),
+        ("launch", ["fixture-command"], {
+            "log_file": "/tmp/log space/../service.log", "ready_fd": 201,
+            "cwd": None, "startup_delay": 0.5, "timeout": 5.0,
+        }),
+    ]
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
 @contextmanager
 def protocol_shell(sandbox, mode, disposition="unchanged"):
     outer = identity.LifecycleRecord(sandbox.pid, "fixture").__enter__()
@@ -317,11 +449,12 @@ def test_missing_config_path_resolution_does_not_create_root(sandbox):
     assert not sandbox.state.exists()
 
 
-def test_relative_custom_paths_are_not_reinterpreted_pending_product_choice(sandbox):
+def test_relative_custom_paths_are_refused_not_reinterpreted(sandbox):
     sandbox.state.mkdir()
     (sandbox.state / "config.json").write_text(json.dumps({"daemon": {"pid_file": "custom.pid", "socket_file": "custom.sock", "log_file": "custom.log"}}))
-    rc, data, _ = private_path_data(sandbox.env)
-    assert rc == 0 and json.loads(data) == {"pid": "custom.pid", "socket": "custom.sock", "log": "custom.log"}
+    rc, data, stderr = private_path_data(sandbox.env)
+    assert rc == 2 and data == b""
+    assert b"daemon.pid_file" in stderr and b"absolute" in stderr and b"custom.pid" in stderr
 
 
 def test_delayed_valid_retained_result_survives_default_cleanup_budget(sandbox):

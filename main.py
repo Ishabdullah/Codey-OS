@@ -151,7 +151,14 @@ def _daemon_is_running() -> bool:
         from core.daemon import is_daemon_running
 
         return is_daemon_running()
-    except Exception:
+    except Exception as error:
+        # False stays False (shutdown still unloads only this process's own
+        # model), but an invalid configured daemon path must not read as a
+        # silent "no daemon" (NEW-959).
+        config_module = sys.modules.get("core.daemon_config")
+        refusal = getattr(config_module, "DaemonPathError", None)
+        if refusal is not None and isinstance(error, refusal):
+            warning(f"Daemon path configuration refused: {error}")
         return False
 
 
@@ -2234,10 +2241,15 @@ def main():
         import dataclasses
         import json
 
+        from core.daemon_config import DaemonPathError
         from core.observability import status as _observability_status
         from core.resource_gate import get_resource_snapshot
 
-        payload = _observability_status()
+        try:
+            payload = _observability_status()
+        except DaemonPathError as refusal:
+            print(str(refusal), file=sys.stderr)
+            sys.exit(2)
         payload["resources"] = dataclasses.asdict(get_resource_snapshot())
         print(json.dumps(payload, indent=2, default=str))
         return

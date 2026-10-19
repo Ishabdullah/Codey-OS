@@ -2,8 +2,13 @@
 # Private sourced mechanics only. No top-level service dispatch or directory write.
 _CODEY_LIFECYCLE_ROOT="$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
 
+_codey_absolute_path() {
+    case "$1" in /*) return 0 ;; *) return 1 ;; esac
+}
+
 _codey_locked_identity() {
     local lock_fd="$1" operation="$2" service_key="$3" pid_file="$4"
+    _codey_absolute_path "$pid_file" || return 2
     case "$service_key" in
         codeyOS|restoricon-api|aigentik|litestream|cloudflared|backup-docs|llama-server-8080) ;;
         *) return 2 ;;
@@ -40,6 +45,9 @@ _codey_wait_owned_job() {
 _codey_spawn_owned() {
     local lock_fd="$1" service_key="$2" pid_file="$3" log_file="$4" service_cwd="$5"
     shift 5
+    _codey_absolute_path "$pid_file" || return 2
+    _codey_absolute_path "$log_file" || return 2
+    _codey_absolute_path "$service_cwd" || return 2
     case "$lock_fd" in 200|210|211|212|213|214|215) ;; *) return 2 ;; esac
     local -a child_argv=("$@")
     local helper_job original_read original_write ready_read parsed result

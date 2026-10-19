@@ -9,7 +9,6 @@ CODEY_OS_DIR="$(cd -- "${_CODEY_SCRIPT%/*}" && pwd -P)" || exit 2
 unset _CODEY_SCRIPT
 
 export CODEY_OS_DIR
-DAEMON_DIR="${CODEY_STATE_DIR:-$HOME/.codeyOS}"
 source "$CODEY_OS_DIR/lib/service_manager.sh"
 
 show_status() {

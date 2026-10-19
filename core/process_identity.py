@@ -609,6 +609,10 @@ def _spawn_main(argv):
         parser.add_argument("--timeout", type=float, default=5.0)
         parser.add_argument("command", nargs=argparse.REMAINDER)
         args = parser.parse_args(argv)
+        if not args.pid_file.startswith("/") or not args.log_file.startswith("/"):
+            raise UnsafeRecord("Owned service paths must be absolute")
+        if args.cwd is not None and not args.cwd.startswith("/"):
+            raise UnsafeRecord("Owned service paths must be absolute")
         ready_fd = _ready_pipe(args.ready_fd, args.lock_fd)
         if not args.command or args.command[0] != "--":
             raise UnsafeRecord("Service argv delimiter required")
@@ -657,6 +661,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     result = UNSAFE
     try:
+        if not args.pid_file.startswith("/"):
+            raise UnsafeRecord("Service PID path must be absolute")
         if args.operation == "inspect" and args.lock_fd is None:
             result = inspect_record(args.pid_file, args.service).state
         else:

@@ -41,6 +41,10 @@ _LOCK_NUMBERS = (200, 210, 211, 212, 213, 214, 215)  # 201 is the private readin
 
 
 
+class ServicePathRefused(identity.UnsafeRecord):
+    """A configured lifecycle path was refused; the message is operator-safe."""
+
+
 @dataclass(frozen=True)
 class ServicePaths:
     key: str
@@ -50,7 +54,7 @@ class ServicePaths:
 
 
 def service_paths(service):
-    """Resolve one snapshot; relative configured values retain current meaning."""
+    """Resolve one lifecycle path snapshot; unsafe values are refused."""
     if service not in _SERVICES:
         raise identity.UnsafeRecord("Unknown configured service")
     key, stem = _SERVICES[service]
@@ -59,13 +63,21 @@ def service_paths(service):
         # belong to stderr, never a finite path data channel.
         with contextlib.redirect_stdout(sys.stderr):
             if __package__:
-                from .daemon_config import resolve_daemon_paths
+                from .daemon_config import DaemonPathError, resolve_daemon_paths
             else:
                 sys.path.insert(0, str(_REPO_ROOT))
-                from core.daemon_config import resolve_daemon_paths
-            selected = resolve_daemon_paths()
+                from core.daemon_config import DaemonPathError, resolve_daemon_paths
+            try:
+                selected = resolve_daemon_paths()
+            except DaemonPathError as error:
+                raise ServicePathRefused(str(error)) from None
         return ServicePaths(key, selected.pid_file, selected.log_file, selected.socket_file)
     root = Path(os.environ.get("CODEY_STATE_DIR") or Path.home() / ".codeyOS")
+    if not root.is_absolute():
+        value = repr(str(root))[:120]
+        raise ServicePathRefused(
+            f"Set CODEY_STATE_DIR to an absolute directory for service lifecycle paths; got {value}"
+        )
     return ServicePaths(key, root / f"{stem}.pid", root / f"{stem}.log")
 
 
@@ -104,7 +116,7 @@ def start_profile(service, selected):
         runtime = "python3" if script and script.endswith(".py") else "node" if script and script.endswith(".js") else "bash"
         argv = [runtime, script] if script else []
     elif service == "litestream":
-        cwd = Path(os.environ.get("CODEY_STATE_DIR") or Path.home() / ".codeyOS")
+        cwd = selected.pid_file.parent
         binary = Path.home() / "go/bin/litestream"
         missing = not binary.is_file()
         argv = [str(binary), "replicate", "-config", str(Path.home() / ".codeyOS/litestream.yml")]
@@ -201,7 +213,14 @@ def status(service):
     names = _START_ORDER if service == "all" else (service,)
     result = 0
     for name in names:
-        selected = service_paths(name)
+        try:
+            selected = service_paths(name)
+        except ServicePathRefused as refusal:
+            if service != "all":
+                raise
+            print(f"  {name}: REFUSED ({refusal})")
+            result = 2
+            continue
         observed = identity.inspect_record(selected.pid_file, selected.key)
         suffix = f" (PID {observed.identity['pid']})" if observed.state == identity.RUNNING else ""
         print(f"  {name}: {observed.state}{suffix}")
@@ -220,7 +239,7 @@ def status(service):
 def usable_daemon(pid_file, socket_file):
     """Coordination read only; this result never permits starting a daemon."""
     values = (pid_file, socket_file)
-    if any(not value or "\0" in value or len(value.encode()) > 4096 for value in values):
+    if any(not value or "\0" in value or len(value.encode()) > 4096 or not Path(value).is_absolute() for value in values):
         raise identity.UnsafeRecord("Invalid client path snapshot")
     observed = identity.inspect_record(Path(pid_file), "codeyOS")
     if observed.state == identity.UNSAFE:
@@ -231,8 +250,17 @@ def usable_daemon(pid_file, socket_file):
 
 def show_logs(service):
     names = _START_ORDER if service == "all" else (service,)
+    result = 0
     for name in names:
-        selected = service_paths(name)
+        try:
+            selected = service_paths(name)
+        except ServicePathRefused as refusal:
+            if service != "all":
+                raise
+            print(f"=== {name} ===")
+            print(f"{name}: REFUSED ({refusal})")
+            result = 2
+            continue
         try:
             with selected.log_file.open(errors="replace") as stream:
                 from collections import deque
@@ -241,6 +269,7 @@ def show_logs(service):
             print("".join(lines), end="")
         except FileNotFoundError:
             print(f"No log found for {name} ({selected.log_file}).")
+    return result
 
 
 def path_data(field, encoding, data_fd):
@@ -340,6 +369,9 @@ def main(argv=None):
         else:
             parse_ready(args.expected_helper)
         return 0
+    except ServicePathRefused as refusal:
+        print(str(refusal), file=sys.stderr)
+        return 2
     except (OSError, identity.UnsafeRecord, ValueError, TypeError):
         print("Service mechanics unavailable or unsafe", file=sys.stderr)
         return 2
