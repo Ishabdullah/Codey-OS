@@ -32,6 +32,42 @@ def mock_process(monkeypatch, *, code=0, stdout="private stdout", stderr="privat
     return process
 
 
+def test_process_boundary_known_script_remains_act(env, monkeypatch):
+    process = mock_process(monkeypatch)
+    result = process_boundary.run_process(
+        ["python3", "private.py"], timeout=7, action="test.known-script"
+    )
+    assert not result.refused
+    process.assert_called_once_with(
+        ["python3", "private.py"], capture_output=True, text=True, timeout=7, check=False
+    )
+    assert rows(env)[0]["authority"] == "ACT"
+
+
+@pytest.mark.parametrize("argv", [["python3", "-c", "print(1)"], ["private-helper", "arg"]])
+def test_process_boundary_opaque_or_unknown_refuses_without_confirmation(env, monkeypatch, argv):
+    process = mock_process(monkeypatch)
+    result = process_boundary.run_process(argv, timeout=7, action="test.default-confirm")
+    assert result.refused
+    process.assert_not_called()
+    record, = rows(env)
+    assert record["authority"] == "HIGH_IMPACT"
+    assert record["outcome"] == "refused"
+
+
+def test_process_boundary_explicit_true_approval_executes_exact_unknown_argv(env, monkeypatch):
+    process = mock_process(monkeypatch)
+    confirm = Mock(return_value=True)
+    argv = ["private-helper", "quoted value"]
+    result = process_boundary.run_process(
+        argv, timeout=7, action="test.default-confirm", confirm_available=True, confirm=confirm
+    )
+    assert not result.refused
+    confirm.assert_called_once_with()
+    process.assert_called_once_with(argv, capture_output=True, text=True, timeout=7, check=False)
+    assert rows(env)[0]["outcome"] == "allowed"
+
+
 @pytest.mark.parametrize("code", [0, 1, 2, -9])
 def test_fix_tuple_contract_and_structured_exit_audit(env, monkeypatch, code):
     process = mock_process(monkeypatch, code=code)

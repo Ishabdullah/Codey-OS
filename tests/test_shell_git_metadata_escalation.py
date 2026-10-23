@@ -287,12 +287,14 @@ def test_escalated_command_executes_on_confirmation(gateway, isolated_roots, mon
     monkeypatch.setattr(shell_tools, "ask_confirm", ask_confirm)
     monkeypatch.setattr(shell_tools, "warning", warn)
     monkeypatch.setattr(shell_tools.subprocess, "run", runner)
-    result = shell_tools.shell("tee -a .git/config")
+    # `touch` (ACT) not `tee`: G15c default-deny makes `tee` HIGH_IMPACT on its
+    # own, so it no longer exercises the ACT -> HIGH metadata escalation.
+    result = shell_tools.shell("touch .git/config")
     ask_confirm.assert_called_once()
     runner.assert_called_once()
     assert result == "ok"
     warn.assert_called_once_with(
-        "Command targets this repository's own Git metadata directory: `tee -a .git/config`"
+        "Command targets this repository's own Git metadata directory: `touch .git/config`"
     )
     rows = _audit_rows(gateway)
     assert len(rows) == 1

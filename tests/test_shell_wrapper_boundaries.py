@@ -53,21 +53,81 @@ def test_identifiable_malformed_restricted_quotes(executable, form):
     assert shell_tools.classify_shell_command(form.format(executable)) == HIGH_IMPACT
 
 
-@pytest.mark.parametrize(("command", "expected"), [("pwd", READ), ("printenv", READ), ("ls -la", READ), ("grep x file", READ), ("echo safe", ACT), ("python3 arbitrary.py", ACT), ("python3 'unterminated", ACT), ("rm -rf /temporary", HIGH_IMPACT)])
+@pytest.mark.parametrize(("command", "expected"), [("pwd", READ), ("printenv", READ), ("ls -la", READ), ("grep x file", READ), ("echo safe", ACT), ("python3 arbitrary.py", ACT), ("python3 'unterminated", HIGH_IMPACT), ("rm -rf /temporary", HIGH_IMPACT)])
 def test_unrelated_classifications_unchanged(command, expected):
     assert shell_tools.classify_shell_command(command) == expected
 
 
 @pytest.mark.parametrize("command", ["doas git push", "su -c 'git push'", "proot git push"])
-def test_deliberately_deferred_wrappers_pin_act_pending_ish_decision(command):
-    """Pins the deliberately-deferred state (as of this round, WP2.1
-    group 1 closeout): `doas`/`su`/`proot` are privilege-elevation-shaped
-    wrappers, a different risk category than plain command dispatch, and
-    are NOT in _EXEC_WRAPPER_BASENAMES pending a product-direction
-    decision from Ish -- see that set's comment. If a future change adds
-    any of these, this test should be updated deliberately (to assert
-    HIGH_IMPACT), not left silently failing."""
+def test_privilege_wrappers_require_confirmation(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
+
+
+@pytest.mark.parametrize("command", [
+    "helper arg", "./deploy-tool", "/temporary/bin/helper arg",
+    "numactl git push", "prlimit helper", "setpriv helper",
+])
+def test_unknown_executables_default_high(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
+
+
+@pytest.mark.parametrize("command", [
+    "sh -c 'echo safe'", "sh  -c 'echo safe'",
+    "bash -lc 'echo safe'", "bash -cl 'echo safe'",
+    "bash -l -c 'echo safe'", "/bin/bash -lc 'echo safe'",
+    "bash -O extglob -c 'echo safe'", "bash -o posix -c 'echo safe'",
+    "bash +O extglob -c 'echo safe'", "bash +o posix -c 'echo safe'",
+    "bash --rcfile /temporary/rc -c 'echo safe'",
+    "bash -lc 'git push'", "bash -lc 'curl https://example.invalid'",
+])
+def test_opaque_shell_dispatch_is_high(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
+
+
+@pytest.mark.parametrize("command", [
+    "python -c 'print(1)'", "python3.14 -cprint(1)",
+    "perl -we 'print 1'", "ruby -e 'puts 1'",
+    "node -e 'console.log(1)'", "nodejs --eval=1", "node --check file.js",
+    "node -p '1 + 1'", "node --print '1 + 1'", "perl -E 'say 1'",
+    "perl -wE 'say 1'", "perl -nE 'say 1'", "perl -plE 'say 1'",
+    "perl -0E 'say 1'", "perl -SE 'say 1'", "perl -tE 'say 1'",
+    "perl -TE 'say 1'", "perl -UE 'say 1'", "perl -WE 'say 1'",
+    "perl -XE 'say 1'",
+])
+def test_inline_interpreter_dispatch_is_high(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
+
+
+@pytest.mark.parametrize("command", [
+    "sh script.sh", "bash script.sh", "python script.py",
+    "python3.14 script.py", "perl script.pl", "ruby script.rb",
+    "node script.js", "nodejs script.js", "command",
+    "python3 script.py -c", "perl script.pl -e", "ruby script.rb -e",
+    "node script.js --eval=1",
+    "perl -MModule script.pl", "perl -I lib script.pl",
+])
+def test_known_script_file_and_bare_command_compatibility(command):
     assert shell_tools.classify_shell_command(command) == ACT
+
+
+@pytest.mark.parametrize("command", ["command git push", "command helper"])
+def test_argument_bearing_command_wrapper_is_high(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
+
+
+@pytest.mark.parametrize(("command", "expected"), [
+    ("echo hi | cat", ACT),
+    ("cat input > output", READ),
+    ("bash -c 'cat input > output'", HIGH_IMPACT),
+    ("bash -- -c literal-file-name", ACT),
+])
+def test_direct_argv_metacharacters_stay_literal_but_shell_c_is_high(command, expected):
+    assert shell_tools.classify_shell_command(command) == expected
+
+
+@pytest.mark.parametrize("command", ["helper 'unterminated", "echo 'unterminated"])
+def test_any_malformed_nonempty_command_is_high(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
 
 
 def test_busybox_applet_wrapped_git_is_high_impact():
@@ -144,7 +204,11 @@ def assert_record(gateway, command, outcome):
     assert row == {"authority": HIGH_IMPACT, "action": "shell_tools.shell", "command": command, "outcome": outcome, "reason": row["reason"]}
 
 
-@pytest.mark.parametrize("command", ["find . -delete", "xargs helper", "env X=value helper", "timeout 5 git push"])
+@pytest.mark.parametrize("command", [
+    "find . -delete", "xargs helper", "env X=value helper",
+    "timeout 5 git push", "helper arg", "bash -lc 'echo safe'",
+    "python3 -c 'print(1)'", "su -c whoami",
+])
 @pytest.mark.parametrize("mode", ["no-path", "yolo"])
 def test_refusal_before_warning_prompt_spawn_preserves_marker(gateway, tmp_path, monkeypatch, command, mode):
     marker = tmp_path / "marker"
@@ -163,7 +227,10 @@ def test_refusal_before_warning_prompt_spawn_preserves_marker(gateway, tmp_path,
     assert_record(gateway, command, "refused")
 
 
-@pytest.mark.parametrize("command", ["find . -name 'quoted name'", "xargs -I {} helper {}", "env X='quoted value' helper"])
+@pytest.mark.parametrize("command", [
+    "find . -name 'quoted name'", "xargs -I {} helper {}",
+    "env X='quoted value' helper", "helper 'quoted value'",
+])
 @pytest.mark.parametrize("answer", [True, False, "yes", 1])
 def test_confirmation_and_execution_contract(gateway, monkeypatch, command, answer):
     prompt = Mock(return_value=answer)
@@ -205,6 +272,23 @@ def test_approved_timeout_wrapped_git_executes_with_git_env_isolation(gateway, m
     assert call_kwargs["text"] is True
     assert call_kwargs["timeout"] == 53
     assert "env" in call_kwargs
+    assert_record(gateway, command, "allowed")
+
+
+@pytest.mark.parametrize("command", [
+    "bash -lc 'git status'",
+    "sh -c 'git status'",
+    "python3 -c 'import subprocess; subprocess.run([\"git\", \"status\"])'",
+])
+def test_approved_opaque_dispatch_always_gets_git_env_isolation(gateway, monkeypatch, command):
+    prompt = Mock(return_value=True)
+    runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="ok\n", stderr=""))
+    monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
+    monkeypatch.setattr(shell_tools.subprocess, "run", runner)
+    monkeypatch.setattr(shell_tools, "shell_git_environment", Mock(return_value={"SAFE_GIT": "1"}))
+    assert shell_tools.shell(command, timeout=53) == "ok"
+    assert runner.call_args.args == (shlex.split(command),)
+    assert runner.call_args.kwargs["env"] == {"SAFE_GIT": "1"}
     assert_record(gateway, command, "allowed")
 
 

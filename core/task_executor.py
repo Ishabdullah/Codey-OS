@@ -14,6 +14,8 @@ These are restored after each task so they never bleed into interactive sessions
 
 import asyncio
 import os
+import re
+import shlex
 import threading
 import time
 from typing import Any, Dict, Optional
@@ -64,8 +66,19 @@ _DAEMON_ALLOWED_PREFIXES = (
     "printenv",
 )
 
+
+def _daemon_prefix_matches(cmd: str, prefix: str) -> bool:
+    """Whole-word prefix match: `ls` admits `ls -l` but not `lsof` (NEW-1007)."""
+    word = prefix.rstrip()
+    return cmd == word or (cmd.startswith(word) and cmd[len(word)].isspace())
+
+
 # Dangerous patterns that should be blocked even if prefix is allowed
 _DANGEROUS_FLAGS = ["-c", "-e", "-exec", "--eval", "-r", "-m"]
+# Bundled short-flag clusters (`python3 -Bc`, `-Ic`, `-Im`, `-Wc`) never contain
+# the substring `-c`; any single-dash cluster carrying c/e/m/r is refused
+# (conservative: `-Wc x.py` is really -W with operand `c`, still refused).
+_DANGEROUS_CLUSTER_RE = re.compile(r"^-[A-Za-z0-9]*[cemr]")
 
 # Allowed Python/pip patterns (more restrictive)
 _PYTHON_ALLOWED_PATTERNS = [
@@ -487,7 +500,7 @@ class TaskExecutor:
         Anything else is blocked with a clear message so the model knows
         to restructure its approach rather than silently failing.
         """
-        from core.action_gateway import get_action_gateway
+        from core.action_gateway import HIGH_IMPACT, get_action_gateway
         from tools.shell_tools import classify_shell_command, shell
 
         def refuse(reason):
@@ -516,7 +529,19 @@ class TaskExecutor:
                     warning(f"Daemon: blocked dangerous flag '{flag}' in: {cmd[:80]}")
                     refuse("Daemon Python/pip command contains a prohibited flag.")
                     return f"[BLOCKED] Flag '{flag}' is not allowed in daemon mode."
-        elif not any(cmd.startswith(p) for p in _DAEMON_ALLOWED_PREFIXES):
+            try:
+                tokens = shlex.split(cmd)
+            except ValueError:
+                # Unparseable quoting: the daemon cannot reason about it, so
+                # refuse rather than guess (fail closed).
+                refuse("Daemon Python/pip command could not be tokenized.")
+                return "[BLOCKED] Daemon mode will not run an unparseable command."
+            bundled = [t for t in tokens[1:] if _DANGEROUS_CLUSTER_RE.match(t)]
+            if bundled or classify_shell_command(cmd) == HIGH_IMPACT:
+                warning(f"Daemon: blocked inline-code/bundled flag in: {cmd[:80]}")
+                refuse("Daemon Python/pip command contains a prohibited flag.")
+                return "[BLOCKED] Inline-code or bundled flags are not allowed in daemon mode."
+        elif not any(_daemon_prefix_matches(cmd, p) for p in _DAEMON_ALLOWED_PREFIXES):
             warning(f"Daemon: blocked shell command: {cmd[:80]}")
             refuse("Daemon command prefix is not permitted without explicit authorization.")
             return (

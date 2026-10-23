@@ -245,13 +245,14 @@ def test_execute_tool_cancelled_is_not_episodic_success(gateway, monkeypatch, ap
 # ── NEW-874: shell execution-error fidelity ─────────────────────────────────
 
 
-def test_real_nonzero_exit_is_exit_marked_and_audited_failed(gateway):
+def test_real_nonzero_exit_is_exit_marked_and_audited_failed(gateway, monkeypatch):
     command = "false"
-    assert shell_tools.shell(command, yolo=True, timeout=5) == "[EXIT 1] (no output)"
+    monkeypatch.setattr(shell_tools, "ask_confirm", Mock(return_value=True))
+    assert shell_tools.shell(command, timeout=5) == "[EXIT 1] (no output)"
     record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command exited with status 1")
 
 
-def test_real_nonzero_exit_stderr_reaches_caller_not_ledger(gateway, tmp_path):
+def test_real_nonzero_exit_stderr_reaches_caller_not_ledger(gateway, tmp_path, monkeypatch):
     # The sentinel lives in the *script's* stderr output, not in the
     # command text itself (the command text is legitimately audited —
     # that's the existing, unrelated "command" field) -- so this isolates
@@ -262,23 +263,26 @@ def test_real_nonzero_exit_stderr_reaches_caller_not_ledger(gateway, tmp_path):
     script.write_text(f"#!/bin/sh\necho {sentinel} 1>&2\nexit 7\n")
     script.chmod(0o755)
     command = str(script)
-    result = shell_tools.shell(command, yolo=True, timeout=5)
+    monkeypatch.setattr(shell_tools, "ask_confirm", Mock(return_value=True))
+    result = shell_tools.shell(command, timeout=5)
     assert result.startswith("[EXIT 7]")
     assert sentinel in result
     assert sentinel not in gateway.audit.read_text()
     record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command exited with status 7")
 
 
-def test_real_missing_binary_unchanged_message_no_doubled_prefix(gateway):
+def test_real_missing_binary_unchanged_message_no_doubled_prefix(gateway, monkeypatch):
     command = "definitely_not_a_real_binary_new874"
-    result = shell_tools.shell(command, yolo=True, timeout=5)
+    monkeypatch.setattr(shell_tools, "ask_confirm", Mock(return_value=True))
+    result = shell_tools.shell(command, timeout=5)
     assert result == f"[ERROR] Command not found: {command}"
     record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command executable not found")
 
 
-def test_real_timeout_unchanged_message(gateway):
+def test_real_timeout_unchanged_message(gateway, monkeypatch):
     command = "sleep 5"
-    result = shell_tools.shell(command, yolo=True, timeout=1)
+    monkeypatch.setattr(shell_tools, "ask_confirm", Mock(return_value=True))
+    result = shell_tools.shell(command, timeout=1)
     assert result == "[ERROR] Command timed out after 1s"
     record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command execution timed out")
 
@@ -338,12 +342,13 @@ def test_successful_command_with_huge_digit_lookalike_stdout_stays_bounded(gatew
     record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="allowed", reason="command executed")
 
 
-def test_negative_exit_status_from_signal_kill_is_recognized(gateway, tmp_path):
+def test_negative_exit_status_from_signal_kill_is_recognized(gateway, tmp_path, monkeypatch):
     script = tmp_path / "selfkill.sh"
     script.write_text("#!/bin/sh\nkill -9 $$\n")
     script.chmod(0o755)
     command = str(script)
-    result = shell_tools.shell(command, yolo=True, timeout=5)
+    monkeypatch.setattr(shell_tools, "ask_confirm", Mock(return_value=True))
+    result = shell_tools.shell(command, timeout=5)
     assert result.startswith("[EXIT -9]")
     record(gateway, authority=shell_tools.classify_shell_command(command), action="shell_tools.shell", command=command, outcome="failed", reason="command exited with status -9")
 

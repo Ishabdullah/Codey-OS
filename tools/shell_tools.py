@@ -1,4 +1,5 @@
 import os
+import re
 import shlex
 import stat
 import subprocess
@@ -8,6 +9,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Optional
 
+import utils.config as _config
 from core.action_gateway import (
     ACT,
     HIGH_IMPACT,
@@ -20,7 +22,6 @@ from core.git_execution import shell_git_environment
 from utils.config import AGENT_CONFIG, CODE_DIR
 from utils.logger import confirm as ask_confirm
 from utils.logger import warning
-import utils.config as _config
 
 SHELL_METACHARACTERS = {
     ";",
@@ -196,21 +197,17 @@ READ_COMMANDS = {
 # content of the wrapped command is never parsed or evaluated, matching
 # the pre-existing find/xargs precedent. `env` is handled by its own
 # bare-vs-argument-bearing check at both sites and is deliberately NOT
-# folded into this set. Known-incomplete -- `su`, `doas`, `proot`
-# deliberately deferred: privilege-elevation-shaped wrappers are a
-# different risk category than plain command dispatch and need a
-# product-direction decision from Ish, not just a wider enumeration.
+# folded into this set. `su`, `doas`, and `proot` are handled separately
+# as privilege wrappers and are always HIGH_IMPACT.
 # `busybox` IS included despite being a multi-call binary -- a
 # code-reviewer round for this change initially excluded it under a
 # "closer to interpreter dispatch than a fixed wrapper" rationale that
 # turned out to be false on direct probe: `busybox nice/env/timeout/
 # chroot git push` all dispatch exactly like this set's other members,
 # not like `sh -c`. Corrected rather than left standing (rule 6).
-# This set is a known-incomplete enumeration, not an exhaustive
-# classification of every process-dispatching wrapper on a Linux system
-# -- see NEW-904 for the long tail of same-class binaries (numactl,
-# prlimit, setpriv, firejail, proxychains, systemd-run, pkexec, etc.)
-# identified but not added this round.
+# This set retains compatibility labels for known wrappers. NEW-904's
+# open-ended tail is structurally covered by the classifier's unknown-
+# executable fallback: an unrecognized basename is HIGH_IMPACT.
 _EXEC_WRAPPER_BASENAMES = frozenset({
     "find", "xargs", "timeout", "nice", "nohup", "setsid", "stdbuf",
     "chrt", "ionice", "strace", "flock", "watch",
@@ -257,12 +254,8 @@ _NETWORK_CLIENT_BASENAMES = frozenset({
     # gap.
     "nc", "ncat", "netcat",
 })
-# Deliberately NOT covered: opaque-interpreter egress (python3 -c
-# "import urllib...", node -e "fetch(...)", curl piped through another
-# shell) -- that is NEW-904's already-logged open-ended tail (basename
-# enumeration has no natural end), not addressed by this change; this
-# set is bounded to named network-client binaries only, same scope
-# boundary as the exec-wrapper set above.
+# Opaque interpreter dispatch is handled structurally below; this set remains
+# bounded to named network-client binaries.
 
 
 def _is_network_client_basename(base: str) -> bool:
@@ -275,25 +268,377 @@ def _is_network_client_basename(base: str) -> bool:
     return base in _NETWORK_CLIENT_BASENAMES
 
 
-def _direct_high_impact_after_quote_error(command: str) -> bool:
-    """Recognize an identifiable restricted executable despite malformed quoting."""
-    lexer = shlex.shlex(command, posix=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    try:
-        executable = next(lexer, "")
-    except ValueError:
-        # An unclosed executable quote can still identify a restricted family.
-        raw = command.split(maxsplit=1)
-        executable = raw[0].strip("\"'") if raw else ""
-    base = Path(executable).name
-    return (
-        _is_git_basename(base)
-        or _is_termux_basename(base)
-        or _is_network_client_basename(base)
-        or base in _EXEC_WRAPPER_BASENAMES
-        or base == "env"
-    )
+# G15c explicit ACT allowlist for common build/lint/test tools (Ish decision,
+# default-deny otherwise). Each runs project code or edits project files the
+# same way the already-ACT pytest/npm/pip/node do (accepted NEW-904
+# opaque-execution precedent; F2 "shell stays an audited ACT surface").
+# Entries and why (repo evidence: core/linter.py runs ruff/flake8/mypy,
+# docs/commands.md CODEY_LINTER, docs/installation.md uses cmake/clang;
+# bench/tasks are pytest-only, so nothing here is bench-required):
+#   ruff black isort flake8 mypy pylint  linters/formatters; `--fix`/format
+#       edit files (an ACT-class write); flake8 plugins and mypy `plugins =`
+#       execute project-configured code (group 14 note).
+#   make cmake  run project Makefile/CMake recipes: arbitrary project code,
+#       also via `make -f /dev/stdin` or `make SHELL=...` (same class).
+#   cargo rustc gcc g++ cc clang go tsc javac  compilers/build drivers; build
+#       scripts, proc-macros, `cargo run` and `go run` execute project code,
+#       equal to `python3 script.py`.
+#   pnpm yarn  JS package managers, same class as the ACT npm.
+# NOT included: npx, curl/wget/ssh/scp/gh, su/doas/sudo, kill-family,
+# interpreter inline modes, `sh -c`. pnpm/yarn `dlx|exec|create` and
+# `go run`/`go install` of a remote `pkg@version` are the npx equivalent
+# (fetch-and-run remote code) and stay HIGH_IMPACT.
+# Residual (accepted, not fixed here): any allowlisted tool can execute
+# arbitrary project code. A relative or non-system path (`./gcc`,
+# `/tmp/x/gcc`) is not trusted by basename: only a bare name or a system
+# bin directory qualifies, so a planted executable cannot borrow the label.
+_BUILD_TOOL_ACT_BASENAMES = frozenset({
+    "ruff", "black", "isort", "flake8", "mypy", "pylint",
+    "make", "cmake", "cargo", "rustc", "gcc", "g++", "cc", "clang",
+    "go", "tsc", "javac", "pnpm", "yarn",
+})
+_BUILD_TOOL_SYSTEM_DIRS = frozenset({
+    "/usr/bin", "/usr/local/bin", "/bin",
+    "/data/data/com.termux/files/usr/bin",
+})
+# Any-token HIGH sets (an option operand can hide the real subcommand, so
+# every token is tested). Beyond the npx-equivalents (`dlx|exec|create`):
+#   node            `yarn node -e 1` / `pnpm node -p 1` / `yarn run node -e`
+#                   dispatch to the node interpreter's inline-code mode.
+#   env             `pnpm env use` downloads and installs a node runtime.
+#   self-update     replaces the package manager binary (fetch + exec).
+#   set             `yarn set version <url>` fetches and installs a release.
+#   plugin          `yarn plugin import <url>` fetches and loads plugin code.
+#   config          can set `script-shell` / registry / hooks.
+#   explore         `yarn explore` / `npm explore` runs an arbitrary command in
+#                   a dependency directory.
+#   bin             `yarn bin` / `pnpm bin` dispatch-adjacent helper; blocked
+#                   conservatively (listing binaries, no routine need).
+# Accepted false positive: an operand or script named like one of these
+# (`pnpm run node`, `yarn run config`) is HIGH_IMPACT, never the reverse.
+_REMOTE_FETCH_SUBCOMMANDS = {
+    "pnpm": {"dlx", "exec", "create", "node", "env", "self-update", "set",
+             "plugin", "config", "explore", "bin"},
+    "yarn": {"dlx", "exec", "create", "node", "env", "self-update", "set",
+             "plugin", "config", "explore", "bin"},
+}
+# Publishing / registry-credential verbs (G15-F1). Tested against EVERY
+# token after argv[0], not just the first non-dash one: an option can take an
+# operand (`pnpm --dir . dlx x`, `pnpm -C . exec x`, `yarn --cwd . dlx x`,
+# `pnpm --filter x exec y`), so "first non-dash token" can be an operand and
+# hide the real subcommand. Accepted false positive: a script or argument
+# literally named like a verb (`pnpm run exec`, `yarn run publish`) is
+# HIGH_IMPACT, never the reverse.
+_PUBLISH_VERBS = frozenset({
+    "publish", "login", "logout", "adduser", "token", "owner", "yank",
+})
+# `cargo install` fetches and builds remote crates (build.rs runs): only an
+# explicit local `--path` / `--list` / `--version`-style form stays ACT.
+_CARGO_LOCAL_INSTALL_FLAGS = frozenset({"--path", "--list", "--help", "-h"})
+_NPM_HIGH_VERBS = frozenset({
+    "publish", "login", "logout", "adduser", "token", "owner", "access",
+    "deprecate", "unpublish", "dist-tag", "exec", "x",
+    # round 3: `explore` runs an arbitrary command in a dependency dir;
+    # `set` writes config (script-shell/registry); `link` writes symlinks
+    # into the global prefix (can shadow binaries on PATH). Judged ACT and
+    # left alone: `rebuild` and `pack` run only the project's own lifecycle
+    # scripts, the same class as the ACT `install`/`test`/`run`.
+    "explore", "set", "link", "ln",
+})
+_NPM_CONFIG_WRITE_VERBS = frozenset({"set", "edit", "delete", "fix"})
+_NPM_INIT_VERBS = frozenset({"init", "create", "innit"})
+# Residual (OPEN, not closed here): `npm install|pip install <url/vcs/pkg>`
+# and `pnpm add|yarn add <git-url>` fetch remote code but stay ACT by the
+# existing npm/pip precedent; `yarn plugin import <url>` / `yarn set
+# version <url>` likewise.
+
+
+def _npm_is_high(parts) -> bool:
+    """npm publishing/credential verbs and npx-equivalent initializers."""
+    rest = parts[1:]
+    if any(t in _NPM_HIGH_VERBS for t in rest):
+        return True
+    if "config" in rest and any(t in _NPM_CONFIG_WRITE_VERBS for t in rest):
+        return True
+    if any("script-shell" in t for t in rest):
+        return True
+    for i, t in enumerate(rest):
+        if t in _NPM_INIT_VERBS:
+            # bare `npm init` / `npm init -y` stay ACT; an initializer
+            # package or an --init* flag fetches and runs remote code.
+            tail = rest[i + 1:]
+            return any(
+                (not x.startswith("-")) or x.startswith("--init") for x in tail
+            )
+    return False
+
+
+def _build_tool_is_act(parts) -> bool:
+    """True when parts[0] is an allowlisted build tool and no remote-exec form."""
+    exe = parts[0]
+    base = Path(exe).name
+    if base not in _BUILD_TOOL_ACT_BASENAMES:
+        return False
+    if exe != base and str(Path(exe).parent) not in _BUILD_TOOL_SYSTEM_DIRS:
+        return False
+    rest = parts[1:]
+    if any(t in _REMOTE_FETCH_SUBCOMMANDS.get(base, ()) for t in rest):
+        return False
+    if base in {"cargo", "pnpm", "yarn"} and any(t in _PUBLISH_VERBS for t in rest):
+        return False
+    if base == "cargo" and "install" in rest:
+        if any(t == "--git" or t.startswith(("--git=", "--registry", "--index"))
+               for t in rest):
+            return False
+        if not any(t in _CARGO_LOCAL_INSTALL_FLAGS or t.startswith("--path=")
+                   for t in rest):
+            return False
+    if base in {"pnpm", "yarn"} and any("script-shell" in t for t in rest):
+        return False
+    if base == "go":
+        if "get" in rest:
+            return False
+        if any(t in {"run", "install"} for t in rest) and any("@" in t for t in rest):
+            return False
+        # Executor-injection options (single- or double-dash, `=` attached):
+        # -toolexec/-exec/-vettool run an arbitrary program; `generate` runs
+        # //go:generate directives; `go env -w/-u` persists GOFLAGS etc.
+        for t in rest:
+            if t.startswith("-") and t.lstrip("-").split("=", 1)[0] in {
+                "toolexec", "exec", "vettool",
+            }:
+                return False
+        if "generate" in rest:
+            return False
+        if "env" in rest and any(
+            t in {"-w", "-u", "--w", "--u"} for t in rest[rest.index("env"):]
+        ):
+            return False
+        # Residual (OPEN, documented only): `go work`, `go mod download`,
+        # `go build -overlay`, GOFLAGS/GOPROXY via env or go.env.
+    if base == "cargo" and any(
+        t == "--config" or t.startswith(("--config=", "-Z"))
+        or "rustc-wrapper" in t.lower() or "rustc_wrapper" in t.lower()
+        for t in rest
+    ):
+        # `--config build.rustc-wrapper=...` / `-Z` unstable flags run or
+        # reconfigure arbitrary tools. (Residual: .cargo/config.toml in the
+        # project and `[alias]` entries are not inspected.)
+        return False
+    if base in {"gcc", "g++", "cc", "clang", "rustc"} and "-wrapper" in rest:
+        # Residual (OPEN, documented only): `-specs=`, `-B<dir>`,
+        # `-fuse-ld=`, `-fplugin=`, rustc `-C linker=`.
+        return False
+    # `make --eval=STRING` / `-E STRING` evaluates make code (arbitrary
+    # recipes) -> not ACT. Accepted false positive: `-C<dir with capital E>`.
+    # `make -f x` / `SHELL=` stay ACT by the documented precedent.
+    return not (base == "make" and any(
+        t.startswith("--eval") or (not t.startswith("--") and t.startswith("-")
+                                   and "E" in t[1:])
+        for t in rest
+    ))
+
+
+_PIP_BASENAME_RE = re.compile(r"^pip\d*(?:\.\d+)*$")
+_PIP_HIGH_TOKENS = frozenset({
+    "config", "--index-url", "-i", "--extra-index-url", "--find-links", "-f",
+    "--trusted-host",
+})
+_PIP_REMOTE_SPEC_MARKERS = (
+    "git+", "hg+", "svn+", "bzr+", "http://", "https://", "ftp://", "file:",
+)
+
+
+def _pip_is_high(args) -> bool:
+    """pip redirected to another index / config write / remote or VCS spec.
+
+    `args` are the tokens after `pip` (or after `python -m pip`). A plain
+    `pip install foo`, `-U foo`, `-e .`, `-r requirements.txt` stay ACT
+    (routine; accepted residual: a requirements file can itself list URLs,
+    and a bare PyPI name fetches code by the existing precedent). Accepted
+    false positive: any argument containing a URL/VCS marker.
+    """
+    for t in args:
+        if t in _PIP_HIGH_TOKENS:
+            return True
+        if t.startswith(("--index-url=", "--extra-index-url=", "--find-links=",
+                         "--trusted-host=")):
+            return True
+        # attached short forms: `-ihttps://x`, `-fhttps://x`
+        if len(t) > 2 and t.startswith(("-i", "-f")) and not t.startswith("--"):
+            return True
+        if any(m in t.lower() for m in _PIP_REMOTE_SPEC_MARKERS):
+            return True
+    return False
+
+
+def _python_dash_m_pip_args(parts):
+    """Tokens after `-m pip` in a python argv, or None when not `-m pip`."""
+    for i, t in enumerate(parts[1:-1], start=1):
+        if t == "-m" or (
+            t.startswith("-") and not t.startswith("--") and t.endswith("m")
+        ):
+            return parts[i + 2:] if _PIP_BASENAME_RE.fullmatch(parts[i + 1]) else None
+        if not t.startswith("-"):
+            return None
+    return None
+
+
+_PRIVILEGE_WRAPPER_BASENAMES = frozenset({"su", "doas", "proot"})
+_SHELL_INTERPRETER_BASENAMES = frozenset({"sh", "bash"})
+_SCRIPT_INTERPRETER_RE = re.compile(
+    r"^(?:python(?:\d+(?:\.\d+)*)?|perl(?:\d+(?:\.\d+)*)?|ruby(?:\d+(?:\.\d+)*)?|node|nodejs)$"
+)
+
+
+def _shell_requests_command_string(parts) -> bool:
+    """Whether sh/bash's leading option cluster requests `-c` execution."""
+    option_operands = {"-O", "-o", "+O", "+o", "--init-file", "--rcfile"}
+    index = 1
+    while index < len(parts):
+        token = parts[index]
+        if token == "--":
+            return False
+        if not token.startswith(("-", "+")) or token in {"-", "+"}:
+            return False
+        if not token.startswith("--") and "c" in token[1:]:
+            return True
+        index += 2 if token in option_operands else 1
+    return False
+
+
+# Fail-closed option policy for node/nodejs/ruby/perl (G15c round 3). The old
+# scanner stopped at the first non-dash token, which can be an option's
+# OPERAND (`node -C x -e 1`, `ruby --disable gems -e x`), so each new
+# operand-taking option re-opened the hole. These interpreters are now ACT
+# only when every leading option is on a small explicit allowlist of options
+# that take NO operand (or an attached, spec-checked one) and the first
+# non-option token (script path / `-` / `--`) or end of argv is reached. ANY
+# other leading option form is treated as possible inline code (HIGH_IMPACT).
+# Node's table below was derived from `node --help` / `node --v8-options`
+# (node v24.18.0, read on this device). ruby and perl are NOT installed here,
+# so their tables are deliberately minimal, unverified-by-artifact and
+# conservative: anything not listed fails closed.
+# Accepted false positives: `node -r ts-node/register x.ts`,
+# `node --env-file=.env x.js`, `node --conditions x`, `ruby -C dir x.rb`,
+# `perl -I lib x.pl` (space operand) are HIGH_IMPACT.
+_NODE_SAFE_BARE_OPTIONS = frozenset({
+    "-v", "--version", "-h", "--help", "-i", "--interactive",
+    "--inspect", "--inspect-brk", "--inspect-wait", "--test", "--test-only",
+    "--watch", "--run", "--no-warnings", "--no-deprecation",
+    "--trace-warnings", "--trace-deprecation", "--trace-uncaught",
+    "--throw-deprecation", "--enable-source-maps", "--expose-gc",
+    "--preserve-symlinks", "--experimental-vm-modules",
+})
+_NODE_SAFE_ATTACHED_PREFIXES = (
+    "--inspect=", "--inspect-brk=", "--inspect-wait=", "--run=",
+    "--max-old-space-size=", "--stack-size=", "--test-name-pattern=",
+    "--test-reporter=", "--disable-warning=",
+)
+_RUBY_SAFE_BARE_OPTIONS = frozenset({
+    "-v", "--version", "-h", "--help", "-w", "-W", "-W0", "-W1", "-W2",
+})
+_PERL_SAFE_BARE_OPTIONS = frozenset({
+    "-v", "-h", "-w", "-W", "-X", "-t", "-T", "-l",
+})
+_PERL_MODULE_SPEC_BAD_RE = re.compile(r"[^\w:=,.+\-]")
+
+
+def _non_python_interpreter_requests_inline_code(family: str, parts) -> bool:
+    index = 1
+    while index < len(parts):
+        token = parts[index]
+        index += 1
+        if token in {"--", "-"} or not token.startswith("-"):
+            return False  # end of options / stdin script / script path
+        if family == "perl" and token == "-I" and index < len(parts) and (
+            not parts[index].startswith("-")
+        ):
+            # `-I dir` (include path, kept ACT by the existing compat test):
+            # the operand is a directory, never code. A dash-led next token
+            # is NOT consumed, so `-I -e` still reaches the -e check.
+            index += 1
+            continue
+        if family == "node":
+            if token in _NODE_SAFE_BARE_OPTIONS or token.startswith(
+                _NODE_SAFE_ATTACHED_PREFIXES
+            ):
+                continue
+            # attached CommonJS preload only (`-r./x.js`, `--require=x`): a
+            # module name, never inline code (`--import=` accepts `data:`
+            # URLs and stays HIGH; bare `-r x` takes the next token).
+            if (len(token) > 2 and token.startswith("-r")
+                    and not token.startswith("--")) or token.startswith(
+                        "--require="):
+                continue
+        elif family == "ruby":
+            if token in _RUBY_SAFE_BARE_OPTIONS:
+                continue
+            # attached-operand library/include forms only (`-rcsv`, `-Ilib`);
+            # a bare `-r`/`-I` takes the NEXT token, so it fails closed.
+            if len(token) > 2 and token.startswith(("-r", "-I")) and not (
+                token.startswith("--")
+            ):
+                continue
+        elif family == "perl":
+            if token in _PERL_SAFE_BARE_OPTIONS:
+                continue
+            if len(token) > 2 and token.startswith("-I"):
+                continue
+            # `-M'strict; system "id"'` injects code into the generated
+            # `use` line: anything beyond a plain module spec is code.
+            if (
+                len(token) > 2 and token.startswith(("-M", "-m"))
+                and not _PERL_MODULE_SPEC_BAD_RE.search(token[2:])
+            ):
+                continue
+        return True
+    return False
+
+
+def _interpreter_requests_inline_code(base: str, parts) -> bool:
+    """Conservatively identify inline-code/check modes in known interpreters."""
+    if not _SCRIPT_INTERPRETER_RE.fullmatch(base):
+        return False
+    python_family = base.startswith("python")
+    if not python_family:
+        family = (
+            "node" if base in {"node", "nodejs"}
+            else "perl" if base.startswith("perl") else "ruby"
+        )
+        return _non_python_interpreter_requests_inline_code(family, parts)
+    option_operands = {"-W", "-X", "--check-hash-based-pycs"}
+    index = 1
+    while index < len(parts):
+        token = parts[index]
+        if token == "--":
+            return False
+        if not token.startswith("-") or token == "-":
+            return False
+        flags = token[1:]
+        if python_family and not token.startswith("--"):
+            # Walk the short-flag cluster the way python does (verified
+            # against `python3 --help`): `c` = inline code (terminates the
+            # option list, rest/next token is code); `m` = module run (kept
+            # ACT by precedent so `python3 -m pytest` works; residual `-m
+            # http.server`/`-m code`); `W`/`X` take an operand (rest of the
+            # cluster or the next token), so `-Wc` is -W with arg `c`.
+            consumed = False
+            for pos, letter in enumerate(flags):
+                if letter == "c":
+                    return True
+                if letter == "m":
+                    return False
+                if letter in "WX":
+                    index += 1 if pos < len(flags) - 1 else 2
+                    consumed = True
+                    break
+            if consumed:
+                continue
+        if python_family and token == "-m":
+            return False
+        index += 2 if token in option_operands else 1
+    return False
 
 
 def classify_shell_command(command: str) -> str:
@@ -320,10 +665,8 @@ def classify_shell_command(command: str) -> str:
          netcat) -> HIGH_IMPACT. Whole-family conservative classification
          via basename, matching the termux-* check's style -- these can
          exfiltrate a local file to an arbitrary remote host with zero
-         confirmation under yolo. Named-binary enumeration only; does
-         NOT cover opaque-interpreter egress (python3 -c "import
-         urllib...", node -e "fetch(...)") -- see NEW-904's already-
-         logged open-ended tail for that class.
+         confirmation under yolo. Opaque interpreter dispatch is classified
+         structurally below.
       3. Direct exec-wrapper basenames (_EXEC_WRAPPER_BASENAMES: find,
          xargs, timeout, nice, nohup, setsid, stdbuf, chrt, ionice,
          strace, flock, watch, script, unshare, taskset, setarch,
@@ -331,8 +674,9 @@ def classify_shell_command(command: str) -> str:
          and argument-bearing env -> HIGH_IMPACT. These can dispatch
          children or produce other effects. Only a successfully
          tokenized bare env remains READ; no child is parsed.
-      4. Other executables retain their previous READ/ACT labels.
-         Wrappers and arbitrary scripts still require separate assessment.
+      4. Privilege wrappers and opaque shell/interpreter inline execution ->
+         HIGH_IMPACT. Known READ/ACT commands retain their labels; every other
+         executable basename defaults to HIGH_IMPACT.
     """
     cmd_lower = command.lower()
     for pattern in DANGEROUS_PATTERNS:
@@ -342,9 +686,7 @@ def classify_shell_command(command: str) -> str:
     try:
         parts = shlex.split(command)
     except ValueError:
-        if _direct_high_impact_after_quote_error(command):
-            return HIGH_IMPACT
-        parts = command.split()
+        return HIGH_IMPACT
 
     if not parts:
         return ACT
@@ -355,13 +697,37 @@ def classify_shell_command(command: str) -> str:
         or _is_termux_basename(base)
         or _is_network_client_basename(base)
         or base in _EXEC_WRAPPER_BASENAMES
+        or base in _PRIVILEGE_WRAPPER_BASENAMES
     ):
         return HIGH_IMPACT
     if base == "env":
         return READ if len(parts) == 1 else HIGH_IMPACT
+    if base == "command" and len(parts) > 1:
+        return HIGH_IMPACT
+    if base in _SHELL_INTERPRETER_BASENAMES and _shell_requests_command_string(parts):
+        return HIGH_IMPACT
+    if _interpreter_requests_inline_code(base, parts):
+        return HIGH_IMPACT
+    if base == "npm" and _npm_is_high(parts):
+        return HIGH_IMPACT
+    if _PIP_BASENAME_RE.fullmatch(base) and _pip_is_high(parts[1:]):
+        return HIGH_IMPACT
+    if base.startswith("python"):
+        pip_args = _python_dash_m_pip_args(parts)
+        if pip_args is not None and _pip_is_high(pip_args):
+            return HIGH_IMPACT
     if base in READ_COMMANDS:
         return READ
-    return ACT
+    if (
+        base in ALLOWED_COMMANDS
+        or base in DANGEROUS_COMMANDS
+        or base in _SHELL_INTERPRETER_BASENAMES
+        or _SCRIPT_INTERPRETER_RE.fullmatch(base)
+        or base == "command"
+        or _build_tool_is_act(parts)
+    ):
+        return ACT
+    return HIGH_IMPACT
 
 
 _GIT_METADATA_SCANNED_READ = {"sort", "uniq", "tree", "file"}  # READ_COMMANDS members
@@ -594,7 +960,19 @@ def _run_shell_command_structured(command: str, timeout: int) -> _ShellExecResul
         base0 = Path(args[0]).name
         if _is_git_basename(base0):
             kwargs["env"] = shell_git_environment()
-        elif base0 in _EXEC_WRAPPER_BASENAMES or base0 == "env":
+        elif (
+            base0 in _SHELL_INTERPRETER_BASENAMES
+            and _shell_requests_command_string(args)
+        ) or _interpreter_requests_inline_code(base0, args):
+            # Opaque command strings can invoke git without exposing a stable
+            # child argv to this layer. Apply isolation unconditionally to an
+            # approved opaque dispatch; it changes only Git configuration.
+            kwargs["env"] = shell_git_environment()
+        elif (
+            base0 in _EXEC_WRAPPER_BASENAMES
+            or base0 in _PRIVILEGE_WRAPPER_BASENAMES
+            or base0 in {"env", "command"}
+        ):
             # NEW-875 follow-up, extended for the WP2.1 group 1 closeout
             # (NEW-875 follow-on): a git/git-* command wrapped by one of
             # these exec wrappers (e.g. `timeout 5 git push`) is already

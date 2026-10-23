@@ -3435,6 +3435,46 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > audited ACT opaque-execution surface, F3 extend HIGH write classification to
 > launchers/`lib`/`main.py`/install scripts (recommended: defer), F4 ratify the
 > severity rubric. Group 15 G15b not started.
+>
+> **Status update (2026-10-23) — G15b find-only pass DONE; G15c shell
+> classifier adopted and finished (code complete, reviewer-approved, pending
+> commit, NOT live-verified); WP2.1 remains OPEN.** **G15b** (find-only, no
+> fix): three hunters probed a `git archive` of committed `941ec3f` with
+> recording fakes (450 probe rows: A shell 267, B filesystem 112, C egress/
+> authority 71) -> **49 distinct findings, 33 HIGH / 9 MEDIUM / 7 LOW; after
+> G15c 7 CLOSED, 5 PARTIALLY CLOSED, 9 OPEN, 28 NOT-A-SHELL-ITEM** (G15c cannot
+> affect those; not "resolved"). **Coverage is incomplete:** hunter B was
+> halted early by a safety classifier (its report was reconstructed from the
+> TSV by a summarizer, with flagged UNSUPPORTED claims) and hunter C's final
+> turn was cut and only structurally checked; hunter A completed (committed
+> `941ec3f`: 134 HIGH + 25 MEDIUM + 22 LOW bypass rows; re-run vs final G15c
+> classifier 69 BYPASS / 196 OK / 2 INCONCLUSIVE). Register:
+> `docs/wp2_1_g15b_consolidated.md`; ledger `NEW-1018` (umbrella) .. `NEW-1035`.
+> **G15c:** Ish (2026-10-23) approved adopting the previously-foreign
+> uncommitted shell-classifier work and finishing it (NEW-1012 resolved):
+> default-deny on executable basename (unknown => HIGH_IMPACT, refused in
+> confirm-less modes), `sh -c`/inline-code interpreter modes HIGH, an ACT
+> allowlist of 19 build/lint tools, node/nodejs/ruby/perl fail-closed (ruby and
+> perl are not installed, so those allowlists are unverified against real
+> help), daemon whole-word prefix match (NEW-1007 FIXED). 1,680 tests passed
+> across 12 shell/daemon/recovery files; implementer 35 mutations all killed;
+> code-reviewer APPROVED on round 3 (rounds 1-2 CHANGES REQUESTED for one
+> recurring bypass class, fixed structurally). NEW-1006 PARTIALLY FIXED,
+> NEW-933 closed for classifier forms (script-file forms stay ACT by
+> NEW-904/F2 precedent), NEW-904 structurally narrowed. **User-visible
+> change:** in confirm-less modes `tar`, `id`, `uname`, `ps`, `free`, `sleep`,
+> `tee`, `md5sum`, `basename`, `test`, `true`, direct `./script.sh` and `npx`
+> are now refused. Important new findings: NEW-1021 cloudflared token in argv
+> (real disposable process), NEW-1025 bench evaluator integrity (NEW-1008 now
+> CONFIRMED), NEW-1024 plugin `manifest.json`/`config.json`/launchers ACT-
+> writable, NEW-1027 plus a correction of NEW-975 (REPL and non-tty runs write
+> new core files with no prompt). **Pending Ish:** F1, F2, F3 (recommendation
+> moved from defer to yes), F4 rubric ratification (every FIX-NOW is
+> provisional on it), D-F5 (ratify the G15c behavior change), D-1..D-11 in the
+> consolidated doc. **Group 15: G15a done+committed, G15b done, G15c pending
+> commit, G15d.. (classifier tail, protected-path set, bench integrity,
+> plugin authority, credential exposure, operator-script guards, REPL write
+> confirmation) and G15z not started.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

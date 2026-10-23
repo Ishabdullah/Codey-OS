@@ -1,7 +1,8 @@
 """Gateway boundary for bounded subprocess invocations in fix/TDD/recovery.
 
-Classification retains the shell tools' existing opaque-interpreter policy.
-This mediates execution; it does not constrain Python scripts or pytest code.
+Classification shares shell tools' default-confirm policy: unknown executables
+and opaque inline interpreters are HIGH_IMPACT, while known script-file and
+pytest invocations retain their established authority.
 """
 
 import shlex
