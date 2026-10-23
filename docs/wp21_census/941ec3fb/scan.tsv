@@ -1,0 +1,920 @@
+key	kind	category	file	dir	qualname	callee	ordinal	line	detail	lexgate	refs
+bench/agents.py::make_codey_cli_agent.<locals>.agent::subprocess.run::1	py	exec_spawn	bench/agents.py	bench	make_codey_cli_agent.<locals>.agent	subprocess.run	1	31			8
+bench/agents.py::oracle_agent::shutil.copy2::1	py	fs_write	bench/agents.py	bench	oracle_agent	shutil.copy2	1	20			0
+bench/lock.py::write_lock::*.write_text::1	py	fs_write	bench/lock.py	bench	write_lock	*.write_text	1	22			0
+bench/promote.py::main::open::1	py	fs_write	bench/promote.py	bench	main	open	1	21	mode=a		29
+bench/runner.py::run_suite::*.mkdir::1	py	fs_write	bench/runner.py	bench	run_suite	*.mkdir	1	55			0
+bench/runner.py::run_suite::open::1	py	fs_write	bench/runner.py	bench	run_suite	open	1	56	mode=a		0
+bench/runner.py::run_suite::shutil.copytree::1	py	fs_write	bench/runner.py	bench	run_suite	shutil.copytree	1	24			0
+bench/runner.py::run_suite::tempfile.TemporaryDirectory::1	py	fs_write	bench/runner.py	bench	run_suite	tempfile.TemporaryDirectory	1	22			0
+bench/scorecard.py::append_history::*.mkdir::1	py	fs_write	bench/scorecard.py	bench	append_history	*.mkdir	1	858			1
+bench/scorecard.py::append_history::*.open::1	py	fs_write	bench/scorecard.py	bench	append_history	*.open	1	879	mode=a		1
+bench/verify.py::grade::shutil.copytree::1	py	fs_write	bench/verify.py	bench	grade	shutil.copytree	1	32			3
+bench/verify.py::grade::shutil.copytree::2	py	fs_write	bench/verify.py	bench	grade	shutil.copytree	2	34			3
+bench/verify.py::grade::subprocess.run::1	py	exec_spawn	bench/verify.py	bench	grade	subprocess.run	1	36			3
+bench/verify.py::grade::tempfile.TemporaryDirectory::1	py	fs_write	bench/verify.py	bench	grade	tempfile.TemporaryDirectory	1	30			3
+ccos/core/capability_optimizer.py::CapabilityOptimizer.compare_and_upgrade.<locals>._deploy::*.mkdir::1	py	fs_write	ccos/core/capability_optimizer.py	ccos	CapabilityOptimizer.compare_and_upgrade.<locals>._deploy	*.mkdir	1	449			2
+ccos/core/capability_optimizer.py::CapabilityOptimizer.compare_and_upgrade.<locals>._deploy::shutil.copy2::1	py	fs_write	ccos/core/capability_optimizer.py	ccos	CapabilityOptimizer.compare_and_upgrade.<locals>._deploy	shutil.copy2	1	450			2
+ccos/core/capability_optimizer.py::CapabilityOptimizer.compare_and_upgrade.<locals>._deploy::shutil.copy2::2	py	fs_write	ccos/core/capability_optimizer.py	ccos	CapabilityOptimizer.compare_and_upgrade.<locals>._deploy	shutil.copy2	2	455			2
+ccos/core/capability_optimizer.py::CapabilityOptimizer.compare_and_upgrade.<locals>._deploy::shutil.copy2::3	py	fs_write	ccos/core/capability_optimizer.py	ccos	CapabilityOptimizer.compare_and_upgrade.<locals>._deploy	shutil.copy2	3	458			2
+ccos/core/capability_optimizer.py::CapabilityOptimizer.generate_improved_version::*.mkdir::1	py	fs_write	ccos/core/capability_optimizer.py	ccos	CapabilityOptimizer.generate_improved_version	*.mkdir	1	236			1
+ccos/core/capability_optimizer.py::CapabilityOptimizer.generate_improved_version::*.write_text::1	py	fs_write	ccos/core/capability_optimizer.py	ccos	CapabilityOptimizer.generate_improved_version	*.write_text	1	245			1
+ccos/core/capability_optimizer.py::CapabilityOptimizer.generate_improved_version::shutil.copy2::1	py	fs_write	ccos/core/capability_optimizer.py	ccos	CapabilityOptimizer.generate_improved_version	shutil.copy2	1	250			1
+ccos/core/capability_registry.py::CapabilityRegistry._save::*.mkdir::1	py	fs_write	ccos/core/capability_registry.py	ccos	CapabilityRegistry._save	*.mkdir	1	205			11
+ccos/core/capability_registry.py::CapabilityRegistry._save::*.write_text::1	py	fs_write	ccos/core/capability_registry.py	ccos	CapabilityRegistry._save	*.write_text	1	210			11
+ccos/core/device_bridge.py::DeviceBridgeClient.send_request::socket.socket::1	py	network	ccos/core/device_bridge.py	ccos	DeviceBridgeClient.send_request	socket.socket	1	382			8
+ccos/core/device_bridge.py::DeviceBridgeServer.start::socket.socket::1	py	network	ccos/core/device_bridge.py	ccos	DeviceBridgeServer.start	socket.socket	1	292			85
+ccos/core/device_manager.py::_run_cmd::subprocess.run::1	py	exec_spawn	ccos/core/device_manager.py	ccos	_run_cmd	subprocess.run	1	27			8
+ccos/core/goal_engine.py::GoalEngine._save_queue::*.mkdir::1	py	fs_write	ccos/core/goal_engine.py	ccos	GoalEngine._save_queue	*.mkdir	1	569			3
+ccos/core/goal_engine.py::GoalEngine._save_queue::*.write_text::1	py	fs_write	ccos/core/goal_engine.py	ccos	GoalEngine._save_queue	*.write_text	1	571			3
+ccos/core/memory/ccos_memory.py::EventLog.__init__::*.mkdir::1	py	fs_write	ccos/core/memory/ccos_memory.py	ccos	EventLog.__init__	*.mkdir	1	231			11
+ccos/core/memory/ccos_memory.py::EventLog.__init__::sqlite3.connect::1	py	sqlite_conn	ccos/core/memory/ccos_memory.py	ccos	EventLog.__init__	sqlite3.connect	1	232			11
+ccos/core/memory/ccos_memory.py::EventLog._init_table::*.executescript::1	py	sqlite_exec	ccos/core/memory/ccos_memory.py	ccos	EventLog._init_table	*.executescript	1	237	script		1
+ccos/core/memory/ccos_memory.py::EventLog.log::*.execute::1	py	sqlite_write	ccos/core/memory/ccos_memory.py	ccos	EventLog.log	*.execute	1	253	verb=INSERT		159
+ccos/core/memory/ccos_memory.py::StructuredDB.__init__::*.mkdir::1	py	fs_write	ccos/core/memory/ccos_memory.py	ccos	StructuredDB.__init__	*.mkdir	1	29			11
+ccos/core/memory/ccos_memory.py::StructuredDB.__init__::sqlite3.connect::1	py	sqlite_conn	ccos/core/memory/ccos_memory.py	ccos	StructuredDB.__init__	sqlite3.connect	1	30			11
+ccos/core/memory/ccos_memory.py::StructuredDB._init_tables::*.executescript::1	py	sqlite_exec	ccos/core/memory/ccos_memory.py	ccos	StructuredDB._init_tables	*.executescript	1	36	script		3
+ccos/core/memory/ccos_memory.py::StructuredDB.record_performance::*.execute::1	py	sqlite_write	ccos/core/memory/ccos_memory.py	ccos	StructuredDB.record_performance	*.execute	1	189	verb=INSERT		1
+ccos/core/memory/ccos_memory.py::StructuredDB.record_skill_use::*.execute::1	py	sqlite_write	ccos/core/memory/ccos_memory.py	ccos	StructuredDB.record_skill_use	*.execute	1	115	verb=UPDATE		0
+ccos/core/memory/ccos_memory.py::StructuredDB.set_config::*.execute::1	py	sqlite_write	ccos/core/memory/ccos_memory.py	ccos	StructuredDB.set_config	*.execute	1	153	verb=INSERT		0
+ccos/core/memory/ccos_memory.py::StructuredDB.set_preference::*.execute::1	py	sqlite_write	ccos/core/memory/ccos_memory.py	ccos	StructuredDB.set_preference	*.execute	1	171	verb=INSERT		0
+ccos/core/memory/ccos_memory.py::StructuredDB.store_skill::*.execute::1	py	sqlite_write	ccos/core/memory/ccos_memory.py	ccos	StructuredDB.store_skill	*.execute	1	92	verb=INSERT		0
+ccos/core/memory/ccos_memory.py::StructuredDB.store_workflow::*.execute::1	py	sqlite_write	ccos/core/memory/ccos_memory.py	ccos	StructuredDB.store_workflow	*.execute	1	126	verb=INSERT		3
+ccos/core/performance_tracker.py::PerformanceTracker.__init__::*.mkdir::1	py	fs_write	ccos/core/performance_tracker.py	ccos	PerformanceTracker.__init__	*.mkdir	1	53			11
+ccos/core/performance_tracker.py::PerformanceTracker.__init__::sqlite3.connect::1	py	sqlite_conn	ccos/core/performance_tracker.py	ccos	PerformanceTracker.__init__	sqlite3.connect	1	54			11
+ccos/core/performance_tracker.py::PerformanceTracker._init_tables::*.executescript::1	py	sqlite_exec	ccos/core/performance_tracker.py	ccos	PerformanceTracker._init_tables	*.executescript	1	59	script		3
+ccos/core/performance_tracker.py::PerformanceTracker._update_version_stats::*.execute::1	py	sqlite_write	ccos/core/performance_tracker.py	ccos	PerformanceTracker._update_version_stats	*.execute	1	145	verb=UPDATE		1
+ccos/core/performance_tracker.py::PerformanceTracker._update_version_stats::*.execute::2	py	sqlite_write	ccos/core/performance_tracker.py	ccos	PerformanceTracker._update_version_stats	*.execute	2	154	verb=INSERT		1
+ccos/core/performance_tracker.py::PerformanceTracker.deprecate_version::*.execute::1	py	sqlite_write	ccos/core/performance_tracker.py	ccos	PerformanceTracker.deprecate_version	*.execute	1	243	verb=UPDATE		1
+ccos/core/performance_tracker.py::PerformanceTracker.record_execution::*.execute::1	py	sqlite_write	ccos/core/performance_tracker.py	ccos	PerformanceTracker.record_execution	*.execute	1	114	verb=INSERT		7
+ccos/core/performance_tracker.py::PerformanceTracker.register_version::*.execute::1	py	sqlite_write	ccos/core/performance_tracker.py	ccos	PerformanceTracker.register_version	*.execute	1	229	verb=UPDATE		1
+ccos/core/performance_tracker.py::PerformanceTracker.register_version::*.execute::2	py	sqlite_write	ccos/core/performance_tracker.py	ccos	PerformanceTracker.register_version	*.execute	2	233	verb=INSERT		1
+ccos/core/performance_tracker.py::PerformanceTracker.take_snapshot::*.execute::1	py	sqlite_write	ccos/core/performance_tracker.py	ccos	PerformanceTracker.take_snapshot	*.execute	1	303	verb=INSERT		1
+ccos/core/plugin_manager.py::PluginManager._call_capability.<locals>._execute::urllib.request.Request::1	py	network	ccos/core/plugin_manager.py	ccos	PluginManager._call_capability.<locals>._execute	urllib.request.Request	1	1089			6
+ccos/core/plugin_manager.py::PluginManager._call_capability.<locals>._execute::urllib.request.urlopen::1	py	network	ccos/core/plugin_manager.py	ccos	PluginManager._call_capability.<locals>._execute	urllib.request.urlopen	1	1095			6
+ccos/core/plugin_manager.py::PluginManager._load::importlib.util.module_from_spec::1	py	dyn_code	ccos/core/plugin_manager.py	ccos	PluginManager._load	importlib.util.module_from_spec	1	708			11
+ccos/core/plugin_manager.py::PluginManager._load::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/core/plugin_manager.py	ccos	PluginManager._load	importlib.util.spec_from_file_location	1	705			11
+ccos/core/plugin_manager.py::ProcessSupervisor._publish_pid::*.mkdir::1	py	fs_write	ccos/core/plugin_manager.py	ccos	ProcessSupervisor._publish_pid	*.mkdir	1	299			1
+ccos/core/plugin_manager.py::ProcessSupervisor._publish_pid::*.open::1	py	fs_write	ccos/core/plugin_manager.py	ccos	ProcessSupervisor._publish_pid	*.open	1	302	mode=xb		1
+ccos/core/plugin_manager.py::ProcessSupervisor._remove_owned_record::*.unlink::1	py	fs_write	ccos/core/plugin_manager.py	ccos	ProcessSupervisor._remove_owned_record	*.unlink	1	327			1
+ccos/core/plugin_manager.py::ProcessSupervisor._remove_owned_record::os.open::1	py	fs_write	ccos/core/plugin_manager.py	ccos	ProcessSupervisor._remove_owned_record	os.open	1	319			1
+ccos/core/plugin_manager.py::ProcessSupervisor.check_health::urllib.request.Request::1	py	network	ccos/core/plugin_manager.py	ccos	ProcessSupervisor.check_health	urllib.request.Request	1	460			3
+ccos/core/plugin_manager.py::ProcessSupervisor.check_health::urllib.request.urlopen::1	py	network	ccos/core/plugin_manager.py	ccos	ProcessSupervisor.check_health	urllib.request.urlopen	1	461			3
+ccos/core/plugin_manager.py::ProcessSupervisor.start_external_plugin::subprocess.Popen::1	py	exec_spawn	ccos/core/plugin_manager.py	ccos	ProcessSupervisor.start_external_plugin	subprocess.Popen	1	374			1
+ccos/core/plugin_manager.py::ProcessSupervisor.stop_external_plugin::*.kill::1	py	kill	ccos/core/plugin_manager.py	ccos	ProcessSupervisor.stop_external_plugin	*.kill	1	429			4
+ccos/core/plugin_manager.py::ProcessSupervisor.stop_external_plugin::*.terminate::1	py	kill	ccos/core/plugin_manager.py	ccos	ProcessSupervisor.stop_external_plugin	*.terminate	1	420			4
+ccos/core/project_engine.py::ProjectEngine._save::*.mkdir::1	py	fs_write	ccos/core/project_engine.py	ccos	ProjectEngine._save	*.mkdir	1	646			11
+ccos/core/project_engine.py::ProjectEngine._save::*.write_text::1	py	fs_write	ccos/core/project_engine.py	ccos	ProjectEngine._save	*.write_text	1	648			11
+ccos/core/reflection_engine.py::ReflectionEngine._save::*.mkdir::1	py	fs_write	ccos/core/reflection_engine.py	ccos	ReflectionEngine._save	*.mkdir	1	208			11
+ccos/core/reflection_engine.py::ReflectionEngine._save::open::1	py	fs_write	ccos/core/reflection_engine.py	ccos	ReflectionEngine._save	open	1	220	mode=a		11
+ccos/core/sandbox.py::Sandbox.__init__::tempfile.mkdtemp::1	py	fs_write	ccos/core/sandbox.py	ccos	Sandbox.__init__	tempfile.mkdtemp	1	191			11
+ccos/core/sandbox.py::Sandbox.cleanup::shutil.rmtree::1	py	fs_write	ccos/core/sandbox.py	ccos	Sandbox.cleanup	shutil.rmtree	1	348			9
+ccos/core/sandbox.py::Sandbox.create_workspace::*.mkdir::1	py	fs_write	ccos/core/sandbox.py	ccos	Sandbox.create_workspace	*.mkdir	1	342			0
+ccos/core/sandbox.py::Sandbox.install_package::*.mkdir::1	py	fs_write	ccos/core/sandbox.py	ccos	Sandbox.install_package	*.mkdir	1	332			0
+ccos/core/sandbox.py::Sandbox.run_command::subprocess.run::1	py	exec_spawn	ccos/core/sandbox.py	ccos	Sandbox.run_command	subprocess.run	1	235			5
+ccos/core/sandbox.py::Sandbox.run_python::*.write_text::1	py	fs_write	ccos/core/sandbox.py	ccos	Sandbox.run_python	*.write_text	1	284			1
+ccos/core/skill_recombiner.py::SkillRecombiner._execute_loaded_skill::importlib.util.module_from_spec::1	py	dyn_code	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._execute_loaded_skill	importlib.util.module_from_spec	1	814			1
+ccos/core/skill_recombiner.py::SkillRecombiner._execute_loaded_skill::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._execute_loaded_skill	importlib.util.spec_from_file_location	1	810			1
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern::*.mkdir::1	py	fs_write	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._process_pattern	*.mkdir	1	623			1
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern::*.write_text::1	py	fs_write	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._process_pattern	*.write_text	1	627			1
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern::*.write_text::2	py	fs_write	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._process_pattern	*.write_text	2	631			1
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern::*.write_text::3	py	fs_write	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._process_pattern	*.write_text	3	635			1
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern.<locals>._deploy::*.mkdir::1	py	fs_write	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._process_pattern.<locals>._deploy	*.mkdir	1	679			2
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern.<locals>._deploy::shutil.copy2::1	py	fs_write	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._process_pattern.<locals>._deploy	shutil.copy2	1	682			2
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern.<locals>._deploy::shutil.rmtree::1	py	fs_write	ccos/core/skill_recombiner.py	ccos	SkillRecombiner._process_pattern.<locals>._deploy	shutil.rmtree	1	704			2
+ccos/core/task_blackboard.py::TaskBlackboard.__init__::*.mkdir::1	py	fs_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.__init__	*.mkdir	1	29			11
+ccos/core/task_blackboard.py::TaskBlackboard.__init__::sqlite3.connect::1	py	sqlite_conn	ccos/core/task_blackboard.py	ccos	TaskBlackboard.__init__	sqlite3.connect	1	31			11
+ccos/core/task_blackboard.py::TaskBlackboard._ensure_task_session::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard._ensure_task_session	*.execute	1	136	verb=INSERT		6
+ccos/core/task_blackboard.py::TaskBlackboard._init_db::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard._init_db	*.execute	1	38	verb=PRAGMA JOURNAL_MODE=		3
+ccos/core/task_blackboard.py::TaskBlackboard._init_db::*.execute::2	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard._init_db	*.execute	2	39	verb=PRAGMA FOREIGN_KEYS=		3
+ccos/core/task_blackboard.py::TaskBlackboard._init_db::*.executescript::1	py	sqlite_exec	ccos/core/task_blackboard.py	ccos	TaskBlackboard._init_db	*.executescript	1	40	script		3
+ccos/core/task_blackboard.py::TaskBlackboard.cleanup_task.<locals>.reset::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.cleanup_task.<locals>.reset	*.execute	1	445	verb=DELETE		5
+ccos/core/task_blackboard.py::TaskBlackboard.complete_task::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.complete_task	*.execute	1	280	verb=UPDATE		16
+ccos/core/task_blackboard.py::TaskBlackboard.create_task::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.create_task	*.execute	1	114	verb=INSERT		9
+ccos/core/task_blackboard.py::TaskBlackboard.delete_key::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.delete_key	*.execute	1	206	verb=DELETE		0
+ccos/core/task_blackboard.py::TaskBlackboard.park_escalation::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.park_escalation	*.execute	1	305	verb=INSERT		1
+ccos/core/task_blackboard.py::TaskBlackboard.park_escalation::*.execute::2	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.park_escalation	*.execute	2	324	verb=UPDATE		1
+ccos/core/task_blackboard.py::TaskBlackboard.purge_expired::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.purge_expired	*.execute	1	461	verb=DELETE		0
+ccos/core/task_blackboard.py::TaskBlackboard.resolve_escalation::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.resolve_escalation	*.execute	1	400	verb=UPDATE		2
+ccos/core/task_blackboard.py::TaskBlackboard.resolve_escalation::*.execute::2	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.resolve_escalation	*.execute	2	409	verb=UPDATE		2
+ccos/core/task_blackboard.py::TaskBlackboard.resolve_escalation::*.execute::3	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.resolve_escalation	*.execute	3	423	verb=UPDATE		2
+ccos/core/task_blackboard.py::TaskBlackboard.save_checkpoint::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.save_checkpoint	*.execute	1	223	verb=INSERT		9
+ccos/core/task_blackboard.py::TaskBlackboard.save_checkpoint::*.execute::2	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.save_checkpoint	*.execute	2	230	verb=UPDATE		9
+ccos/core/task_blackboard.py::TaskBlackboard.set::*.execute::1	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.set	*.execute	1	154	verb=INSERT		149
+ccos/core/task_blackboard.py::TaskBlackboard.set::*.execute::2	py	sqlite_write	ccos/core/task_blackboard.py	ccos	TaskBlackboard.set	*.execute	2	165	verb=UPDATE		149
+ccos/core/telemetry_engine.py::TelemetryEngine.__init__::*.mkdir::1	py	fs_write	ccos/core/telemetry_engine.py	ccos	TelemetryEngine.__init__	*.mkdir	1	99			11
+ccos/core/telemetry_engine.py::TelemetryEngine.__init__::sqlite3.connect::1	py	sqlite_conn	ccos/core/telemetry_engine.py	ccos	TelemetryEngine.__init__	sqlite3.connect	1	100			11
+ccos/core/telemetry_engine.py::TelemetryEngine._flush_buffer_locked::*.execute::1	py	sqlite_write	ccos/core/telemetry_engine.py	ccos	TelemetryEngine._flush_buffer_locked	*.execute	1	224	verb=INSERT		2
+ccos/core/telemetry_engine.py::TelemetryEngine._init_tables::*.executescript::1	py	sqlite_exec	ccos/core/telemetry_engine.py	ccos	TelemetryEngine._init_tables	*.executescript	1	112	script		3
+ccos/core/telemetry_engine.py::TelemetryEngine._save_drift_alert::*.execute::1	py	sqlite_write	ccos/core/telemetry_engine.py	ccos	TelemetryEngine._save_drift_alert	*.execute	1	700	verb=INSERT		1
+ccos/core/telemetry_engine.py::TelemetryEngine.update_baseline::*.execute::1	py	sqlite_write	ccos/core/telemetry_engine.py	ccos	TelemetryEngine.update_baseline	*.execute	1	297	verb=INSERT		1
+ccos/demo_agent_orchestrator.py::<module>::sys.path.insert::1	py	env_mut	ccos/demo_agent_orchestrator.py	ccos	<module>	sys.path.insert	1	17			
+ccos/demo_goal_engine.py::<module>::sys.path.insert::1	py	env_mut	ccos/demo_goal_engine.py	ccos	<module>	sys.path.insert	1	19			
+ccos/demo_improvement_loop.py::<module>::sys.path.insert::1	py	env_mut	ccos/demo_improvement_loop.py	ccos	<module>	sys.path.insert	1	19			
+ccos/demo_project_engine.py::<module>::sys.path.insert::1	py	env_mut	ccos/demo_project_engine.py	ccos	<module>	sys.path.insert	1	18			
+ccos/demo_skill_recombiner.py::<module>::sys.path.insert::1	py	env_mut	ccos/demo_skill_recombiner.py	ccos	<module>	sys.path.insert	1	21			
+ccos/demo_telemetry.py::<module>::sys.path.insert::1	py	env_mut	ccos/demo_telemetry.py	ccos	<module>	sys.path.insert	1	19			
+ccos/plugins/_pathutil.py::ensure_repo_root_on_path::sys.path.insert::1	py	env_mut	ccos/plugins/_pathutil.py	ccos	ensure_repo_root_on_path	sys.path.insert	1	28			24
+ccos/plugins/_pathutil.py::ensure_repo_root_on_path::sys.path.remove::1	py	env_mut	ccos/plugins/_pathutil.py	ccos	ensure_repo_root_on_path	sys.path.remove	1	27			24
+ccos/plugins/coding/agent/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/coding/agent/test.py	ccos	<module>	importlib.util.module_from_spec	1	34			
+ccos/plugins/coding/agent/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/coding/agent/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	33			
+ccos/plugins/coding/agent/test.py::<module>::os.environ[]=::1	py	env_mut	ccos/plugins/coding/agent/test.py	ccos	<module>	os.environ[]=	1	26			
+ccos/plugins/coding/agent/test.py::<module>::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/agent/test.py	ccos	<module>	tempfile.mkdtemp	1	25			
+ccos/plugins/coding/error_recovery/error_recovery.py::test::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/error_recovery/error_recovery.py	ccos	test	shutil.rmtree	1	154			16
+ccos/plugins/coding/error_recovery/error_recovery.py::test::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/error_recovery/error_recovery.py	ccos	test	tempfile.mkdtemp	1	138			16
+ccos/plugins/coding/error_recovery/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/coding/error_recovery/test.py	ccos	<module>	importlib.util.module_from_spec	1	14			
+ccos/plugins/coding/error_recovery/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/coding/error_recovery/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	13			
+ccos/plugins/coding/error_recovery/test.py::test_execute_strategy_mkdir_then_write::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/error_recovery/test.py	ccos	test_execute_strategy_mkdir_then_write	shutil.rmtree	1	77			1
+ccos/plugins/coding/error_recovery/test.py::test_execute_strategy_mkdir_then_write::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/error_recovery/test.py	ccos	test_execute_strategy_mkdir_then_write	tempfile.mkdtemp	1	56			1
+ccos/plugins/coding/finetune/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/coding/finetune/test.py	ccos	<module>	importlib.util.module_from_spec	1	16			
+ccos/plugins/coding/finetune/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/coding/finetune/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	15			
+ccos/plugins/coding/finetune/test.py::_make_throwaway_adapter::*.write_bytes::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	_make_throwaway_adapter	*.write_bytes	1	47			2
+ccos/plugins/coding/finetune/test.py::_make_throwaway_adapter::*.write_text::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	_make_throwaway_adapter	*.write_text	1	44			2
+ccos/plugins/coding/finetune/test.py::_make_throwaway_adapter::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	_make_throwaway_adapter	tempfile.mkdtemp	1	36			2
+ccos/plugins/coding/finetune/test.py::test_create_backup_and_rollback_on_dummy_model::*.write_bytes::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_create_backup_and_rollback_on_dummy_model	*.write_bytes	1	162			1
+ccos/plugins/coding/finetune/test.py::test_create_backup_and_rollback_on_dummy_model::*.write_bytes::2	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_create_backup_and_rollback_on_dummy_model	*.write_bytes	2	191			1
+ccos/plugins/coding/finetune/test.py::test_create_backup_and_rollback_on_dummy_model::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_create_backup_and_rollback_on_dummy_model	shutil.rmtree	1	212			1
+ccos/plugins/coding/finetune/test.py::test_create_backup_and_rollback_on_dummy_model::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_create_backup_and_rollback_on_dummy_model	tempfile.mkdtemp	1	160			1
+ccos/plugins/coding/finetune/test.py::test_export_dataset_to_throwaway_dir::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_export_dataset_to_throwaway_dir	shutil.rmtree	1	107			1
+ccos/plugins/coding/finetune/test.py::test_export_dataset_to_throwaway_dir::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_export_dataset_to_throwaway_dir	tempfile.mkdtemp	1	97			1
+ccos/plugins/coding/finetune/test.py::test_generate_notebook_to_throwaway_dir::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_generate_notebook_to_throwaway_dir	shutil.rmtree	1	120			1
+ccos/plugins/coding/finetune/test.py::test_generate_notebook_to_throwaway_dir::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_generate_notebook_to_throwaway_dir	tempfile.mkdtemp	1	111			1
+ccos/plugins/coding/finetune/test.py::test_validate_and_info_on_dummy_adapter::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_validate_and_info_on_dummy_adapter	shutil.rmtree	1	83			1
+ccos/plugins/coding/finetune/test.py::test_validate_incomplete_adapter::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/finetune/test.py	ccos	test_validate_incomplete_adapter	shutil.rmtree	1	66			1
+ccos/plugins/coding/git_integration/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/coding/git_integration/test.py	ccos	<module>	importlib.util.module_from_spec	1	15			
+ccos/plugins/coding/git_integration/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/coding/git_integration/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	14			
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::*.write_text::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	_make_throwaway_repo	*.write_text	1	38			3
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::1	py	exec_spawn	ccos/plugins/coding/git_integration/test.py	ccos	_make_throwaway_repo	subprocess.run	1	35			3
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::2	py	exec_spawn	ccos/plugins/coding/git_integration/test.py	ccos	_make_throwaway_repo	subprocess.run	2	36			3
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::3	py	exec_spawn	ccos/plugins/coding/git_integration/test.py	ccos	_make_throwaway_repo	subprocess.run	3	37			3
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::4	py	exec_spawn	ccos/plugins/coding/git_integration/test.py	ccos	_make_throwaway_repo	subprocess.run	4	39			3
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::5	py	exec_spawn	ccos/plugins/coding/git_integration/test.py	ccos	_make_throwaway_repo	subprocess.run	5	40			3
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	_make_throwaway_repo	tempfile.mkdtemp	1	34			3
+ccos/plugins/coding/git_integration/test.py::test_detect_conflicts_clean_repo::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	test_detect_conflicts_clean_repo	shutil.rmtree	1	64			1
+ccos/plugins/coding/git_integration/test.py::test_git_commit_and_branch_on_throwaway_repo::*.write_text::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	test_git_commit_and_branch_on_throwaway_repo	*.write_text	1	74			1
+ccos/plugins/coding/git_integration/test.py::test_git_commit_and_branch_on_throwaway_repo::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	test_git_commit_and_branch_on_throwaway_repo	shutil.rmtree	1	95			1
+ccos/plugins/coding/git_integration/test.py::test_is_git_repo_on_non_repo::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	test_is_git_repo_on_non_repo	shutil.rmtree	1	55			1
+ccos/plugins/coding/git_integration/test.py::test_is_git_repo_on_non_repo::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	test_is_git_repo_on_non_repo	tempfile.mkdtemp	1	51			1
+ccos/plugins/coding/git_integration/test.py::test_status_reflects_changes::*.write_text::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	test_status_reflects_changes	*.write_text	1	103			1
+ccos/plugins/coding/git_integration/test.py::test_status_reflects_changes::shutil.rmtree::1	py	fs_write	ccos/plugins/coding/git_integration/test.py	ccos	test_status_reflects_changes	shutil.rmtree	1	108			1
+ccos/plugins/coding/peer_escalation/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/coding/peer_escalation/test.py	ccos	<module>	importlib.util.module_from_spec	1	12			
+ccos/plugins/coding/peer_escalation/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/coding/peer_escalation/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	11			
+ccos/plugins/coding/static_analysis/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/coding/static_analysis/test.py	ccos	<module>	importlib.util.module_from_spec	1	12			
+ccos/plugins/coding/static_analysis/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/coding/static_analysis/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	11			
+ccos/plugins/coding/task_queue/task_queue.py::test::*.unlink::1	py	fs_write	ccos/plugins/coding/task_queue/task_queue.py	ccos	test	*.unlink	1	114			16
+ccos/plugins/coding/task_queue/task_queue.py::test::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/task_queue/task_queue.py	ccos	test	tempfile.mkdtemp	1	104			16
+ccos/plugins/coding/task_queue/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/coding/task_queue/test.py	ccos	<module>	importlib.util.module_from_spec	1	13			
+ccos/plugins/coding/task_queue/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/coding/task_queue/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	12			
+ccos/plugins/coding/task_queue/test.py::<module>::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/coding/task_queue/test.py	ccos	<module>	tempfile.mkdtemp	1	30			
+ccos/plugins/coding/task_queue/test.py::test_create_and_add::*.unlink::1	py	fs_write	ccos/plugins/coding/task_queue/test.py	ccos	test_create_and_add	*.unlink	1	43			1
+ccos/plugins/coding/task_queue/test.py::test_list_includes_created_queue::*.unlink::1	py	fs_write	ccos/plugins/coding/task_queue/test.py	ccos	test_list_includes_created_queue	*.unlink	1	91			1
+ccos/plugins/coding/task_queue/test.py::test_status_transitions_and_persistence::*.unlink::1	py	fs_write	ccos/plugins/coding/task_queue/test.py	ccos	test_status_transitions_and_persistence	*.unlink	1	79			1
+ccos/plugins/crm/core_query/client.py::CoreQueryClient.__init__::requests.Session::1	py	network	ccos/plugins/crm/core_query/client.py	ccos	CoreQueryClient.__init__	requests.Session	1	88			11
+ccos/plugins/crm/core_query/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/crm/core_query/test.py	ccos	<module>	importlib.util.module_from_spec	1	15			
+ccos/plugins/crm/core_query/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/crm/core_query/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	14			
+ccos/plugins/device/bridge/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/device/bridge/test.py	ccos	<module>	importlib.util.module_from_spec	1	9			
+ccos/plugins/device/bridge/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/device/bridge/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	8			
+ccos/plugins/device/termux_api/extended_api.py::_run::subprocess.run::1	py	exec_spawn	ccos/plugins/device/termux_api/extended_api.py	ccos	_run	subprocess.run	1	21			34
+ccos/plugins/device/termux_api/termux_api.py::TermuxAPI.execute::subprocess.run::1	py	exec_spawn	ccos/plugins/device/termux_api/termux_api.py	ccos	TermuxAPI.execute	subprocess.run	1	141			911
+ccos/plugins/research/rag_retrieval/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/research/rag_retrieval/test.py	ccos	<module>	importlib.util.module_from_spec	1	12			
+ccos/plugins/research/rag_retrieval/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/research/rag_retrieval/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	11			
+ccos/plugins/system/daemon_control/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/system/daemon_control/test.py	ccos	<module>	importlib.util.module_from_spec	1	27			
+ccos/plugins/system/daemon_control/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/system/daemon_control/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	26			
+ccos/plugins/system/daemon_control/test.py::<module>::tempfile.mkdtemp::1	py	fs_write	ccos/plugins/system/daemon_control/test.py	ccos	<module>	tempfile.mkdtemp	1	47			
+ccos/plugins/system/daemon_control/test.py::_TestServerThread._start::*.unlink::1	py	fs_write	ccos/plugins/system/daemon_control/test.py	ccos	_TestServerThread._start	*.unlink	1	77			2
+ccos/plugins/system/daemon_control/test.py::test_socket_capabilities_against_lightweight_test_daemon::*.unlink::1	py	fs_write	ccos/plugins/system/daemon_control/test.py	ccos	test_socket_capabilities_against_lightweight_test_daemon	*.unlink	1	153			1
+ccos/plugins/system/observability/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/system/observability/test.py	ccos	<module>	importlib.util.module_from_spec	1	12			
+ccos/plugins/system/observability/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/system/observability/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	11			
+ccos/plugins/system/system_info/system_info.py::_get_disk_info::subprocess.run::1	py	exec_spawn	ccos/plugins/system/system_info/system_info.py	ccos	_get_disk_info	subprocess.run	1	104			1
+ccos/plugins/system/system_info/system_info.py::_get_uptime::subprocess.run::1	py	exec_spawn	ccos/plugins/system/system_info/system_info.py	ccos	_get_uptime	subprocess.run	1	56			1
+ccos/plugins/system/system_info/system_info.py::list_processes::subprocess.run::1	py	exec_spawn	ccos/plugins/system/system_info/system_info.py	ccos	list_processes	subprocess.run	1	35			1
+ccos/plugins/system/system_info/test.py::<module>::sys.path.insert::1	py	env_mut	ccos/plugins/system/system_info/test.py	ccos	<module>	sys.path.insert	1	7			
+ccos/plugins/system/thermal_monitor/test.py::<module>::importlib.util.module_from_spec::1	py	dyn_code	ccos/plugins/system/thermal_monitor/test.py	ccos	<module>	importlib.util.module_from_spec	1	13			
+ccos/plugins/system/thermal_monitor/test.py::<module>::importlib.util.spec_from_file_location::1	py	dyn_code	ccos/plugins/system/thermal_monitor/test.py	ccos	<module>	importlib.util.spec_from_file_location	1	12			
+ccos/plugins/vision/camera_capture/camera.py::capture_image::subprocess.run::1	py	exec_spawn	ccos/plugins/vision/camera_capture/camera.py	ccos	capture_image	subprocess.run	1	95			1
+ccos/plugins/vision/camera_capture/test.py::<module>::sys.path.insert::1	py	env_mut	ccos/plugins/vision/camera_capture/test.py	ccos	<module>	sys.path.insert	1	7			
+core/action_gateway.py::_append_audit::*.mkdir::1	py	fs_write	core/action_gateway.py	core	_append_audit	*.mkdir	1	121			1
+core/action_gateway.py::_append_audit::open::1	py	fs_write	core/action_gateway.py	core	_append_audit	open	1	122	mode=a		1
+core/background.py::FileWatchManager.add_watch::*.mkdir::1	py	fs_write	core/background.py	core	FileWatchManager.add_watch	*.mkdir	1	347			0
+core/backup_documents.py::<module>::sys.path.insert::1	py	env_mut	core/backup_documents.py	core	<module>	sys.path.insert	1	12			
+core/backup_documents.py::do_backup::google.cloud.storage.Client::1	py	network	core/backup_documents.py	core	do_backup	google.cloud.storage.Client	1	89			2
+core/backup_documents.py::do_backup::os.environ[]=::1	py	env_mut	core/backup_documents.py	core	do_backup	os.environ[]=	1	63			2
+core/backup_documents.py::do_backup::os.remove::1	py	fs_write	core/backup_documents.py	core	do_backup	os.remove	1	128			2
+core/backup_documents.py::do_backup::tempfile.NamedTemporaryFile::1	py	fs_write	core/backup_documents.py	core	do_backup	tempfile.NamedTemporaryFile	1	110			2
+core/backup_documents.py::encrypt_file::argv:age::1	py	credential	core/backup_documents.py	core	encrypt_file	argv:age	1	44			1
+core/backup_documents.py::encrypt_file::subprocess.check_call::1	py	exec_spawn	core/backup_documents.py	core	encrypt_file	subprocess.check_call	1	44			1
+core/backup_documents.py::get_public_key::subprocess.check_output::1	py	exec_spawn	core/backup_documents.py	core	get_public_key	subprocess.check_output	1	36			1
+core/backup_documents.py::write_state_atomically::os.fdopen::1	py	fs_write	core/backup_documents.py	core	write_state_atomically	os.fdopen	1	53	mode=w		1
+core/backup_documents.py::write_state_atomically::os.replace::1	py	fs_write	core/backup_documents.py	core	write_state_atomically	os.replace	1	55			1
+core/backup_documents.py::write_state_atomically::tempfile.mkstemp::1	py	fs_write	core/backup_documents.py	core	write_state_atomically	tempfile.mkstemp	1	52			1
+core/backup_secrets.py::<module>::sys.path.insert::1	py	env_mut	core/backup_secrets.py	core	<module>	sys.path.insert	1	34			
+core/backup_secrets.py::_run::argv:age::1	py	credential	core/backup_secrets.py	core	_run	argv:age	1	162			34
+core/backup_secrets.py::_run::google.cloud.storage.Client::1	py	network	core/backup_secrets.py	core	_run	google.cloud.storage.Client	1	167			34
+core/backup_secrets.py::_run::os.chmod::1	py	fs_write	core/backup_secrets.py	core	_run	os.chmod	1	158			34
+core/backup_secrets.py::_run::os.environ[]=::1	py	env_mut	core/backup_secrets.py	core	_run	os.environ[]=	1	146			34
+core/backup_secrets.py::_run::shutil.rmtree::1	py	fs_write	core/backup_secrets.py	core	_run	shutil.rmtree	1	184			34
+core/backup_secrets.py::_run::subprocess.run::1	py	exec_spawn	core/backup_secrets.py	core	_run	subprocess.run	1	162			34
+core/backup_secrets.py::_run::tarfile.open::1	py	fs_write	core/backup_secrets.py	core	_run	tarfile.open	1	155	mode=w:gz		34
+core/backup_secrets.py::_run::tempfile.mkdtemp::1	py	fs_write	core/backup_secrets.py	core	_run	tempfile.mkdtemp	1	150			34
+core/backup_secrets.py::get_at_rest_public_key::subprocess.run::1	py	exec_spawn	core/backup_secrets.py	core	get_at_rest_public_key	subprocess.run	1	58			2
+core/checkpoint.py::<module>::*.mkdir::1	py	fs_write	core/checkpoint.py	core	<module>	*.mkdir	1	29			
+core/checkpoint.py::_copy_backup_files::*.mkdir::1	py	fs_write	core/checkpoint.py	core	_copy_backup_files	*.mkdir	1	327			2
+core/checkpoint.py::_copy_backup_files::shutil.copy2::1	py	fs_write	core/checkpoint.py	core	_copy_backup_files	shutil.copy2	1	328			2
+core/checkpoint.py::_extend_state_schema::*.execute::1	py	sqlite_write	core/checkpoint.py	core	_extend_state_schema	*.execute	1	524	verb=CREATE		2
+core/checkpoint.py::create_checkpoint::*.execute::1	py	sqlite_write	core/checkpoint.py	core	create_checkpoint	*.execute	1	150	verb=INSERT		1
+core/checkpoint.py::create_checkpoint::*.mkdir::1	py	fs_write	core/checkpoint.py	core	create_checkpoint	*.mkdir	1	109			1
+core/checkpoint.py::create_checkpoint::*.mkdir::2	py	fs_write	core/checkpoint.py	core	create_checkpoint	*.mkdir	2	124			1
+core/checkpoint.py::create_checkpoint::shutil.copy2::1	py	fs_write	core/checkpoint.py	core	create_checkpoint	shutil.copy2	1	125			1
+core/checkpoint.py::create_checkpoint::shutil.copy2::2	py	fs_write	core/checkpoint.py	core	create_checkpoint	shutil.copy2	2	140			1
+core/checkpoint.py::prune_checkpoints.<locals>.execute::shutil.rmtree::1	py	fs_write	core/checkpoint.py	core	prune_checkpoints.<locals>.execute	shutil.rmtree	1	496			911
+core/cli_client.py::<module>::sys.path.insert::1	py	env_mut	core/cli_client.py	core	<module>	sys.path.insert	1	18			
+core/cli_client.py::_direct::importlib.import_module::1	py	dyn_code	core/cli_client.py	core	_direct	importlib.import_module	1	129			3
+core/cli_client.py::_request::socket.socket::1	py	network	core/cli_client.py	core	_request	socket.socket	1	44			4
+core/context.py::<module>::const:.env::1	py	credential	core/context.py	core	<module>	const:.env	1	16			
+core/daemon.py::Daemon.__init__::*.mkdir::1	py	fs_write	core/daemon.py	core	Daemon.__init__	*.mkdir	1	955			11
+core/daemon.py::Daemon.__init__::*.mkdir::2	py	fs_write	core/daemon.py	core	Daemon.__init__	*.mkdir	2	956			11
+core/daemon.py::Daemon.__init__::*.mkdir::3	py	fs_write	core/daemon.py	core	Daemon.__init__	*.mkdir	3	957			11
+core/daemon.py::Daemon._list_live_tui_session_pids::os.kill::1	py	kill	core/daemon.py	core	Daemon._list_live_tui_session_pids	os.kill	1	1788	signal=0		1
+core/daemon.py::DaemonServer.start::*.unlink::1	py	fs_write	core/daemon.py	core	DaemonServer.start	*.unlink	1	792			85
+core/daemon.py::DaemonServer.start::os.chmod::1	py	fs_write	core/daemon.py	core	DaemonServer.start	os.chmod	1	797			85
+core/daemon.py::DaemonServer.stop::*.unlink::1	py	fs_write	core/daemon.py	core	DaemonServer.stop	*.unlink	1	811			25
+core/daemon.py::is_daemon_running::socket.socket::1	py	network	core/daemon.py	core	is_daemon_running	socket.socket	1	2256			3
+core/daemon.py::send_command::socket.socket::1	py	network	core/daemon.py	core	send_command	socket.socket	1	2275			9
+core/daemon_bootstrap.py::<module>::sys.path.insert::1	py	env_mut	core/daemon_bootstrap.py	core	<module>	sys.path.insert	1	22			
+core/daemon_config.py::DaemonConfig.create_default_config::*.mkdir::1	py	fs_write	core/daemon_config.py	core	DaemonConfig.create_default_config	*.mkdir	1	166			2
+core/daemon_config.py::DaemonConfig.create_default_config::open::1	py	fs_write	core/daemon_config.py	core	DaemonConfig.create_default_config	open	1	167	mode=w		2
+core/daemon_config.py::DaemonConfig.save::*.mkdir::1	py	fs_write	core/daemon_config.py	core	DaemonConfig.save	*.mkdir	1	158			13
+core/daemon_config.py::DaemonConfig.save::open::1	py	fs_write	core/daemon_config.py	core	DaemonConfig.save	open	1	159	mode=w		13
+core/embed_server.py::EmbedServer._check_health::urllib.request.urlopen::1	py	network	core/embed_server.py	core	EmbedServer._check_health	urllib.request.urlopen	1	660			9
+core/embed_server.py::EmbedServer._find_pid_via_registered_slot::os.kill::1	py	kill	core/embed_server.py	core	EmbedServer._find_pid_via_registered_slot	os.kill	1	444	signal=0		1
+core/embed_server.py::EmbedServer._is_port_open::socket.socket::1	py	network	core/embed_server.py	core	EmbedServer._is_port_open	socket.socket	1	669			0
+core/embed_server.py::EmbedServer._port_is_bound::socket.socket::1	py	network	core/embed_server.py	core	EmbedServer._port_is_bound	socket.socket	1	693			3
+core/embed_server.py::EmbedServer._signal_owned::*.kill::1	py	kill	core/embed_server.py	core	EmbedServer._signal_owned	*.kill	1	310			4
+core/embed_server.py::EmbedServer._signal_owned::*.terminate::1	py	kill	core/embed_server.py	core	EmbedServer._signal_owned	*.terminate	1	312			4
+core/embed_server.py::EmbedServer._signal_owned::os.killpg::1	py	kill	core/embed_server.py	core	EmbedServer._signal_owned	os.killpg	1	305			4
+core/embed_server.py::EmbedServer._start::*.mkdir::1	py	fs_write	core/embed_server.py	core	EmbedServer._start	*.mkdir	1	235			2
+core/embed_server.py::EmbedServer._start::open::1	py	fs_write	core/embed_server.py	core	EmbedServer._start	open	1	239	mode=a		2
+core/embed_server.py::EmbedServer._start::subprocess.Popen::1	py	exec_spawn	core/embed_server.py	core	EmbedServer._start	subprocess.Popen	1	242			2
+core/embeddings.py::EmbeddingModel._embed_via_server::urllib.request.Request::1	py	network	core/embeddings.py	core	EmbeddingModel._embed_via_server	urllib.request.Request	1	142			2
+core/embeddings.py::EmbeddingModel._embed_via_server::urllib.request.urlopen::1	py	network	core/embeddings.py	core	EmbeddingModel._embed_via_server	urllib.request.urlopen	1	147			2
+core/embeddings.py::EmbeddingModel._load_model::urllib.request.urlopen::1	py	network	core/embeddings.py	core	EmbeddingModel._load_model	urllib.request.urlopen	1	82			2
+core/embeddings.py::EmbeddingStore.__init__::*.mkdir::1	py	fs_write	core/embeddings.py	core	EmbeddingStore.__init__	*.mkdir	1	172			11
+core/embeddings.py::EmbeddingStore._ensure_schema::*.execute::1	py	sqlite_write	core/embeddings.py	core	EmbeddingStore._ensure_schema	*.execute	1	186	verb=CREATE		2
+core/embeddings.py::EmbeddingStore._ensure_schema::*.execute::2	py	sqlite_write	core/embeddings.py	core	EmbeddingStore._ensure_schema	*.execute	2	196	verb=CREATE		2
+core/embeddings.py::EmbeddingStore._get_connection::sqlite3.connect::1	py	sqlite_conn	core/embeddings.py	core	EmbeddingStore._get_connection	sqlite3.connect	1	178			6
+core/embeddings.py::EmbeddingStore.delete_by_file::*.execute::1	py	sqlite_write	core/embeddings.py	core	EmbeddingStore.delete_by_file	*.execute	1	294	verb=DELETE		1
+core/embeddings.py::EmbeddingStore.store::*.execute::1	py	sqlite_write	core/embeddings.py	core	EmbeddingStore.store	*.execute	1	208	verb=INSERT		30
+core/embeddings.py::EmbeddingStore.store_batch::*.executemany::1	py	sqlite_write	core/embeddings.py	core	EmbeddingStore.store_batch	*.executemany	1	225	verb=INSERT		1
+core/filesystem.py::Filesystem.append::*.mkdir::1	py	fs_write	core/filesystem.py	core	Filesystem.append	*.mkdir	1	381			932
+core/filesystem.py::Filesystem.append::*.write_text::1	py	fs_write	core/filesystem.py	core	Filesystem.append	*.write_text	1	382			932
+core/filesystem.py::Filesystem.append::open::1	py	fs_write	core/filesystem.py	core	Filesystem.append	open	1	390	mode=a		932
+core/filesystem.py::Filesystem.make_parent_dirs::*.mkdir::1	py	fs_write	core/filesystem.py	core	Filesystem.make_parent_dirs	*.mkdir	1	287			1
+core/filesystem.py::Filesystem.patch::*.write_text::1	py	fs_write	core/filesystem.py	core	Filesystem.patch	*.write_text	1	339			10
+core/filesystem.py::Filesystem.restore::*.write_text::1	py	fs_write	core/filesystem.py	core	Filesystem.restore	*.write_text	1	268			1
+core/filesystem.py::Filesystem.write::*.mkdir::1	py	fs_write	core/filesystem.py	core	Filesystem.write	*.mkdir	1	232			58
+core/filesystem.py::Filesystem.write::*.write_text::1	py	fs_write	core/filesystem.py	core	Filesystem.write	*.write_text	1	239			58
+core/finetune_prep.py::_prepare_finetune_data::*.mkdir::1	py	fs_write	core/finetune_prep.py	core	_prepare_finetune_data	*.mkdir	1	912			1
+core/finetune_prep.py::_write_jsonl::os.replace::1	py	fs_write	core/finetune_prep.py	core	_write_jsonl	os.replace	1	403			4
+core/finetune_prep.py::_write_jsonl::os.unlink::1	py	fs_write	core/finetune_prep.py	core	_write_jsonl	os.unlink	1	407			4
+core/finetune_prep.py::_write_jsonl::tempfile.NamedTemporaryFile::1	py	fs_write	core/finetune_prep.py	core	_write_jsonl	tempfile.NamedTemporaryFile	1	396			4
+core/finetune_prep.py::export_dataset::*.mkdir::1	py	fs_write	core/finetune_prep.py	core	export_dataset	*.mkdir	1	353			3
+core/finetune_prep.py::generate_notebook::*.mkdir::1	py	fs_write	core/finetune_prep.py	core	generate_notebook	*.mkdir	1	687			3
+core/finetune_prep.py::generate_notebook::open::1	py	fs_write	core/finetune_prep.py	core	generate_notebook	open	1	718	mode=w		3
+core/finetune_prep.py::generate_notebook::open::2	py	fs_write	core/finetune_prep.py	core	generate_notebook	open	2	759	mode=w		3
+core/git_commit_context.py::_Context.finish_metadata::*.unlink::1	py	fs_write	core/git_commit_context.py	core	_Context.finish_metadata	*.unlink	1	318			1
+core/git_commit_context.py::_Context.prepare_metadata::*.write_bytes::1	py	fs_write	core/git_commit_context.py	core	_Context.prepare_metadata	*.write_bytes	1	293			1
+core/git_commit_context.py::_isolated_commit_context::*.mkdir::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	*.mkdir	1	403			2
+core/git_commit_context.py::_isolated_commit_context::*.mkdir::2	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	*.mkdir	2	404			2
+core/git_commit_context.py::_isolated_commit_context::*.mkdir::3	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	*.mkdir	3	412			2
+core/git_commit_context.py::_isolated_commit_context::*.symlink_to::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	*.symlink_to	1	414			2
+core/git_commit_context.py::_isolated_commit_context::*.unlink::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	*.unlink	1	470			2
+core/git_commit_context.py::_isolated_commit_context::*.write_bytes::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	*.write_bytes	1	401			2
+core/git_commit_context.py::_isolated_commit_context::*.write_text::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	*.write_text	1	402			2
+core/git_commit_context.py::_isolated_commit_context::os.open::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	os.open	1	395			2
+core/git_commit_context.py::_isolated_commit_context::os.replace::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	os.replace	1	459			2
+core/git_commit_context.py::_isolated_commit_context::os.write::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	os.write	1	455			2
+core/git_commit_context.py::_isolated_commit_context::shutil.copyfile::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	shutil.copyfile	1	408			2
+core/git_commit_context.py::_isolated_commit_context::shutil.copyfile::2	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	shutil.copyfile	2	411			2
+core/git_commit_context.py::_isolated_commit_context::shutil.rmtree::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	shutil.rmtree	1	483			2
+core/git_commit_context.py::_isolated_commit_context::tempfile.mkdtemp::1	py	fs_write	core/git_commit_context.py	core	_isolated_commit_context	tempfile.mkdtemp	1	400			2
+core/git_execution.py::run_git::subprocess.run::1	py	exec_spawn	core/git_execution.py	core	run_git	subprocess.run	1	49			7
+core/git_mutation_context.py::isolated_mutation_context::*.mkdir::1	py	fs_write	core/git_mutation_context.py	core	isolated_mutation_context	*.mkdir	1	465			4
+core/git_mutation_context.py::isolated_mutation_context::shutil.rmtree::1	py	fs_write	core/git_mutation_context.py	core	isolated_mutation_context	shutil.rmtree	1	486			4
+core/git_mutation_context.py::isolated_mutation_context::tempfile.mkdtemp::1	py	fs_write	core/git_mutation_context.py	core	isolated_mutation_context	tempfile.mkdtemp	1	462			4
+core/git_query_context.py::_Metadata.configure::*.write_text::1	py	fs_write	core/git_query_context.py	core	_Metadata.configure	*.write_text	1	135			3
+core/git_query_context.py::_copy_refs::*.mkdir::1	py	fs_write	core/git_query_context.py	core	_copy_refs	*.mkdir	1	55			4
+core/git_query_context.py::_copy_refs::shutil.copyfile::1	py	fs_write	core/git_query_context.py	core	_copy_refs	shutil.copyfile	1	61			4
+core/git_query_context.py::_metadata_context::*.mkdir::1	py	fs_write	core/git_query_context.py	core	_metadata_context	*.mkdir	1	241			1
+core/git_query_context.py::_metadata_context::*.write_bytes::1	py	fs_write	core/git_query_context.py	core	_metadata_context	*.write_bytes	1	232			1
+core/git_query_context.py::_metadata_context::*.write_text::1	py	fs_write	core/git_query_context.py	core	_metadata_context	*.write_text	1	243			1
+core/git_query_context.py::_metadata_context::shutil.copyfile::1	py	fs_write	core/git_query_context.py	core	_metadata_context	shutil.copyfile	1	236			1
+core/git_query_context.py::_metadata_context::shutil.copyfile::2	py	fs_write	core/git_query_context.py	core	_metadata_context	shutil.copyfile	2	242			1
+core/git_query_context.py::_metadata_context::shutil.rmtree::1	py	fs_write	core/git_query_context.py	core	_metadata_context	shutil.rmtree	1	253			1
+core/git_query_context.py::_metadata_context::tempfile.mkdtemp::1	py	fs_write	core/git_query_context.py	core	_metadata_context	tempfile.mkdtemp	1	223			1
+core/git_worktree_context.py::_copy_refs::*.mkdir::1	py	fs_write	core/git_worktree_context.py	core	_copy_refs	*.mkdir	1	122			4
+core/git_worktree_context.py::_copy_refs::shutil.copyfile::1	py	fs_write	core/git_worktree_context.py	core	_copy_refs	shutil.copyfile	1	128			4
+core/git_worktree_context.py::_worktree_context::*.mkdir::1	py	fs_write	core/git_worktree_context.py	core	_worktree_context	*.mkdir	1	446			1
+core/git_worktree_context.py::_worktree_context::*.write_bytes::1	py	fs_write	core/git_worktree_context.py	core	_worktree_context	*.write_bytes	1	439			1
+core/git_worktree_context.py::_worktree_context::*.write_text::1	py	fs_write	core/git_worktree_context.py	core	_worktree_context	*.write_text	1	453			1
+core/git_worktree_context.py::_worktree_context::shutil.copyfile::1	py	fs_write	core/git_worktree_context.py	core	_worktree_context	shutil.copyfile	1	443			1
+core/git_worktree_context.py::_worktree_context::shutil.copyfile::2	py	fs_write	core/git_worktree_context.py	core	_worktree_context	shutil.copyfile	2	450			1
+core/git_worktree_context.py::_worktree_context::shutil.copyfile::3	py	fs_write	core/git_worktree_context.py	core	_worktree_context	shutil.copyfile	3	452			1
+core/git_worktree_context.py::_worktree_context::shutil.rmtree::1	py	fs_write	core/git_worktree_context.py	core	_worktree_context	shutil.rmtree	1	464			1
+core/git_worktree_context.py::_worktree_context::tempfile.mkdtemp::1	py	fs_write	core/git_worktree_context.py	core	_worktree_context	tempfile.mkdtemp	1	431			1
+core/inference.py::_server_ready::urllib.request.urlopen::1	py	network	core/inference.py	core	_server_ready	urllib.request.urlopen	1	20			0
+core/inference.py::infer::urllib.request.Request::1	py	network	core/inference.py	core	infer	urllib.request.Request	1	129			16
+core/inference.py::infer::urllib.request.urlopen::1	py	network	core/inference.py	core	infer	urllib.request.urlopen	1	140			16
+core/inference_hybrid.py::ChatCompletionBackend._infer_blocking::urllib.request.urlopen::1	py	network	core/inference_hybrid.py	core	ChatCompletionBackend._infer_blocking	urllib.request.urlopen	1	598			2
+core/inference_hybrid.py::ChatCompletionBackend._infer_streaming::urllib.request.urlopen::1	py	network	core/inference_hybrid.py	core	ChatCompletionBackend._infer_streaming	urllib.request.urlopen	1	673			2
+core/inference_hybrid.py::ChatCompletionBackend.check_health::urllib.request.urlopen::1	py	network	core/inference_hybrid.py	core	ChatCompletionBackend.check_health	urllib.request.urlopen	1	321			3
+core/inference_hybrid.py::ChatCompletionBackend.infer::urllib.request.Request::1	py	network	core/inference_hybrid.py	core	ChatCompletionBackend.infer	urllib.request.Request	1	504			16
+core/inference_hybrid.py::ChatCompletionBackend.is_server_running::socket.socket::1	py	network	core/inference_hybrid.py	core	ChatCompletionBackend.is_server_running	socket.socket	1	329			1
+core/inference_openrouter.py::OpenRouterBackend._infer_blocking::urllib.request.urlopen::1	py	network	core/inference_openrouter.py	core	OpenRouterBackend._infer_blocking	urllib.request.urlopen	1	129			2
+core/inference_openrouter.py::OpenRouterBackend._infer_streaming::urllib.request.urlopen::1	py	network	core/inference_openrouter.py	core	OpenRouterBackend._infer_streaming	urllib.request.urlopen	1	156			2
+core/inference_openrouter.py::OpenRouterBackend.infer::urllib.request.Request::1	py	network	core/inference_openrouter.py	core	OpenRouterBackend.infer	urllib.request.Request	1	104			16
+core/linter.py::_run_ruff_gated.<locals>._execute::subprocess.run::1	py	exec_spawn	core/linter.py	core	_run_ruff_gated.<locals>._execute	subprocess.run	1	341			6
+core/loader_v2.py::LlamaServer._check_health::urllib.request.urlopen::1	py	network	core/loader_v2.py	core	LlamaServer._check_health	urllib.request.urlopen	1	1020			9
+core/loader_v2.py::LlamaServer._is_port_in_use::socket.socket::1	py	network	core/loader_v2.py	core	LlamaServer._is_port_in_use	socket.socket	1	1034			3
+core/loader_v2.py::LlamaServer._is_port_in_use::urllib.request.urlopen::1	py	network	core/loader_v2.py	core	LlamaServer._is_port_in_use	urllib.request.urlopen	1	1042			3
+core/loader_v2.py::LlamaServer._signal_owned::*.kill::1	py	kill	core/loader_v2.py	core	LlamaServer._signal_owned	*.kill	1	957			4
+core/loader_v2.py::LlamaServer._signal_owned::*.terminate::1	py	kill	core/loader_v2.py	core	LlamaServer._signal_owned	*.terminate	1	959			4
+core/loader_v2.py::LlamaServer._signal_owned::os.killpg::1	py	kill	core/loader_v2.py	core	LlamaServer._signal_owned	os.killpg	1	950			4
+core/loader_v2.py::LlamaServer._spawn_locked::*.mkdir::1	py	fs_write	core/loader_v2.py	core	LlamaServer._spawn_locked	*.mkdir	1	826			2
+core/loader_v2.py::LlamaServer._spawn_locked::open::1	py	fs_write	core/loader_v2.py	core	LlamaServer._spawn_locked	open	1	828	mode=w		2
+core/loader_v2.py::LlamaServer._spawn_locked::open::2	py	fs_write	core/loader_v2.py	core	LlamaServer._spawn_locked	open	2	863	mode=a		2
+core/loader_v2.py::LlamaServer._spawn_locked::subprocess.Popen::1	py	exec_spawn	core/loader_v2.py	core	LlamaServer._spawn_locked	subprocess.Popen	1	865			2
+core/loader_v2.py::LlamaServer._spawn_locked::subprocess.run::1	py	exec_spawn	core/loader_v2.py	core	LlamaServer._spawn_locked	subprocess.run	1	843			2
+core/loader_v2.py::LlamaServer._start_locked::*.mkdir::1	py	fs_write	core/loader_v2.py	core	LlamaServer._start_locked	*.mkdir	1	631			1
+core/loader_v2.py::LlamaServer._start_locked::open::1	py	fs_write	core/loader_v2.py	core	LlamaServer._start_locked	open	1	632	mode=w		1
+core/loader_v2.py::LlamaServer._start_locked::open::2	py	fs_write	core/loader_v2.py	core	LlamaServer._start_locked	open	2	657	mode=w		1
+core/loader_v2.py::LlamaServer.infer::urllib.request.Request::1	py	network	core/loader_v2.py	core	LlamaServer.infer	urllib.request.Request	1	1090			16
+core/loader_v2.py::LlamaServer.infer::urllib.request.urlopen::1	py	network	core/loader_v2.py	core	LlamaServer.infer	urllib.request.urlopen	1	1097			16
+core/loader_v2.py::_kill_single_pid_term_then_kill::os.kill::1	py	kill	core/loader_v2.py	core	_kill_single_pid_term_then_kill	os.kill	1	317			2
+core/loader_v2.py::probe_port_health::urllib.request.urlopen::1	py	network	core/loader_v2.py	core	probe_port_health	urllib.request.urlopen	1	86			3
+core/lora_import.py::_confirm_on_tty::os.write::1	py	fs_write	core/lora_import.py	core	_confirm_on_tty	os.write	1	90			1
+core/lora_import.py::_merge_with_shell::*.rename::1	py	fs_write	core/lora_import.py	core	_merge_with_shell	*.rename	1	363			1
+core/lora_import.py::_merge_with_shell::*.rename::2	py	fs_write	core/lora_import.py	core	_merge_with_shell	*.rename	2	382			1
+core/lora_import.py::_merge_with_shell::*.unlink::1	py	fs_write	core/lora_import.py	core	_merge_with_shell	*.unlink	1	373			1
+core/lora_import.py::_merge_with_shell::subprocess.run::1	py	exec_spawn	core/lora_import.py	core	_merge_with_shell	subprocess.run	1	350			1
+core/lora_import.py::_merge_with_shell::subprocess.run::2	py	exec_spawn	core/lora_import.py	core	_merge_with_shell	subprocess.run	2	368			1
+core/lora_import.py::_open_tty::os.open::1	py	fs_write	core/lora_import.py	core	_open_tty	os.open	1	70			1
+core/lora_import.py::create_backup_before_import::shutil.copy2::1	py	fs_write	core/lora_import.py	core	create_backup_before_import	shutil.copy2	1	541			2
+core/lora_import.py::import_lora_adapter.<locals>._adopt_span::*.mkdir::1	py	fs_write	core/lora_import.py	core	import_lora_adapter.<locals>._adopt_span	*.mkdir	1	850			1
+core/lora_import.py::rollback_to_backup.<locals>._rollback_span::*.unlink::1	py	fs_write	core/lora_import.py	core	rollback_to_backup.<locals>._rollback_span	*.unlink	1	624			1
+core/lora_import.py::rollback_to_backup.<locals>._rollback_span::shutil.copy2::1	py	fs_write	core/lora_import.py	core	rollback_to_backup.<locals>._rollback_span	shutil.copy2	1	622			1
+core/memory_v2.py::Memory.touch_file::*.touch::1	py	fs_write	core/memory_v2.py	core	Memory.touch_file	*.touch	1	593			3
+core/memory_v2.py::SymbolicMemory.observe::*.execute::1	py	sql_dynamic	core/memory_v2.py	core	SymbolicMemory.observe	*.execute	1	460			1
+core/memory_v2.py::SymbolicMemory.query::*.execute::1	py	sql_dynamic	core/memory_v2.py	core	SymbolicMemory.query	*.execute	1	492			88
+core/memory_v2.py::SymbolicMemory.relate::*.execute::1	py	sql_dynamic	core/memory_v2.py	core	SymbolicMemory.relate	*.execute	1	481			0
+core/model_registry.py::_extend_state_schema::*.execute::1	py	sqlite_write	core/model_registry.py	core	_extend_state_schema	*.execute	1	51	verb=CREATE		2
+core/model_registry.py::record_adoption_attempt::*.execute::1	py	sqlite_write	core/model_registry.py	core	record_adoption_attempt	*.execute	1	105	verb=INSERT		8
+core/notes.py::_save.<locals>.persist::*.mkdir::1	py	fs_write	core/notes.py	core	_save.<locals>.persist	*.mkdir	1	35			2
+core/notes.py::_save.<locals>.persist::*.write_text::1	py	fs_write	core/notes.py	core	_save.<locals>.persist	*.write_text	1	36			2
+core/peer_cli.py::PeerCLIManager._is_installed::subprocess.run::1	py	exec_spawn	core/peer_cli.py	core	PeerCLIManager._is_installed	subprocess.run	1	160			1
+core/peer_shell.py::_run_basic_fallback::*.unlink::1	py	fs_write	core/peer_shell.py	core	_run_basic_fallback	*.unlink	1	536			1
+core/peer_shell.py::_run_basic_fallback::open::1	py	fs_write	core/peer_shell.py	core	_run_basic_fallback	open	1	523	mode=w		1
+core/peer_shell.py::_run_basic_fallback::subprocess.Popen::1	py	exec_spawn	core/peer_shell.py	core	_run_basic_fallback	subprocess.Popen	1	524			1
+core/peer_shell.py::_run_basic_fallback::tempfile.NamedTemporaryFile::1	py	fs_write	core/peer_shell.py	core	_run_basic_fallback	tempfile.NamedTemporaryFile	1	510			1
+core/peer_shell.py::run_direct::*.unlink::1	py	fs_write	core/peer_shell.py	core	run_direct	*.unlink	1	385			1
+core/peer_shell.py::run_direct::subprocess.run::1	py	exec_spawn	core/peer_shell.py	core	run_direct	subprocess.run	1	375			1
+core/peer_shell.py::run_direct::tempfile.NamedTemporaryFile::1	py	fs_write	core/peer_shell.py	core	run_direct	tempfile.NamedTemporaryFile	1	356			1
+core/peer_shell.py::run_positional::subprocess.Popen::1	py	exec_spawn	core/peer_shell.py	core	run_positional	subprocess.Popen	1	319			0
+core/peer_shell.py::run_prompted::subprocess.Popen::1	py	exec_spawn	core/peer_shell.py	core	run_prompted	subprocess.Popen	1	262			1
+core/persistence_reset.py::_reset_state_record::*.execute::1	py	sqlite_write	core/persistence_reset.py	core	_reset_state_record	*.execute	1	44	verb=DELETE		4
+core/persistence_reset.py::_reset_state_record::*.execute::2	py	sqlite_write	core/persistence_reset.py	core	_reset_state_record	*.execute	2	46	verb=INSERT		4
+core/plannd.py::_get_plan_remote::urllib.request.Request::1	py	network	core/plannd.py	core	_get_plan_remote	urllib.request.Request	1	671			1
+core/plannd.py::_get_plan_remote::urllib.request.urlopen::1	py	network	core/plannd.py	core	_get_plan_remote	urllib.request.urlopen	1	698			1
+core/plannd.py::get_plan::urllib.request.Request::1	py	network	core/plannd.py	core	get_plan	urllib.request.Request	1	837			2
+core/plannd.py::get_plan::urllib.request.urlopen::1	py	network	core/plannd.py	core	get_plan	urllib.request.urlopen	1	947			2
+core/planner_v2.py::Planner._update_task_dependencies::*.execute::1	py	sqlite_write	core/planner_v2.py	core	Planner._update_task_dependencies	*.execute	1	166	verb=UPDATE		1
+core/planner_v2.py::Planner.fail_task::*.execute::1	py	sqlite_write	core/planner_v2.py	core	Planner.fail_task	*.execute	1	258	verb=UPDATE		6
+core/process_boundary.py::run_process.<locals>.execute::subprocess.run::1	py	exec_spawn	core/process_boundary.py	core	run_process.<locals>.execute	subprocess.run	1	36			911
+core/process_identity.py::LifecycleRecord.__enter__::*.mkdir::1	py	fs_write	core/process_identity.py	core	LifecycleRecord.__enter__	*.mkdir	1	198			1
+core/process_identity.py::LifecycleRecord.__enter__::os.open::1	py	fs_write	core/process_identity.py	core	LifecycleRecord.__enter__	os.open	1	201			1
+core/process_identity.py::LifecycleRecord._atomic_write::*.unlink::1	py	fs_write	core/process_identity.py	core	LifecycleRecord._atomic_write	*.unlink	1	333			2
+core/process_identity.py::LifecycleRecord._atomic_write::os.replace::1	py	fs_write	core/process_identity.py	core	LifecycleRecord._atomic_write	os.replace	1	330			2
+core/process_identity.py::LifecycleRecord._atomic_write::tempfile.NamedTemporaryFile::1	py	fs_write	core/process_identity.py	core	LifecycleRecord._atomic_write	tempfile.NamedTemporaryFile	1	323			2
+core/process_identity.py::LifecycleRecord.cleanup::*.unlink::1	py	fs_write	core/process_identity.py	core	LifecycleRecord.cleanup	*.unlink	1	278			9
+core/process_identity.py::LifecycleRecord.cleanup::*.unlink::2	py	fs_write	core/process_identity.py	core	LifecycleRecord.cleanup	*.unlink	2	282			9
+core/process_identity.py::LifecycleRecord.signal::os.kill::1	py	kill	core/process_identity.py	core	LifecycleRecord.signal	os.kill	1	352			64
+core/process_identity.py::OwnedLaunch._reap_owned::*.kill::1	py	kill	core/process_identity.py	core	OwnedLaunch._reap_owned	*.kill	1	503			2
+core/process_identity.py::OwnedLaunch._reap_owned::*.terminate::1	py	kill	core/process_identity.py	core	OwnedLaunch._reap_owned	*.terminate	1	495			2
+core/process_identity.py::OwnedLaunch._report::os.write::1	py	fs_write	core/process_identity.py	core	OwnedLaunch._report	os.write	1	479			3
+core/process_identity.py::OwnedLaunch.run::open::1	py	fs_write	core/process_identity.py	core	OwnedLaunch.run	open	1	543	mode=ab		52
+core/process_identity.py::OwnedLaunch.run::subprocess.Popen::1	py	exec_spawn	core/process_identity.py	core	OwnedLaunch.run	subprocess.Popen	1	544			52
+core/process_identity.py::_read::os.open::1	py	fs_write	core/process_identity.py	core	_read	os.open	1	91			15
+core/process_identity.py::_spawn_main::os.write::1	py	fs_write	core/process_identity.py	core	_spawn_main	os.write	1	633			1
+core/resource_bus.py::_get_db_path::*.mkdir::1	py	fs_write	core/resource_bus.py	core	_get_db_path	*.mkdir	1	114			1
+core/resource_bus.py::_get_lock_path::*.mkdir::1	py	fs_write	core/resource_bus.py	core	_get_lock_path	*.mkdir	1	120			1
+core/resource_bus.py::_init_db::*.execute::1	py	sqlite_write	core/resource_bus.py	core	_init_db	*.execute	1	126	verb=PRAGMA JOURNAL_MODE=		3
+core/resource_bus.py::_init_db::*.execute::2	py	sqlite_write	core/resource_bus.py	core	_init_db	*.execute	2	127	verb=PRAGMA BUSY_TIMEOUT=		3
+core/resource_bus.py::_init_db::*.execute::3	py	sqlite_write	core/resource_bus.py	core	_init_db	*.execute	3	128	verb=CREATE		3
+core/resource_bus.py::_init_db::*.execute::4	py	sqlite_write	core/resource_bus.py	core	_init_db	*.execute	4	141	verb=CREATE		3
+core/resource_bus.py::_init_db::*.execute::5	py	sqlite_write	core/resource_bus.py	core	_init_db	*.execute	5	156	verb=CREATE		3
+core/resource_bus.py::_init_db::*.execute::6	py	sqlite_write	core/resource_bus.py	core	_init_db	*.execute	6	157	verb=CREATE		3
+core/resource_bus.py::_locked_db::open::1	py	fs_write	core/resource_bus.py	core	_locked_db	open	1	166	mode=w		6
+core/resource_bus.py::_locked_db::sqlite3.connect::1	py	sqlite_conn	core/resource_bus.py	core	_locked_db	sqlite3.connect	1	169			6
+core/resource_bus.py::_pid_alive::os.kill::1	py	kill	core/resource_bus.py	core	_pid_alive	os.kill	1	248	signal=0		4
+core/resource_bus.py::_reap_stale_records_locked::*.execute::1	py	sqlite_write	core/resource_bus.py	core	_reap_stale_records_locked	*.execute	1	270	verb=UPDATE		3
+core/resource_bus.py::_reap_stale_records_locked::*.execute::2	py	sqlite_write	core/resource_bus.py	core	_reap_stale_records_locked	*.execute	2	286	verb=UPDATE		3
+core/resource_bus.py::acquire_context_lease::*.execute::1	py	sqlite_write	core/resource_bus.py	core	acquire_context_lease	*.execute	1	395	verb=INSERT		1
+core/resource_bus.py::release_context_lease::*.execute::1	py	sqlite_write	core/resource_bus.py	core	release_context_lease	*.execute	1	436	verb=UPDATE		1
+core/resource_bus.py::release_lease::*.execute::1	py	sqlite_write	core/resource_bus.py	core	release_lease	*.execute	1	571	verb=UPDATE		0
+core/resource_bus.py::request_resource::*.execute::1	py	sqlite_write	core/resource_bus.py	core	request_resource	*.execute	1	498	verb=INSERT		0
+core/resource_bus.py::request_resource::*.execute::2	py	sqlite_write	core/resource_bus.py	core	request_resource	*.execute	2	531	verb=INSERT		0
+core/resource_gate.py::_LockedState.__enter__::open::1	py	fs_write	core/resource_gate.py	core	_LockedState.__enter__	open	1	3345	mode=w		1
+core/resource_gate.py::_fetch_slots_prompt_tokens::urllib.request.urlopen::1	py	network	core/resource_gate.py	core	_fetch_slots_prompt_tokens	urllib.request.urlopen	1	4488			1
+core/resource_gate.py::_pid_alive::os.kill::1	py	kill	core/resource_gate.py	core	_pid_alive	os.kill	1	3143	signal=0		4
+core/resource_gate.py::_precheck_port_liveness::os.kill::1	py	kill	core/resource_gate.py	core	_precheck_port_liveness	os.kill	1	3281	signal=0		2
+core/resource_gate.py::_state_paths::*.mkdir::1	py	fs_write	core/resource_gate.py	core	_state_paths	*.mkdir	1	3083			2
+core/resource_gate.py::_tokenize_via_server::urllib.request.Request::1	py	network	core/resource_gate.py	core	_tokenize_via_server	urllib.request.Request	1	4537			1
+core/resource_gate.py::_tokenize_via_server::urllib.request.urlopen::1	py	network	core/resource_gate.py	core	_tokenize_via_server	urllib.request.urlopen	1	4540			1
+core/resource_gate.py::_write_state_locked::os.fdopen::1	py	fs_write	core/resource_gate.py	core	_write_state_locked	os.fdopen	1	3321	mode=w		1
+core/resource_gate.py::_write_state_locked::os.replace::1	py	fs_write	core/resource_gate.py	core	_write_state_locked	os.replace	1	3325			1
+core/resource_gate.py::_write_state_locked::os.unlink::1	py	fs_write	core/resource_gate.py	core	_write_state_locked	os.unlink	1	3328			1
+core/resource_gate.py::_write_state_locked::tempfile.mkstemp::1	py	fs_write	core/resource_gate.py	core	_write_state_locked	tempfile.mkstemp	1	3319			1
+core/resource_gate.py::is_tui_session_active::*.unlink::1	py	fs_write	core/resource_gate.py	core	is_tui_session_active	*.unlink	1	4073			1
+core/resource_gate.py::is_tui_session_active::*.unlink::2	py	fs_write	core/resource_gate.py	core	is_tui_session_active	*.unlink	2	4080			1
+core/search.py::search_in_project::subprocess.run::1	py	exec_spawn	core/search.py	core	search_in_project	subprocess.run	1	55			2
+core/service_actions.py::_show_daemon_models.<locals>.healthy::urllib.request.urlopen::1	py	network	core/service_actions.py	core	_show_daemon_models.<locals>.healthy	urllib.request.urlopen	1	205			3
+core/service_actions.py::run_public.<locals>.execute::subprocess.Popen::1	py	exec_spawn	core/service_actions.py	core	run_public.<locals>.execute	subprocess.Popen	1	96			911
+core/service_lifecycle.py::_config_helpers::sys.path.insert::1	py	env_mut	core/service_lifecycle.py	core	_config_helpers	sys.path.insert	1	98			3
+core/service_lifecycle.py::lock_exec::os.execvpe::1	py	exec_spawn	core/service_lifecycle.py	core	lock_exec	os.execvpe	1	198			1
+core/service_lifecycle.py::main::sys.path.insert::1	py	env_mut	core/service_lifecycle.py	core	main	sys.path.insert	1	357			29
+core/service_lifecycle.py::path_data::os.write::1	py	fs_write	core/service_lifecycle.py	core	path_data	os.write	1	293			1
+core/service_lifecycle.py::service_paths::sys.path.insert::1	py	env_mut	core/service_lifecycle.py	core	service_paths	sys.path.insert	1	68			4
+core/sessions.py::_session_path::*.mkdir::1	py	fs_write	core/sessions.py	core	_session_path	*.mkdir	1	44			4
+core/sessions.py::clear_session.<locals>.remove::*.unlink::1	py	fs_write	core/sessions.py	core	clear_session.<locals>.remove	*.unlink	1	134			8
+core/sessions.py::list_sessions::*.mkdir::1	py	fs_write	core/sessions.py	core	list_sessions	*.mkdir	1	160			1
+core/sessions.py::save_session.<locals>.write::*.mkdir::1	py	fs_write	core/sessions.py	core	save_session.<locals>.write	*.mkdir	1	75			58
+core/sessions.py::save_session.<locals>.write::*.write_text::1	py	fs_write	core/sessions.py	core	save_session.<locals>.write	*.write_text	1	76			58
+core/setup_dr_key.py::<module>::sys.path.insert::1	py	env_mut	core/setup_dr_key.py	core	<module>	sys.path.insert	1	23			
+core/setup_dr_key.py::_generate_keypair::subprocess.run::1	py	exec_spawn	core/setup_dr_key.py	core	_generate_keypair	subprocess.run	1	36			1
+core/setup_dr_key.py::main::*.mkdir::1	py	fs_write	core/setup_dr_key.py	core	main	*.mkdir	1	153			29
+core/setup_dr_key.py::main::open::1	py	fs_write	core/setup_dr_key.py	core	main	open	1	154	mode=w		29
+core/setup_litestream.py::main::*.write_text::1	py	fs_write	core/setup_litestream.py	core	main	*.write_text	1	34			29
+core/setup_litestream.py::main::sys.path.insert::1	py	env_mut	core/setup_litestream.py	core	main	sys.path.insert	1	8			29
+core/state.py::<module>::*.mkdir::1	py	fs_write	core/state.py	core	<module>	*.mkdir	1	26			
+core/state.py::StateStore.__init__::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.__init__	*.execute	1	48	verb=PRAGMA JOURNAL_MODE=		11
+core/state.py::StateStore.__init__::sqlite3.connect::1	py	sqlite_conn	core/state.py	core	StateStore.__init__	sqlite3.connect	1	41			11
+core/state.py::StateStore._init_schema::*.execute::1	py	sqlite_write	core/state.py	core	StateStore._init_schema	*.execute	1	65	verb=CREATE		2
+core/state.py::StateStore._init_schema::*.execute::2	py	sqlite_write	core/state.py	core	StateStore._init_schema	*.execute	2	74	verb=CREATE		2
+core/state.py::StateStore._init_schema::*.execute::3	py	sql_dynamic	core/state.py	core	StateStore._init_schema	*.execute	3	100			2
+core/state.py::StateStore._init_schema::*.execute::4	py	sqlite_write	core/state.py	core	StateStore._init_schema	*.execute	4	105	verb=CREATE		2
+core/state.py::StateStore._init_schema::*.execute::5	py	sqlite_write	core/state.py	core	StateStore._init_schema	*.execute	5	115	verb=CREATE		2
+core/state.py::StateStore._init_schema::*.execute::6	py	sqlite_write	core/state.py	core	StateStore._init_schema	*.execute	6	126	verb=CREATE		2
+core/state.py::StateStore._init_schema::*.execute::7	py	sqlite_write	core/state.py	core	StateStore._init_schema	*.execute	7	136	verb=CREATE		2
+core/state.py::StateStore._init_schema::*.execute::8	py	sqlite_write	core/state.py	core	StateStore._init_schema	*.execute	8	146	verb=CREATE		2
+core/state.py::StateStore.add_task::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.add_task	*.execute	1	204	verb=INSERT		4
+core/state.py::StateStore.cancel_task::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.cancel_task	*.execute	1	332	verb=UPDATE		2
+core/state.py::StateStore.clear_needs_planning::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.clear_needs_planning	*.execute	1	314	verb=UPDATE		2
+core/state.py::StateStore.clear_old_actions.<locals>.reset::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.clear_old_actions.<locals>.reset	*.execute	1	395	verb=DELETE		5
+core/state.py::StateStore.complete_task::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.complete_task	*.execute	1	281	verb=UPDATE		16
+core/state.py::StateStore.delete::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.delete	*.execute	1	180	verb=DELETE		2
+core/state.py::StateStore.delete_checkpoint::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.delete_checkpoint	*.execute	1	479	verb=DELETE		1
+core/state.py::StateStore.delete_model_adoption::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.delete_model_adoption	*.execute	1	531	verb=DELETE		1
+core/state.py::StateStore.execute::*.execute::1	py	sql_dynamic	core/state.py	core	StateStore.execute	*.execute	1	487			911
+core/state.py::StateStore.execute::*.execute::2	py	sql_dynamic	core/state.py	core	StateStore.execute	*.execute	2	489			911
+core/state.py::StateStore.fail_task::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.fail_task	*.execute	1	290	verb=UPDATE		6
+core/state.py::StateStore.increment_retry::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.increment_retry	*.execute	1	299	verb=UPDATE		1
+core/state.py::StateStore.log_action::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.log_action	*.execute	1	356	verb=INSERT		10
+core/state.py::StateStore.mark_model_adoption_rolled_back::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.mark_model_adoption_rolled_back	*.execute	1	521	verb=UPDATE		1
+core/state.py::StateStore.save_model_state::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.save_model_state	*.execute	1	411	verb=INSERT		0
+core/state.py::StateStore.set::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.set	*.execute	1	171	verb=INSERT		149
+core/state.py::StateStore.start_task::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.start_task	*.execute	1	272	verb=UPDATE		2
+core/state.py::StateStore.try_claim_task::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.try_claim_task	*.execute	1	261	verb=UPDATE		2
+core/state.py::StateStore.update_model_swap::*.execute::1	py	sqlite_write	core/state.py	core	StateStore.update_model_swap	*.execute	1	435	verb=UPDATE		0
+core/summarizer.py::_call_05b::urllib.request.Request::1	py	network	core/summarizer.py	core	_call_05b	urllib.request.Request	1	140			1
+core/summarizer.py::_call_05b::urllib.request.urlopen::1	py	network	core/summarizer.py	core	_call_05b	urllib.request.urlopen	1	148			1
+core/symbolic_graph.py::SymbolicGraph.__init__::*.mkdir::1	py	fs_write	core/symbolic_graph.py	core	SymbolicGraph.__init__	*.mkdir	1	99			11
+core/symbolic_graph.py::SymbolicGraph._add_relation::*.execute::1	py	sqlite_write	core/symbolic_graph.py	core	SymbolicGraph._add_relation	*.execute	1	578	verb=INSERT		5
+core/symbolic_graph.py::SymbolicGraph._get_conn::*.execute::1	py	sqlite_write	core/symbolic_graph.py	core	SymbolicGraph._get_conn	*.execute	1	112	verb=PRAGMA JOURNAL_MODE=		5
+core/symbolic_graph.py::SymbolicGraph._get_conn::sqlite3.connect::1	py	sqlite_conn	core/symbolic_graph.py	core	SymbolicGraph._get_conn	sqlite3.connect	1	110			5
+core/symbolic_graph.py::SymbolicGraph._init_schema::*.executescript::1	py	sqlite_exec	core/symbolic_graph.py	core	SymbolicGraph._init_schema	*.executescript	1	118	script		2
+core/symbolic_graph.py::SymbolicGraph._op_observe::*.execute::1	py	sqlite_write	core/symbolic_graph.py	core	SymbolicGraph._op_observe	*.execute	1	450	verb=INSERT		4
+core/symbolic_graph.py::SymbolicGraph._op_observe::*.execute::2	py	sqlite_write	core/symbolic_graph.py	core	SymbolicGraph._op_observe	*.execute	2	455	verb=INSERT		4
+core/symbolic_graph.py::SymbolicGraph._op_observe::*.execute::3	py	sqlite_write	core/symbolic_graph.py	core	SymbolicGraph._op_observe	*.execute	3	462	verb=INSERT		4
+core/symbolic_graph.py::SymbolicGraph.clear.<locals>.clear_graph::*.execute::1	py	sql_dynamic	core/symbolic_graph.py	core	SymbolicGraph.clear.<locals>.clear_graph	*.execute	1	391		helper:gate_exec	1
+core/symbolic_graph.py::SymbolicGraph.execute_batch::*.execute::1	py	sql_dynamic	core/symbolic_graph.py	core	SymbolicGraph.execute_batch	*.execute	1	280			1
+core/sysmon.py::SystemMonitor._read_battery::subprocess.run::1	py	exec_spawn	core/sysmon.py	core	SystemMonitor._read_battery	subprocess.run	1	253			2
+core/taskqueue.py::TaskQueue.save.<locals>.write::*.mkdir::1	py	fs_write	core/taskqueue.py	core	TaskQueue.save.<locals>.write	*.mkdir	1	105			58
+core/taskqueue.py::TaskQueue.save.<locals>.write::*.write_text::1	py	fs_write	core/taskqueue.py	core	TaskQueue.save.<locals>.write	*.write_text	1	106			58
+core/taskqueue.py::list_queues::*.mkdir::1	py	fs_write	core/taskqueue.py	core	list_queues	*.mkdir	1	136			1
+core/trajectory.py::_connect::*.executescript::1	py	sqlite_exec	core/trajectory.py	core	_connect	*.executescript	1	62	script		13
+core/trajectory.py::_connect::*.mkdir::1	py	fs_write	core/trajectory.py	core	_connect	*.mkdir	1	60			13
+core/trajectory.py::_connect::sqlite3.connect::1	py	sqlite_conn	core/trajectory.py	core	_connect	sqlite3.connect	1	61			13
+core/trajectory.py::_query_episodes::*.execute::1	py	sql_dynamic	core/trajectory.py	core	_query_episodes	*.execute	1	157			2
+core/trajectory.py::_save_episode::*.execute::1	py	sqlite_write	core/trajectory.py	core	_save_episode	*.execute	1	93	verb=INSERT		1
+core/trajectory.py::_save_episode::*.executemany::1	py	sqlite_write	core/trajectory.py	core	_save_episode	*.executemany	1	97	verb=INSERT		1
+core/trajectory.py::label_episode::*.execute::1	py	sqlite_write	core/trajectory.py	core	label_episode	*.execute	1	110	verb=UPDATE		0
+core/trajectory.py::label_tag::*.execute::1	py	sqlite_write	core/trajectory.py	core	label_tag	*.execute	1	122	verb=UPDATE		1
+core/trajectory.py::label_teacher::*.execute::1	py	sqlite_write	core/trajectory.py	core	label_teacher	*.execute	1	207	verb=UPDATE		0
+core/trajectory.py::record_teacher_trace::*.execute::1	py	sqlite_write	core/trajectory.py	core	record_teacher_trace	*.execute	1	192	verb=INSERT		1
+core/voice.py::VoiceManager._save_config.<locals>.persist::*.mkdir::1	py	fs_write	core/voice.py	core	VoiceManager._save_config.<locals>.persist	*.mkdir	1	74			2
+core/voice.py::VoiceManager._save_config.<locals>.persist::*.write_text::1	py	fs_write	core/voice.py	core	VoiceManager._save_config.<locals>.persist	*.write_text	1	75			2
+core/voice.py::VoiceManager.listen.<locals>.execute::subprocess.run::1	py	exec_spawn	core/voice.py	core	VoiceManager.listen.<locals>.execute	subprocess.run	1	239			911
+core/voice.py::VoiceManager.speak.<locals>.execute::subprocess.Popen::1	py	exec_spawn	core/voice.py	core	VoiceManager.speak.<locals>.execute	subprocess.Popen	1	187			911
+core/voice.py::VoiceManager.speak.<locals>.execute::subprocess.run::1	py	exec_spawn	core/voice.py	core	VoiceManager.speak.<locals>.execute	subprocess.run	1	181			911
+core/voice.py::VoiceManager.stop_speaking::*.kill::1	py	kill	core/voice.py	core	VoiceManager.stop_speaking	*.kill	1	213			2
+core/voice.py::VoiceManager.stop_speaking::*.terminate::1	py	kill	core/voice.py	core	VoiceManager.stop_speaking	*.terminate	1	209			2
+main.py::<module>::sys.path.insert::1	py	env_mut	main.py	root	<module>	sys.path.insert	1	7			
+main.py::_remove_tui_pid_file::*.unlink::1	py	fs_write	main.py	root	_remove_tui_pid_file	*.unlink	1	491			1
+main.py::_write_tui_pid_file::*.mkdir::1	py	fs_write	main.py	root	_write_tui_pid_file	*.mkdir	1	462			1
+main.py::_write_tui_pid_file::open::1	py	fs_write	main.py	root	_write_tui_pid_file	open	1	463	mode=w		1
+main.py::_write_tui_pid_file::os.replace::1	py	fs_write	main.py	root	_write_tui_pid_file	os.replace	1	466			1
+main.py::handle_command::os.chdir::1	py	env_mut	main.py	root	handle_command	os.chdir	1	1382			1
+pipeline/embedding/nomic_client.py::NomicEmbedClient.embed_batch::urllib.request.Request::1	py	network	pipeline/embedding/nomic_client.py	pipeline	NomicEmbedClient.embed_batch	urllib.request.Request	1	66			4
+pipeline/embedding/nomic_client.py::NomicEmbedClient.embed_batch::urllib.request.urlopen::1	py	network	pipeline/embedding/nomic_client.py	pipeline	NomicEmbedClient.embed_batch	urllib.request.urlopen	1	74			4
+pipeline/embedding/nomic_client.py::NomicEmbedClient.is_available::urllib.request.Request::1	py	network	pipeline/embedding/nomic_client.py	pipeline	NomicEmbedClient.is_available	urllib.request.Request	1	32			2
+pipeline/embedding/nomic_client.py::NomicEmbedClient.is_available::urllib.request.urlopen::1	py	network	pipeline/embedding/nomic_client.py	pipeline	NomicEmbedClient.is_available	urllib.request.urlopen	1	36			2
+pipeline/export/exporter.py::<module>::sys.path.insert::1	py	env_mut	pipeline/export/exporter.py	pipeline	<module>	sys.path.insert	1	21			
+pipeline/export/exporter.py::Exporter.__enter__::open::1	py	fs_write	pipeline/export/exporter.py	pipeline	Exporter.__enter__	open	1	84	mode=w		1
+pipeline/export/exporter.py::Exporter.__enter__::open::2	py	fs_write	pipeline/export/exporter.py	pipeline	Exporter.__enter__	open	2	85	mode=w		1
+pipeline/export/exporter.py::Exporter.__init__::*.mkdir::1	py	fs_write	pipeline/export/exporter.py	pipeline	Exporter.__init__	*.mkdir	1	59			11
+pipeline/export/exporter.py::Exporter._write_stats::open::1	py	fs_write	pipeline/export/exporter.py	pipeline	Exporter._write_stats	open	1	210	mode=w		1
+pipeline/run.py::<module>::sys.path.insert::1	py	env_mut	pipeline/run.py	pipeline	<module>	sys.path.insert	1	20			
+pipeline/run.py::run_pipeline::*.mkdir::1	py	fs_write	pipeline/run.py	pipeline	run_pipeline	*.mkdir	1	89			1
+pipeline/run.py::run_pipeline::*.mkdir::2	py	fs_write	pipeline/run.py	pipeline	run_pipeline	*.mkdir	2	91			1
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore.__init__::*.mkdir::1	py	fs_write	pipeline/storage/sqlite_store.py	pipeline	SQLiteMetadataStore.__init__	*.mkdir	1	33			11
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore._connect::sqlite3.connect::1	py	sqlite_conn	pipeline/storage/sqlite_store.py	pipeline	SQLiteMetadataStore._connect	sqlite3.connect	1	39			13
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore._init_db::*.execute::1	py	sqlite_write	pipeline/storage/sqlite_store.py	pipeline	SQLiteMetadataStore._init_db	*.execute	1	45	verb=CREATE		3
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore._init_db::*.execute::2	py	sqlite_write	pipeline/storage/sqlite_store.py	pipeline	SQLiteMetadataStore._init_db	*.execute	2	56	verb=CREATE		3
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore._init_db::*.execute::3	py	sqlite_write	pipeline/storage/sqlite_store.py	pipeline	SQLiteMetadataStore._init_db	*.execute	3	57	verb=CREATE		3
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore.get_by_ids::*.execute::1	py	sql_dynamic	pipeline/storage/sqlite_store.py	pipeline	SQLiteMetadataStore.get_by_ids	*.execute	1	128			0
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore.insert::*.execute::1	py	sqlite_write	pipeline/storage/sqlite_store.py	pipeline	SQLiteMetadataStore.insert	*.execute	1	66	verb=INSERT		25
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore.insert_batch::*.executemany::1	py	sqlite_write	pipeline/storage/sqlite_store.py	pipeline	SQLiteMetadataStore.insert_batch	*.executemany	1	106	verb=INSERT		4
+pipeline/storage/vector_store.py::VectorStore.__init__::*.mkdir::1	py	fs_write	pipeline/storage/vector_store.py	pipeline	VectorStore.__init__	*.mkdir	1	43			11
+pipeline/storage/vector_store.py::VectorStore.save::open::1	py	fs_write	pipeline/storage/vector_store.py	pipeline	VectorStore.save	open	1	167	mode=w		13
+pipeline/synthetic.py::write_synthetic_corpora::*.mkdir::1	py	fs_write	pipeline/synthetic.py	pipeline	write_synthetic_corpora	*.mkdir	1	380			1
+pipeline/synthetic.py::write_synthetic_corpora::open::1	py	fs_write	pipeline/synthetic.py	pipeline	write_synthetic_corpora	open	1	388	mode=w		1
+pipeline/synthetic.py::write_synthetic_corpora::open::2	py	fs_write	pipeline/synthetic.py	pipeline	write_synthetic_corpora	open	2	392	mode=w		1
+restoricon_core/api/routes.py::APIRouter.handle_request::os.remove::1	py	fs_write	restoricon_core/api/routes.py	restoricon_core	APIRouter.handle_request	os.remove	1	2572			1
+restoricon_core/api/routes.py::APIRouter.handle_request::os.remove::2	py	fs_write	restoricon_core/api/routes.py	restoricon_core	APIRouter.handle_request	os.remove	2	2639			1
+restoricon_core/api/routes.py::APIRouter.handle_request.<locals>.on_headers_finished::open::1	py	fs_write	restoricon_core/api/routes.py	restoricon_core	APIRouter.handle_request.<locals>.on_headers_finished	open	1	2508	mode=wb		1
+restoricon_core/api/routes.py::APIRouter.handle_request.<locals>.on_headers_finished::os.makedirs::1	py	fs_write	restoricon_core/api/routes.py	restoricon_core	APIRouter.handle_request.<locals>.on_headers_finished	os.makedirs	1	2485			1
+restoricon_core/api/routes.py::_call_budget_gated_completion::urllib.request.Request::1	py	network	restoricon_core/api/routes.py	restoricon_core	_call_budget_gated_completion	urllib.request.Request	1	492			3
+restoricon_core/api/routes.py::_call_budget_gated_completion::urllib.request.urlopen::1	py	network	restoricon_core/api/routes.py	restoricon_core	_call_budget_gated_completion	urllib.request.urlopen	1	499			3
+restoricon_core/api/server.py::RestoriconAPIServer.__init__::http.server.ThreadingHTTPServer::1	py	network	restoricon_core/api/server.py	restoricon_core	RestoriconAPIServer.__init__	http.server.ThreadingHTTPServer	1	238			11
+restoricon_core/auth.py::AuthService.change_password::*.execute::1	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.change_password	*.execute	1	1592	verb=UPDATE		1
+restoricon_core/auth.py::AuthService.change_password::*.execute::2	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.change_password	*.execute	2	1597	verb=UPDATE		1
+restoricon_core/auth.py::AuthService.create_token::*.execute::1	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.create_token	*.execute	1	1183	verb=INSERT		2
+restoricon_core/auth.py::AuthService.create_user::*.execute::1	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.create_user	*.execute	1	1099	verb=INSERT		2
+restoricon_core/auth.py::AuthService.delete_user::*.execute::1	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.delete_user	*.execute	1	1660	verb=INSERT		1
+restoricon_core/auth.py::AuthService.delete_user::*.execute::2	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.delete_user	*.execute	2	1672	verb=UPDATE		1
+restoricon_core/auth.py::AuthService.delete_user::*.execute::3	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.delete_user	*.execute	3	1676	verb=UPDATE		1
+restoricon_core/auth.py::AuthService.delete_user::*.execute::4	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.delete_user	*.execute	4	1680	verb=DELETE		1
+restoricon_core/auth.py::AuthService.delete_user::*.execute::5	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.delete_user	*.execute	5	1681	verb=DELETE		1
+restoricon_core/auth.py::AuthService.list_salesperson_roster::*.execute::1	py	sql_dynamic	restoricon_core/auth.py	restoricon_core	AuthService.list_salesperson_roster	*.execute	1	1349			1
+restoricon_core/auth.py::AuthService.list_users::*.execute::1	py	sql_dynamic	restoricon_core/auth.py	restoricon_core	AuthService.list_users	*.execute	1	1290			1
+restoricon_core/auth.py::AuthService.revoke_token::*.execute::1	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.revoke_token	*.execute	1	1235	verb=UPDATE		2
+restoricon_core/auth.py::AuthService.set_user_active::*.execute::1	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.set_user_active	*.execute	1	1535	verb=UPDATE		2
+restoricon_core/auth.py::AuthService.set_user_active::*.execute::2	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.set_user_active	*.execute	2	1541	verb=UPDATE		2
+restoricon_core/auth.py::AuthService.set_user_active::*.execute::3	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.set_user_active	*.execute	3	1549	verb=UPDATE		2
+restoricon_core/auth.py::AuthService.set_user_active::*.execute::4	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.set_user_active	*.execute	4	1555	verb=UPDATE		2
+restoricon_core/auth.py::AuthService.set_user_permissions::*.execute::1	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.set_user_permissions	*.execute	1	1705	verb=UPDATE		2
+restoricon_core/auth.py::AuthService.update_user::*.execute::1	py	sql_dynamic	restoricon_core/auth.py	restoricon_core	AuthService.update_user	*.execute	1	1452			1
+restoricon_core/auth.py::AuthService.update_user::*.execute::2	py	sqlite_write	restoricon_core/auth.py	restoricon_core	AuthService.update_user	*.execute	2	1457	verb=UPDATE		1
+restoricon_core/database.py::DatabaseManager._backfill_customer_numbers::*.execute::1	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._backfill_customer_numbers	*.execute	1	2508	verb=UPDATE		1
+restoricon_core/database.py::DatabaseManager._ensure_db_dir::*.mkdir::1	py	fs_write	restoricon_core/database.py	restoricon_core	DatabaseManager._ensure_db_dir	*.mkdir	1	2442			1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::1	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	1	3337	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::2	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	2	3341	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::3	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	3	3342			1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::4	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	4	3343			1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::5	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	5	3347	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::6	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	6	3348	verb=ALTER		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::7	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	7	3349	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::8	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	8	3357	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::9	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	9	3363	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::10	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	10	3369	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::11	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	11	3376	verb=DELETE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::12	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	12	3377	verb=INSERT		1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::13	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimate_line_items_pricing_fks	*.execute	13	3396	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::1	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	1	3143	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::2	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	2	3147	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::3	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	3	3148			1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::4	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	4	3149			1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::5	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	5	3153	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::6	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	6	3154	verb=ALTER		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::7	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	7	3155	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::8	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	8	3156	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::9	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	9	3157	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::10	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	10	3158	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::11	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	11	3159	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::12	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	12	3160	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::13	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	13	3161	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::14	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	14	3163	verb=DELETE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::15	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	15	3164	verb=INSERT		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::16	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_property_id_fk	*.execute	16	3191	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::1	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	1	2986	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::2	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	2	2994	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::3	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	3	2995			1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::4	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	4	2996			1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::5	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	5	3000	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::6	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	6	3001	verb=ALTER		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::7	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	7	3002	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::8	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	8	3003	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::9	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	9	3004	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::10	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	10	3005	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::11	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	11	3006	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::12	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	12	3007	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::13	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	13	3008	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::14	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	14	3010	verb=DELETE		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::15	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	15	3011	verb=INSERT		1
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::16	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_estimates_table_v2	*.execute	16	3016	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::1	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	1	2661			2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::2	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	2	2664			2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::3	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	3	2689	verb=INSERT		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::4	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	4	2712	verb=INSERT		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::5	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	5	2735	verb=UPDATE		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::6	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	6	2743	verb=CREATE		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::7	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	7	2747	verb=CREATE		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::8	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	8	2751	verb=CREATE		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::9	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	9	2755	verb=CREATE		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::10	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	10	2763	verb=CREATE		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::11	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	11	2767	verb=CREATE		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::12	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	12	2771	verb=CREATE		2
+restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::13	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_schema	*.execute	13	2783	verb=CREATE		2
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::1	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	1	3583	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::2	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	2	3601	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::3	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	3	3602			1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::4	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	4	3603			1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::5	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	5	3607	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::6	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	6	3608	verb=ALTER		1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::7	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	7	3609	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::8	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	8	3610	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::9	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	9	3612	verb=DELETE		1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::10	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	10	3613	verb=INSERT		1
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::11	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_users_role_constraint	*.execute	11	3618	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::1	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	1	3716	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::2	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	2	3720	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::3	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	3	3721			1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::4	py	sql_dynamic	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	4	3722			1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::5	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	5	3726	verb=DROP		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::6	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	6	3727	verb=ALTER		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::7	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	7	3728	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::8	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	8	3729	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::9	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	9	3730	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::10	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	10	3731	verb=CREATE		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::11	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	11	3733	verb=DELETE		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::12	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	12	3734	verb=INSERT		1
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::13	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager._migrate_work_orders_status_constraint	*.execute	13	3739	verb=PRAGMA FOREIGN_KEYS =		1
+restoricon_core/database.py::DatabaseManager.get_connection::*.execute::1	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager.get_connection	*.execute	1	2456	verb=PRAGMA FOREIGN_KEYS =		271
+restoricon_core/database.py::DatabaseManager.get_connection::*.execute::2	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager.get_connection	*.execute	2	2458	verb=PRAGMA JOURNAL_MODE =		271
+restoricon_core/database.py::DatabaseManager.get_connection::*.execute::3	py	sqlite_write	restoricon_core/database.py	restoricon_core	DatabaseManager.get_connection	*.execute	3	2459	verb=PRAGMA SYNCHRONOUS =		271
+restoricon_core/database.py::DatabaseManager.get_connection::sqlite3.connect::1	py	sqlite_conn	restoricon_core/database.py	restoricon_core	DatabaseManager.get_connection	sqlite3.connect	1	2448			271
+restoricon_core/database.py::DatabaseManager.init_schema::*.executescript::1	py	sqlite_exec	restoricon_core/database.py	restoricon_core	DatabaseManager.init_schema	*.executescript	1	2473	script		2
+restoricon_core/services/analytics_search_service.py::AnalyticsSearchService.global_search::*.execute::1	py	sql_dynamic	restoricon_core/services/analytics_search_service.py	restoricon_core	AnalyticsSearchService.global_search	*.execute	1	191			1
+restoricon_core/services/analytics_search_service.py::AnalyticsSearchService.global_search::*.execute::2	py	sql_dynamic	restoricon_core/services/analytics_search_service.py	restoricon_core	AnalyticsSearchService.global_search	*.execute	2	207			1
+restoricon_core/services/assessment_service.py::AssessmentService.create_assessment_record::*.execute::1	py	sqlite_write	restoricon_core/services/assessment_service.py	restoricon_core	AssessmentService.create_assessment_record	*.execute	1	72	verb=INSERT		1
+restoricon_core/services/assessment_service.py::AssessmentService.list_assessment_records::*.execute::1	py	sql_dynamic	restoricon_core/services/assessment_service.py	restoricon_core	AssessmentService.list_assessment_records	*.execute	1	136			1
+restoricon_core/services/audit_service.py::AuditService.log::*.execute::1	py	sqlite_write	restoricon_core/services/audit_service.py	restoricon_core	AuditService.log	*.execute	1	310	verb=INSERT		159
+restoricon_core/services/audit_service.py::AuditService.query_logs::*.execute::1	py	sql_dynamic	restoricon_core/services/audit_service.py	restoricon_core	AuditService.query_logs	*.execute	1	381			1
+restoricon_core/services/automation_service.py::AutomationService.add_to_do_not_contact::*.execute::1	py	sqlite_write	restoricon_core/services/automation_service.py	restoricon_core	AutomationService.add_to_do_not_contact	*.execute	1	393	verb=INSERT		1
+restoricon_core/services/automation_service.py::AutomationService.create_rule::*.execute::1	py	sqlite_write	restoricon_core/services/automation_service.py	restoricon_core	AutomationService.create_rule	*.execute	1	117	verb=INSERT		3
+restoricon_core/services/automation_service.py::AutomationService.delete_rule::*.execute::1	py	sqlite_write	restoricon_core/services/automation_service.py	restoricon_core	AutomationService.delete_rule	*.execute	1	215	verb=DELETE		1
+restoricon_core/services/automation_service.py::AutomationService.list_rules::*.execute::1	py	sql_dynamic	restoricon_core/services/automation_service.py	restoricon_core	AutomationService.list_rules	*.execute	1	170			1
+restoricon_core/services/automation_service.py::AutomationService.record_rule_match::*.execute::1	py	sqlite_write	restoricon_core/services/automation_service.py	restoricon_core	AutomationService.record_rule_match	*.execute	1	245	verb=UPDATE		1
+restoricon_core/services/automation_service.py::AutomationService.remove_from_do_not_contact::*.execute::1	py	sqlite_write	restoricon_core/services/automation_service.py	restoricon_core	AutomationService.remove_from_do_not_contact	*.execute	1	453	verb=DELETE		1
+restoricon_core/services/automation_service.py::AutomationService.upsert_business_profile::*.execute::1	py	sqlite_write	restoricon_core/services/automation_service.py	restoricon_core	AutomationService.upsert_business_profile	*.execute	1	304	verb=INSERT		2
+restoricon_core/services/business_ops_service.py::BusinessOpsService.approve_timesheet::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.approve_timesheet	*.execute	1	635	verb=UPDATE		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_campaign::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.create_campaign	*.execute	1	94	verb=INSERT		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_compliance_item::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.create_compliance_item	*.execute	1	337	verb=INSERT		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_employee::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.create_employee	*.execute	1	501	verb=INSERT		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_purchase_order::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.create_purchase_order	*.execute	1	835	verb=INSERT		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_review_request::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.create_review_request	*.execute	1	150	verb=INSERT		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_vendor::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.create_vendor	*.execute	1	742	verb=INSERT		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.list_compliance_items::*.execute::1	py	sql_dynamic	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.list_compliance_items	*.execute	1	396			2
+restoricon_core/services/business_ops_service.py::BusinessOpsService.list_employees::*.execute::1	py	sql_dynamic	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.list_employees	*.execute	1	560			1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.list_purchase_orders::*.execute::1	py	sql_dynamic	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.list_purchase_orders	*.execute	1	942			1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.list_timesheets::*.execute::1	py	sql_dynamic	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.list_timesheets	*.execute	1	687			1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.receive_purchase_order::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.receive_purchase_order	*.execute	1	886	verb=UPDATE		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.scan_compliance_expirations::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.scan_compliance_expirations	*.execute	1	433	verb=UPDATE		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.submit_review::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.submit_review	*.execute	1	227	verb=UPDATE		1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.submit_timesheet::*.execute::1	py	sqlite_write	restoricon_core/services/business_ops_service.py	restoricon_core	BusinessOpsService.submit_timesheet	*.execute	1	587	verb=INSERT		1
+restoricon_core/services/commission_service.py::CommissionService.get_team_commission_summary::*.execute::1	py	sql_dynamic	restoricon_core/services/commission_service.py	restoricon_core	CommissionService.get_team_commission_summary	*.execute	1	357			2
+restoricon_core/services/commission_service.py::CommissionService.list_commissions::*.execute::1	py	sql_dynamic	restoricon_core/services/commission_service.py	restoricon_core	CommissionService.list_commissions	*.execute	1	286			2
+restoricon_core/services/commission_service.py::CommissionService.record_commission::*.execute::1	py	sqlite_write	restoricon_core/services/commission_service.py	restoricon_core	CommissionService.record_commission	*.execute	1	127	verb=INSERT		3
+restoricon_core/services/commission_service.py::CommissionService.reverse_commission::*.execute::1	py	sqlite_write	restoricon_core/services/commission_service.py	restoricon_core	CommissionService.reverse_commission	*.execute	1	441	verb=INSERT		1
+restoricon_core/services/communication_service.py::CommunicationService.query_communications::*.execute::1	py	sql_dynamic	restoricon_core/services/communication_service.py	restoricon_core	CommunicationService.query_communications	*.execute	1	333			3
+restoricon_core/services/communication_service.py::CommunicationService.record_communication::*.execute::1	py	sqlite_write	restoricon_core/services/communication_service.py	restoricon_core	CommunicationService.record_communication	*.execute	1	119	verb=INSERT		4
+restoricon_core/services/crm_service.py::CRMService.add_contract_signers::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.add_contract_signers	*.execute	1	4146	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.cancel_homecare_subscription::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.cancel_homecare_subscription	*.execute	1	4866	verb=UPDATE		0
+restoricon_core/services/crm_service.py::CRMService.claim_lead::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.claim_lead	*.execute	1	1254	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.claim_opportunity::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.claim_opportunity	*.execute	1	1833	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.claim_task::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.claim_task	*.execute	1	2485	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.complete_handoff_checklist::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.complete_handoff_checklist	*.execute	1	6720	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.complete_task::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.complete_task	*.execute	1	2535	verb=UPDATE		16
+restoricon_core/services/crm_service.py::CRMService.create_contact::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_contact	*.execute	1	7603	verb=INSERT		2
+restoricon_core/services/crm_service.py::CRMService.create_contact::*.execute::2	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_contact	*.execute	2	7675	verb=UPDATE		2
+restoricon_core/services/crm_service.py::CRMService.create_contract::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_contract	*.execute	1	3809	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.create_customer::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_customer	*.execute	1	259	verb=INSERT		8
+restoricon_core/services/crm_service.py::CRMService.create_document::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_document	*.execute	1	6854	verb=INSERT		3
+restoricon_core/services/crm_service.py::CRMService.create_estimate::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_estimate	*.execute	1	3317	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.create_handoff_checklist::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_handoff_checklist	*.execute	1	6528	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.create_invoice::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_invoice	*.execute	1	5149	verb=INSERT		3
+restoricon_core/services/crm_service.py::CRMService.create_lead::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_lead	*.execute	1	1016	verb=INSERT		2
+restoricon_core/services/crm_service.py::CRMService.create_opportunity::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_opportunity	*.execute	1	1513	verb=INSERT		3
+restoricon_core/services/crm_service.py::CRMService.create_package_option::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_package_option	*.execute	1	3712	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.create_project::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_project	*.execute	1	2741			3
+restoricon_core/services/crm_service.py::CRMService.create_project::*.execute::2	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_project	*.execute	2	2755	verb=INSERT		3
+restoricon_core/services/crm_service.py::CRMService.create_property::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_property	*.execute	1	791	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.create_subcontractor::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_subcontractor	*.execute	1	6968	verb=INSERT		3
+restoricon_core/services/crm_service.py::CRMService.create_task::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.create_task	*.execute	1	2284	verb=INSERT		9
+restoricon_core/services/crm_service.py::CRMService.delete_contact::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.delete_contact	*.execute	1	7938	verb=DELETE		1
+restoricon_core/services/crm_service.py::CRMService.delete_subcontractor::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.delete_subcontractor	*.execute	1	7521	verb=DELETE		1
+restoricon_core/services/crm_service.py::CRMService.get_stage_duration_analytics::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.get_stage_duration_analytics	*.execute	1	2094			1
+restoricon_core/services/crm_service.py::CRMService.list_contacts::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_contacts	*.execute	1	7809			1
+restoricon_core/services/crm_service.py::CRMService.list_contracts::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_contracts	*.execute	1	3923			2
+restoricon_core/services/crm_service.py::CRMService.list_customers::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_customers	*.execute	1	488			3
+restoricon_core/services/crm_service.py::CRMService.list_documents::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_documents	*.execute	1	6839			2
+restoricon_core/services/crm_service.py::CRMService.list_estimates::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_estimates	*.execute	1	3453			4
+restoricon_core/services/crm_service.py::CRMService.list_invoices::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_invoices	*.execute	1	5041			2
+restoricon_core/services/crm_service.py::CRMService.list_leads::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_leads	*.execute	1	1136			4
+restoricon_core/services/crm_service.py::CRMService.list_opportunities::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_opportunities	*.execute	1	1736			5
+restoricon_core/services/crm_service.py::CRMService.list_package_options::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_package_options	*.execute	1	3777			2
+restoricon_core/services/crm_service.py::CRMService.list_projects::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_projects	*.execute	1	2947			4
+restoricon_core/services/crm_service.py::CRMService.list_properties::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_properties	*.execute	1	873			3
+restoricon_core/services/crm_service.py::CRMService.list_subcontractors::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_subcontractors	*.execute	1	7292			1
+restoricon_core/services/crm_service.py::CRMService.list_tasks::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.list_tasks	*.execute	1	2397			4
+restoricon_core/services/crm_service.py::CRMService.record_payment::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.record_payment	*.execute	1	5893	verb=UPDATE		2
+restoricon_core/services/crm_service.py::CRMService.record_payment::*.execute::2	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.record_payment	*.execute	2	5912	verb=INSERT		2
+restoricon_core/services/crm_service.py::CRMService.send_contract::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.send_contract	*.execute	1	4055	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.send_estimate::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.send_estimate	*.execute	1	3619	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.sign_contract::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.sign_contract	*.execute	1	4330	verb=UPDATE		2
+restoricon_core/services/crm_service.py::CRMService.sign_contract::*.execute::2	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.sign_contract	*.execute	2	4403	verb=UPDATE		2
+restoricon_core/services/crm_service.py::CRMService.sign_contract::*.execute::3	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.sign_contract	*.execute	3	4413	verb=UPDATE		2
+restoricon_core/services/crm_service.py::CRMService.sign_contract::*.execute::4	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.sign_contract	*.execute	4	4627	verb=INSERT		2
+restoricon_core/services/crm_service.py::CRMService.sign_contract::open::1	py	fs_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.sign_contract	open	1	4525	mode=wb		2
+restoricon_core/services/crm_service.py::CRMService.sign_contract::os.makedirs::1	py	fs_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.sign_contract	os.makedirs	1	4520			2
+restoricon_core/services/crm_service.py::CRMService.submit_public_booking::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.submit_public_booking	*.execute	1	8324	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.submit_public_lead::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.submit_public_lead	*.execute	1	8223	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.sync_contacts_batch::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.sync_contacts_batch	*.execute	1	8002	verb=INSERT		1
+restoricon_core/services/crm_service.py::CRMService.sync_contacts_batch::*.execute::2	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.sync_contacts_batch	*.execute	2	8072	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.transition_opportunity_stage::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.transition_opportunity_stage	*.execute	1	1912	verb=UPDATE		2
+restoricon_core/services/crm_service.py::CRMService.update_contact::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_contact	*.execute	1	7875			2
+restoricon_core/services/crm_service.py::CRMService.update_contract::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_contract	*.execute	1	3993	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.update_customer::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_customer	*.execute	1	636			3
+restoricon_core/services/crm_service.py::CRMService.update_estimate::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_estimate	*.execute	1	3537	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.update_handoff_checklist_item::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_handoff_checklist_item	*.execute	1	6656	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.update_lead::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_lead	*.execute	1	1180	verb=UPDATE		3
+restoricon_core/services/crm_service.py::CRMService.update_opportunity::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_opportunity	*.execute	1	1776	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.update_project::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_project	*.execute	1	3087			1
+restoricon_core/services/crm_service.py::CRMService.update_project::*.execute::2	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_project	*.execute	2	3134			1
+restoricon_core/services/crm_service.py::CRMService.update_property::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_property	*.execute	1	941			1
+restoricon_core/services/crm_service.py::CRMService.update_subcontractor::*.execute::1	py	sql_dynamic	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_subcontractor	*.execute	1	7432			2
+restoricon_core/services/crm_service.py::CRMService.update_subcontractor_qualification::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_subcontractor_qualification	*.execute	1	7310	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.update_subcontractor_qualification::*.execute::2	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_subcontractor_qualification	*.execute	2	7318	verb=UPDATE		1
+restoricon_core/services/crm_service.py::CRMService.update_task::*.execute::1	py	sqlite_write	restoricon_core/services/crm_service.py	restoricon_core	CRMService.update_task	*.execute	1	2428	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService._create_share_link::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService._create_share_link	*.execute	1	1736	verb=INSERT		1
+restoricon_core/services/estimate_service.py::EstimateService._deliver_share_link::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService._deliver_share_link	*.execute	1	1808	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService._lock_version_write::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService._lock_version_write	*.execute	1	1672	verb=UPDATE		3
+restoricon_core/services/estimate_service.py::EstimateService._next_estimate_number::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService._next_estimate_number	*.execute	1	362	verb=INSERT		1
+restoricon_core/services/estimate_service.py::EstimateService._recalculate_version::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService._recalculate_version	*.execute	1	1387	verb=UPDATE		4
+restoricon_core/services/estimate_service.py::EstimateService._recalculate_version::*.execute::2	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService._recalculate_version	*.execute	2	1401	verb=UPDATE		4
+restoricon_core/services/estimate_service.py::EstimateService.add_line::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.add_line	*.execute	1	1108	verb=INSERT		1
+restoricon_core/services/estimate_service.py::EstimateService.claim::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.claim	*.execute	1	894	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService.convert::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.convert	*.execute	1	2499	verb=INSERT		0
+restoricon_core/services/estimate_service.py::EstimateService.convert::*.execute::2	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.convert	*.execute	2	2521	verb=UPDATE		0
+restoricon_core/services/estimate_service.py::EstimateService.convert::*.execute::3	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.convert	*.execute	3	2528	verb=UPDATE		0
+restoricon_core/services/estimate_service.py::EstimateService.create::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.create	*.execute	1	431	verb=INSERT		2
+restoricon_core/services/estimate_service.py::EstimateService.create::*.execute::2	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.create	*.execute	2	449	verb=INSERT		2
+restoricon_core/services/estimate_service.py::EstimateService.create::*.execute::3	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.create	*.execute	3	460	verb=UPDATE		2
+restoricon_core/services/estimate_service.py::EstimateService.list::*.execute::1	py	sql_dynamic	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.list	*.execute	1	726			233
+restoricon_core/services/estimate_service.py::EstimateService.reassign::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.reassign	*.execute	1	1012	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.record_decision	*.execute	1	2239	verb=INSERT		2
+restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::2	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.record_decision	*.execute	2	2261	verb=UPDATE		2
+restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::3	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.record_decision	*.execute	3	2308	verb=INSERT		2
+restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::4	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.record_decision	*.execute	4	2329	verb=UPDATE		2
+restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::5	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.record_decision	*.execute	5	2333	verb=UPDATE		2
+restoricon_core/services/estimate_service.py::EstimateService.record_share_link_view::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.record_share_link_view	*.execute	1	1530	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService.record_share_link_view::*.execute::2	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.record_share_link_view	*.execute	2	1536	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService.record_share_link_view::*.execute::3	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.record_share_link_view	*.execute	3	1540	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService.remove_line::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.remove_line	*.execute	1	1228	verb=DELETE		1
+restoricon_core/services/estimate_service.py::EstimateService.reorder_lines::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.reorder_lines	*.execute	1	1258	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService.revise::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.revise	*.execute	1	2041	verb=INSERT		1
+restoricon_core/services/estimate_service.py::EstimateService.revise::*.execute::2	py	sql_dynamic	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.revise	*.execute	2	2081			1
+restoricon_core/services/estimate_service.py::EstimateService.revise::*.execute::3	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.revise	*.execute	3	2086	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService.sweep_expired::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.sweep_expired	*.execute	1	1614	verb=UPDATE		2
+restoricon_core/services/estimate_service.py::EstimateService.transition::*.execute::1	py	sql_dynamic	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.transition	*.execute	1	1916			1
+restoricon_core/services/estimate_service.py::EstimateService.unclaim::*.execute::1	py	sqlite_write	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.unclaim	*.execute	1	958	verb=UPDATE		1
+restoricon_core/services/estimate_service.py::EstimateService.update_header::*.execute::1	py	sql_dynamic	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.update_header	*.execute	1	848			1
+restoricon_core/services/estimate_service.py::EstimateService.update_line::*.execute::1	py	sql_dynamic	restoricon_core/services/estimate_service.py	restoricon_core	EstimateService.update_line	*.execute	1	1195			1
+restoricon_core/services/finance_service.py::FinanceService._financing_offset_for_invoices::*.execute::1	py	sql_dynamic	restoricon_core/services/finance_service.py	restoricon_core	FinanceService._financing_offset_for_invoices	*.execute	1	259			2
+restoricon_core/services/finance_service.py::FinanceService.list_transactions::*.execute::1	py	sql_dynamic	restoricon_core/services/finance_service.py	restoricon_core	FinanceService.list_transactions	*.execute	1	241			1
+restoricon_core/services/finance_service.py::FinanceService.record_transaction::*.execute::1	py	sqlite_write	restoricon_core/services/finance_service.py	restoricon_core	FinanceService.record_transaction	*.execute	1	140	verb=INSERT		1
+restoricon_core/services/finance_service.py::FinanceService.record_transaction::*.execute::2	py	sqlite_write	restoricon_core/services/finance_service.py	restoricon_core	FinanceService.record_transaction	*.execute	2	171	verb=UPDATE		1
+restoricon_core/services/financing_service.py::FinancingService.create_financing_record::*.execute::1	py	sqlite_write	restoricon_core/services/financing_service.py	restoricon_core	FinancingService.create_financing_record	*.execute	1	177	verb=INSERT		0
+restoricon_core/services/financing_service.py::FinancingService.update_financing_record::*.execute::1	py	sqlite_write	restoricon_core/services/financing_service.py	restoricon_core	FinancingService.update_financing_record	*.execute	1	273	verb=UPDATE		0
+restoricon_core/services/notification_service.py::NotificationService._post_request::urllib.request.Request::1	py	network	restoricon_core/services/notification_service.py	restoricon_core	NotificationService._post_request	urllib.request.Request	1	71			3
+restoricon_core/services/notification_service.py::NotificationService._post_request::urllib.request.urlopen::1	py	network	restoricon_core/services/notification_service.py	restoricon_core	NotificationService._post_request	urllib.request.urlopen	1	74			3
+restoricon_core/services/operations_service.py::OperationsService.accept_work_order::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.accept_work_order	*.execute	1	1545	verb=UPDATE		1
+restoricon_core/services/operations_service.py::OperationsService.create_equipment::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.create_equipment	*.execute	1	2034	verb=INSERT		1
+restoricon_core/services/operations_service.py::OperationsService.create_milestone::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.create_milestone	*.execute	1	628	verb=INSERT		2
+restoricon_core/services/operations_service.py::OperationsService.create_work_order::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.create_work_order	*.execute	1	867	verb=INSERT		4
+restoricon_core/services/operations_service.py::OperationsService.deploy_equipment::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.deploy_equipment	*.execute	1	2171	verb=INSERT		1
+restoricon_core/services/operations_service.py::OperationsService.deploy_equipment::*.execute::2	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.deploy_equipment	*.execute	2	2195	verb=UPDATE		1
+restoricon_core/services/operations_service.py::OperationsService.dispatch_work_order::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.dispatch_work_order	*.execute	1	1482	verb=UPDATE		2
+restoricon_core/services/operations_service.py::OperationsService.list_equipment::*.execute::1	py	sql_dynamic	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.list_equipment	*.execute	1	2114			1
+restoricon_core/services/operations_service.py::OperationsService.list_project_deployments::*.execute::1	py	sql_dynamic	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.list_project_deployments	*.execute	1	2389			2
+restoricon_core/services/operations_service.py::OperationsService.list_work_orders::*.execute::1	py	sql_dynamic	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.list_work_orders	*.execute	1	1000			2
+restoricon_core/services/operations_service.py::OperationsService.return_equipment::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.return_equipment	*.execute	1	2298	verb=UPDATE		1
+restoricon_core/services/operations_service.py::OperationsService.return_equipment::*.execute::2	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.return_equipment	*.execute	2	2320	verb=UPDATE		1
+restoricon_core/services/operations_service.py::OperationsService.split_work_order::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.split_work_order	*.execute	1	1951	verb=UPDATE		1
+restoricon_core/services/operations_service.py::OperationsService.transition_project_stage::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.transition_project_stage	*.execute	1	492	verb=UPDATE		1
+restoricon_core/services/operations_service.py::OperationsService.update_milestone_status::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.update_milestone_status	*.execute	1	763	verb=UPDATE		3
+restoricon_core/services/operations_service.py::OperationsService.update_work_order::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.update_work_order	*.execute	1	1188	verb=UPDATE		1
+restoricon_core/services/operations_service.py::OperationsService.update_work_order_execution_status::*.execute::1	py	sqlite_write	restoricon_core/services/operations_service.py	restoricon_core	OperationsService.update_work_order_execution_status	*.execute	1	1642	verb=UPDATE		3
+restoricon_core/services/pricing_job_service.py::PricingJobService._finish::*.execute::1	py	sqlite_write	restoricon_core/services/pricing_job_service.py	restoricon_core	PricingJobService._finish	*.execute	1	114	verb=UPDATE		8
+restoricon_core/services/pricing_job_service.py::PricingJobService.record_progress::*.execute::1	py	sqlite_write	restoricon_core/services/pricing_job_service.py	restoricon_core	PricingJobService.record_progress	*.execute	1	61	verb=UPDATE		0
+restoricon_core/services/pricing_job_service.py::PricingJobService.start::*.execute::1	py	sqlite_write	restoricon_core/services/pricing_job_service.py	restoricon_core	PricingJobService.start	*.execute	1	40	verb=INSERT		85
+restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.append::*.execute::1	py	sqlite_write	restoricon_core/services/pricing_repo.py	restoricon_core	PriceObservationRepoImpl.append	*.execute	1	255	verb=INSERT		932
+restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.append::*.execute::2	py	sqlite_write	restoricon_core/services/pricing_repo.py	restoricon_core	PriceObservationRepoImpl.append	*.execute	2	271	verb=UPDATE		932
+restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.get_history::*.execute::1	py	sql_dynamic	restoricon_core/services/pricing_repo.py	restoricon_core	PriceObservationRepoImpl.get_history	*.execute	1	316			1
+restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.update_refresh_state::*.execute::1	py	sqlite_write	restoricon_core/services/pricing_repo.py	restoricon_core	RetailerProductRepoImpl.update_refresh_state	*.execute	1	226	verb=UPDATE		0
+restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.upsert::*.execute::1	py	sqlite_write	restoricon_core/services/pricing_repo.py	restoricon_core	RetailerProductRepoImpl.upsert	*.execute	1	168	verb=INSERT		0
+restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.upsert::*.execute::2	py	sqlite_write	restoricon_core/services/pricing_repo.py	restoricon_core	RetailerProductRepoImpl.upsert	*.execute	2	186	verb=UPDATE		0
+restoricon_core/services/pricing_repo.py::SearchCacheRepoImpl.put::*.execute::1	py	sqlite_write	restoricon_core/services/pricing_repo.py	restoricon_core	SearchCacheRepoImpl.put	*.execute	1	346	verb=INSERT		0
+restoricon_core/services/pricing_repo.py::SearchCacheRepoImpl.put::*.execute::2	py	sqlite_write	restoricon_core/services/pricing_repo.py	restoricon_core	SearchCacheRepoImpl.put	*.execute	2	352	verb=UPDATE		0
+restoricon_core/services/scheduling_service.py::SchedulingService._assert_within_concurrency_cap::*.execute::1	py	sql_dynamic	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService._assert_within_concurrency_cap	*.execute	1	167			3
+restoricon_core/services/scheduling_service.py::SchedulingService.create_appointment::*.execute::1	py	sqlite_write	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.create_appointment	*.execute	1	269	verb=INSERT		3
+restoricon_core/services/scheduling_service.py::SchedulingService.create_appointment_type::*.execute::1	py	sqlite_write	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.create_appointment_type	*.execute	1	775	verb=INSERT		1
+restoricon_core/services/scheduling_service.py::SchedulingService.create_staff_schedule::*.execute::1	py	sqlite_write	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.create_staff_schedule	*.execute	1	978	verb=INSERT		1
+restoricon_core/services/scheduling_service.py::SchedulingService.delete_appointment_type::*.execute::1	py	sqlite_write	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.delete_appointment_type	*.execute	1	876	verb=DELETE		1
+restoricon_core/services/scheduling_service.py::SchedulingService.delete_staff_schedule::*.execute::1	py	sqlite_write	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.delete_staff_schedule	*.execute	1	1369	verb=DELETE		1
+restoricon_core/services/scheduling_service.py::SchedulingService.list_appointment_types::*.execute::1	py	sql_dynamic	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.list_appointment_types	*.execute	1	739			1
+restoricon_core/services/scheduling_service.py::SchedulingService.list_appointments::*.execute::1	py	sql_dynamic	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.list_appointments	*.execute	1	392			2
+restoricon_core/services/scheduling_service.py::SchedulingService.list_staff_schedules::*.execute::1	py	sql_dynamic	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.list_staff_schedules	*.execute	1	1106			1
+restoricon_core/services/scheduling_service.py::SchedulingService.list_staff_schedules_archive::*.execute::1	py	sql_dynamic	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.list_staff_schedules_archive	*.execute	1	1183			1
+restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment::*.execute::1	py	sql_dynamic	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.update_appointment	*.execute	1	570			2
+restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment_status::*.execute::1	py	sqlite_write	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.update_appointment_status	*.execute	1	438	verb=UPDATE		1
+restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment_type::*.execute::1	py	sql_dynamic	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.update_appointment_type	*.execute	1	940			1
+restoricon_core/services/scheduling_service.py::SchedulingService.update_staff_schedule::*.execute::1	py	sql_dynamic	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.update_staff_schedule	*.execute	1	1225			1
+restoricon_core/services/scheduling_service.py::SchedulingService.upsert_schedule_config::*.execute::1	py	sqlite_write	restoricon_core/services/scheduling_service.py	restoricon_core	SchedulingService.upsert_schedule_config	*.execute	1	670	verb=INSERT		2
+restoricon_core/services/territory_service.py::TerritoryService.create_territory::*.execute::1	py	sqlite_write	restoricon_core/services/territory_service.py	restoricon_core	TerritoryService.create_territory	*.execute	1	70	verb=INSERT		1
+restoricon_core/services/territory_service.py::TerritoryService.update_territory::*.execute::1	py	sqlite_write	restoricon_core/services/territory_service.py	restoricon_core	TerritoryService.update_territory	*.execute	1	134	verb=UPDATE		1
+telemetry/provenance.py::_getprop::subprocess.run::1	py	exec_spawn	telemetry/provenance.py	telemetry	_getprop	subprocess.run	1	136			3
+telemetry/provenance.py::_run_git::subprocess.run::1	py	exec_spawn	telemetry/provenance.py	telemetry	_run_git	subprocess.run	1	91			3
+telemetry/provenance.py::_write_digest_cache_entry::*.mkdir::1	py	fs_write	telemetry/provenance.py	telemetry	_write_digest_cache_entry	*.mkdir	1	332			1
+telemetry/provenance.py::_write_digest_cache_entry::*.replace::1	py	fs_write	telemetry/provenance.py	telemetry	_write_digest_cache_entry	*.replace	1	348			1
+telemetry/provenance.py::_write_digest_cache_entry::open::1	py	fs_write	telemetry/provenance.py	telemetry	_write_digest_cache_entry	open	1	346	mode=w		1
+telemetry/rollup.py::_ensure_schema::*.executescript::1	py	sqlite_exec	telemetry/rollup.py	telemetry	_ensure_schema	*.executescript	1	201	script		2
+telemetry/rollup.py::_rebuild_one_date::*.execute::1	py	sqlite_write	telemetry/rollup.py	telemetry	_rebuild_one_date	*.execute	1	255	verb=DELETE		1
+telemetry/rollup.py::_rebuild_one_date::*.execute::2	py	sqlite_write	telemetry/rollup.py	telemetry	_rebuild_one_date	*.execute	2	256	verb=DELETE		1
+telemetry/rollup.py::_rebuild_one_date::*.execute::3	py	sqlite_write	telemetry/rollup.py	telemetry	_rebuild_one_date	*.execute	3	257	verb=DELETE		1
+telemetry/rollup.py::_rebuild_one_date::*.execute::4	py	sqlite_write	telemetry/rollup.py	telemetry	_rebuild_one_date	*.execute	4	258	verb=DELETE		1
+telemetry/rollup.py::_rebuild_one_date::*.execute::5	py	sqlite_write	telemetry/rollup.py	telemetry	_rebuild_one_date	*.execute	5	303	verb=INSERT		1
+telemetry/rollup.py::_rebuild_one_date::*.execute::6	py	sqlite_write	telemetry/rollup.py	telemetry	_rebuild_one_date	*.execute	6	308	verb=INSERT		1
+telemetry/rollup.py::_rebuild_one_date::*.execute::7	py	sqlite_write	telemetry/rollup.py	telemetry	_rebuild_one_date	*.execute	7	314	verb=INSERT		1
+telemetry/rollup.py::_rebuild_one_date::*.execute::8	py	sqlite_write	telemetry/rollup.py	telemetry	_rebuild_one_date	*.execute	8	319	verb=INSERT		1
+telemetry/rollup.py::rebuild_dates::*.execute::1	py	sqlite_write	telemetry/rollup.py	telemetry	rebuild_dates	*.execute	1	236	verb=INSERT		2
+telemetry/rollup.py::rebuild_dates::*.mkdir::1	py	fs_write	telemetry/rollup.py	telemetry	rebuild_dates	*.mkdir	1	230			2
+telemetry/rollup.py::rebuild_dates::sqlite3.connect::1	py	sqlite_conn	telemetry/rollup.py	telemetry	rebuild_dates	sqlite3.connect	1	231			2
+telemetry/rotate.py::_write_archive::*.mkdir::1	py	fs_write	telemetry/rotate.py	telemetry	_write_archive	*.mkdir	1	293			2
+telemetry/rotate.py::_write_archive::*.replace::1	py	fs_write	telemetry/rotate.py	telemetry	_write_archive	*.replace	1	301			2
+telemetry/rotate.py::_write_archive::open::1	py	fs_write	telemetry/rotate.py	telemetry	_write_archive	open	1	295	mode=wb		2
+telemetry/rotate.py::_write_archive::tarfile.open::1	py	fs_write	telemetry/rotate.py	telemetry	_write_archive	tarfile.open	1	296	mode=w:gz		2
+telemetry/rotate.py::acquire_rotate_lock::*.mkdir::1	py	fs_write	telemetry/rotate.py	telemetry	acquire_rotate_lock	*.mkdir	1	87			3
+telemetry/rotate.py::acquire_rotate_lock::open::1	py	fs_write	telemetry/rotate.py	telemetry	acquire_rotate_lock	open	1	91	mode=a+		3
+telemetry/rotate.py::rotate_day::shutil.rmtree::1	py	fs_write	telemetry/rotate.py	telemetry	rotate_day	shutil.rmtree	1	387			1
+telemetry/store.py::Store._write_batch::*.mkdir::1	py	fs_write	telemetry/store.py	telemetry	Store._write_batch	*.mkdir	1	209			2
+telemetry/store.py::Store._write_batch::open::1	py	fs_write	telemetry/store.py	telemetry	Store._write_batch	open	1	214	mode=a		2
+telemetry/store.py::write_run_provenance::*.mkdir::1	py	fs_write	telemetry/store.py	telemetry	write_run_provenance	*.mkdir	1	440			1
+telemetry/store.py::write_run_provenance::*.replace::1	py	fs_write	telemetry/store.py	telemetry	write_run_provenance	*.replace	1	444			1
+telemetry/store.py::write_run_provenance::open::1	py	fs_write	telemetry/store.py	telemetry	write_run_provenance	open	1	442	mode=w		1
+tools/adb_confound_monitor.py::_run_adb::subprocess.run::1	py	exec_spawn	tools/adb_confound_monitor.py	tools	_run_adb	subprocess.run	1	60			3
+tools/adb_confound_monitor.py::main::*.mkdir::1	py	fs_write	tools/adb_confound_monitor.py	tools	main	*.mkdir	1	114			29
+tools/adb_confound_monitor.py::main::*.open::1	py	fs_write	tools/adb_confound_monitor.py	tools	main	*.open	1	133	mode=a		29
+tools/encrypt_cloudflare_token.py::<module>::sys.path.insert::1	py	env_mut	tools/encrypt_cloudflare_token.py	tools	<module>	sys.path.insert	1	22			
+tools/encrypt_cloudflare_token.py::main::*.chmod::1	py	fs_write	tools/encrypt_cloudflare_token.py	tools	main	*.chmod	1	58			29
+tools/encrypt_cloudflare_token.py::main::*.unlink::1	py	fs_write	tools/encrypt_cloudflare_token.py	tools	main	*.unlink	1	68			29
+tools/encrypt_cloudflare_token.py::main::argv:age::1	py	credential	tools/encrypt_cloudflare_token.py	tools	main	argv:age	1	51			29
+tools/encrypt_cloudflare_token.py::main::subprocess.run::1	py	exec_spawn	tools/encrypt_cloudflare_token.py	tools	main	subprocess.run	1	51			29
+tools/ensure_model_cli.py::<module>::sys.path.insert::1	py	env_mut	tools/ensure_model_cli.py	tools	<module>	sys.path.insert	1	47			
+tools/file_tools.py::<module>::const:.env::1	py	credential	tools/file_tools.py	tools	<module>	const:.env	1	66			
+tools/kb_scraper.py::index_file::*.mkdir::1	py	fs_write	tools/kb_scraper.py	tools	index_file	*.mkdir	1	105			1
+tools/kb_scraper.py::index_file::open::1	py	fs_write	tools/kb_scraper.py	tools	index_file	open	1	114	mode=w		1
+tools/kb_semantic.py::_embed_via_llama::urllib.request.Request::1	py	network	tools/kb_semantic.py	tools	_embed_via_llama	urllib.request.Request	1	173			3
+tools/kb_semantic.py::_embed_via_llama::urllib.request.urlopen::1	py	network	tools/kb_semantic.py	tools	_embed_via_llama	urllib.request.urlopen	1	180			3
+tools/kb_semantic.py::build_semantic_index::open::1	py	fs_write	tools/kb_semantic.py	tools	build_semantic_index	open	1	428	mode=w		0
+tools/kb_semantic.py::build_semantic_index::open::2	py	fs_write	tools/kb_semantic.py	tools	build_semantic_index	open	2	448	mode=w		0
+tools/kb_semantic.py::check_llama_embeddings::urllib.request.Request::1	py	network	tools/kb_semantic.py	tools	check_llama_embeddings	urllib.request.Request	1	138			4
+tools/kb_semantic.py::check_llama_embeddings::urllib.request.urlopen::1	py	network	tools/kb_semantic.py	tools	check_llama_embeddings	urllib.request.urlopen	1	144			4
+tools/kb_semantic.py::repair_failed_embeddings::open::1	py	fs_write	tools/kb_semantic.py	tools	repair_failed_embeddings	open	1	551	mode=w		0
+tools/provision_ai_agent_auth.py::provision::*.execute::1	py	sqlite_write	tools/provision_ai_agent_auth.py	tools	provision	*.execute	1	261	verb=UPDATE		1
+tools/quarantine_unsourced_ccos_metrics.py::<module>::sys.path.insert::1	py	env_mut	tools/quarantine_unsourced_ccos_metrics.py	tools	<module>	sys.path.insert	1	32			
+tools/quarantine_unsourced_ccos_metrics.py::quarantine_cap_metrics::*.execute::1	py	sql_dynamic	tools/quarantine_unsourced_ccos_metrics.py	tools	quarantine_cap_metrics	*.execute	1	51			1
+tools/quarantine_unsourced_ccos_metrics.py::quarantine_cap_metrics::sqlite3.connect::1	py	sqlite_conn	tools/quarantine_unsourced_ccos_metrics.py	tools	quarantine_cap_metrics	sqlite3.connect	1	41			1
+tools/quarantine_unsourced_ccos_metrics.py::quarantine_reflections::shutil.move::1	py	fs_write	tools/quarantine_unsourced_ccos_metrics.py	tools	quarantine_reflections	shutil.move	1	65			1
+tools/release_model_cli.py::<module>::sys.path.insert::1	py	env_mut	tools/release_model_cli.py	tools	<module>	sys.path.insert	1	66			
+tools/shell_tools.py::_run_shell_command_structured::subprocess.run::1	py	exec_spawn	tools/shell_tools.py	tools	_run_shell_command_structured	subprocess.run	1	634			1
+utils/config.py::<module>::os.environ.get::1	py	credential	utils/config.py	utils	<module>	os.environ.get	1	461	name=OPENROUTER_API_KEY		
+utils/config.py::<module>::os.environ.get::2	py	credential	utils/config.py	utils	<module>	os.environ.get	2	473	name=UNLIMITEDCLAUDE_API_KEY		
+utils/config.py::_decrypt_cloudflare_tunnel_token_file::argv:age::1	py	credential	utils/config.py	utils	_decrypt_cloudflare_tunnel_token_file	argv:age	1	687			1
+utils/config.py::_decrypt_cloudflare_tunnel_token_file::subprocess.run::1	py	exec_spawn	utils/config.py	utils	_decrypt_cloudflare_tunnel_token_file	subprocess.run	1	687			1
+utils/config.py::get_aigentik_internal_token::os.environ.get::1	py	credential	utils/config.py	utils	get_aigentik_internal_token	os.environ.get	1	853	name=AIGENTIK_INTERNAL_TOKEN		1
+utils/config.py::get_cloudflare_tunnel_token::os.environ.get::1	py	credential	utils/config.py	utils	get_cloudflare_tunnel_token	os.environ.get	1	713	name=CLOUDFLARE_TUNNEL_TOKEN		3
+utils/config.py::get_cloudflare_tunnel_token::os.environ.get::2	py	credential	utils/config.py	utils	get_cloudflare_tunnel_token	os.environ.get	2	713	name=CLOUDFLARED_TOKEN		3
+utils/file_utils.py::append_file::open::1	py	fs_write	utils/file_utils.py	utils	append_file	open	1	32	mode=a		0
+utils/file_utils.py::write_file::*.mkdir::1	py	fs_write	utils/file_utils.py	utils	write_file	*.mkdir	1	22			0
+utils/file_utils.py::write_file::*.write_text::1	py	fs_write	utils/file_utils.py	utils	write_file	*.write_text	1	23			0
+utils/logger.py::setup_file_logging::logging.FileHandler::1	py	fs_write	utils/logger.py	utils	setup_file_logging	logging.FileHandler	1	51			1

@@ -22305,3 +22305,55 @@ The group 14 architect saw 254 32-hex directories at the repo root (`resource_bu
 ### [NEW-1005] CONFIRMED, Info — `service_lifecycle.py usable-daemon` has no caller
 
 - **Status:** Open cleanup. Repository-wide caller search found only tests/docs for the private `usable-daemon` command. S1 validates its arguments rather than deleting it; removal or documentation cleanup is deferred.
+
+### [NEW-1006] CONFIRMED, High-candidate — shell classifier leaves kill/pkill/killall, `gh repo create`, `crontab`, `at`, `su`, and absolute-path writes into `$HOME` startup files at `ACT`; NEW-933 still live at HEAD (WP2.1 group 15 scoping, provisional labels G15-F1/G15-F2)
+
+- **Status:** Open, found by project-architect while scoping group 15 (2026-10-22), probed against committed HEAD `941ec3f` (`docs/wp2_1_group15_scope.md` section 2.7 carries the verbatim probe output). `pkill`, `killall`, `kill`, `gh repo create`, `crontab`, `at` and `su` all classify `ACT`. `cp`/`mv`/`tee`/`sed -i`/`rm` with absolute paths into `$HOME/.bashrc` or `~/.termux/boot` classify `ACT`. NEW-933 is re-confirmed live (not a new finding): `bash -lc 'git push'`, `bash  -c 'curl x'` (double space) and `bash -lc 'pkill -f llama-server'` all classify `ACT`.
+- **Claim limits (overclaim retracted):** tilde and redirection forms such as `echo x >> ~/.bashrc` are NOT claimed. `shell()` uses `shlex.split` with no `expanduser` and no `shell=True`, so they are literal arguments and matter only through a `bash -c`-style escape (which is NEW-933). Severity is "High-candidate": HIGH under the group 15 rubric only where reachable in a confirm-less mode; reachability not yet established by the census.
+- **Not fixed.** Slice G15c (shell classifier) is BLOCKED: the working tree holds foreign uncommitted edits to `tools/shell_tools.py`, `tests/test_shell_wrapper_boundaries.py` and `core/process_boundary.py` (see NEW-1012), and the HEAD probes must be re-run before any edit. Whether the shell tool may remain an audited `ACT` opaque-execution surface (closing only named dangerous binaries/forms, as in groups 6/9) is Ish decision F2, pending. NEW-904 stays deferred.
+- **Cross-reference:** NEW-933, NEW-932, NEW-904, NEW-1012.
+
+### [NEW-1007] SUSPECTED, Low — `_daemon_shell` prefix allowlist uses `cmd.startswith(...)` with no word boundary (G15-F3)
+
+- **Status:** Open, unverified beyond a source read. `core/task_executor.py:519` (`any(cmd.startswith(p) for p in _DAEMON_ALLOWED_PREFIXES)`, and the python-family checks at lines 502/506) match a raw string prefix, so an allowed prefix also admits any longer first word that begins with it. Not reproduced; to be exercised in G15b. Related to NEW-836 (the same function's refusals bypass `shell()`'s audit).
+
+### [NEW-1008] SUSPECTED, High-candidate pending verification — shell-`ACT` edits of `bench/` evaluator files may not be detected by `bench/lock.py` / `suite.lock` (G15-F4)
+
+- **Status:** Open. Carried from the group 15 architect scope (`docs/wp2_1_group15_scope.md`); not independently re-verified by the tracking-doc pass. If a confirm-less shell `ACT` can rewrite evaluator or benchmark files without the lock noticing, that is a write to the evaluator, a HIGH class under the rubric. G15b hunter C should test it; do not treat as confirmed until then.
+
+### [NEW-1009] CONFIRMED, Info/process — WP2.1 census tooling (G15a) has stated blind spots and a warn-only gate; census numbers are an UNKNOWN inventory, not a safety claim (G15-F5/F7)
+
+- **Status:** Open standing note. `tools/wp21_census.py` (TOOL_VERSION 2) found 1,433 rows at HEAD `941ec3fb`, of which 1,427 are `UNKNOWN` ("nobody has classified", NOT "no bypass"). Known limits: attribute-name receivers (an imported project object's `.kill()`/`.replace()` becomes a false-positive row to triage); no `.write()` on file handles (the `open(...,'w')` row is the boundary); no env/`partial`/`getattr` indirection; a local variable shadowing a from-imported name is treated as the import; a stdlib from-import used as a value receiver is invisible; the shell scan is a line regex; `ccos/data/capabilities.json` is absent from HEAD; `git archive` honors `export-ignore`/`export-subst` (no `.gitattributes` now); the dynamic complement (`sys.addaudithook`) is not built. Row keys (`file::qualname::callee::ordinal`) are positional: swapping two identical-callee calls in one function yields identical keys, so a register decision silently follows the swap (S1, documented, deliberately not mitigated; an argument hash was rejected because it would rewrite all 1,337 keys and still cannot separate identical-argument calls). The default-suite coverage test `test_repo_head_snapshot_is_covered_by_register` is WARN-ONLY by default (blocking with `WP21_CENSUS_GATE=1`, strict closure with `WP21_CENSUS_STRICT=1`) because the register is over 99% `UNKNOWN` and carries no safety signal; consider failing on parse failure even in warn mode. The architect spec's gate-enclosure count (22 lexically gated rows of 703) did not reconcile with the tool (1 GATED row under the stricter thunk-keyword rule: `gate_exec(execute=)`/`persist_coalesced(write=)`); spec figures must not be relied on. `bench/`, `telemetry/`, `codey_estimator/`, shell scripts and manifests had never been scanned before (previous censuses retained no scanner or hashes).
+- **Cross-reference:** `docs/wp2_1_census_report_1.md`, `docs/wp21_census/941ec3fb/`.
+
+### [NEW-1010] CONFIRMED, Low — environment-variable authority and executable selectors have never been classified (G15-F8)
+
+- **Status:** Open. G15a now inventories names in `docs/wp21_census/941ec3fb/env_names.tsv` and CLI flags in `cli_flags.tsv`, but none is classified. Examples named by the architect: `CODEY_LLAMA_SERVER`, `CODEY_LLAMA_LIB`, `CODEY_LINTER`, `ALLOW_SELF_MOD`, `CODEY_ACTION_GATEWAY_AUDIT`. Classification (which selectors can redirect an executable or weaken a gate) belongs to G15b/G15d.
+
+### [NEW-1011] CONFIRMED, Low — NEW-855 import-time state creation re-observed (G15-F6)
+
+- **Status:** Re-observation of NEW-855's mechanism, not a new defect class. During group 15 scoping, importing `tools.shell_tools` created `state.db` and `checkpoints` under the state directory. Also confirmed by census row: `core/checkpoint.py:29` import-time `mkdir`. NEW-855's test-isolation fix covers pytest only; production imports still perform these effects.
+
+### [NEW-1012] CONFIRMED, coordination — foreign uncommitted edits overlap and block slice G15c (G15-F9)
+
+- **Status:** Open, blocks G15c. At 2026-10-22 the working tree holds uncommitted edits by an unidentified owner to `tools/shell_tools.py` (+114/-45 per `git diff --stat`), `core/process_boundary.py`, `tests/test_execution_recovery_gateway.py`, `tests/test_shell_refusal_accounting.py` and `tests/test_shell_wrapper_boundaries.py`. G15a did not touch any of them and they are excluded from this round's commit set. Ish (or the owner) must decide finish-and-commit or discard before G15c; the HEAD probes in NEW-1006 must be re-run afterwards.
+
+### [NEW-1013] CONFIRMED, doc — the blueprint's WP2.1 definition of done cannot be met as written (G15-F10); Ish decision F1 pending
+
+- **Status:** Open, awaiting Ish. The blueprint (about line 4278) states: "no destructive call site bypasses the gateway; the section 16.1 three-surface split is gone" (plus manifest permissions/resource limits enforced). The architect found both halves unmeetable as written: `restoricon_core` keeps its own mutation-authority path by the group 7 decision, and the shell tool is an audited opaque `ACT` surface. Recommended (not decided): restate the DoD, keep `restoricon_core` on its own authority path, and allow closure as "closed with accepted residuals". Not recorded as decided.
+
+### [NEW-1014] CONFIRMED, Info/tooling — `NEW_ISSUES.md` has no machine-readable status field (G15-F11)
+
+- **Status:** Open suggestion. A regex pass cannot reconcile 1,000+ free-form entries against the group 15 register. Consider a one-line `Status:` convention for new entries; existing entries are not to be rewritten.
+
+### [NEW-1015] CONFIRMED, Low — `restoricon_core/database.py:1074` emits a `SyntaxWarning` (invalid escape `\S` in a SQL comment string)
+
+- **Status:** Open, Track B-adjacent, found by the G15a scanner run. The text `\Seen-flag race` sits inside a non-raw string; `python3 -W error` over the file raises `SyntaxError: "\S" is an invalid escape sequence`, so it will become an error in a future Python release. Previously seen only as "2 existing warnings" in test output (NEW_ISSUES line ~21956); never filed. The census scanner suppresses the warning, so the defect remains in source. Fix is a raw-string or `\\S` edit, not done here (Track B file, out of scope).
+
+### [NEW-1016] FLAGGED FOR ISH, Track B friction — a blocking census coverage test would force register updates on every `restoricon_core` SQL change
+
+- **Status:** Open product question. If `test_repo_head_snapshot_is_covered_by_register` is made blocking at closure, any `restoricon_core` SQL change (304 census rows) would need a matching register update unless the scan is run with `gate_restoricon=False`. Decide whether Track B development should be exempt from the gate before it is flipped to blocking.
+
+### [NEW-1017] CONFIRMED, Info — `.claude/settings.local.json` observed as a foreign file during the 2026-10-22 session
+
+- **Status:** Info only, not created by the census tool. It appeared mid-session; on re-check it is ignored by the user-global gitignore (`~/.config/git/ignore`, pattern `**/.claude/settings.local.json`), so it does not show in `git status` and must not be staged. Its mtime is Sep 8 18:50, so "appeared" may mean "first noticed". No action beyond not touching it.

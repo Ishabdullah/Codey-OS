@@ -1,0 +1,1338 @@
+key	class	mediator	evidence	reach	severity	finding	decided_by	reviewed_by	first_seen_rev	count
+.github/workflows/tests.yml::<script>::sh:pkg-install::1	UNKNOWN						census-tool:initial		941ec3fb	
+.github/workflows/tests.yml::<script>::sh:pkg-install::2	UNKNOWN						census-tool:initial		941ec3fb	
+bench/agents.py::make_codey_cli_agent.<locals>.agent::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/agents.py::oracle_agent::shutil.copy2::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/lock.py::write_lock::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/promote.py::main::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/runner.py::run_suite::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/runner.py::run_suite::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/runner.py::run_suite::shutil.copytree::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/runner.py::run_suite::tempfile.TemporaryDirectory::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/scorecard.py::append_history::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/scorecard.py::append_history::*.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/verify.py::grade::shutil.copytree::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/verify.py::grade::shutil.copytree::2	UNKNOWN						census-tool:initial		941ec3fb	
+bench/verify.py::grade::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+bench/verify.py::grade::tempfile.TemporaryDirectory::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_optimizer.py::CapabilityOptimizer.compare_and_upgrade.<locals>._deploy::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_optimizer.py::CapabilityOptimizer.compare_and_upgrade.<locals>._deploy::shutil.copy2::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_optimizer.py::CapabilityOptimizer.compare_and_upgrade.<locals>._deploy::shutil.copy2::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_optimizer.py::CapabilityOptimizer.compare_and_upgrade.<locals>._deploy::shutil.copy2::3	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_optimizer.py::CapabilityOptimizer.generate_improved_version::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_optimizer.py::CapabilityOptimizer.generate_improved_version::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_optimizer.py::CapabilityOptimizer.generate_improved_version::shutil.copy2::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_registry.py::CapabilityRegistry._save::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/capability_registry.py::CapabilityRegistry._save::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/device_bridge.py::DeviceBridgeClient.send_request::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/device_bridge.py::DeviceBridgeServer.start::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/device_manager.py::_run_cmd::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/goal_engine.py::GoalEngine._save_queue::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/goal_engine.py::GoalEngine._save_queue::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::EventLog.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::EventLog.__init__::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::EventLog._init_table::*.executescript::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::EventLog.log::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB.__init__::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB._init_tables::*.executescript::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB.record_performance::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB.record_skill_use::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB.set_config::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB.set_preference::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB.store_skill::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/memory/ccos_memory.py::StructuredDB.store_workflow::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker.__init__::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker._init_tables::*.executescript::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker._update_version_stats::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker._update_version_stats::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker.deprecate_version::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker.record_execution::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker.register_version::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker.register_version::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/performance_tracker.py::PerformanceTracker.take_snapshot::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::PluginManager._call_capability.<locals>._execute::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::PluginManager._call_capability.<locals>._execute::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::PluginManager._load::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::PluginManager._load::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor._publish_pid::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor._publish_pid::*.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor._remove_owned_record::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor._remove_owned_record::os.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor.check_health::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor.check_health::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor.start_external_plugin::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor.stop_external_plugin::*.kill::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/plugin_manager.py::ProcessSupervisor.stop_external_plugin::*.terminate::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/project_engine.py::ProjectEngine._save::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/project_engine.py::ProjectEngine._save::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/reflection_engine.py::ReflectionEngine._save::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/reflection_engine.py::ReflectionEngine._save::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/sandbox.py::Sandbox.__init__::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/sandbox.py::Sandbox.cleanup::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/sandbox.py::Sandbox.create_workspace::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/sandbox.py::Sandbox.install_package::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/sandbox.py::Sandbox.run_command::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/sandbox.py::Sandbox.run_python::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._execute_loaded_skill::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._execute_loaded_skill::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern.<locals>._deploy::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern.<locals>._deploy::shutil.copy2::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern.<locals>._deploy::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern::*.write_text::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/skill_recombiner.py::SkillRecombiner._process_pattern::*.write_text::3	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.__init__::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard._ensure_task_session::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard._init_db::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard._init_db::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard._init_db::*.executescript::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.cleanup_task.<locals>.reset::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.complete_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.create_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.delete_key::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.park_escalation::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.park_escalation::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.purge_expired::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.resolve_escalation::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.resolve_escalation::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.resolve_escalation::*.execute::3	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.save_checkpoint::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.save_checkpoint::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.set::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/task_blackboard.py::TaskBlackboard.set::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/telemetry_engine.py::TelemetryEngine.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/telemetry_engine.py::TelemetryEngine.__init__::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/telemetry_engine.py::TelemetryEngine._flush_buffer_locked::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/telemetry_engine.py::TelemetryEngine._init_tables::*.executescript::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/telemetry_engine.py::TelemetryEngine._save_drift_alert::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/core/telemetry_engine.py::TelemetryEngine.update_baseline::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/demo_agent_orchestrator.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/demo_goal_engine.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/demo_improvement_loop.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/demo_project_engine.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/demo_skill_recombiner.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/demo_telemetry.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/_pathutil.py::ensure_repo_root_on_path::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/_pathutil.py::ensure_repo_root_on_path::sys.path.remove::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/manifest.json::$/agent/coding.classify_breadth::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/manifest.json::$/agent/coding.classify_breadth::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/manifest.json::$/agent/coding.run_agent::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/manifest.json::$/agent/coding.run_agent::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/manifest.json::$/agent/coding.run_recursive::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/manifest.json::$/agent/coding.run_recursive::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/manifest.json::$/agent::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/test.py::<module>::os.environ[]=::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/agent/test.py::<module>::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/error_recovery.py::test::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/error_recovery.py::test::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery/coding.recovery_classify_error::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery/coding.recovery_classify_error::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery/coding.recovery_execute_strategy::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery/coding.recovery_execute_strategy::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery/coding.recovery_get_fallback::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery/coding.recovery_get_fallback::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery/coding.recovery_record_outcome::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery/coding.recovery_record_outcome::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/manifest.json::$/error_recovery::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/test.py::test_execute_strategy_mkdir_then_write::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/error_recovery/test.py::test_execute_strategy_mkdir_then_write::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_adapter_info::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_adapter_info::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_create_backup::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_create_backup::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_curate_examples::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_curate_examples::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_export_dataset::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_export_dataset::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_generate_notebook::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_generate_notebook::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_prepare_data::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_prepare_data::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_print_instructions::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_print_instructions::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_rollback_backup::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_rollback_backup::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_validate_adapter::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune/coding.finetune_validate_adapter::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/manifest.json::$/finetune::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::_make_throwaway_adapter::*.write_bytes::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::_make_throwaway_adapter::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::_make_throwaway_adapter::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_create_backup_and_rollback_on_dummy_model::*.write_bytes::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_create_backup_and_rollback_on_dummy_model::*.write_bytes::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_create_backup_and_rollback_on_dummy_model::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_create_backup_and_rollback_on_dummy_model::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_export_dataset_to_throwaway_dir::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_export_dataset_to_throwaway_dir::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_generate_notebook_to_throwaway_dir::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_generate_notebook_to_throwaway_dir::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_validate_and_info_on_dummy_adapter::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/finetune/test.py::test_validate_incomplete_adapter::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_branch_create::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_branch_create::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_branches::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_branches::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_checkout::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_checkout::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_commit::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_commit::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_commit_log_messages::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_commit_log_messages::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_conflict_sections::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_conflict_sections::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_current_branch::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_current_branch::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_detect_conflicts::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_detect_conflicts::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_diff_for_commit::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_diff_for_commit::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_diff_stat::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_diff_stat::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_generate_commit_message::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_generate_commit_message::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_is_repo::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_is_repo::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_log::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_log::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_merge::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_merge::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_push::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_push::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_status::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration/coding.git_status::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/manifest.json::$/git_integration::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::2	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::3	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::4	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::5	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::test_detect_conflicts_clean_repo::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::test_git_commit_and_branch_on_throwaway_repo::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::test_git_commit_and_branch_on_throwaway_repo::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::test_is_git_repo_on_non_repo::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::test_is_git_repo_on_non_repo::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::test_status_reflects_changes::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/git_integration/test.py::test_status_reflects_changes::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_build_prompt::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_build_prompt::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_delegate::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_delegate::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_detect_task_type::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_detect_task_type::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_list_available::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_list_available::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_select_cli::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation/coding.peer_select_cli::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/manifest.json::$/peer_escalation::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/peer_escalation/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/static_analysis/manifest.json::$/static_analysis/coding.check_syntax::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/static_analysis/manifest.json::$/static_analysis/coding.check_syntax::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/static_analysis/manifest.json::$/static_analysis/coding.lint::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/static_analysis/manifest.json::$/static_analysis/coding.lint::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/static_analysis/manifest.json::$/static_analysis::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/static_analysis/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/static_analysis/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_add::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_add::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_create::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_create::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_list::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_list::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_mark_done::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_mark_done::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_mark_failed::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_mark_failed::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_mark_running::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_mark_running::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_status::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue/coding.taskqueue_status::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/manifest.json::$/task_queue::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/task_queue.py::test::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/task_queue.py::test::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/test.py::<module>::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/test.py::test_create_and_add::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/test.py::test_list_includes_created_queue::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/coding/task_queue/test.py::test_status_transitions_and_persistence::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/client.py::CoreQueryClient.__init__::requests.Session::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.count_open_leads::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.count_open_leads::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.get_customer::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.get_customer::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.get_lead::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.get_lead::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.get_opportunity::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.get_opportunity::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.get_pipeline_summary::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.get_pipeline_summary::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_communications::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_communications::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_customers::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_customers::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_estimates::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_estimates::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_leads::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_leads::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_opportunities::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_opportunities::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_properties::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_properties::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_tasks::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query/crm.list_tasks::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/manifest.json::$/crm_core_query::manifest:permissions::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/crm/core_query/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.execute_task::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.execute_task::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.inspect_ui::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.inspect_ui::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.launch_app::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.launch_app::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.make_call::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.make_call::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.perform_gesture::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.perform_gesture::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.read_notifications::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.read_notifications::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.send_sms::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.send_sms::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.third_party_message::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge/device.third_party_message::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/manifest.json::$/device_bridge::manifest:permissions::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/bridge/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/private_agent/manifest.json::$/private_agent/device.local_action::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/private_agent/manifest.json::$/private_agent/device.local_action::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/private_agent/manifest.json::$/private_agent/device.secure_relay::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/private_agent/manifest.json::$/private_agent/device.secure_relay::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/private_agent/manifest.json::$/private_agent::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/private_agent/manifest.json::$/private_agent::manifest:permissions::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/private_agent/manifest.json::$/private_agent::manifest:resource_limits::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/extended_api.py::_run::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.battery::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.battery::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.brightness::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.brightness::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.camera_info::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.camera_info::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.camera_photo::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.camera_photo::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.camera_record::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.camera_record::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.clipboard_get::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.clipboard_get::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.clipboard_set::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.clipboard_set::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.contact_list::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.contact_list::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.dialog::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.dialog::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.job_scheduler::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.job_scheduler::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.location::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.location::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.microphone_info::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.microphone_info::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.microphone_record::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.microphone_record::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.notification::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.notification::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.notification_list::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.notification_list::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.notification_remove::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.notification_remove::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.sensor_list::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.sensor_list::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.sensor_read::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.sensor_read::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.share::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.share::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.sms_list::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.sms_list::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.sms_send::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.sms_send::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.storage_get::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.storage_get::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.storage_scan::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.storage_scan::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.telephony_call::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.telephony_call::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.telephony_cellinfo::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.telephony_cellinfo::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.telephony_deviceinfo::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.telephony_deviceinfo::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.torch::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.torch::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.tts_engines::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.tts_engines::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.tts_speak::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.tts_speak::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.usb::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.usb::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.vibrate::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.vibrate::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.volume::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.volume::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.wallpaper::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.wallpaper::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.wifi_connection::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.wifi_connection::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.wifi_enable::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.wifi_enable::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.wifi_scan::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/device.wifi_scan::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/hardware.ir_transmit::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/hardware.ir_transmit::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/network.download::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/network.download::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/network.open_url::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/network.open_url::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/network.websearch::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/network.websearch::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/speech.to_text::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api/speech.to_text::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/manifest.json::$/termux_api::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api/termux_api.py::TermuxAPI.execute::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/device.audio_info::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/device.audio_info::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/device.call_log::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/device.call_log::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/device.fingerprint::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/device.fingerprint::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/hardware.ir_frequencies::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/hardware.ir_frequencies::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/hardware.nfc::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/hardware.nfc::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/media.player::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/media.player::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/media.scan::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/media.scan::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/security.keystore::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/security.keystore::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_create::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_create::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_dirs::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_dirs::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_ls::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_ls::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_managedir::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_managedir::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_mkdir::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_mkdir::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_read::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_read::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_rm::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_rm::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_stat::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_stat::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_write::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/storage.saf_write::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/ui.notification_channel::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/ui.notification_channel::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/ui.toast::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended/ui.toast::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/device/termux_api_extended/manifest.json::$/termux_api_extended::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/research/rag_retrieval/manifest.json::$/rag_retrieval/research.retrieve::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/research/rag_retrieval/manifest.json::$/rag_retrieval/research.retrieve::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/research/rag_retrieval/manifest.json::$/rag_retrieval::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/research/rag_retrieval/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/research/rag_retrieval/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_cancel_task::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_cancel_task::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_check_pid_file::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_check_pid_file::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_get_task::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_get_task::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_health::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_health::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_is_running::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_is_running::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_ping::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_ping::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_status::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control/system.daemon_status::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/manifest.json::$/daemon_control::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/test.py::<module>::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/test.py::_TestServerThread._start::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/daemon_control/test.py::test_socket_capabilities_against_lightweight_test_daemon::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_context_size::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_context_size::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_cpu_usage::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_cpu_usage::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_daemon_pid::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_daemon_pid::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_full_status::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_full_status::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_health::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_health::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_memory_loaded::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_memory_loaded::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_memory_usage::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_memory_usage::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_model_active::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_model_active::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_model_state::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_model_state::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_reset_state::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_reset_state::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_tasks_pending::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_tasks_pending::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_tasks_running::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_tasks_running::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_temperature::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_temperature::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_tokens_used::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_tokens_used::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_uptime::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability/system.observability_uptime::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/manifest.json::$/observability::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/observability/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/manifest.json::$/system_info/system.info::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/manifest.json::$/system_info/system.info::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/manifest.json::$/system_info/system.processes::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/manifest.json::$/system_info/system.processes::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/manifest.json::$/system_info::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/system_info.py::_get_disk_info::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/system_info.py::_get_uptime::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/system_info.py::list_processes::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/system_info/test.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.monitor_render_text::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.monitor_render_text::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.monitor_snapshot::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.monitor_snapshot::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_current_threads::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_current_threads::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_end_inference::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_end_inference::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_is_throttled::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_is_throttled::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_reset::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_reset::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_start_inference::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_start_inference::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_status::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor/system.thermal_status::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/manifest.json::$/thermal_monitor::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/test.py::<module>::importlib.util.module_from_spec::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/system/thermal_monitor/test.py::<module>::importlib.util.spec_from_file_location::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/vision/camera_capture/camera.py::capture_image::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/vision/camera_capture/manifest.json::$/camera_capture/vision.camera_capture::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/vision/camera_capture/manifest.json::$/camera_capture/vision.camera_capture::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/vision/camera_capture/manifest.json::$/camera_capture/vision.camera_list::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/vision/camera_capture/manifest.json::$/camera_capture/vision.camera_list::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/vision/camera_capture/manifest.json::$/camera_capture::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/vision/camera_capture/test.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/voice/aigentik/manifest.json::$/aigentik/voice.stream_dialogue::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/voice/aigentik/manifest.json::$/aigentik/voice.stream_dialogue::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/voice/aigentik/manifest.json::$/aigentik/voice.synthesize::manifest:capability::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/voice/aigentik/manifest.json::$/aigentik/voice.synthesize::manifest:implementation::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/voice/aigentik/manifest.json::$/aigentik::manifest:entry_point::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/voice/aigentik/manifest.json::$/aigentik::manifest:permissions::1	UNKNOWN						census-tool:initial		941ec3fb	
+ccos/plugins/voice/aigentik/manifest.json::$/aigentik::manifest:resource_limits::1	UNKNOWN						census-tool:initial		941ec3fb	
+codey-metrics::<script>::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+codey-start::<script>::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+codey-start::<script>::sh:eval-source-exec::2	UNKNOWN						census-tool:initial		941ec3fb	
+codey-stop::<script>::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+codey::<script>::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+codey::<script>::sh:eval-source-exec::2	UNKNOWN						census-tool:initial		941ec3fb	
+codey::<script>::sh:eval-source-exec::3	UNKNOWN						census-tool:initial		941ec3fb	
+codeyOS::<script>::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+codeydOS::<script>::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/action_gateway.py::_append_audit::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/action_gateway.py::_append_audit::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/background.py::FileWatchManager.add_watch::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::do_backup::google.cloud.storage.Client::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::do_backup::os.environ[]=::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::do_backup::os.remove::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::do_backup::tempfile.NamedTemporaryFile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::encrypt_file::argv:age::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::encrypt_file::subprocess.check_call::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::get_public_key::subprocess.check_output::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::write_state_atomically::os.fdopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::write_state_atomically::os.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_documents.py::write_state_atomically::tempfile.mkstemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::_run::argv:age::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::_run::google.cloud.storage.Client::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::_run::os.chmod::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::_run::os.environ[]=::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::_run::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::_run::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::_run::tarfile.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::_run::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/backup_secrets.py::get_at_rest_public_key::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::<module>::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::_copy_backup_files::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::_copy_backup_files::shutil.copy2::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::_extend_state_schema::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::create_checkpoint::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::create_checkpoint::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::create_checkpoint::*.mkdir::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::create_checkpoint::shutil.copy2::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::create_checkpoint::shutil.copy2::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/checkpoint.py::prune_checkpoints.<locals>.execute::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/cli_client.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/cli_client.py::_direct::importlib.import_module::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/cli_client.py::_request::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/context.py::<module>::const:.env::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon.py::Daemon.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon.py::Daemon.__init__::*.mkdir::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon.py::Daemon.__init__::*.mkdir::3	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon.py::Daemon._list_live_tui_session_pids::os.kill::1	READ_NOEFFECT		os.kill(pid, 0) liveness probe sends no signal (core/daemon.py); identity-validation of real senders is a separate row				census-tool:mechanical-seed		941ec3fb	
+core/daemon.py::DaemonServer.start::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon.py::DaemonServer.start::os.chmod::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon.py::DaemonServer.stop::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon.py::is_daemon_running::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon.py::send_command::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon_bootstrap.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon_config.py::DaemonConfig.create_default_config::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon_config.py::DaemonConfig.create_default_config::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon_config.py::DaemonConfig.save::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/daemon_config.py::DaemonConfig.save::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._check_health::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._find_pid_via_registered_slot::os.kill::1	READ_NOEFFECT		os.kill(pid, 0) liveness probe sends no signal (core/embed_server.py); identity-validation of real senders is a separate row				census-tool:mechanical-seed		941ec3fb	
+core/embed_server.py::EmbedServer._is_port_open::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._port_is_bound::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._signal_owned::*.kill::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._signal_owned::*.terminate::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._signal_owned::os.killpg::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._start::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._start::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embed_server.py::EmbedServer._start::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingModel._embed_via_server::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingModel._embed_via_server::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingModel._load_model::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingStore.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingStore._ensure_schema::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingStore._ensure_schema::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingStore._get_connection::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingStore.delete_by_file::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingStore.store::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/embeddings.py::EmbeddingStore.store_batch::*.executemany::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/filesystem.py::Filesystem.append::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/filesystem.py::Filesystem.append::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/filesystem.py::Filesystem.append::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/filesystem.py::Filesystem.make_parent_dirs::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/filesystem.py::Filesystem.patch::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/filesystem.py::Filesystem.restore::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/filesystem.py::Filesystem.write::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/filesystem.py::Filesystem.write::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/finetune_prep.py::_prepare_finetune_data::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/finetune_prep.py::_write_jsonl::os.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/finetune_prep.py::_write_jsonl::os.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/finetune_prep.py::_write_jsonl::tempfile.NamedTemporaryFile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/finetune_prep.py::export_dataset::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/finetune_prep.py::generate_notebook::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/finetune_prep.py::generate_notebook::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/finetune_prep.py::generate_notebook::open::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_Context.finish_metadata::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_Context.prepare_metadata::*.write_bytes::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::*.mkdir::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::*.mkdir::3	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::*.symlink_to::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::*.write_bytes::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::os.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::os.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::os.write::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::shutil.copyfile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::shutil.copyfile::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_commit_context.py::_isolated_commit_context::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_execution.py::run_git::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_mutation_context.py::isolated_mutation_context::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_mutation_context.py::isolated_mutation_context::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_mutation_context.py::isolated_mutation_context::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_Metadata.configure::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_copy_refs::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_copy_refs::shutil.copyfile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_metadata_context::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_metadata_context::*.write_bytes::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_metadata_context::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_metadata_context::shutil.copyfile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_metadata_context::shutil.copyfile::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_metadata_context::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_query_context.py::_metadata_context::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_copy_refs::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_copy_refs::shutil.copyfile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_worktree_context::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_worktree_context::*.write_bytes::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_worktree_context::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_worktree_context::shutil.copyfile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_worktree_context::shutil.copyfile::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_worktree_context::shutil.copyfile::3	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_worktree_context::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/git_worktree_context.py::_worktree_context::tempfile.mkdtemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference.py::_server_ready::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference.py::infer::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference.py::infer::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference_hybrid.py::ChatCompletionBackend._infer_blocking::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference_hybrid.py::ChatCompletionBackend._infer_streaming::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference_hybrid.py::ChatCompletionBackend.check_health::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference_hybrid.py::ChatCompletionBackend.infer::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference_hybrid.py::ChatCompletionBackend.is_server_running::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference_openrouter.py::OpenRouterBackend._infer_blocking::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference_openrouter.py::OpenRouterBackend._infer_streaming::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/inference_openrouter.py::OpenRouterBackend.infer::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/linter.py::_run_ruff_gated.<locals>._execute::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._check_health::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._is_port_in_use::socket.socket::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._is_port_in_use::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._signal_owned::*.kill::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._signal_owned::*.terminate::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._signal_owned::os.killpg::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._spawn_locked::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._spawn_locked::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._spawn_locked::open::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._spawn_locked::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._spawn_locked::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._start_locked::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._start_locked::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer._start_locked::open::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer.infer::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::LlamaServer.infer::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::_kill_single_pid_term_then_kill::os.kill::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/loader_v2.py::probe_port_health::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::_confirm_on_tty::os.write::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::_merge_with_shell::*.rename::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::_merge_with_shell::*.rename::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::_merge_with_shell::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::_merge_with_shell::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::_merge_with_shell::subprocess.run::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::_open_tty::os.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::create_backup_before_import::shutil.copy2::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::import_lora_adapter.<locals>._adopt_span::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::rollback_to_backup.<locals>._rollback_span::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/lora_import.py::rollback_to_backup.<locals>._rollback_span::shutil.copy2::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/memory_v2.py::Memory.touch_file::*.touch::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/memory_v2.py::SymbolicMemory.observe::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/memory_v2.py::SymbolicMemory.query::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/memory_v2.py::SymbolicMemory.relate::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/model_registry.py::_extend_state_schema::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/model_registry.py::record_adoption_attempt::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/notes.py::_save.<locals>.persist::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/notes.py::_save.<locals>.persist::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_cli.py::PeerCLIManager._is_installed::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::_run_basic_fallback::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::_run_basic_fallback::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::_run_basic_fallback::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::_run_basic_fallback::tempfile.NamedTemporaryFile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::run_direct::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::run_direct::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::run_direct::tempfile.NamedTemporaryFile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::run_positional::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/peer_shell.py::run_prompted::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/persistence_reset.py::_reset_state_record::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/persistence_reset.py::_reset_state_record::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/plannd.py::_get_plan_remote::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/plannd.py::_get_plan_remote::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/plannd.py::get_plan::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/plannd.py::get_plan::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/planner_v2.py::Planner._update_task_dependencies::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/planner_v2.py::Planner.fail_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_boundary.py::run_process.<locals>.execute::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::LifecycleRecord.__enter__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::LifecycleRecord.__enter__::os.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::LifecycleRecord._atomic_write::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::LifecycleRecord._atomic_write::os.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::LifecycleRecord._atomic_write::tempfile.NamedTemporaryFile::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::LifecycleRecord.cleanup::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::LifecycleRecord.cleanup::*.unlink::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::LifecycleRecord.signal::os.kill::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::OwnedLaunch._reap_owned::*.kill::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::OwnedLaunch._reap_owned::*.terminate::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::OwnedLaunch._report::os.write::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::OwnedLaunch.run::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::OwnedLaunch.run::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::_read::os.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/process_identity.py::_spawn_main::os.write::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_get_db_path::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_get_lock_path::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_init_db::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_init_db::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_init_db::*.execute::3	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_init_db::*.execute::4	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_init_db::*.execute::5	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_init_db::*.execute::6	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_locked_db::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_locked_db::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_pid_alive::os.kill::1	READ_NOEFFECT		os.kill(pid, 0) liveness probe sends no signal (core/resource_bus.py); identity-validation of real senders is a separate row				census-tool:mechanical-seed		941ec3fb	
+core/resource_bus.py::_reap_stale_records_locked::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::_reap_stale_records_locked::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::acquire_context_lease::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::release_context_lease::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::release_lease::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::request_resource::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_bus.py::request_resource::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_LockedState.__enter__::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_fetch_slots_prompt_tokens::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_pid_alive::os.kill::1	READ_NOEFFECT		os.kill(pid, 0) liveness probe sends no signal (core/resource_gate.py); identity-validation of real senders is a separate row				census-tool:mechanical-seed		941ec3fb	
+core/resource_gate.py::_precheck_port_liveness::os.kill::1	READ_NOEFFECT		os.kill(pid, 0) liveness probe sends no signal (core/resource_gate.py); identity-validation of real senders is a separate row				census-tool:mechanical-seed		941ec3fb	
+core/resource_gate.py::_state_paths::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_tokenize_via_server::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_tokenize_via_server::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_write_state_locked::os.fdopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_write_state_locked::os.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_write_state_locked::os.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::_write_state_locked::tempfile.mkstemp::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::is_tui_session_active::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/resource_gate.py::is_tui_session_active::*.unlink::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/search.py::search_in_project::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/service_actions.py::_show_daemon_models.<locals>.healthy::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/service_actions.py::run_public.<locals>.execute::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/service_lifecycle.py::_config_helpers::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/service_lifecycle.py::lock_exec::os.execvpe::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/service_lifecycle.py::main::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/service_lifecycle.py::path_data::os.write::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/service_lifecycle.py::service_paths::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/sessions.py::_session_path::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/sessions.py::clear_session.<locals>.remove::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/sessions.py::list_sessions::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/sessions.py::save_session.<locals>.write::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/sessions.py::save_session.<locals>.write::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/setup_dr_key.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/setup_dr_key.py::_generate_keypair::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/setup_dr_key.py::main::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/setup_dr_key.py::main::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/setup_litestream.py::main::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/setup_litestream.py::main::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::<module>::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.__init__::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.__init__::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore._init_schema::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore._init_schema::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore._init_schema::*.execute::3	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore._init_schema::*.execute::4	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore._init_schema::*.execute::5	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore._init_schema::*.execute::6	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore._init_schema::*.execute::7	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore._init_schema::*.execute::8	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.add_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.cancel_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.clear_needs_planning::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.clear_old_actions.<locals>.reset::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.complete_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.delete::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.delete_checkpoint::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.delete_model_adoption::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.execute::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.execute::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.fail_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.increment_retry::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.log_action::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.mark_model_adoption_rolled_back::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.save_model_state::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.set::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.start_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.try_claim_task::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/state.py::StateStore.update_model_swap::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/summarizer.py::_call_05b::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/summarizer.py::_call_05b::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph._add_relation::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph._get_conn::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph._get_conn::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph._init_schema::*.executescript::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph._op_observe::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph._op_observe::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph._op_observe::*.execute::3	UNKNOWN						census-tool:initial		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph.clear.<locals>.clear_graph::*.execute::1	GATED	helper-of:gate_exec	every one of 1 production reference(s) to the enclosing function name sits inside gate-call args; no string-constant reference (one-level helper rule; NOT proof against attribute-name aliasing or dynamic dispatch)				census-tool:mechanical-seed		941ec3fb	
+core/symbolic_graph.py::SymbolicGraph.execute_batch::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/sysmon.py::SystemMonitor._read_battery::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/taskqueue.py::TaskQueue.save.<locals>.write::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/taskqueue.py::TaskQueue.save.<locals>.write::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/taskqueue.py::list_queues::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::_connect::*.executescript::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::_connect::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::_connect::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::_query_episodes::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::_save_episode::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::_save_episode::*.executemany::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::label_episode::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::label_tag::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::label_teacher::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/trajectory.py::record_teacher_trace::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/voice.py::VoiceManager._save_config.<locals>.persist::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/voice.py::VoiceManager._save_config.<locals>.persist::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/voice.py::VoiceManager.listen.<locals>.execute::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/voice.py::VoiceManager.speak.<locals>.execute::subprocess.Popen::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/voice.py::VoiceManager.speak.<locals>.execute::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/voice.py::VoiceManager.stop_speaking::*.kill::1	UNKNOWN						census-tool:initial		941ec3fb	
+core/voice.py::VoiceManager.stop_speaking::*.terminate::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_file::sh:net-fetch::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_file::sh:net-fetch::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_file::sh:net-fetch::3	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_file::sh:net-fetch::4	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_models::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_models::sh:mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_models::sh:net-fetch::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_models::sh:net-fetch::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_models::sh:rm::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::download_models::sh:rm::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_litestream::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_litestream::sh:db-llm-tools::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_litestream::sh:db-llm-tools::3	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_llama_cpp::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_llama_cpp::sh:db-llm-tools::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_llama_cpp::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_llama_cpp::sh:pkg-install::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:pkg-install::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:pkg-install::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:pkg-install::3	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:pkg-install::4	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:pkg-install::5	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:pkg-install::6	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:redirect::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:redirect::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:redirect::3	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:redirect::4	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:redirect::5	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:redirect::6	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:redirect::7	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_python_deps::sh:redirect::8	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:db-llm-tools::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:net-fetch::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:net-fetch::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:net-fetch::3	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:net-fetch::4	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:net-fetch::5	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:net-fetch::6	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:net-fetch::7	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:net-fetch::8	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::10	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::3	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::4	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::5	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::6	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::7	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::8	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:pkg-install::9	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::install_system_deps::sh:termux-cmd::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::main::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::main::sh:net-fetch::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::make_executable::sh:chmod::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::make_executable::sh:chmod::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::make_executable::sh:chmod::3	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::make_executable::sh:chmod::4	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::make_executable::sh:chmod::5	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::make_executable::sh:chmod::6	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::make_executable::sh:chmod::7	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::print_completion::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::print_completion::sh:eval-source-exec::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::print_completion::sh:net-fetch::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::print_completion::sh:net-fetch::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::print_completion::sh:startup-file::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_aigentik_internal_token::sh:chmod::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_aigentik_internal_token::sh:python-c::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_aigentik_internal_token::sh:redirect::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_aigentik_internal_token::sh:redirect::2	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_aigentik_internal_token::sh:rm::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_config::sh:cp::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_daemon_dir::sh:mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_dr_escrow::sh:python-c::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_path::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_path::sh:redirect::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_path::sh:startup-file::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_symlinks::sh:ln::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::setup_symlinks::sh:mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::verify_installation::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+install.sh::verify_installation::sh:db-llm-tools::2	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_locked_identity::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_service_one::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_service_one::sh:db-llm-tools::2	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_service_one::sh:mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_service_one::sh:redirect::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_service_operation::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_service_operation::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::10	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::11	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::12	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::13	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::14	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::15	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::16	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::17	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::18	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::19	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::2	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::20	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::21	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::3	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::4	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::5	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::6	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::7	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::8	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::9	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::<script>::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::show_help::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::show_service_logs::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::start_cloudflare::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::start_litestream::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::status_cloudflare::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::status_litestream::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::stop_cloudflare::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+lib/service_manager.sh::stop_litestream::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+main.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+main.py::_remove_tui_pid_file::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+main.py::_write_tui_pid_file::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+main.py::_write_tui_pid_file::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+main.py::_write_tui_pid_file::os.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+main.py::handle_command::os.chdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/embedding/nomic_client.py::NomicEmbedClient.embed_batch::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/embedding/nomic_client.py::NomicEmbedClient.embed_batch::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/embedding/nomic_client.py::NomicEmbedClient.is_available::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/embedding/nomic_client.py::NomicEmbedClient.is_available::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/export/exporter.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/export/exporter.py::Exporter.__enter__::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/export/exporter.py::Exporter.__enter__::open::2	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/export/exporter.py::Exporter.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/export/exporter.py::Exporter._write_stats::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/run.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/run.py::run_pipeline::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/run.py::run_pipeline::*.mkdir::2	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore._connect::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore._init_db::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore._init_db::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore._init_db::*.execute::3	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore.get_by_ids::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore.insert::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/sqlite_store.py::SQLiteMetadataStore.insert_batch::*.executemany::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/vector_store.py::VectorStore.__init__::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/storage/vector_store.py::VectorStore.save::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/synthetic.py::write_synthetic_corpora::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/synthetic.py::write_synthetic_corpora::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+pipeline/synthetic.py::write_synthetic_corpora::open::2	UNKNOWN						census-tool:initial		941ec3fb	
+restoricon_core/api/routes.py::APIRouter.handle_request.<locals>.on_headers_finished::fs_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/api/routes.py::APIRouter.handle_request::fs_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/api/routes.py::_call_budget_gated_completion::network	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/api/server.py::RestoriconAPIServer.__init__::network	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/auth.py::AuthService.change_password::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/auth.py::AuthService.create_token::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/auth.py::AuthService.create_user::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/auth.py::AuthService.delete_user::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	5
+restoricon_core/auth.py::AuthService.list_salesperson_roster::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/auth.py::AuthService.list_users::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/auth.py::AuthService.revoke_token::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/auth.py::AuthService.set_user_active::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	4
+restoricon_core/auth.py::AuthService.set_user_permissions::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/auth.py::AuthService.update_user::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/auth.py::AuthService.update_user::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/database.py::DatabaseManager._backfill_customer_numbers::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/database.py::DatabaseManager._ensure_db_dir::fs_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	11
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	14
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	14
+restoricon_core/database.py::DatabaseManager._migrate_schema::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/database.py::DatabaseManager._migrate_schema::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	11
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	9
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	11
+restoricon_core/database.py::DatabaseManager.get_connection::sqlite_conn	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/database.py::DatabaseManager.get_connection::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	3
+restoricon_core/database.py::DatabaseManager.init_schema::sqlite_exec	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/analytics_search_service.py::AnalyticsSearchService.global_search::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/assessment_service.py::AssessmentService.create_assessment_record::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/assessment_service.py::AssessmentService.list_assessment_records::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/audit_service.py::AuditService.log::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/audit_service.py::AuditService.query_logs::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/automation_service.py::AutomationService.add_to_do_not_contact::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/automation_service.py::AutomationService.create_rule::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/automation_service.py::AutomationService.delete_rule::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/automation_service.py::AutomationService.list_rules::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/automation_service.py::AutomationService.record_rule_match::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/automation_service.py::AutomationService.remove_from_do_not_contact::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/automation_service.py::AutomationService.upsert_business_profile::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.approve_timesheet::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_campaign::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_compliance_item::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_employee::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_purchase_order::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_review_request::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.create_vendor::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.list_compliance_items::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.list_employees::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.list_purchase_orders::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.list_timesheets::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.receive_purchase_order::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.scan_compliance_expirations::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.submit_review::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/business_ops_service.py::BusinessOpsService.submit_timesheet::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/commission_service.py::CommissionService.get_team_commission_summary::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/commission_service.py::CommissionService.list_commissions::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/commission_service.py::CommissionService.record_commission::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/commission_service.py::CommissionService.reverse_commission::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/communication_service.py::CommunicationService.query_communications::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/communication_service.py::CommunicationService.record_communication::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.add_contract_signers::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.cancel_homecare_subscription::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.claim_lead::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.claim_opportunity::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.claim_task::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.complete_handoff_checklist::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.complete_task::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_contact::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/crm_service.py::CRMService.create_contract::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_customer::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_document::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_estimate::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_handoff_checklist::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_invoice::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_lead::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_opportunity::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_package_option::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_project::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_project::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_property::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_subcontractor::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.create_task::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.delete_contact::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.delete_subcontractor::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.get_stage_duration_analytics::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_contacts::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_contracts::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_customers::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_documents::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_estimates::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_invoices::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_leads::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_opportunities::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_package_options::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_projects::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_properties::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_subcontractors::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.list_tasks::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.record_payment::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/crm_service.py::CRMService.send_contract::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.send_estimate::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.sign_contract::fs_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/crm_service.py::CRMService.sign_contract::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	4
+restoricon_core/services/crm_service.py::CRMService.submit_public_booking::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.submit_public_lead::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.sync_contacts_batch::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/crm_service.py::CRMService.transition_opportunity_stage::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_contact::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_contract::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_customer::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_estimate::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_handoff_checklist_item::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_lead::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_opportunity::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_project::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/crm_service.py::CRMService.update_property::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_subcontractor::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/crm_service.py::CRMService.update_subcontractor_qualification::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/crm_service.py::CRMService.update_task::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService._create_share_link::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService._deliver_share_link::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService._lock_version_write::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService._next_estimate_number::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService._recalculate_version::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/estimate_service.py::EstimateService.add_line::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.claim::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.convert::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	3
+restoricon_core/services/estimate_service.py::EstimateService.create::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	3
+restoricon_core/services/estimate_service.py::EstimateService.list::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.reassign::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.record_decision::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	5
+restoricon_core/services/estimate_service.py::EstimateService.record_share_link_view::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	3
+restoricon_core/services/estimate_service.py::EstimateService.remove_line::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.reorder_lines::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.revise::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.revise::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/estimate_service.py::EstimateService.sweep_expired::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.transition::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.unclaim::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.update_header::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/estimate_service.py::EstimateService.update_line::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/finance_service.py::FinanceService._financing_offset_for_invoices::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/finance_service.py::FinanceService.list_transactions::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/finance_service.py::FinanceService.record_transaction::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/financing_service.py::FinancingService.create_financing_record::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/financing_service.py::FinancingService.update_financing_record::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/notification_service.py::NotificationService._post_request::network	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/operations_service.py::OperationsService.accept_work_order::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.create_equipment::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.create_milestone::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.create_work_order::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.deploy_equipment::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/operations_service.py::OperationsService.dispatch_work_order::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.list_equipment::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.list_project_deployments::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.list_work_orders::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.return_equipment::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/operations_service.py::OperationsService.split_work_order::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.transition_project_stage::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.update_milestone_status::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.update_work_order::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/operations_service.py::OperationsService.update_work_order_execution_status::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/pricing_job_service.py::PricingJobService._finish::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/pricing_job_service.py::PricingJobService.record_progress::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/pricing_job_service.py::PricingJobService.start::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.append::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.get_history::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.update_refresh_state::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.upsert::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/pricing_repo.py::SearchCacheRepoImpl.put::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	2
+restoricon_core/services/scheduling_service.py::SchedulingService._assert_within_concurrency_cap::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.create_appointment::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.create_appointment_type::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.create_staff_schedule::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.delete_appointment_type::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.delete_staff_schedule::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.list_appointment_types::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.list_appointments::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.list_staff_schedules::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.list_staff_schedules_archive::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment_status::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment_type::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.update_staff_schedule::sql_dynamic	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/scheduling_service.py::SchedulingService.upsert_schedule_config::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/territory_service.py::TerritoryService.create_territory::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+restoricon_core/services/territory_service.py::TerritoryService.update_territory::sqlite_write	UNKNOWN						census-tool:initial		941ec3fb	1
+setup.sh::<script>::sh:chmod::1	UNKNOWN						census-tool:initial		941ec3fb	
+setup.sh::<script>::sh:chmod::2	UNKNOWN						census-tool:initial		941ec3fb	
+setup.sh::<script>::sh:eval-source-exec::1	UNKNOWN						census-tool:initial		941ec3fb	
+setup.sh::<script>::sh:mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+setup.sh::<script>::sh:redirect::1	UNKNOWN						census-tool:initial		941ec3fb	
+setup.sh::<script>::sh:redirect::2	UNKNOWN						census-tool:initial		941ec3fb	
+setup.sh::<script>::sh:redirect::3	UNKNOWN						census-tool:initial		941ec3fb	
+setup.sh::<script>::sh:startup-file::1	UNKNOWN						census-tool:initial		941ec3fb	
+setup.sh::<script>::sh:startup-file::2	UNKNOWN						census-tool:initial		941ec3fb	
+setup_repo.sh::<script>::sh:gh::1	UNKNOWN						census-tool:initial		941ec3fb	
+setup_repo.sh::<script>::sh:gh::2	UNKNOWN						census-tool:initial		941ec3fb	
+setup_repo.sh::<script>::sh:gh::3	UNKNOWN						census-tool:initial		941ec3fb	
+setup_repo.sh::<script>::sh:git-write::1	UNKNOWN						census-tool:initial		941ec3fb	
+setup_repo.sh::<script>::sh:git-write::2	UNKNOWN						census-tool:initial		941ec3fb	
+setup_repo.sh::<script>::sh:git-write::3	UNKNOWN						census-tool:initial		941ec3fb	
+setup_repo.sh::<script>::sh:git-write::4	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/provenance.py::_getprop::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/provenance.py::_run_git::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/provenance.py::_write_digest_cache_entry::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/provenance.py::_write_digest_cache_entry::*.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/provenance.py::_write_digest_cache_entry::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_ensure_schema::*.executescript::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_rebuild_one_date::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_rebuild_one_date::*.execute::2	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_rebuild_one_date::*.execute::3	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_rebuild_one_date::*.execute::4	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_rebuild_one_date::*.execute::5	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_rebuild_one_date::*.execute::6	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_rebuild_one_date::*.execute::7	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::_rebuild_one_date::*.execute::8	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::rebuild_dates::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::rebuild_dates::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rollup.py::rebuild_dates::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rotate.py::_write_archive::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rotate.py::_write_archive::*.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rotate.py::_write_archive::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rotate.py::_write_archive::tarfile.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rotate.py::acquire_rotate_lock::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rotate.py::acquire_rotate_lock::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/rotate.py::rotate_day::shutil.rmtree::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/store.py::Store._write_batch::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/store.py::Store._write_batch::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/store.py::write_run_provenance::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/store.py::write_run_provenance::*.replace::1	UNKNOWN						census-tool:initial		941ec3fb	
+telemetry/store.py::write_run_provenance::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/adb_confound_monitor.py::_run_adb::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/adb_confound_monitor.py::main::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/adb_confound_monitor.py::main::*.open::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/encrypt_cloudflare_token.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/encrypt_cloudflare_token.py::main::*.chmod::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/encrypt_cloudflare_token.py::main::*.unlink::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/encrypt_cloudflare_token.py::main::argv:age::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/encrypt_cloudflare_token.py::main::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/ensure_model_cli.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/file_tools.py::<module>::const:.env::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_scraper.py::index_file::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_scraper.py::index_file::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_semantic.py::_embed_via_llama::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_semantic.py::_embed_via_llama::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_semantic.py::build_semantic_index::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_semantic.py::build_semantic_index::open::2	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_semantic.py::check_llama_embeddings::urllib.request.Request::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_semantic.py::check_llama_embeddings::urllib.request.urlopen::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/kb_semantic.py::repair_failed_embeddings::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/provision_ai_agent_auth.py::provision::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/quarantine_unsourced_ccos_metrics.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/quarantine_unsourced_ccos_metrics.py::quarantine_cap_metrics::*.execute::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/quarantine_unsourced_ccos_metrics.py::quarantine_cap_metrics::sqlite3.connect::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/quarantine_unsourced_ccos_metrics.py::quarantine_reflections::shutil.move::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/release_model_cli.py::<module>::sys.path.insert::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::<script>::sh:mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::<script>::sh:mkdir::2	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::<script>::sh:mkdir::3	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::<script>::sh:mkdir::4	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::<script>::sh:mkdir::5	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::clone_repo::sh:cp::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::clone_repo::sh:db-llm-tools::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::clone_repo::sh:db-llm-tools::2	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::clone_repo::sh:git-write::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::clone_repo::sh:pkg-install::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::clone_repo::sh:python-c::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::clone_repo::sh:python-c::2	UNKNOWN						census-tool:initial		941ec3fb	
+tools/setup_skills.sh::clone_repo::sh:redirect::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/shell_tools.py::_run_shell_command_structured::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+tools/wp21_census.py::<module>::const:.env::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::<module>::const:.gnupg::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::<module>::const:.netrc::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::<module>::const:.ssh::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::<module>::const:credentials.json::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::<module>::const:credentials::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::<module>::const:gcloud::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::<module>::const:id_rsa::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::_git::subprocess.run::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::_write_tsv::*.writelines::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::_write_tsv::open::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::snapshot_head::subprocess.Popen::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::write_outputs::open::1	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::write_outputs::open::2	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::write_outputs::open::3	UNKNOWN						census-tool:initial		G15a-self	
+tools/wp21_census.py::write_outputs::os.makedirs::1	UNKNOWN						census-tool:initial		G15a-self	
+utils/config.py::<module>::os.environ.get::1	UNKNOWN						census-tool:initial		941ec3fb	
+utils/config.py::<module>::os.environ.get::2	UNKNOWN						census-tool:initial		941ec3fb	
+utils/config.py::_decrypt_cloudflare_tunnel_token_file::argv:age::1	UNKNOWN						census-tool:initial		941ec3fb	
+utils/config.py::_decrypt_cloudflare_tunnel_token_file::subprocess.run::1	UNKNOWN						census-tool:initial		941ec3fb	
+utils/config.py::get_aigentik_internal_token::os.environ.get::1	UNKNOWN						census-tool:initial		941ec3fb	
+utils/config.py::get_cloudflare_tunnel_token::os.environ.get::1	UNKNOWN						census-tool:initial		941ec3fb	
+utils/config.py::get_cloudflare_tunnel_token::os.environ.get::2	UNKNOWN						census-tool:initial		941ec3fb	
+utils/file_utils.py::append_file::open::1	UNKNOWN						census-tool:initial		941ec3fb	
+utils/file_utils.py::write_file::*.mkdir::1	UNKNOWN						census-tool:initial		941ec3fb	
+utils/file_utils.py::write_file::*.write_text::1	UNKNOWN						census-tool:initial		941ec3fb	
+utils/logger.py::setup_file_logging::logging.FileHandler::1	UNKNOWN						census-tool:initial		941ec3fb	

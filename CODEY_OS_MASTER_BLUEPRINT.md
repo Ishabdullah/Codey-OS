@@ -3401,6 +3401,40 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > surfaces are NEW-1000..1005. **Next: group 15 final census / adversarial
 > verification. WP2.1 remains OPEN until that census reconciles groups 13/14
 > residuals and the full definition of done.**
+>
+> **Status update (2026-10-22) — GROUP 15 SCOPED; G15a (census tooling) DONE;
+> WP2.1 remains OPEN.** Scope in `docs/wp2_1_group15_scope.md` (pending
+> commit): parse-only census over a `git archive` of HEAD, disposition
+> register, reconciliation table, three adversarial hunters (A shell/
+> interpreter escape, B filesystem/self-modification/import-time state,
+> C egress/credentials/authority/kill) who did not write the code, and a
+> severity rubric (HIGH = reachable in a confirm-less mode AND kill,
+> exfiltration, credential use, publishing, irreversible delete or a write to
+> agent/evaluator; Medium/Low reported and queued, not fixed). Slice order:
+> G15a (done) -> G15b find-only adversarial pass -> G15c shell classifier
+> (NEW-933; BLOCKED until the owner of the foreign uncommitted
+> `tools/shell_tools.py`/`core/process_boundary.py` work resolves it, then
+> re-run HEAD probes) -> G15d.. further High slices (0-4) -> G15z closure
+> re-run and docs closeout. **G15a: code complete, code-reviewer APPROVED
+> (round 2), pending commit, no production behavior change, not live-verified
+> (N/A).** `tools/wp21_census.py` first census at `941ec3fb`: 332 files, 0
+> parse failures, 1,433 rows, of which 1,427 UNKNOWN (unclassified, NOT "no
+> bypass"), 5 READ_NOEFFECT, 1 GATED; `tests/test_wp21_census.py` 115 passed,
+> 1 skipped; register `docs/wp21_census/dispositions.tsv` (1,337 entries); the
+> default coverage test is warn-only until classification completes. Review
+> caught a scanner blind spot (6 missed rows, fixed). Architect probes at HEAD
+> `941ec3f` confirmed NEW-933 still live and kill/`gh repo create`/`crontab`/
+> `at`/`su` etc. classify ACT (NEW-1006). Commit `941ec3f` (NEW-959 S1-S3) was
+> re-verified by the coordinator on 2026-10-22 (339 passed in 2.50s,
+> regression re-run only; the S1 live re-run died on a 429 and was not
+> repeated). New findings NEW-1006..1017. **Decisions pending from Ish:** F1
+> restate the definition of done (the quoted "no destructive call site
+> bypasses the gateway; the section 16.1 three-surface split is gone" cannot be
+> met as written; recommended: keep `restoricon_core` on its own authority
+> path, close as "closed with accepted residuals"), F2 shell tool may remain an
+> audited ACT opaque-execution surface, F3 extend HIGH write classification to
+> launchers/`lib`/`main.py`/install scripts (recommended: defer), F4 ratify the
+> severity rubric. Group 15 G15b not started.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

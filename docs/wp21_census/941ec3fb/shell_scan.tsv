@@ -1,0 +1,160 @@
+key	kind	category	file	dir	qualname	callee	ordinal	line	detail	lexgate	refs
+.github/workflows/tests.yml::<script>::sh:pkg-install::1	shell	shell	.github/workflows/tests.yml	.github	<script>	sh:pkg-install	1	19	python -m pip install --upgrade pip		
+.github/workflows/tests.yml::<script>::sh:pkg-install::2	shell	shell	.github/workflows/tests.yml	.github	<script>	sh:pkg-install	2	20	pip install -r requirements.txt		
+codey::<script>::sh:eval-source-exec::1	shell	shell	codey	root	<script>	sh:eval-source-exec	1	29	source "$CODEY_OS_DIR/lib/service_manager.sh"		
+codey::<script>::sh:eval-source-exec::2	shell	shell	codey	root	<script>	sh:eval-source-exec	2	44	exec bash "$CODEY_OS_DIR/codeyOS" "$@"		
+codey::<script>::sh:eval-source-exec::3	shell	shell	codey	root	<script>	sh:eval-source-exec	3	76	exec bash "$CODEY_OS_DIR/codeyOS" "$@"		
+codey-metrics::<script>::sh:eval-source-exec::1	shell	shell	codey-metrics	root	<script>	sh:eval-source-exec	1	21	exec python3 -m telemetry.cli "$@"		
+codey-start::<script>::sh:eval-source-exec::1	shell	shell	codey-start	root	<script>	sh:eval-source-exec	1	20	source "$CODEY_OS_DIR/lib/service_manager.sh"		
+codey-start::<script>::sh:eval-source-exec::2	shell	shell	codey-start	root	<script>	sh:eval-source-exec	2	28	exec bash "$CODEY_OS_DIR/codeyOS" "$@"		
+codey-stop::<script>::sh:eval-source-exec::1	shell	shell	codey-stop	root	<script>	sh:eval-source-exec	1	20	source "$CODEY_OS_DIR/lib/service_manager.sh"		
+codeyOS::<script>::sh:eval-source-exec::1	shell	shell	codeyOS	root	<script>	sh:eval-source-exec	1	17	exec python3 "$CODEY_OS_DIR/core/cli_client.py" "$@"		
+codeydOS::<script>::sh:eval-source-exec::1	shell	shell	codeydOS	root	<script>	sh:eval-source-exec	1	12	source "$CODEY_OS_DIR/lib/service_manager.sh"		
+install.sh::download_file::sh:net-fetch::1	shell	shell	install.sh	root	download_file	sh:net-fetch	1	296	if command -v wget &>/dev/null; then		
+install.sh::download_file::sh:net-fetch::2	shell	shell	install.sh	root	download_file	sh:net-fetch	2	297	wget --show-progress -c -O "$output" "$url" 2>&1 && return 0		
+install.sh::download_file::sh:net-fetch::3	shell	shell	install.sh	root	download_file	sh:net-fetch	3	298	elif command -v curl &>/dev/null; then		
+install.sh::download_file::sh:net-fetch::4	shell	shell	install.sh	root	download_file	sh:net-fetch	4	299	curl -L -C - -o "$output" "$url" && return 0		
+install.sh::download_models::sh:eval-source-exec::1	shell	shell	install.sh	root	download_models	sh:eval-source-exec	1	328	print_warning "Qwen3.5-4B model URL is not set — no canonical source was found in this repo."		
+install.sh::download_models::sh:mkdir::1	shell	shell	install.sh	root	download_models	sh:mkdir	1	316	mkdir -p "$PRIMARY_MODEL_DIR" "$EMBED_MODEL_DIR"		
+install.sh::download_models::sh:net-fetch::1	shell	shell	install.sh	root	download_models	sh:net-fetch	1	337	print_warning "Manual: wget -c '$PRIMARY_MODEL_URL' -O '$PRIMARY_PATH'"		
+install.sh::download_models::sh:net-fetch::2	shell	shell	install.sh	root	download_models	sh:net-fetch	2	349	|| print_warning "Manual: wget -c '$EMBED_MODEL_URL' -O '$EMBED_PATH'"		
+install.sh::download_models::sh:rm::1	shell	shell	install.sh	root	download_models	sh:rm	1	333	[ -f "$PRIMARY_PATH" ] && rm -f "$PRIMARY_PATH"		
+install.sh::download_models::sh:rm::2	shell	shell	install.sh	root	download_models	sh:rm	2	345	[ -f "$EMBED_PATH" ] && rm -f "$EMBED_PATH"		
+install.sh::install_litestream::sh:db-llm-tools::1	shell	shell	install.sh	root	install_litestream	sh:db-llm-tools	1	500	print_success "litestream already installed — skipping"		
+install.sh::install_litestream::sh:db-llm-tools::2	shell	shell	install.sh	root	install_litestream	sh:db-llm-tools	2	506	print_warning "go compiler not found — skip litestream install"		
+install.sh::install_litestream::sh:db-llm-tools::3	shell	shell	install.sh	root	install_litestream	sh:db-llm-tools	3	512	print_error "Failed to install litestream"		
+install.sh::install_llama_cpp::sh:db-llm-tools::1	shell	shell	install.sh	root	install_llama_cpp	sh:db-llm-tools	1	218	print_success "llama-server already built — skipping"		
+install.sh::install_llama_cpp::sh:db-llm-tools::2	shell	shell	install.sh	root	install_llama_cpp	sh:db-llm-tools	2	273	print_error "llama-server binary not found after build"		
+install.sh::install_llama_cpp::sh:eval-source-exec::1	shell	shell	install.sh	root	install_llama_cpp	sh:eval-source-exec	1	227	print_warning "llama.cpp working tree has local changes -- not touching HEAD (currently $CUR_HEAD, pinned $LLAMA_CPP_PIN) — building from ex		
+install.sh::install_llama_cpp::sh:pkg-install::1	shell	shell	install.sh	root	install_llama_cpp	sh:pkg-install	1	265	print_warning "  pkg install clang"		
+install.sh::install_python_deps::sh:mkdir::1	shell	shell	install.sh	root	install_python_deps	sh:mkdir	1	193	mkdir -p "$HOME/.codeyOS/restoricon_documents"		
+install.sh::install_python_deps::sh:pkg-install::1	shell	shell	install.sh	root	install_python_deps	sh:pkg-install	1	160	pip3 install --upgrade pip --break-system-packages 2>/dev/null \		
+install.sh::install_python_deps::sh:pkg-install::2	shell	shell	install.sh	root	install_python_deps	sh:pkg-install	2	161	|| pip3 install --upgrade pip		
+install.sh::install_python_deps::sh:pkg-install::3	shell	shell	install.sh	root	install_python_deps	sh:pkg-install	3	163	pip3 install --upgrade pip 2>/dev/null \		
+install.sh::install_python_deps::sh:pkg-install::4	shell	shell	install.sh	root	install_python_deps	sh:pkg-install	4	164	|| pip3 install --upgrade pip --user		
+install.sh::install_python_deps::sh:pkg-install::5	shell	shell	install.sh	root	install_python_deps	sh:pkg-install	5	177	pip3 install $PIP_INSTALL_ARGS \		
+install.sh::install_python_deps::sh:pkg-install::6	shell	shell	install.sh	root	install_python_deps	sh:pkg-install	6	201	pip3 install $PIP_INSTALL_ARGS -r "$CODEY_OS_DIR/requirements.txt" \		
+install.sh::install_python_deps::sh:redirect::1	shell	shell	install.sh	root	install_python_deps	sh:redirect	1	178	"rich>=14.0.0" \		
+install.sh::install_python_deps::sh:redirect::2	shell	shell	install.sh	root	install_python_deps	sh:redirect	2	179	"numpy>=1.24.0" \		
+install.sh::install_python_deps::sh:redirect::3	shell	shell	install.sh	root	install_python_deps	sh:redirect	3	180	"watchdog>=3.0.0" \		
+install.sh::install_python_deps::sh:redirect::4	shell	shell	install.sh	root	install_python_deps	sh:redirect	4	181	"requests>=2.31.0" \		
+install.sh::install_python_deps::sh:redirect::5	shell	shell	install.sh	root	install_python_deps	sh:redirect	5	182	"hnswlib>=0.7.0" \		
+install.sh::install_python_deps::sh:redirect::6	shell	shell	install.sh	root	install_python_deps	sh:redirect	6	183	"networkx>=3.0" \		
+install.sh::install_python_deps::sh:redirect::7	shell	shell	install.sh	root	install_python_deps	sh:redirect	7	185	"python-multipart>=0.0.9" \		
+install.sh::install_python_deps::sh:redirect::8	shell	shell	install.sh	root	install_python_deps	sh:redirect	8	187	"reportlab>=5.0.0" \		
+install.sh::install_system_deps::sh:db-llm-tools::1	shell	shell	install.sh	root	install_system_deps	sh:db-llm-tools	1	128	apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3 age		
+install.sh::install_system_deps::sh:db-llm-tools::2	shell	shell	install.sh	root	install_system_deps	sh:db-llm-tools	2	131	sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3 age		
+install.sh::install_system_deps::sh:net-fetch::1	shell	shell	install.sh	root	install_system_deps	sh:net-fetch	1	105	pkg install -y python cmake ninja clang wget curl git golang sqlite age ruff		
+install.sh::install_system_deps::sh:net-fetch::2	shell	shell	install.sh	root	install_system_deps	sh:net-fetch	2	128	apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3 age		
+install.sh::install_system_deps::sh:net-fetch::3	shell	shell	install.sh	root	install_system_deps	sh:net-fetch	3	131	sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3 age		
+install.sh::install_system_deps::sh:net-fetch::4	shell	shell	install.sh	root	install_system_deps	sh:net-fetch	4	136	dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak golang sqlite age		
+install.sh::install_system_deps::sh:net-fetch::5	shell	shell	install.sh	root	install_system_deps	sh:net-fetch	5	138	sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak golang sqlite age		
+install.sh::install_system_deps::sh:net-fetch::6	shell	shell	install.sh	root	install_system_deps	sh:net-fetch	6	143	pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng go sqlite age		
+install.sh::install_system_deps::sh:net-fetch::7	shell	shell	install.sh	root	install_system_deps	sh:net-fetch	7	145	sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng go sqlite age		
+install.sh::install_system_deps::sh:net-fetch::8	shell	shell	install.sh	root	install_system_deps	sh:net-fetch	8	149	print_warning "Package manager not detected — install manually: python3 pip cmake ninja clang wget curl git age"		
+install.sh::install_system_deps::sh:pkg-install::1	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	1	102	print_warning "Running as root in Termux — skipping pkg install (run as regular user for full install)"		
+install.sh::install_system_deps::sh:pkg-install::2	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	2	105	pkg install -y python cmake ninja clang wget curl git golang sqlite age ruff		
+install.sh::install_system_deps::sh:pkg-install::3	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	3	107	pkg install -y python-pyarrow python-pandas 2>/dev/null \		
+install.sh::install_system_deps::sh:pkg-install::4	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	4	108	|| print_warning "python-pyarrow/pandas pkg install failed — pipeline features may not work"		
+install.sh::install_system_deps::sh:pkg-install::5	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	5	114	pkg install -y espeak termux-api 2>/dev/null \		
+install.sh::install_system_deps::sh:pkg-install::6	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	6	115	|| print_warning "espeak/termux-api pkg install failed — voice interface may not work"		
+install.sh::install_system_deps::sh:pkg-install::7	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	7	121	pkg install -y android-tools 2>/dev/null \		
+install.sh::install_system_deps::sh:pkg-install::8	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	8	122	|| print_warning "android-tools (adb) pkg install failed — live-verify confound monitoring will not work"		
+install.sh::install_system_deps::sh:pkg-install::9	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	9	128	apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3 age		
+install.sh::install_system_deps::sh:pkg-install::10	shell	shell	install.sh	root	install_system_deps	sh:pkg-install	10	131	sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3 age		
+install.sh::install_system_deps::sh:termux-cmd::1	shell	shell	install.sh	root	install_system_deps	sh:termux-cmd	1	114	pkg install -y espeak termux-api 2>/dev/null \		
+install.sh::main::sh:db-llm-tools::1	shell	shell	install.sh	root	main	sh:db-llm-tools	1	668	print_warning "llama.cpp build failed — Codey-OS will not work without llama-server"		
+install.sh::main::sh:net-fetch::1	shell	shell	install.sh	root	main	sh:net-fetch	1	673	download_models || print_warning "Some models failed — re-run to resume (wget -c is used)"		
+install.sh::make_executable::sh:chmod::1	shell	shell	install.sh	root	make_executable	sh:chmod	1	358	chmod +x "$CODEY_OS_DIR/codey"		
+install.sh::make_executable::sh:chmod::2	shell	shell	install.sh	root	make_executable	sh:chmod	2	359	chmod +x "$CODEY_OS_DIR/codeyOS"		
+install.sh::make_executable::sh:chmod::3	shell	shell	install.sh	root	make_executable	sh:chmod	3	360	chmod +x "$CODEY_OS_DIR/codeydOS"		
+install.sh::make_executable::sh:chmod::4	shell	shell	install.sh	root	make_executable	sh:chmod	4	361	chmod +x "$CODEY_OS_DIR/codey-start"		
+install.sh::make_executable::sh:chmod::5	shell	shell	install.sh	root	make_executable	sh:chmod	5	362	chmod +x "$CODEY_OS_DIR/codey-stop"		
+install.sh::make_executable::sh:chmod::6	shell	shell	install.sh	root	make_executable	sh:chmod	6	363	chmod +x "$CODEY_OS_DIR/codey-metrics"		
+install.sh::make_executable::sh:chmod::7	shell	shell	install.sh	root	make_executable	sh:chmod	7	364	chmod +x "$CODEY_OS_DIR/install.sh"		
+install.sh::print_completion::sh:eval-source-exec::1	shell	shell	install.sh	root	print_completion	sh:eval-source-exec	1	564	echo -e "  Reload shell:     ${BLUE}source $SHELL_CONFIG${NC}"		
+install.sh::print_completion::sh:eval-source-exec::2	shell	shell	install.sh	root	print_completion	sh:eval-source-exec	2	620	echo -e "  ${YELLOW}Permanent: add exports to ${BLUE}~/.bashrc${YELLOW} then run ${BLUE}source ~/.bashrc${NC}"		
+install.sh::print_completion::sh:net-fetch::1	shell	shell	install.sh	root	print_completion	sh:net-fetch	1	629	echo -e "  ${BLUE}wget -c '$PRIMARY_MODEL_URL' -O '$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE'${NC}"		
+install.sh::print_completion::sh:net-fetch::2	shell	shell	install.sh	root	print_completion	sh:net-fetch	2	635	echo -e "  ${BLUE}wget -c '$EMBED_MODEL_URL' -O '$EMBED_MODEL_DIR/$EMBED_MODEL_FILE'${NC}"		
+install.sh::print_completion::sh:startup-file::1	shell	shell	install.sh	root	print_completion	sh:startup-file	1	620	echo -e "  ${YELLOW}Permanent: add exports to ${BLUE}~/.bashrc${YELLOW} then run ${BLUE}source ~/.bashrc${NC}"		
+install.sh::setup_aigentik_internal_token::sh:chmod::1	shell	shell	install.sh	root	setup_aigentik_internal_token	sh:chmod	1	405	chmod 600 "$token_path"		
+install.sh::setup_aigentik_internal_token::sh:python-c::1	shell	shell	install.sh	root	setup_aigentik_internal_token	sh:python-c	1	397	python3 -c "import secrets; print(secrets.token_hex(32))" > "$token_path"		
+install.sh::setup_aigentik_internal_token::sh:redirect::1	shell	shell	install.sh	root	setup_aigentik_internal_token	sh:redirect	1	395	openssl rand -hex 32 > "$token_path"		
+install.sh::setup_aigentik_internal_token::sh:redirect::2	shell	shell	install.sh	root	setup_aigentik_internal_token	sh:redirect	2	397	python3 -c "import secrets; print(secrets.token_hex(32))" > "$token_path"		
+install.sh::setup_aigentik_internal_token::sh:rm::1	shell	shell	install.sh	root	setup_aigentik_internal_token	sh:rm	1	401	rm -f "$token_path"		
+install.sh::setup_config::sh:cp::1	shell	shell	install.sh	root	setup_config	sh:cp	1	412	cp "$CODEY_OS_DIR/config.json.example" "$CODEY_OS_DIR/config.json"		
+install.sh::setup_daemon_dir::sh:mkdir::1	shell	shell	install.sh	root	setup_daemon_dir	sh:mkdir	1	369	mkdir -p "$HOME/.codeyOS"		
+install.sh::setup_dr_escrow::sh:python-c::1	shell	shell	install.sh	root	setup_dr_escrow	sh:python-c	1	525	already=$(cd "$CODEY_OS_DIR" && python3 -c "		
+install.sh::setup_path::sh:eval-source-exec::1	shell	shell	install.sh	root	setup_path	sh:eval-source-exec	1	464	source "$SHELL_CONFIG" 2>/dev/null || true		
+install.sh::setup_path::sh:redirect::1	shell	shell	install.sh	root	setup_path	sh:redirect	1	458	} >> "$SHELL_CONFIG"		
+install.sh::setup_path::sh:startup-file::1	shell	shell	install.sh	root	setup_path	sh:startup-file	1	448	SHELL_CONFIG="$HOME/.bashrc"		
+install.sh::setup_symlinks::sh:ln::1	shell	shell	install.sh	root	setup_symlinks	sh:ln	1	433	ln -sf "$CODEY_OS_DIR/$bin_name" "$bin_dir/$bin_name"		
+install.sh::setup_symlinks::sh:mkdir::1	shell	shell	install.sh	root	setup_symlinks	sh:mkdir	1	426	elif [ -d "$HOME/bin" ] || mkdir -p "$HOME/bin" 2>/dev/null; then		
+install.sh::verify_installation::sh:db-llm-tools::1	shell	shell	install.sh	root	verify_installation	sh:db-llm-tools	1	476	&& print_success "llama-server: built" \		
+install.sh::verify_installation::sh:db-llm-tools::2	shell	shell	install.sh	root	verify_installation	sh:db-llm-tools	2	477	|| print_warning "llama-server: not found"		
+lib/service_lifecycle.sh::_codey_locked_identity::sh:db-llm-tools::1	shell	shell	lib/service_lifecycle.sh	lib	_codey_locked_identity	sh:db-llm-tools	1	13	codeyOS|restoricon-api|aigentik|litestream|cloudflared|backup-docs|llama-server-8080) ;;		
+lib/service_lifecycle.sh::_codey_service_one::sh:db-llm-tools::1	shell	shell	lib/service_lifecycle.sh	lib	_codey_service_one	sh:db-llm-tools	1	177	elif [ "$service" = litestream ]; then		
+lib/service_lifecycle.sh::_codey_service_one::sh:db-llm-tools::2	shell	shell	lib/service_lifecycle.sh	lib	_codey_service_one	sh:db-llm-tools	2	185	printf '  litestream → optional configuration unavailable; skipped\n'		
+lib/service_lifecycle.sh::_codey_service_one::sh:mkdir::1	shell	shell	lib/service_lifecycle.sh	lib	_codey_service_one	sh:mkdir	1	193	mkdir -p -- "$log_parent" || return $?		
+lib/service_lifecycle.sh::_codey_service_one::sh:redirect::1	shell	shell	lib/service_lifecycle.sh	lib	_codey_service_one	sh:redirect	1	179	if timeout 60 python3 "$_CODEY_LIFECYCLE_ROOT/core/backup_secrets.py" >> "${_logs[$service]}" 2>&1; then		
+lib/service_lifecycle.sh::_codey_service_operation::sh:db-llm-tools::1	shell	shell	lib/service_lifecycle.sh	lib	_codey_service_operation	sh:db-llm-tools	1	209	local -a _codey_lock_fds=() _all_argv=() starts=(daemon restoricon aigentik cloudflared litestream backup-docs) stops=(backup-docs litestrea		
+lib/service_lifecycle.sh::_codey_service_operation::sh:eval-source-exec::1	shell	shell	lib/service_lifecycle.sh	lib	_codey_service_operation	sh:eval-source-exec	1	222	source "$_CODEY_LIFECYCLE_ROOT/lib/bootstrap_environment.sh"		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::1	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	1	65	[ "$extra" = "$lock_fd" ] || exec {extra}>&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::2	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	2	69	exec python3 "$_CODEY_LIFECYCLE_ROOT/core/process_identity.py" spawn \		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::3	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	3	77	if ! exec {ready_read}<&"$original_read"; then		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::4	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	4	78	exec {original_read}<&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::5	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	5	79	exec {original_write}>&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::6	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	6	82	eval "$_codey_saved_traps"		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::7	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	7	85	exec {original_read}<&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::8	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	8	87	exec {original_write}>&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::9	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	9	88	exec {ready_read}<&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::10	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	10	91	eval "$_codey_saved_traps"		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::11	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	11	94	exec {original_write}>&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::12	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	12	98	exec 0<&"$ready_read"		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::13	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	13	99	exec {ready_read}<&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::14	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	14	100	for extra in 200 210 211 212 213 214 215; do exec {extra}>&-; done		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::15	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	15	101	exec python3 "$_CODEY_LIFECYCLE_ROOT/core/service_lifecycle.py" parse-ready --expected-helper "$helper_job"		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::16	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	16	103	exec {ready_read}<&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::17	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	17	108	eval "$_codey_saved_traps"		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::18	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	18	115	eval "$_codey_saved_traps"		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::19	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	19	121	eval "$_codey_saved_traps"		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::20	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	20	128	exec {ready_read}<&-		
+lib/service_lifecycle.sh::_codey_spawn_owned::sh:eval-source-exec::21	shell	shell	lib/service_lifecycle.sh	lib	_codey_spawn_owned	sh:eval-source-exec	21	131	eval "$_codey_saved_traps"		
+lib/service_manager.sh::<script>::sh:eval-source-exec::1	shell	shell	lib/service_manager.sh	lib	<script>	sh:eval-source-exec	1	5	source "$CODEY_OS_DIR/lib/bootstrap_environment.sh"		
+lib/service_manager.sh::show_help::sh:db-llm-tools::1	shell	shell	lib/service_manager.sh	lib	show_help	sh:db-llm-tools	1	64	logs [service]  Show service logs (daemon, restoricon, aigentik, cloudflare, litestream, backup-docs)		
+lib/service_manager.sh::show_service_logs::sh:db-llm-tools::1	shell	shell	lib/service_manager.sh	lib	show_service_logs	sh:db-llm-tools	1	42	cloudflare|tunnel) service=cloudflared ;; backup_docs) service=backup-docs ;;		
+lib/service_manager.sh::start_cloudflare::sh:db-llm-tools::1	shell	shell	lib/service_manager.sh	lib	start_cloudflare	sh:db-llm-tools	1	25	start_cloudflare() { svc_operation cloudflared start; }		
+lib/service_manager.sh::start_litestream::sh:db-llm-tools::1	shell	shell	lib/service_manager.sh	lib	start_litestream	sh:db-llm-tools	1	22	start_litestream() { svc_operation litestream start; }		
+lib/service_manager.sh::status_cloudflare::sh:db-llm-tools::1	shell	shell	lib/service_manager.sh	lib	status_cloudflare	sh:db-llm-tools	1	27	status_cloudflare() { svc_status cloudflared; }		
+lib/service_manager.sh::status_litestream::sh:db-llm-tools::1	shell	shell	lib/service_manager.sh	lib	status_litestream	sh:db-llm-tools	1	24	status_litestream() { svc_status litestream; }		
+lib/service_manager.sh::stop_cloudflare::sh:db-llm-tools::1	shell	shell	lib/service_manager.sh	lib	stop_cloudflare	sh:db-llm-tools	1	26	stop_cloudflare() { svc_operation cloudflared stop; }		
+lib/service_manager.sh::stop_litestream::sh:db-llm-tools::1	shell	shell	lib/service_manager.sh	lib	stop_litestream	sh:db-llm-tools	1	23	stop_litestream() { svc_operation litestream stop; }		
+setup.sh::<script>::sh:chmod::1	shell	shell	setup.sh	root	<script>	sh:chmod	1	21	chmod +x "$CODEY_OS_DIR/codeyOS"		
+setup.sh::<script>::sh:chmod::2	shell	shell	setup.sh	root	<script>	sh:chmod	2	22	chmod +x "$CODEY_OS_DIR/codeydOS"		
+setup.sh::<script>::sh:eval-source-exec::1	shell	shell	setup.sh	root	<script>	sh:eval-source-exec	1	35	source "$SHELL_CONFIG"		
+setup.sh::<script>::sh:mkdir::1	shell	shell	setup.sh	root	<script>	sh:mkdir	1	38	mkdir -p "$HOME/.codeyOS"		
+setup.sh::<script>::sh:redirect::1	shell	shell	setup.sh	root	<script>	sh:redirect	1	26	echo "" >> "$SHELL_CONFIG"		
+setup.sh::<script>::sh:redirect::2	shell	shell	setup.sh	root	<script>	sh:redirect	2	27	echo "# Codey-OS" >> "$SHELL_CONFIG"		
+setup.sh::<script>::sh:redirect::3	shell	shell	setup.sh	root	<script>	sh:redirect	3	28	echo "export PATH=\"$CODEY_OS_DIR:\$PATH\"" >> "$SHELL_CONFIG"		
+setup.sh::<script>::sh:startup-file::1	shell	shell	setup.sh	root	<script>	sh:startup-file	1	13	SHELL_CONFIG="$HOME/.bashrc"		
+setup.sh::<script>::sh:startup-file::2	shell	shell	setup.sh	root	<script>	sh:startup-file	2	17	SHELL_CONFIG="$HOME/.bashrc"		
+setup_repo.sh::<script>::sh:gh::1	shell	shell	setup_repo.sh	root	<script>	sh:gh	1	17	echo "gh CLI found. Creating public repo and pushing..."		
+setup_repo.sh::<script>::sh:gh::2	shell	shell	setup_repo.sh	root	<script>	sh:gh	2	18	gh repo create "$REPO_NAME" --public --source=. --remote=origin --push		
+setup_repo.sh::<script>::sh:gh::3	shell	shell	setup_repo.sh	root	<script>	sh:gh	3	20	echo "gh CLI not found. Manual steps:"		
+setup_repo.sh::<script>::sh:git-write::1	shell	shell	setup_repo.sh	root	<script>	sh:git-write	1	24	echo "  git commit -m 'Initial commit for Codey-OS'"		
+setup_repo.sh::<script>::sh:git-write::2	shell	shell	setup_repo.sh	root	<script>	sh:git-write	2	25	echo "  git push -u origin $BRANCH"		
+setup_repo.sh::<script>::sh:git-write::3	shell	shell	setup_repo.sh	root	<script>	sh:git-write	3	30	git commit -m "Initial commit for Codey-OS"		
+setup_repo.sh::<script>::sh:git-write::4	shell	shell	setup_repo.sh	root	<script>	sh:git-write	4	31	git push -u origin "$BRANCH"		
+tools/setup_skills.sh::<script>::sh:mkdir::1	shell	shell	tools/setup_skills.sh	tools	<script>	sh:mkdir	1	35	mkdir -p "$SKILL_DIR"		
+tools/setup_skills.sh::<script>::sh:mkdir::2	shell	shell	tools/setup_skills.sh	tools	<script>	sh:mkdir	2	36	mkdir -p "$CODEY_DIR/knowledge/docs"		
+tools/setup_skills.sh::<script>::sh:mkdir::3	shell	shell	tools/setup_skills.sh	tools	<script>	sh:mkdir	3	37	mkdir -p "$CODEY_DIR/knowledge/apis"		
+tools/setup_skills.sh::<script>::sh:mkdir::4	shell	shell	tools/setup_skills.sh	tools	<script>	sh:mkdir	4	38	mkdir -p "$CODEY_DIR/knowledge/patterns"		
+tools/setup_skills.sh::<script>::sh:mkdir::5	shell	shell	tools/setup_skills.sh	tools	<script>	sh:mkdir	5	39	mkdir -p "$CODEY_DIR/knowledge/embeddings"		
+tools/setup_skills.sh::clone_repo::sh:cp::1	shell	shell	tools/setup_skills.sh	tools	clone_repo	sh:cp	1	220	echo "  cp my_docs/*.md ~/Codey-OS/knowledge/docs/"		
+tools/setup_skills.sh::clone_repo::sh:db-llm-tools::1	shell	shell	tools/setup_skills.sh	tools	clone_repo	sh:db-llm-tools	1	164	print("  Embedding backend: llama-server (hybrid BM25 + vector, RRF)")		
+tools/setup_skills.sh::clone_repo::sh:db-llm-tools::2	shell	shell	tools/setup_skills.sh	tools	clone_repo	sh:db-llm-tools	2	174	print("    1. Start llama-server (or run: python main.py)")		
+tools/setup_skills.sh::clone_repo::sh:git-write::1	shell	shell	tools/setup_skills.sh	tools	clone_repo	sh:git-write	1	55	git clone --depth 1 --quiet "$url" "$dest" 2>/dev/null \		
+tools/setup_skills.sh::clone_repo::sh:pkg-install::1	shell	shell	tools/setup_skills.sh	tools	clone_repo	sh:pkg-install	1	178	print("    pip install fastembed   (no torch needed)")		
+tools/setup_skills.sh::clone_repo::sh:python-c::1	shell	shell	tools/setup_skills.sh	tools	clone_repo	sh:python-c	1	221	echo "  python3 -c \"from tools.kb_scraper import index_directory; index_directory('knowledge/docs', 'docs')\""		
+tools/setup_skills.sh::clone_repo::sh:python-c::2	shell	shell	tools/setup_skills.sh	tools	clone_repo	sh:python-c	2	222	echo "  python3 -c \"from tools.kb_semantic import build_semantic_index; build_semantic_index()\""		
+tools/setup_skills.sh::clone_repo::sh:redirect::1	shell	shell	tools/setup_skills.sh	tools	clone_repo	sh:redirect	1	182	if n > 0:		
