@@ -3475,6 +3475,47 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > commit, G15d.. (classifier tail, protected-path set, bench integrity,
 > plugin authority, credential exposure, operator-script guards, REPL write
 > confirmation) and G15z not started.**
+>
+> **Status update (2026-10-23, later) — G15d classifier tail: Units A, B, C
+> code complete and code-reviewer APPROVED, commit pending, NOT live-verified;
+> WP2.1 remains OPEN.** Supersedes the paragraph above where they differ: G15c
+> is **committed as `e167e0c`**, and Ish recorded F1 (WP2.1 may close "with
+> accepted residuals"), F2, D-F5, F3, D-2 option (b), D-3 and D-4 as decided on
+> 2026-10-23; F4 and D-1, D-5..D-10 remain pending. **Unit A** (`tools/
+> shell_tools.py`, `core/task_executor.py` comments): fail-closed option tables
+> for sed/sort/uniq/tree/file (rules R1-R9, GNU long-option abbreviation
+> resolved), awk always HIGH, sed ACT only with `--sandbox` before any `-e`
+> (reviewer Critical C1 found `sed -e 'w out' --sandbox` writing under real sed
+> 4.10; fixed, re-review APPROVED after a 3072-form differential against real
+> sed: 0 bypass), D-3 (argv[0] with `/` outside the system dirs HIGH), D-2(b)
+> (`env` always HIGH, printenv NAME allowlist, credential scan in `shell()`
+> including the daemon, `/data/user/0` vs `/data/data` folded), PATH-shadow
+> check. **Unit B:** npm exact subcommand/option allowlist, pip per-subcommand
+> tables, `python -m` 13-module allowlist, node `--inspect` host rule, pnpm/yarn
+> conservative rule; reviewer APPROVED round 1, **light re-review of the
+> `node inspect --probe/--expr` fix (NEW-1040) pending**. **Unit C:**
+> `core/peer_cli.py` Enter => No and fail-closed `is_interactive_environment`
+> (dormant: no production caller); **Q5 `.qwen/settings.json` trim and the pty
+> real-input check not done, so NEW-1029/NEW-1030 stay open.** **Rule-6
+> correction:** the G15c claim that npm publish forms were closed was false at
+> `e167e0c` (`npm pub`, `tok list`, `own ls`, `add-user`, `c edit` were ACT;
+> NEW-1006/NEW-1036). **G15b-09 is NARROWED, not closed:** PATH on this device
+> puts user-writable dirs ahead of `$PREFIX/bin` and the system bin is
+> agent-uid-writable until G15e (NEW-1037). Closed (code-complete tier):
+> G15b-06, 14, 15, 16, 20, 23, 13 (URL/VCS part), 10 (classifier/daemon scope;
+> env scrubbing open). Ish answered Q2, Q3 and Q4/Q5/Q7 (accept spec defaults);
+> Q1 and Q6 were implemented on the spec default with his answer not recorded. User-visible
+> confirm-less-mode refusals added: `./venv/bin/pytest`-style argv[0], `env`,
+> `awk`, `npm build`, `python -m` outside the allowlist, `node --inspect=
+> localhost:...`, scripts in `~/bin`/repo root/`~/Codey-v4` (PATH-shadow); Enter
+> at the peer prompt means skip. New ids NEW-1036..NEW-1044 (residuals and
+> accepted false positives in NEW-1044); NEW-1043 is a pre-existing failure at
+> clean HEAD (`test_daemon_shutdown_budget`). Tests: unit A 255, unit B 557;
+> coordinator's combined run of the G15d, G15c, shell-git, recovery and peer suites
+> plus the qwen allow-list test: 2171 passed, 19 subtests passed.
+> **Group 15: G15a, G15b, G15c done and committed; G15d code-complete,
+> reviewer-approved, commit pending; G15e (protected-path set, must fold both
+> `/data` spellings), G15f, G15g.. and G15z not started.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

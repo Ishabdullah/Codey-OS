@@ -161,8 +161,9 @@ def test_bundled_inline_code_forms_are_high(command):
     "ruby x.rb", "ruby -rcsv x.rb", "ruby -W0 x.rb", "node x.js", "pytest -q",
 ])
 def test_script_and_module_forms_stay_act(command):
-    # Documented residual: `-m` stays ACT by precedent (`python3 -m
-    # http.server` / `-m code` are OPEN, not closed here).
+    # G15d 4.5: `-m` is ACT only for allowlisted modules (pytest here); the
+    # former residual (`-m http.server` / `-m code`) is now HIGH, pinned in
+    # tests/test_shell_g15d_unit_b.py.
     assert shell_tools.classify_shell_command(command) == ACT
 
 
@@ -252,7 +253,10 @@ def test_publishing_and_remote_initializer_forms_are_high(command):
 
 
 @pytest.mark.parametrize("command", [
-    "npm install", "npm test", "npm run build", "npm ci", "npm build", "npm start",
+    # G15d 4.1: `npm build` was removed from this list on purpose: it is not
+    # an npm command (`Unknown command`), so the exact-subcommand allowlist
+    # classifies it HIGH_IMPACT (see test_npm_build_is_high_not_a_command).
+    "npm install", "npm test", "npm run build", "npm ci", "npm start",
     "npm init", "npm init -y", "npm install left-pad", "pip install requests",
     "pip install -U requests", "pip install -e .", "pip install -r requirements.txt",
     "pip download requests", "python3 -m pip install requests",
@@ -261,6 +265,12 @@ def test_publishing_and_remote_initializer_forms_are_high(command):
 ])
 def test_ordinary_build_and_install_forms_stay_act(command):
     assert shell_tools.classify_shell_command(command) == ACT
+
+
+def test_npm_build_is_high_not_a_command():
+    # Deliberate G15d 4.1 update (rule 6): `npm build` used to be ACT only
+    # because the old denylist did not mention it; npm has no such command.
+    assert shell_tools.classify_shell_command("npm build") == HIGH_IMPACT
 
 
 # ---- round 3: structural fail-closed for node/ruby/perl --------------------
@@ -353,7 +363,7 @@ def test_package_manager_executor_dispatch_forms_are_high(command):
 
 @pytest.mark.parametrize("command", [
     "npm install", "npm i left-pad", "npm run build", "npm test", "npm ci",
-    "npm start", "npm build", "npm rebuild", "npm pack", "npm config get registry",
+    "npm start", "npm rebuild", "npm pack", "npm config get registry",
     "npm config list", "npm list", "npm ls", "npm outdated", "npm audit",
     "npm why foo", "npm view foo", "npm info foo",
     "pnpm install", "pnpm add foo", "pnpm remove foo", "pnpm run build", "pnpm test",
@@ -365,8 +375,10 @@ def test_package_manager_executor_dispatch_forms_are_high(command):
 ])
 def test_routine_package_manager_forms_stay_act(command):
     # Accepted false positives: an operand/script named node|env|set|plugin|
-    # config|explore|bin|self-update (`pnpm run node`) -- and, for npm, the `x`
-    # alias of `exec` as any token (`npm why x`) -- is HIGH, not the reverse.
+    # config|explore|bin|self-update (`pnpm run node`) is HIGH, not the
+    # reverse. G15d 4.1: for npm only the SUBCOMMAND position is checked now,
+    # so the old accidental false positive (`npm i x`, operand `x` equal to the
+    # `x` exec alias) is gone and `npm i x` is ACT (pinned in the unit B file).
     assert shell_tools.classify_shell_command(command) == ACT
 
 

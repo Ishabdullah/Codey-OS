@@ -207,16 +207,27 @@ def test_commit_gpgsign_config_control_fires_mediated_does_not(repository, gatew
     assert after != before
 
 
-def test_non_git_command_unaffected(gateway, monkeypatch):
+def test_non_git_command_unaffected(gateway, monkeypatch, tmp_path):
     # Delete any ambient GIT_CONFIG_* first: if every command (not just
     # git) were getting the mediated git env, GIT_CONFIG_COUNT/KEY_0 would
-    # also show up in `env`'s output here, masking the bug this test is
-    # meant to catch.
+    # also show up in the child's environment here, masking the bug this
+    # test is meant to catch.
+    #
+    # G15d D-2 (deliberate update): `shell("env")` is now HIGH_IMPACT and
+    # refused, so the probe is an ACT python script file that writes its own
+    # os.environ to a file the test reads, run through the real runner.
     for name in list(os.environ):
         if name.startswith("GIT_CONFIG_"):
             monkeypatch.delenv(name)
     monkeypatch.setenv("MY_SHELL_MARKER_VAR", "present-in-env-output")
-    result = shell_tools.shell("env", yolo=True)
+    out = tmp_path / "env_dump.txt"
+    script = tmp_path / "dump_env.py"
+    script.write_text(
+        "import os\n"
+        f"open({str(out)!r}, 'w').write('\\n'.join(f'{{k}}={{v}}' for k, v in os.environ.items()))\n"
+    )
+    shell_tools.shell(f"python3 {script}", yolo=True)
+    result = out.read_text()
     assert "MY_SHELL_MARKER_VAR=present-in-env-output" in result
     assert "GIT_CONFIG_COUNT" not in result
     assert "GIT_CONFIG_KEY_0" not in result

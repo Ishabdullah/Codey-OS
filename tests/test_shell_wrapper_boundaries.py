@@ -42,9 +42,12 @@ def test_restricted_utility_forms(command, form):
     assert shell_tools.classify_shell_command(form.format(executable) + separator + arguments) == HIGH_IMPACT
 
 
-@pytest.mark.parametrize("command", ["env", "  env  ", "'/temporary/path with spaces/env'", "/temporary/bin/env"])
-def test_only_bare_env_is_read(command):
-    assert shell_tools.classify_shell_command(command) == READ
+# G15d D-2/D-3 (deliberate update, was test_only_bare_env_is_read): bare `env`
+# prints the whole environment, so every env form is HIGH_IMPACT; the two
+# non-system absolute spellings are also HIGH under the D-3 slash rule.
+@pytest.mark.parametrize("command", ["env", "  env  ", "'/temporary/path with spaces/env'", "/temporary/bin/env", "/usr/bin/env"])
+def test_env_is_always_high(command):
+    assert shell_tools.classify_shell_command(command) == HIGH_IMPACT
 
 
 @pytest.mark.parametrize("executable", ["git", "git-custom", "find", "xargs", "env", "timeout", "nice", "nohup", "setsid", "stdbuf", "chrt", "ionice", "strace", "flock", "watch", "script", "unshare", "taskset", "setarch", "ltrace", "unbuffer", "catchsegv", "time", "chroot", "nsenter", "busybox"])
@@ -53,7 +56,7 @@ def test_identifiable_malformed_restricted_quotes(executable, form):
     assert shell_tools.classify_shell_command(form.format(executable)) == HIGH_IMPACT
 
 
-@pytest.mark.parametrize(("command", "expected"), [("pwd", READ), ("printenv", READ), ("ls -la", READ), ("grep x file", READ), ("echo safe", ACT), ("python3 arbitrary.py", ACT), ("python3 'unterminated", HIGH_IMPACT), ("rm -rf /temporary", HIGH_IMPACT)])
+@pytest.mark.parametrize(("command", "expected"), [("pwd", READ), ("printenv", HIGH_IMPACT), ("printenv HOME", READ), ("ls -la", READ), ("grep x file", READ), ("echo safe", ACT), ("python3 arbitrary.py", ACT), ("python3 'unterminated", HIGH_IMPACT), ("rm -rf /temporary", HIGH_IMPACT)])
 def test_unrelated_classifications_unchanged(command, expected):
     assert shell_tools.classify_shell_command(command) == expected
 
@@ -180,8 +183,15 @@ def test_classifier_does_not_discover_or_parse_children(monkeypatch):
     monkeypatch.setattr(Path, "exists", forbidden)
     monkeypatch.setattr(Path, "resolve", forbidden)
     monkeypatch.setattr("os.getenv", forbidden)
-    for command in ["env", "env X=value", "find . -exec opaque ;", "xargs opaque"]:
-        assert shell_tools.classify_shell_command(command) in {READ, HIGH_IMPACT}
+    # G15d: extended with the new lexical cases (D-3 slash rule, printenv gate,
+    # option tables) to prove they too need no discovery. `env` is now HIGH.
+    for command in [
+        "env", "env X=value", "find . -exec opaque ;", "xargs opaque",
+        "./ls", "printenv", "printenv HOME", "sort -o x f", "sed -i s/a/b/ f",
+        "sed --sandbox -n p f", "awk 1 f", "uniq a b", "tree -L 2",
+        "file -C -m x",
+    ]:
+        assert shell_tools.classify_shell_command(command) in {READ, ACT, HIGH_IMPACT}
     forbidden.assert_not_called()
 
 
@@ -389,18 +399,23 @@ def test_agent_and_daemon_refuse_utilities(gateway, monkeypatch, command, caller
         assert_record(gateway, command, "refused")
 
 
-def test_daemon_bare_env_remains_read(gateway, monkeypatch):
+# G15d D-2 (deliberate update, was test_daemon_bare_env_remains_read): the
+# daemon admits the `env` prefix but shell() now classifies every env form
+# HIGH_IMPACT, so it is refused with no spawn. The refusal row is written by
+# shell() (action shell_tools.shell), not by _daemon_shell's prefix check.
+def test_daemon_env_is_always_refused(gateway, monkeypatch):
     runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="temporary environment", stderr=""))
     prompt = Mock()
     monkeypatch.setattr(shell_tools.subprocess, "run", runner)
     monkeypatch.setattr(shell_tools, "ask_confirm", prompt)
     executor = task_executor.TaskExecutor.__new__(task_executor.TaskExecutor)
-    assert executor._daemon_shell("env") == "temporary environment"
-    runner.assert_called_once_with(["env"], capture_output=True, text=True, timeout=1800)
+    assert executor._daemon_shell("env").startswith("[BLOCKED]")
+    runner.assert_not_called()
     prompt.assert_not_called()
-    row = json.loads(gateway.audit.read_text())
-    assert row["authority"] == READ and row["outcome"] == "allowed"
-    assert len(gateway.audit.read_text().splitlines()) == 1
+    rows = [json.loads(line) for line in gateway.audit.read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["authority"] == HIGH_IMPACT and rows[0]["outcome"] == "refused"
+    assert rows[0]["action"] == "shell_tools.shell"
 
 
 @pytest.mark.parametrize("command", ["find .", "env helper", "xargs helper"])

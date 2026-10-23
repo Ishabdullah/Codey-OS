@@ -40,8 +40,14 @@ from utils.logger import error, warning
 #   git status/log/diff/show — admitted prefixes; shell now refuses all direct Git
 #                      (git commit/push/reset are intentionally excluded)
 #   cd                — change working directory for subsequent commands
-#   pwd / which / printenv — environment introspection
-#   env               — bare env READ; argument-bearing env refuses in shell
+#   pwd / which / printenv — environment introspection; printenv runs only for
+#                      the non-secret name allowlist (HOME, PATH, ...), bare
+#                      printenv and any other NAME refuse in shell (G15d D-2)
+#   env               — admitted prefix, but shell classifies every env form
+#                      HIGH_IMPACT (bare env prints the whole environment), so
+#                      daemon env is always refused (same shape as find)
+#   Credential-bearing path operands (~/.ssh, state-dir keys, /proc/*/environ,
+#   ...) are refused inside shell() for every admitted prefix (G15d D-2).
 #
 # Security note: Python/pip commands are validated to prevent arbitrary code
 # execution. Only specific patterns are allowed (e.g., "python script.py",
@@ -499,6 +505,13 @@ class TaskExecutor:
         Python/pip commands are additionally validated against dangerous patterns.
         Anything else is blocked with a clear message so the model knows
         to restructure its approach rather than silently failing.
+
+        An admitted prefix can still be refused afterwards inside shell()
+        (action "shell_tools.shell", not "task_executor.daemon_shell"): env in
+        any form, bare printenv or printenv of a name outside the allowlist,
+        and any command whose operand names a credential-bearing path or whose
+        bare name resolves outside the system bin directories. Those checks
+        live in shell() on purpose, so they are not duplicated here.
         """
         from core.action_gateway import HIGH_IMPACT, get_action_gateway
         from tools.shell_tools import classify_shell_command, shell

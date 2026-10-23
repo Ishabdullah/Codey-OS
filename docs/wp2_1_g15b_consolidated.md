@@ -519,6 +519,8 @@ Pending since 2026-10-22 (F1-F4) with updated recommendations, then new decision
 - **D-11 (sequencing, coordinator's call).** G15c is reviewer-approved code with a visible behavior change; recommend committing it (after D-F5) before G15d so G15d's reviewer round diffs against a
   committed base. The G15b-14/15/16 warnings are not blockers of the G15c commit.
 
+**Decisions recorded 2026-10-23 (Ish, "yes to all"):** F1 yes, F2 yes, D-F5 yes, F3 yes, D-2 option (b) yes, D-3 yes, D-4 yes. F4, D-1, D-5..D-10 remain pending; D-11 satisfied (G15c committed as `e167e0c` before G15d).
+
 ## 8. Cost estimate (order of magnitude, not measured; the prior architect estimate for all of group 15 was 5-9M tokens and 25-40 agent runs, and G15a-G15c have already consumed part of it)
 
 | item | rough tokens | notes |
@@ -542,3 +544,28 @@ Existing ids: 933/904/1006 (G15b-01, 02, 03, 04, 05; 1006 PARTIALLY FIXED), 1007
 New ids: NEW-1018 (umbrella and process), NEW-1019 (G15b-09, 23), NEW-1020 (G15b-10, 11), NEW-1021 (G15b-12), NEW-1022 (G15b-06, 07, 08), NEW-1023 (G15b-13, 14, 15, 16, 24), NEW-1024 (G15b-25, 26, 27, 28),
 NEW-1025 (G15b-29, 30, 31, 32), NEW-1026 (G15b-33, 34, 35), NEW-1027 (G15b-37 and the NEW-975 correction), NEW-1028 (G15b-19, 20, 21, 22), NEW-1029 (G15b-44, 45, 47), NEW-1030 (G15b-46), NEW-1031 (G15b-38, 41),
 NEW-1032 (G15b-39, 40), NEW-1033 (G15b-48), NEW-1034 (G15b-43), NEW-1035 (G15b-49).
+NEW-1036 to NEW-1044 (allocated 2026-10-23 for G15d): NEW-1036 option-abbreviation class and the npm/pip instances (G15b-03 npm part, 13, 14, 15), NEW-1037 PATH order/PATH-dependent classification (G15b-09), NEW-1038 `_BUILD_TOOL_SYSTEM_DIRS` device mismatch, NEW-1039 `/data/user/0` alias, NEW-1040 `node inspect --probe/--expr`, NEW-1041 `.qwen/settings.json` provenance (G15b-46), NEW-1042 qwen launcher shebang, NEW-1043 `test_daemon_shutdown_budget` fails at clean HEAD, NEW-1044 G15d accepted residuals and false positives.
+
+## 10. Status after G15d (2026-10-23; added, sections 2-3 are intentionally NOT rewritten, they remain the post-G15c snapshot and their counts still reconcile with the item table)
+
+Tier for every row below unless stated: **code complete, code-reviewer APPROVED, commit pending, NOT live-verified.** Counts for this state are NOT recomputed (do it at G15z). `NEW_ISSUES.md` is authoritative. Spec: `docs/wp2_1_g15d_spec.md`.
+
+| id | post-G15c | after G15d | note |
+| --- | --- | --- | --- |
+| G15b-03 | CLOSED | npm part REOPENED (rule-6 correction), re-closed by Unit B | `npm pub/publ/tok/own/add-user/c edit` were ACT at `e167e0c` (NEW-1036); other forms not re-probed |
+| G15b-06 | OPEN | CLOSED by Unit A | option tables, sed `--sandbox` before `-e` (reviewer C1 fixed, 3072-form differential vs real sed 4.10: 0 bypass), awk always HIGH |
+| G15b-07 | PARTIALLY CLOSED | narrowed | `ln`/`touch`/`mkdir` and prompting `cp/mv/rm` remain (G15e) |
+| G15b-08 | PARTIALLY CLOSED | narrowed | G01/G02/G05 pinned HIGH; G11-G13 open (G15e) |
+| G15b-09 | OPEN | **NARROWED, NOT CLOSED** | D-3 plus PATH-shadow; system bin and PATH dirs agent-uid-writable until G15e (NEW-1037) |
+| G15b-10 | OPEN | CLOSED for classifier/daemon scope (D-2 option (b)) | option (c) env scrubbing open (G15h); G15b-11 unchanged |
+| G15b-13 | PARTIALLY CLOSED | URL/VCS part closed by Unit B; rest accepted residual | pnpm/yarn conservative only (not installed) |
+| G15b-14 | OPEN | CLOSED by Unit B | pip per-subcommand tables |
+| G15b-15 | OPEN | CLOSED by Unit B | npm exact allowlists |
+| G15b-16 | OPEN | CLOSED by Unit B | node `--inspect` host rule; NEW-1040 re-review APPROVED |
+| G15b-20 | OPEN | CLOSED by Unit B | `python -m` 13-module allowlist (implemented on spec default for Q7(c)) |
+| G15b-23 | OPEN | CLOSED (consequence of D-3 and the tables) | no separate code |
+| G15b-24 | OPEN | W5 (`pip3.11`) fixed; rest OPEN | ruby/perl unverified, accepted false positives |
+| G15b-45 | NOT-A-SHELL-ITEM | interactivity part only, DORMANT | `is_interactive_environment` fails closed; no production caller; remainder queued |
+| G15b-46 | NOT-A-SHELL-ITEM | PARTIALLY FIXED | Enter => No done; Q5 trim done; spec 5.3 pty check NOT done |
+
+Not changed by G15d: G15b-19, 21, 22 (G15i for 21), 25-37 (G15e-G15j), 38-44, 47-49. Spec questions Q1-Q4, Q6, Q7 were implemented on the stated default; Ish's answers are not recorded (Q5 'trim' accepted by Ish, not yet applied).

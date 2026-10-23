@@ -1,26 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git config *)",
-      "Bash(command *)",
       "Bash(pkg *)",
       "Bash(termux-tts-speak *)",
-      "Bash(pip install *)",
-      "Bash(python3 *)",
-      "Bash(timeout *)",
       "Bash(/voice *)",
       "Bash(eof)",
       "Bash(true)",
-      "Bash(curl *)",
       "Bash(ls *)",
-      "Bash(nohup *)",
-      "Bash(sleep *)",
-      "Bash(pkill *)",
-      "Bash(rm *)",
-      "Bash(codeydOS *)",
-      "Bash(/data/data/com.termux/files/home/llama.cpp/build/bin/llama-server *)"
+      "Bash(sleep *)"
     ]
   },
   "$version": 4

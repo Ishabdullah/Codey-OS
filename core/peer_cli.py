@@ -278,8 +278,8 @@ class PeerCLIManager:
             console.print(f"  Fallbacks:  [dim]{', '.join(others)}[/dim]")
         console.print()
         console.print("  [bold]Your options:[/bold]")
-        console.print(f"    [green]y / enter[/green]          Call {cli.description}")
-        console.print(f"    [red]n[/red]                  Skip — return control to you")
+        console.print(f"    [green]y[/green]                  Call {cli.description}")
+        console.print(f"    [red]n / enter[/red]          Skip — return control to you (default)")
         if others:
             console.print(f"    [cyan]{' | '.join(others)}[/cyan]" f"{'':>4}Use that CLI instead")
         console.print(f"    [cyan]<any text>[/cyan]         Tell Codey to try differently\n")
@@ -289,9 +289,12 @@ class PeerCLIManager:
         except (EOFError, KeyboardInterrupt):
             return False, None
 
-        if not ans or ans.lower() in ("y", "yes"):
+        # Only an explicit y/yes approves. This answer authorises a HIGH_IMPACT
+        # egress to a peer started with its auto-approve flag, so a bare Enter
+        # (or a buffered/stray newline on stdin) must never count as consent.
+        if ans.lower() in ("y", "yes"):
             return True, None
-        if ans.lower() in ("n", "no"):
+        if not ans or ans.lower() in ("n", "no"):
             return False, None
         # Check if the answer is a known CLI name or alias
         canonical_ans = resolve_peer_name(ans.lower()) or ans.lower()
@@ -397,7 +400,7 @@ def escalate(
 
         if result is True:
             prompt = mgr.build_prompt(user_message, errors, files)
-            # The affirmative (Enter/y, or a valid switch) was obtained from
+            # The affirmative (an explicit y/yes, or a valid switch) was obtained from
             # a real human prompt just above; it covers only this selected
             # peer and prompt. It is handed to the gate as a one-shot
             # callback result, not re-prompted and not a reusable bypass.
@@ -451,7 +454,8 @@ def is_interactive_environment() -> bool:
     try:
         return sys.stdin.isatty()
     except Exception:
-        return True
+        # Cannot determine the TTY state: fail closed (treat as non-interactive).
+        return False
 
 
 def escalate_or_park(

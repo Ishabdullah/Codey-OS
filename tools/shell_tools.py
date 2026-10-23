@@ -1,6 +1,7 @@
 import os
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 from dataclasses import dataclass
@@ -196,8 +197,9 @@ READ_COMMANDS = {
 # Unconditionally HIGH_IMPACT at both classification sites below --
 # content of the wrapped command is never parsed or evaluated, matching
 # the pre-existing find/xargs precedent. `env` is handled by its own
-# bare-vs-argument-bearing check at both sites and is deliberately NOT
-# folded into this set. `su`, `doas`, and `proot` are handled separately
+# unconditional HIGH_IMPACT check (D-2: bare env leaks the environment, the
+# argument-bearing form dispatches a child) and is deliberately NOT folded
+# into this set. `su`, `doas`, and `proot` are handled separately
 # as privilege wrappers and are always HIGH_IMPACT.
 # `busybox` IS included despite being a multi-call binary -- a
 # code-reviewer round for this change initially excluded it under a
@@ -297,10 +299,32 @@ _BUILD_TOOL_ACT_BASENAMES = frozenset({
     "make", "cmake", "cargo", "rustc", "gcc", "g++", "cc", "clang",
     "go", "tsc", "javac", "pnpm", "yarn",
 })
-_BUILD_TOOL_SYSTEM_DIRS = frozenset({
-    "/usr/bin", "/usr/local/bin", "/bin",
+# Shared system executable directories (G15d R8). Used by `_build_tool_is_act`
+# and by the D-3 slash rule in `classify_shell_command`. Hard-coded, not
+# derived from $PREFIX or sys.prefix, because the classifier must not read
+# the environment. `/system/bin` is included because `/bin` is a symlink to it
+# on this device. This is a naming convention, NOT an ownership boundary: the
+# Termux bin dir is writable by the agent's own uid, so a write into it is a
+# protected-path (G15e) question, not a classifier one.
+_SYSTEM_BIN_DIRS = frozenset({
+    "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin",
+    "/system/bin", "/system/xbin",
     "/data/data/com.termux/files/usr/bin",
 })
+
+
+def _argv0_in_system_dir(argv0: str) -> bool:
+    """D-3: True only when `argv0` is an absolute path whose lexically
+    normalized parent is in `_SYSTEM_BIN_DIRS`. Purely lexical (no
+    filesystem access) so `classify_shell_command` stays free of discovery;
+    `normpath` collapses `.`/`..`/`//`, so `/usr/bin/../../tmp/gcc` has parent
+    `/tmp`. A leading `//usr/bin` is kept as-is by POSIX `normpath` and so
+    fails closed. A symlink planted inside a system dir is a write-target
+    problem (G15e), not something a lexical check can see.
+    """
+    if not argv0.startswith("/") or argv0.endswith("/"):
+        return False
+    return os.path.normpath(os.path.dirname(argv0)) in _SYSTEM_BIN_DIRS
 # Any-token HIGH sets (an option operand can hide the real subcommand, so
 # every token is tested). Beyond the npx-equivalents (`dlx|exec|create`):
 #   node            `yarn node -e 1` / `pnpm node -p 1` / `yarn run node -e`
@@ -316,12 +340,24 @@ _BUILD_TOOL_SYSTEM_DIRS = frozenset({
 #                   conservatively (listing binaries, no routine need).
 # Accepted false positive: an operand or script named like one of these
 # (`pnpm run node`, `yarn run config`) is HIGH_IMPACT, never the reverse.
+#   link, ln        write symlinks into a global bin directory (same reasoning
+#                   as the npm `link`/`ln`; `ln` is a defensive, UNVERIFIED
+#                   alias because pnpm/yarn are not installed here, G15d 4.3).
 _REMOTE_FETCH_SUBCOMMANDS = {
     "pnpm": {"dlx", "exec", "create", "node", "env", "self-update", "set",
-             "plugin", "config", "explore", "bin"},
+             "plugin", "config", "explore", "bin", "link", "ln"},
     "yarn": {"dlx", "exec", "create", "node", "env", "self-update", "set",
-             "plugin", "config", "explore", "bin"},
+             "plugin", "config", "explore", "bin", "link", "ln"},
 }
+# G15d 4.3 (G15b-13): with one of these verbs as ANY token, pnpm/yarn operands
+# must be registry-name shaped or an explicit local path (no `github:`,
+# `owner/repo`, `git+`, `https://`, `npm:alias@`), and a dash-led token that
+# contains `:` (`--registry=https://x`) is refused. Their option grammar,
+# aliases and abbreviations cannot be read from an artifact here (not
+# installed, rule 12), so no table is invented: verb abbreviations stay an
+# accepted residual (Ish, Q6, 2026-10-23). Accepted false positive:
+# `--filter=foo:bar`.
+_PNPM_YARN_FETCH_VERBS = frozenset({"add", "install", "i", "update", "up", "upgrade"})
 # Publishing / registry-credential verbs (G15-F1). Tested against EVERY
 # token after argv[0], not just the first non-dash one: an option can take an
 # operand (`pnpm --dir . dlx x`, `pnpm -C . exec x`, `yarn --cwd . dlx x`,
@@ -335,42 +371,10 @@ _PUBLISH_VERBS = frozenset({
 # `cargo install` fetches and builds remote crates (build.rs runs): only an
 # explicit local `--path` / `--list` / `--version`-style form stays ACT.
 _CARGO_LOCAL_INSTALL_FLAGS = frozenset({"--path", "--list", "--help", "-h"})
-_NPM_HIGH_VERBS = frozenset({
-    "publish", "login", "logout", "adduser", "token", "owner", "access",
-    "deprecate", "unpublish", "dist-tag", "exec", "x",
-    # round 3: `explore` runs an arbitrary command in a dependency dir;
-    # `set` writes config (script-shell/registry); `link` writes symlinks
-    # into the global prefix (can shadow binaries on PATH). Judged ACT and
-    # left alone: `rebuild` and `pack` run only the project's own lifecycle
-    # scripts, the same class as the ACT `install`/`test`/`run`.
-    "explore", "set", "link", "ln",
-})
-_NPM_CONFIG_WRITE_VERBS = frozenset({"set", "edit", "delete", "fix"})
-_NPM_INIT_VERBS = frozenset({"init", "create", "innit"})
-# Residual (OPEN, not closed here): `npm install|pip install <url/vcs/pkg>`
-# and `pnpm add|yarn add <git-url>` fetch remote code but stay ACT by the
-# existing npm/pip precedent; `yarn plugin import <url>` / `yarn set
-# version <url>` likewise.
-
-
-def _npm_is_high(parts) -> bool:
-    """npm publishing/credential verbs and npx-equivalent initializers."""
-    rest = parts[1:]
-    if any(t in _NPM_HIGH_VERBS for t in rest):
-        return True
-    if "config" in rest and any(t in _NPM_CONFIG_WRITE_VERBS for t in rest):
-        return True
-    if any("script-shell" in t for t in rest):
-        return True
-    for i, t in enumerate(rest):
-        if t in _NPM_INIT_VERBS:
-            # bare `npm init` / `npm init -y` stay ACT; an initializer
-            # package or an --init* flag fetches and runs remote code.
-            tail = rest[i + 1:]
-            return any(
-                (not x.startswith("-")) or x.startswith("--init") for x in tail
-            )
-    return False
+# Residual (OPEN, not closed here): registry-name installs (`npm install foo`,
+# `pip install foo`) and local-path installs still fetch/build and run code;
+# `yarn plugin import <url>` / `yarn set version <url>` are HIGH via
+# `_REMOTE_FETCH_SUBCOMMANDS`. npm policy: see `_npm_is_high` (G15d 4.1).
 
 
 def _build_tool_is_act(parts) -> bool:
@@ -379,7 +383,7 @@ def _build_tool_is_act(parts) -> bool:
     base = Path(exe).name
     if base not in _BUILD_TOOL_ACT_BASENAMES:
         return False
-    if exe != base and str(Path(exe).parent) not in _BUILD_TOOL_SYSTEM_DIRS:
+    if exe != base and not _argv0_in_system_dir(exe):
         return False
     rest = parts[1:]
     if any(t in _REMOTE_FETCH_SUBCOMMANDS.get(base, ()) for t in rest):
@@ -395,6 +399,13 @@ def _build_tool_is_act(parts) -> bool:
             return False
     if base in {"pnpm", "yarn"} and any("script-shell" in t for t in rest):
         return False
+    if base in {"pnpm", "yarn"} and any(t in _PNPM_YARN_FETCH_VERBS for t in rest):
+        for t in rest:
+            if t.startswith("-"):
+                if ":" in t:
+                    return False
+            elif not (_NPM_NAME_SPEC_RE.fullmatch(t) or _LOCAL_PATH_RE.fullmatch(t)):
+                return False
     if base == "go":
         if "get" in rest:
             return False
@@ -440,47 +451,73 @@ def _build_tool_is_act(parts) -> bool:
 
 
 _PIP_BASENAME_RE = re.compile(r"^pip\d*(?:\.\d+)*$")
-_PIP_HIGH_TOKENS = frozenset({
-    "config", "--index-url", "-i", "--extra-index-url", "--find-links", "-f",
-    "--trusted-host",
+
+
+# G15d 4.5 (G15b-20): `python -m <module>` runs that module's __main__ with the
+# caller's authority, so `-m http.server` (a listener), `-m code`, `-m pdb`,
+# `-m runpy` and every operator entry point (`restoricon_core.api.server`,
+# `tools.provision_ai_agent_auth`, `bench.promote`, ...) were ACT. Only these
+# modules stay ACT; the list is the set the repo actually invokes (repo grep of
+# `python3? -m <module>`) plus a few standard dev tools. `pytest` is required
+# by core/tdd.py. Anything else, a missing module, or a dotted submodule that
+# is not listed (`pytest.__main__`) is HIGH_IMPACT.
+_PYTHON_M_ALLOWED_MODULES = frozenset({
+    "pytest", "pip", "venv", "unittest", "ruff", "black", "isort", "flake8",
+    "mypy", "pylint", "py_compile", "compileall", "json.tool",
 })
-_PIP_REMOTE_SPEC_MARKERS = (
-    "git+", "hg+", "svn+", "bzr+", "http://", "https://", "ftp://", "file:",
-)
+# python short options that take an operand (rest of the cluster or next token)
+# and long options that take the next token (verified against `python3 --help-all`, Python 3.14).
+_PYTHON_OPERAND_LONG_OPTIONS = frozenset({"--check-hash-based-pycs"})
 
 
-def _pip_is_high(args) -> bool:
-    """pip redirected to another index / config write / remote or VCS spec.
-
-    `args` are the tokens after `pip` (or after `python -m pip`). A plain
-    `pip install foo`, `-U foo`, `-e .`, `-r requirements.txt` stay ACT
-    (routine; accepted residual: a requirements file can itself list URLs,
-    and a bare PyPI name fetches code by the existing precedent). Accepted
-    false positive: any argument containing a URL/VCS marker.
+def _python_scan_options(parts):
+    """Walk a python argv the way the interpreter does and report what it will
+    run. Returns ("code", None, None) for `-c`; ("module", name_or_None,
+    args_after_module) for `-m` (name is None when no module follows);
+    ("script", None, None) when a script path, `-` or `--` ends the options.
+    Cluster rules (verified against `python3 --help-all`, Python 3.14): `c` = inline code,
+    terminates the option list; `m` = module run, the module is the rest of
+    the cluster or the next token; `W`/`X` take an operand (rest of the cluster
+    or the next token), so `-Wc` is -W with argument `c`.
     """
-    for t in args:
-        if t in _PIP_HIGH_TOKENS:
-            return True
-        if t.startswith(("--index-url=", "--extra-index-url=", "--find-links=",
-                         "--trusted-host=")):
-            return True
-        # attached short forms: `-ihttps://x`, `-fhttps://x`
-        if len(t) > 2 and t.startswith(("-i", "-f")) and not t.startswith("--"):
-            return True
-        if any(m in t.lower() for m in _PIP_REMOTE_SPEC_MARKERS):
-            return True
-    return False
+    index = 1
+    while index < len(parts):
+        token = parts[index]
+        if token == "--":
+            return ("script", None, None)
+        if not token.startswith("-") or token == "-":
+            return ("script", None, None)
+        if not token.startswith("--"):
+            flags = token[1:]
+            consumed = False
+            for pos, letter in enumerate(flags):
+                if letter == "c":
+                    return ("code", None, None)
+                if letter == "m":
+                    rest = flags[pos + 1:]
+                    if rest:
+                        return ("module", rest, list(parts[index + 1:]))
+                    if index + 1 < len(parts):
+                        return ("module", parts[index + 1], list(parts[index + 2:]))
+                    return ("module", None, [])
+                if letter in "WX":
+                    index += 1 if pos < len(flags) - 1 else 2
+                    consumed = True
+                    break
+            if consumed:
+                continue
+            index += 1
+            continue
+        index += 2 if token in _PYTHON_OPERAND_LONG_OPTIONS else 1
+    return ("script", None, None)
 
 
 def _python_dash_m_pip_args(parts):
-    """Tokens after `-m pip` in a python argv, or None when not `-m pip`."""
-    for i, t in enumerate(parts[1:-1], start=1):
-        if t == "-m" or (
-            t.startswith("-") and not t.startswith("--") and t.endswith("m")
-        ):
-            return parts[i + 2:] if _PIP_BASENAME_RE.fullmatch(parts[i + 1]) else None
-        if not t.startswith("-"):
-            return None
+    """Tokens after `-m pip` in a python argv (any spelling of `-m`: `-m pip`,
+    `-Im pip`, `-mpip`), or None when the module is not exactly `pip`."""
+    kind, module, args = _python_scan_options(parts)
+    if kind == "module" and module == "pip":
+        return args
     return None
 
 
@@ -531,9 +568,18 @@ _NODE_SAFE_BARE_OPTIONS = frozenset({
     "--preserve-symlinks", "--experimental-vm-modules",
 })
 _NODE_SAFE_ATTACHED_PREFIXES = (
-    "--inspect=", "--inspect-brk=", "--inspect-wait=", "--run=",
+    "--run=",
     "--max-old-space-size=", "--stack-size=", "--test-name-pattern=",
     "--test-reporter=", "--disable-warning=",
+)
+# G15d 4.4 (G15b-16): `--inspect[=[host:]port]` (and -brk/-wait) binds the
+# debugger, which evaluates arbitrary code for any client that connects, to
+# `host`; the documented default host is 127.0.0.1 (node v24.18.0 `--help`).
+# So the attached form is ACT only for a bare port or an explicit loopback
+# literal. `localhost` is excluded (resolution is not under our control), and
+# `--inspect-port=` is not on any safe list, so it stays HIGH_IMPACT.
+_NODE_INSPECT_ATTACHED_RE = re.compile(
+    r"^--inspect(?:-brk|-wait)?=(?:\d{1,5}|127\.0\.0\.1:\d{1,5}|\[::1\]:\d{1,5})$"
 )
 _RUBY_SAFE_BARE_OPTIONS = frozenset({
     "-v", "--version", "-h", "--help", "-w", "-W", "-W0", "-W1", "-W2",
@@ -550,7 +596,17 @@ def _non_python_interpreter_requests_inline_code(family: str, parts) -> bool:
         token = parts[index]
         index += 1
         if token in {"--", "-"} or not token.startswith("-"):
-            return False  # end of options / stdin script / script path
+            # W1 (G15d review): the FIRST positional of `node` can be the
+            # `inspect` subcommand (`node [opts] inspect ...`, listed in
+            # `node --help`; verified on v24.18.0 that it is also taken after
+            # `--` and after safe options). It starts the debugger client,
+            # which can run `--probe ... --expr CODE`, `-e`/`-p` code, and
+            # attach to `host:port`/pid, and everything after it is unscanned.
+            # `inspect` anywhere AFTER the script (`node t.js inspect`) is a
+            # script argument and stays ACT. (`node debug` is NOT special:
+            # node treats it as a script file name.)
+            first = parts[index] if token == "--" and index < len(parts) else token
+            return family == "node" and first == "inspect"
         if family == "perl" and token == "-I" and index < len(parts) and (
             not parts[index].startswith("-")
         ):
@@ -560,8 +616,10 @@ def _non_python_interpreter_requests_inline_code(family: str, parts) -> bool:
             index += 1
             continue
         if family == "node":
-            if token in _NODE_SAFE_BARE_OPTIONS or token.startswith(
-                _NODE_SAFE_ATTACHED_PREFIXES
+            if (
+                token in _NODE_SAFE_BARE_OPTIONS
+                or token.startswith(_NODE_SAFE_ATTACHED_PREFIXES)
+                or _NODE_INSPECT_ATTACHED_RE.fullmatch(token)
             ):
                 continue
             # attached CommonJS preload only (`-r./x.js`, `--require=x`): a
@@ -607,38 +665,492 @@ def _interpreter_requests_inline_code(base: str, parts) -> bool:
             else "perl" if base.startswith("perl") else "ruby"
         )
         return _non_python_interpreter_requests_inline_code(family, parts)
-    option_operands = {"-W", "-X", "--check-hash-based-pycs"}
-    index = 1
-    while index < len(parts):
-        token = parts[index]
-        if token == "--":
-            return False
-        if not token.startswith("-") or token == "-":
-            return False
-        flags = token[1:]
-        if python_family and not token.startswith("--"):
-            # Walk the short-flag cluster the way python does (verified
-            # against `python3 --help`): `c` = inline code (terminates the
-            # option list, rest/next token is code); `m` = module run (kept
-            # ACT by precedent so `python3 -m pytest` works; residual `-m
-            # http.server`/`-m code`); `W`/`X` take an operand (rest of the
-            # cluster or the next token), so `-Wc` is -W with arg `c`.
-            consumed = False
-            for pos, letter in enumerate(flags):
-                if letter == "c":
-                    return True
-                if letter == "m":
-                    return False
-                if letter in "WX":
-                    index += 1 if pos < len(flags) - 1 else 2
-                    consumed = True
-                    break
-            if consumed:
-                continue
-        if python_family and token == "-m":
-            return False
-        index += 2 if token in option_operands else 1
+    # `-c` = inline code; `-m` = module run, ACT only for the allowlisted
+    # modules (G15d 4.5); a missing module is opaque too.
+    kind, module, _args = _python_scan_options(parts)
+    if kind == "code":
+        return True
+    if kind == "module":
+        return module not in _PYTHON_M_ALLOWED_MODULES
     return False
+
+
+# D-2 option (b): `printenv NAME` is readable only for these non-secret names.
+# Bare `printenv` (whole environment) and any other NAME (for example an API key
+# variable) is HIGH_IMPACT. Purely lexical: the classifier never reads the
+# environment, so this is a name allowlist, not a value check.
+_PRINTENV_SAFE_NAMES = frozenset({
+    "HOME", "USER", "LOGNAME", "SHELL", "PWD", "OLDPWD", "LANG", "LC_ALL",
+    "LC_CTYPE", "TERM", "TZ", "TMPDIR", "PREFIX", "PATH", "HOSTNAME", "SHLVL",
+})
+
+
+def _printenv_is_safe(parts) -> bool:
+    """True when `printenv` has at least one operand, no dash-led token at all
+    (so `--null`, `--help`, `-0` are refused) and every operand is an exact
+    member of `_PRINTENV_SAFE_NAMES`.
+    """
+    args = parts[1:]
+    if not args:
+        return False
+    return all(not a.startswith("-") and a in _PRINTENV_SAFE_NAMES for a in args)
+
+
+@dataclass(frozen=True)
+class _OptionTable:
+    """Exact option grammar for one tool (G15d R7). Per-tool differences are
+    data, not code, so a table edit cannot reintroduce a hand-written scan.
+    Option names are accepted only as full exact tokens: GNU getopt, optparse
+    and nopt all accept unambiguous long-option abbreviations (`sort --out=f`
+    writes `f`, `sed --in` edits in place), so neither an exact-string
+    denylist nor a prefix allow is sound.
+    """
+    short_bare: frozenset       # single letters that may be clustered
+    short_operand: frozenset    # letters taking the rest of the token or the next token
+    long_bare: frozenset        # exact names, must not carry "=value"
+    long_operand: frozenset     # exact names: "=value" attached or value in the next token
+    long_optional: frozenset = frozenset()  # exact names: optional attached "=value" only
+    max_positionals: Optional[int] = None
+    required: frozenset = frozenset()       # exact tokens that must appear before any "--"
+    # Order constraint: option keys ("-e" for a short letter, "--expression"
+    # for a long name) that may only be consumed AFTER every `required` token
+    # has been seen. Needed for sed: GNU sed compiles each -e/--expression
+    # script while still parsing options, so --sandbox only protects scripts
+    # parsed after it (verified on sed 4.10: `sed -e 'w out' --sandbox f`
+    # creates `out`).
+    required_before: frozenset = frozenset()
+
+
+def _walk_options(parts, table):
+    """Walk argv[1:] against `table`; return (positionals, operands) or None
+    when ANY token is off the table (the caller then fails closed to
+    HIGH_IMPACT). Rules (G15d R2-R4): every token is scanned because GNU
+    getopt permutes (`sort f -o out` is `-o out`); only a bare `--` ends
+    option processing; short clusters are walked left to right so `-qf`
+    cannot hide `-f`; a separate operand that starts with `-` fails closed
+    (our parser and the tool's could disagree about operand boundaries);
+    a bare `-` is a positional. No filesystem or environment access.
+    """
+    tokens = list(parts[1:])
+    positionals = []
+    operands = []
+    seen_required = set()
+    after_dd = False
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        i += 1
+        if after_dd or tok == "-" or not tok.startswith("-"):
+            positionals.append(tok)
+            continue
+        if tok == "--":
+            after_dd = True
+            continue
+        if tok.startswith("--"):
+            name, eq, value = tok[2:].partition("=")
+            if name in table.long_bare:
+                if eq:
+                    return None
+                seen_required.add(tok)
+            elif name in table.long_operand:
+                if f"--{name}" in table.required_before and not table.required <= seen_required:
+                    return None
+                if eq:
+                    operands.append(value)
+                elif i < len(tokens) and not tokens[i].startswith("-"):
+                    operands.append(tokens[i])
+                    i += 1
+                else:
+                    return None
+            elif name in table.long_optional:
+                if eq:
+                    operands.append(value)
+            else:
+                return None
+            continue
+        letters = tok[1:]
+        for j, ch in enumerate(letters):
+            if ch in table.short_bare:
+                continue
+            if ch in table.short_operand:
+                if f"-{ch}" in table.required_before and not table.required <= seen_required:
+                    return None
+                rest = letters[j + 1:]
+                if rest:
+                    operands.append(rest)
+                elif i < len(tokens) and not tokens[i].startswith("-"):
+                    operands.append(tokens[i])
+                    i += 1
+                else:
+                    return None
+                break
+            return None
+    if not table.required <= seen_required:
+        return None
+    if table.max_positionals is not None and len(positionals) > table.max_positionals:
+        return None
+    return positionals, operands
+
+
+# Option tables for the READ/ACT text tools (G15d section 3.3). Each was derived
+# from the tool's own `--help` dump on this device (GNU sed 4.10, coreutils sort
+# and uniq, tree, file 5.x) on 2026-10-23 and is pinned exactly by a test, so a
+# change is a deliberate reviewed edit. Anything off a table is HIGH_IMPACT.
+# Deliberately absent (they write files, run programs, or name more argv/paths
+# indirectly): sed -i/--in-place/-f/--file (and --follow-symlinks, only useful
+# with -i); sort -o/--output/--compress-program/-T/--files0-from/--random-source/
+# --batch-size/--parallel; uniq's second positional (the OUTPUT file); tree
+# -o/-R/-H/-T/-X/-J/--fromfile/--fromtabfile/--gitfile/--infofile/--hintro/
+# --houtro/--charset/--timefmt; file -C/-m/-f/-c/-e/-F/-P/-S/-d/-l.
+# sed is ACT only with the exact token `--sandbox` (sed itself then rejects the
+# e/r/R/w/W commands and s///e, s///w; verified by probe, and it does NOT block
+# -i, which is why -i stays off the table).
+_SED_TABLE = _OptionTable(
+    short_bare=frozenset("nErszu"),
+    short_operand=frozenset("el"),
+    long_bare=frozenset({
+        "quiet", "silent", "debug", "posix", "regexp-extended", "separate",
+        "sandbox", "unbuffered", "null-data", "help", "version",
+    }),
+    long_operand=frozenset({"expression", "line-length"}),
+    required=frozenset({"--sandbox"}),
+    required_before=frozenset({"-e", "--expression"}),
+)
+_SORT_TABLE = _OptionTable(
+    short_bare=frozenset("bdfgiMhnRrVcCmsuz"),
+    short_operand=frozenset("ktS"),
+    long_bare=frozenset({
+        "ignore-leading-blanks", "dictionary-order", "ignore-case",
+        "general-numeric-sort", "ignore-nonprinting", "month-sort",
+        "human-numeric-sort", "numeric-sort", "random-sort", "reverse",
+        "version-sort", "merge", "stable", "unique", "zero-terminated",
+        "debug", "help", "version",
+    }),
+    long_operand=frozenset({"key", "field-separator", "sort", "buffer-size"}),
+    long_optional=frozenset({"check"}),
+)
+_UNIQ_TABLE = _OptionTable(
+    short_bare=frozenset("cdDiuz"),
+    short_operand=frozenset("fsw"),
+    long_bare=frozenset({
+        "count", "repeated", "unique", "ignore-case", "zero-terminated",
+        "help", "version",
+    }),
+    long_operand=frozenset({"skip-fields", "skip-chars", "check-chars"}),
+    long_optional=frozenset({"all-repeated", "group"}),
+    max_positionals=1,
+)
+_TREE_TABLE = _OptionTable(
+    short_bare=frozenset("adlfxqNQpugshDFvtcUriASnC"),
+    short_operand=frozenset("LPI"),
+    long_bare=frozenset({
+        "noreport", "dirsfirst", "filesfirst", "prune", "du", "si",
+        "ignore-case", "matchdirs", "metafirst", "inodes", "device",
+        "nolinks", "condense", "gitignore", "version", "help",
+    }),
+    long_operand=frozenset({"sort", "filelimit"}),
+)
+_FILE_TABLE = _OptionTable(
+    short_bare=frozenset("bikLhnN0prszvZ"),
+    short_operand=frozenset(),
+    long_bare=frozenset({
+        "brief", "mime", "mime-type", "mime-encoding", "extension", "apple",
+        "keep-going", "dereference", "no-dereference", "no-buffer", "no-pad",
+        "print0", "preserve-date", "raw", "special-files", "uncompress",
+        "uncompress-noreport", "version", "help",
+    }),
+    long_operand=frozenset(),
+)
+_TEXT_TOOL_TABLES = {
+    "sed": _SED_TABLE,
+    "sort": _SORT_TABLE,
+    "uniq": _UNIQ_TABLE,
+    "tree": _TREE_TABLE,
+    "file": _FILE_TABLE,
+}
+
+
+# --- G15d 4.2 (G15b-14): pip per-subcommand option tables ---------------------
+# pip 26.2.1 (read from `pip <subcommand> --help` on this device, 2026-10-23).
+# optparse accepts unambiguous long-option abbreviations (`--find-l=<dir>`) and
+# short clusters (`-qf <dir>`), so the old marker scan (`-i`/`-f` prefix test,
+# URL substrings) could be evaded; `--python <interp>` runs an arbitrary
+# interpreter and `--target/--root/--prefix/--src/--report/--log` write
+# arbitrary paths. New policy: the subcommand must be exactly one of
+# `_PIP_SUBCOMMAND_TABLES`, every option must be an exact full token on that
+# subcommand's table (`_walk_options`), and every positional / consumed operand
+# must be name-shaped or an explicit local path, so URL and VCS specs fail
+# without a marker list. `-e` is a bare flag for `list` and an operand option
+# for `install`, which is why the tables are per subcommand.
+# Residuals kept by decision: a local requirements file can itself contain
+# `--index-url`/URL lines, a bare PyPI name fetches and builds code, and a
+# local path installs local code (ceiling-equivalent, consolidated G15b-13).
+_PIP_GLOBAL_BARE_LONG = frozenset({
+    "quiet", "verbose", "version", "help", "no-color", "no-input",
+    "disable-pip-version-check", "isolated", "no-cache-dir",
+})
+_PIP_GLOBAL_TABLE = _OptionTable(
+    short_bare=frozenset("qvVh"), short_operand=frozenset(),
+    long_bare=_PIP_GLOBAL_BARE_LONG, long_operand=frozenset(),
+)
+_PIP_INSTALL_TABLE = _OptionTable(
+    short_bare=frozenset("UIqvhV"),
+    short_operand=frozenset("rce"),
+    long_bare=_PIP_GLOBAL_BARE_LONG | frozenset({
+        "no-deps", "dry-run", "user", "upgrade", "force-reinstall",
+        "ignore-installed", "ignore-requires-python", "no-build-isolation",
+        "check-build-dependencies", "break-system-packages", "compile",
+        "no-compile", "no-warn-script-location", "no-warn-conflicts",
+        "require-hashes", "no-require-hashes", "no-clean", "pre",
+        "prefer-binary", "no-index",
+    }),
+    long_operand=frozenset({"requirement", "constraint", "editable"}),
+)
+# `pip download` has no --dry-run/--user/--upgrade/... (help dump); `-d/--dest`
+# is deliberately absent (writes an arbitrary directory).
+_PIP_DOWNLOAD_TABLE = _OptionTable(
+    short_bare=frozenset("qvhV"),
+    short_operand=frozenset("rc"),
+    long_bare=_PIP_GLOBAL_BARE_LONG | frozenset({
+        "no-deps", "ignore-requires-python", "no-build-isolation",
+        "check-build-dependencies", "require-hashes", "no-require-hashes",
+        "no-clean", "pre", "prefer-binary", "no-index",
+    }),
+    long_operand=frozenset({"requirement", "constraint"}),
+)
+_PIP_UNINSTALL_TABLE = _OptionTable(
+    short_bare=frozenset("yqvhV"),
+    short_operand=frozenset("r"),
+    long_bare=_PIP_GLOBAL_BARE_LONG | frozenset({"yes", "break-system-packages"}),
+    long_operand=frozenset({"requirement"}),
+)
+# `list -i/-f/--path/--exclude` and the index options are off the table.
+_PIP_LIST_TABLE = _OptionTable(
+    short_bare=frozenset("ouelqvhV"),
+    short_operand=frozenset(),
+    long_bare=_PIP_GLOBAL_BARE_LONG | frozenset({
+        "outdated", "uptodate", "editable", "local", "user", "not-required",
+        "exclude-editable", "include-editable", "pre", "prefer-binary",
+        "no-index",
+    }),
+    long_operand=frozenset({"format"}),
+)
+_PIP_SHOW_TABLE = _OptionTable(
+    short_bare=frozenset("fqvhV"), short_operand=frozenset(),
+    long_bare=_PIP_GLOBAL_BARE_LONG | frozenset({"files"}),
+    long_operand=frozenset(),
+)
+# `freeze -r/--requirement`, `--path`, `--exclude` are off the table.
+_PIP_FREEZE_TABLE = _OptionTable(
+    short_bare=frozenset("lqvhV"), short_operand=frozenset(),
+    long_bare=_PIP_GLOBAL_BARE_LONG | frozenset({
+        "local", "user", "all", "exclude-editable",
+    }),
+    long_operand=frozenset(),
+)
+_PIP_CHECK_TABLE = _PIP_GLOBAL_TABLE
+_PIP_SUBCOMMAND_TABLES = {
+    "install": _PIP_INSTALL_TABLE,
+    "download": _PIP_DOWNLOAD_TABLE,
+    "uninstall": _PIP_UNINSTALL_TABLE,
+    "list": _PIP_LIST_TABLE,
+    "show": _PIP_SHOW_TABLE,
+    "freeze": _PIP_FREEZE_TABLE,
+    "check": _PIP_CHECK_TABLE,
+}
+_PIP_LIST_FORMATS = frozenset({"columns", "freeze", "json"})
+# Operand shapes (rule 12 note: the PEP 508 name grammar is
+# `[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?`; extras and comparison operators
+# are from PEP 508 / PEP 440). Anything containing `:`, `@`, `;`, `/` (except
+# the relative-path form) or whitespace does not match, which is what rejects
+# `git+https://...`, `https://...`, `file:...` and `pkg @ https://...`.
+_PIP_NAME_SPEC_RE = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?"
+    r"(?:\[[A-Za-z0-9._,-]+\])?"
+    r"(?:(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9._*+!-]+"
+    r"(?:,(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9._*+!-]+)*)?$"
+)
+# Explicitly local: `.`, `..`, `./x`, `../x`, `/abs`, `~/x`, optionally with a
+# trailing `[extras]` on the dot forms (`.[dev]`); no scheme colon, no `;`.
+_LOCAL_PATH_RE = re.compile(
+    r"^(?:\.{1,2}(?:\[[A-Za-z0-9._,-]+\])?|(?:\.{1,2}/|/|~/)[^\s:;]*)$"
+)
+# pip only: `requirements/dev.txt`. pip never treats `a/b` as a remote
+# shorthand (npm does), so this is not reused for npm.
+_PIP_REL_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+/?$")
+
+
+def _pip_operand_ok(value: str) -> bool:
+    return bool(
+        _PIP_NAME_SPEC_RE.fullmatch(value)
+        or _LOCAL_PATH_RE.fullmatch(value)
+        or _PIP_REL_PATH_RE.fullmatch(value)
+    )
+
+
+def _pip_is_high(args) -> bool:
+    """True unless `args` (the tokens after `pip` / `pip3.N` / `python -m pip`)
+    are a fully table-conformant invocation (G15d 4.2). Global flags may precede
+    the subcommand (exact tokens only); the first non-dash token must be exactly
+    one of `_PIP_SUBCOMMAND_TABLES`; a bare `pip`, `pip --version` or
+    `pip --help` has no subcommand and is ACT. Anything off a table, an
+    unknown subcommand, or an operand that is not name-shaped / local is HIGH.
+    """
+    args = list(args)
+    split = next((i for i, t in enumerate(args) if not t.startswith("-")), len(args))
+    # A bare `--` before the subcommand is refused outright: whether pip still
+    # treats the next token as a subcommand is not something we rely on.
+    if "--" in args[:split]:
+        return True
+    walked = _walk_options(["pip", *args[:split]], _PIP_GLOBAL_TABLE)
+    if walked is None or walked[0] or walked[1]:
+        return True
+    if split == len(args):
+        return False
+    table = _PIP_SUBCOMMAND_TABLES.get(args[split])
+    if table is None:
+        return True
+    walked = _walk_options(["pip", *args[split + 1:]], table)
+    if walked is None:
+        return True
+    positionals, operands = walked
+    if args[split] == "list":
+        return bool(positionals) or not set(operands) <= _PIP_LIST_FORMATS
+    return not all(_pip_operand_ok(v) for v in (*positionals, *operands))
+
+
+
+# --- G15d 4.1 (G15b-15): npm exact-subcommand / exact-option allowlist --------
+# npm 11.21.1 (lib/utils/cmd-list.js and @npmcli/config definitions, read on
+# this device 2026-10-23). npm resolves any unambiguous PREFIX of a command or
+# alias (`npm pub`, `npm publ` = publish, `npm tok` = token, `npm own` = owner,
+# `npm c` = config, `npm add-user` = adduser; `abbrev(commands + aliases)`) and
+# nopt abbreviates options (`--node-opt`), so an exact-string verb denylist is
+# unsound. Policy: the first non-dash token must be EXACTLY one of
+# `_NPM_ACT_SUBCOMMANDS`; before it only exact flags from `_NPM_SAFE_FLAGS`
+# may appear (no operand-taking option, so the first non-dash token IS the
+# subcommand); flags may also appear after it, from the same list. Every
+# non-dash operand must be name-shaped or an explicit local path (no
+# `git+`, `github:`, `owner/repo`, `https://`, `file:`, `npm:alias@`).
+# Tokens after a bare `--` are script arguments only for the script-running
+# commands (`run`, `test`, `start`, ...) and are not examined there; for every
+# other command they are npm positionals and are validated like any operand.
+_NPM_ACT_SUBCOMMANDS = frozenset({
+    "install", "i", "add", "ci", "test", "t", "start", "stop", "restart",
+    "run", "run-script", "rebuild", "rb", "pack", "ls", "list", "ll",
+    "outdated", "audit", "why", "explain", "view", "v", "info", "show",
+    "config", "init", "uninstall", "remove", "rm", "update", "up", "dedupe",
+    "prune",
+})
+# Commands whose tokens after `--` belong to the project's own script.
+_NPM_SCRIPT_SUBCOMMANDS = frozenset({
+    "run", "run-script", "test", "t", "start", "stop", "restart",
+})
+# Commands that take registry-name / local-path operands.
+_NPM_NAME_OPERAND_SUBCOMMANDS = frozenset({
+    "install", "i", "add", "uninstall", "remove", "rm", "update", "up",
+    "view", "v", "info", "show", "why", "explain", "pack", "rebuild", "rb",
+    "ls", "list", "ll", "outdated", "audit", "dedupe", "prune",
+})
+# Boolean flags only (verified in the definitions dump: each is a Boolean
+# config or a shorthand for one). Deliberately absent: -g/--global,
+# -w/--workspace, -C/--prefix, -L/--location, -c/--call, -f/--force,
+# --registry, --script-shell, --node-options, --userconfig, --globalconfig,
+# --cache, --otp, --proxy, --cafile, --logs-dir, --init-module and every
+# other option that takes a value, writes a path or changes trust.
+_NPM_SAFE_FLAGS = frozenset({
+    "-q", "-s", "-d", "--quiet", "--silent", "--verbose", "--json",
+    "--no-audit", "--no-fund", "--legacy-peer-deps", "--dry-run", "--offline",
+    "--prefer-offline", "--save", "--save-dev", "-D", "-S", "-E",
+    "--save-exact", "--no-save", "--ignore-scripts", "--no-package-lock",
+    "--version", "-v", "--help", "-h",
+    # `ls`/`outdated` display flags and `init -y`.
+    "-l", "--long", "-a", "--all", "-p", "--parseable", "-y", "--yes",
+})
+# `--name=value` forms: exact names only, value from a conservative charset
+# (no `:` or `/`, so no URL or path).
+_NPM_SAFE_VALUE_FLAGS = frozenset({
+    "loglevel", "omit", "include", "audit", "fund", "progress",
+    "package-lock", "ignore-scripts", "save", "legacy-peer-deps", "json",
+})
+_NPM_FLAG_VALUE_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+# Registry name with optional version/tag; deliberately rejects `owner/repo`
+# (GitHub shorthand), `github:`, `git+`, `git@host:`, `npm:alias@`,
+# `https://`, `file:`, `link:` and tarball URLs (npm-package-arg routes every
+# remote form through a `:` or `/`, which this pattern excludes).
+_NPM_NAME_SPEC_RE = re.compile(
+    r"^(?:@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*"
+    r"(?:@[A-Za-z0-9._^~<>=*|-]+)?$"
+)
+_NPM_SCRIPT_NAME_RE = re.compile(r"^[A-Za-z0-9:_.-]+$")
+_NPM_CONFIG_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+# `npm config get <key>` must not read a credential out of ~/.npmrc.
+_NPM_CONFIG_SECRET_KEY_RE = re.compile(r"auth|token|pass|secret|cert|key|otp|^_", re.IGNORECASE)
+
+
+def _npm_flag_ok(token: str) -> bool:
+    if token in _NPM_SAFE_FLAGS:
+        return True
+    name, eq, value = token.partition("=")
+    return bool(
+        eq and name.startswith("--") and name[2:] in _NPM_SAFE_VALUE_FLAGS
+        and _NPM_FLAG_VALUE_RE.fullmatch(value)
+    )
+
+
+def _npm_operand_ok(value: str) -> bool:
+    return bool(_NPM_NAME_SPEC_RE.fullmatch(value) or _LOCAL_PATH_RE.fullmatch(value))
+
+
+def _npm_is_high(parts) -> bool:
+    """True unless the npm argv is an exact allowlisted subcommand with only
+    allowlisted flags and well-shaped operands (G15d 4.1). No subcommand at
+    all (`npm`, `npm --version`, `npm -h`) is ACT; a `--` before the
+    subcommand is HIGH (verified npm 11.21.1: `npm -- nonexistentcmd` answers
+    `Unknown command`, i.e. the first word after `--` is still dispatched as
+    the command, lib/npm.js `parsedArgv.remain`)."""
+    rest = list(parts[1:])
+    tail = []
+    had_dd = "--" in rest
+    if had_dd:
+        cut = rest.index("--")
+        rest, tail = rest[:cut], rest[cut + 1:]
+    sub = None
+    operands = []
+    for t in rest:
+        if t.startswith("-"):
+            if not _npm_flag_ok(t):
+                return True
+        elif sub is None:
+            sub = t
+        else:
+            operands.append(t)
+    if sub is None:
+        return had_dd
+    if sub not in _NPM_ACT_SUBCOMMANDS:
+        return True
+    if sub in _NPM_SCRIPT_SUBCOMMANDS:
+        if sub in {"run", "run-script"}:
+            return not (len(operands) == 1 and _NPM_SCRIPT_NAME_RE.fullmatch(operands[0]))
+        return bool(operands)
+    if sub in _NPM_NAME_OPERAND_SUBCOMMANDS:
+        return not all(_npm_operand_ok(v) for v in (*operands, *tail))
+    if tail:
+        return True
+    if sub == "ci" or sub == "init":
+        return bool(operands)
+    if sub == "config":
+        if operands in (["list"], ["ls"]):
+            return False
+        return not (
+            len(operands) == 2 and operands[0] == "get"
+            and _NPM_CONFIG_KEY_RE.fullmatch(operands[1])
+            and not _NPM_CONFIG_SECRET_KEY_RE.search(operands[1])
+        )
+    # Deliberate fail-closed backstop: every _NPM_ACT_SUBCOMMANDS entry is
+    # handled above, so this is reached only if a subcommand is added to the
+    # allowlist without a rule here (a mutation pass showed it carries weight).
+    return True
 
 
 def classify_shell_command(command: str) -> str:
@@ -671,9 +1183,20 @@ def classify_shell_command(command: str) -> str:
          xargs, timeout, nice, nohup, setsid, stdbuf, chrt, ionice,
          strace, flock, watch, script, unshare, taskset, setarch,
          ltrace, unbuffer, catchsegv, time, chroot, nsenter, busybox)
-         and argument-bearing env -> HIGH_IMPACT. These can dispatch
-         children or produce other effects. Only a successfully
-         tokenized bare env remains READ; no child is parsed.
+         and env in every form -> HIGH_IMPACT. These can dispatch
+         children or produce other effects; bare env prints the whole
+         environment (D-2). No child is parsed.
+      3b. argv[0] containing `/` outside _SYSTEM_BIN_DIRS (D-3) -> HIGH_IMPACT
+         (checked first, lexically). awk in any form, `printenv` outside the
+         name allowlist, and sed/sort/uniq/tree/file with any option off
+         their exact _OptionTable -> HIGH_IMPACT (G15d).
+      3c. G15d Unit B: `python -m <module>` is ACT only for
+         _PYTHON_M_ALLOWED_MODULES; pip (any pipN.M, `python -m pip`) only for
+         an exact subcommand with exact per-subcommand options and name-shaped
+         operands; npm only for an exact allowlisted subcommand (npm's own
+         abbreviations/aliases such as `npm pub` are HIGH_IMPACT); node
+         `--inspect*=` only for a port or a loopback host; pnpm/yarn
+         add/install operands must be name-shaped or local.
       4. Privilege wrappers and opaque shell/interpreter inline execution ->
          HIGH_IMPACT. Known READ/ACT commands retain their labels; every other
          executable basename defaults to HIGH_IMPACT.
@@ -692,6 +1215,12 @@ def classify_shell_command(command: str) -> str:
         return ACT
 
     base = Path(parts[0]).name
+    # D-3 (G15d): any argv[0] containing `/` must sit in a system bin dir, so
+    # a planted/symlinked `./ls` or `/tmp/x/git` cannot borrow a READ/ACT
+    # label by basename. Lexical only (no discovery); the bare-name PATH
+    # shadow variant is checked in shell() (_command_shadows_system_binary).
+    if "/" in parts[0] and not _argv0_in_system_dir(parts[0]):
+        return HIGH_IMPACT
     if (
         _is_git_basename(base)
         or _is_termux_basename(base)
@@ -700,8 +1229,11 @@ def classify_shell_command(command: str) -> str:
         or base in _PRIVILEGE_WRAPPER_BASENAMES
     ):
         return HIGH_IMPACT
+    # D-2 option (b): `env` in every form is HIGH_IMPACT. Bare `env` prints
+    # the whole environment (API keys, tokens), so it is a secret read, not a
+    # harmless introspection; the argument-bearing form dispatches a child.
     if base == "env":
-        return READ if len(parts) == 1 else HIGH_IMPACT
+        return HIGH_IMPACT
     if base == "command" and len(parts) > 1:
         return HIGH_IMPACT
     if base in _SHELL_INTERPRETER_BASENAMES and _shell_requests_command_string(parts):
@@ -716,6 +1248,16 @@ def classify_shell_command(command: str) -> str:
         pip_args = _python_dash_m_pip_args(parts)
         if pip_args is not None and _pip_is_high(pip_args):
             return HIGH_IMPACT
+    # awk (gawk 5.4.1) is HIGH in every form: -f/-e/-E/-i/-l, system(),
+    # getline from commands and output redirection make it a general
+    # executor/writer, and its --sandbox was not probed (G15d 3.3).
+    if base == "awk":
+        return HIGH_IMPACT
+    if base == "printenv" and not _printenv_is_safe(parts):
+        return HIGH_IMPACT
+    table = _TEXT_TOOL_TABLES.get(base)
+    if table is not None and _walk_options(parts, table) is None:
+        return HIGH_IMPACT
     if base in READ_COMMANDS:
         return READ
     if (
@@ -725,6 +1267,9 @@ def classify_shell_command(command: str) -> str:
         or _SCRIPT_INTERPRETER_RE.fullmatch(base)
         or base == "command"
         or _build_tool_is_act(parts)
+        # `pip3.11` / `pip3.14` (W5): the pip clause above already accepted
+        # the arguments; only the exact names pip/pip3 are in ALLOWED_COMMANDS.
+        or _PIP_BASENAME_RE.fullmatch(base)
     ):
         return ACT
     return HIGH_IMPACT
@@ -849,6 +1394,253 @@ def _shell_command_targets_git_metadata(command: str, *, cwd: Path, roots) -> bo
             if _hits_git(resolved):
                 return True
     return False
+
+
+# D-2 option (b), read side of the credential set (G15d 3.2b). Kept as clearly
+# named module data so G15e can lift it into a shared protected-path module.
+# Entries under $HOME (equal or descendant). Why: private keys, API/registry
+# tokens, cloud and VCS credential stores, and shell history (can embed
+# secrets typed on a command line).
+_CRED_HOME_ENTRIES = (
+    ".ssh", ".netrc", ".git-credentials", ".gnupg", ".aws", ".kube",
+    ".npmrc", ".pypirc", ".docker/config.json", ".config/gh",
+    ".config/gcloud", ".config/git/credentials",
+    ".bash_history", ".zsh_history",
+)
+# Entries directly under the Codey state dir (and under ~/.codeyOS, the usual
+# default, so an overridden CODEY_STATE_DIR does not unprotect it). Why: the
+# age key, tunnel-token fallback config, GCP creds, internal service tokens.
+_CRED_STATE_ENTRIES = (
+    "age.key", "config.json", "gcp_credentials.json",
+    "aigentik_internal_token", "ccos_crm_read_token",
+)
+# fnmatch patterns for names directly under the state dir: encrypted secrets
+# and the Restoricon database with its -wal/-shm/-journal siblings (PII).
+_CRED_STATE_PATTERNS = ("*.age", "restoricon.db*")
+# Basename patterns, any directory, applied ONLY to candidates that exist on
+# disk (otherwise a search pattern such as `grep -rn .env src` would be HIGH).
+# Same family as core/context.py's default ignore list. `.pub` is excluded.
+_CRED_BASENAME_PATTERNS = (
+    ".env", ".env.*", "*.pem", "*.key",
+    "id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*",
+)
+# Recursive content readers: any directory operand is treated as recursive, so
+# a path that is an ancestor of a credential entry also escalates (no flag
+# parsing: abbreviations and clusters would be the hand-scan trap again).
+_CRED_ANCESTOR_BASES = frozenset({"grep", "egrep", "fgrep", "rgrep", "diff", "cp"})
+_CRED_RECURSIVE_GREP = frozenset({"grep", "egrep", "fgrep", "rgrep"})
+# This device exposes the same tree as /data/data/<pkg> and /data/user/0/<pkg>
+# and realpath() does not collapse one to the other, so both spellings are
+# folded to the first before any comparison.
+_CRED_PATH_ALIASES = (("/data/user/0/", "/data/data/"),)
+
+
+def _cred_canon(path: str) -> str:
+    """Normalize a path string and fold the known device alias prefixes."""
+    path = os.path.normpath(path)
+    for alias, target in _CRED_PATH_ALIASES:
+        if path.startswith(alias):
+            return target + path[len(alias):]
+    return path
+
+
+def _path_candidates(command: str, *, cwd: Path, home: Path):
+    """Turn a command's argv (after argv[0]) into path candidates.
+
+    Returns a list of (lexical, resolved) canonical string pairs, or None as
+    the fail-closed signal (NUL byte, or resolve() failure). Per token the
+    candidates are the token, the text after its first `=`, and for a single
+    dash token longer than two characters the text after the first two
+    characters (attached short operand such as `-f/path`). A leading `~`,
+    `$HOME` or `${HOME}` is expanded with the PASSED home only (no environment
+    reads); relative paths are joined to `cwd`. No READ-command exemption:
+    READ commands are exactly the readers. Reusable by G15e's write-target scan.
+    """
+    if "\x00" in command:
+        return None
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    home_str = str(home)
+    out = []
+    for token in parts[1:]:
+        cands = [token]
+        if "=" in token:
+            cands.append(token.split("=", 1)[1])
+        if token.startswith("-") and not token.startswith("--") and len(token) > 2:
+            cands.append(token[2:])
+        for cand in cands:
+            if not cand:
+                continue
+            if cand == "~" or cand.startswith("~/"):
+                cand = home_str + cand[1:]
+            elif cand == "$HOME" or cand.startswith("$HOME/"):
+                cand = home_str + cand[5:]
+            elif cand == "${HOME}" or cand.startswith("${HOME}/"):
+                cand = home_str + cand[7:]
+            base_path = Path(cand)
+            base_path = base_path if base_path.is_absolute() else cwd / base_path
+            lexical = _cred_canon(str(base_path))
+            try:
+                resolved = _cred_canon(str(base_path.resolve(strict=False)))
+            except (OSError, ValueError, RuntimeError):
+                # An indirect symlink redirect cannot be verified: fail closed.
+                return None
+            out.append((lexical, resolved))
+    return out
+
+
+def _cred_under(path: str, entry: str) -> bool:
+    """True when `path` equals `entry` or is a descendant of it."""
+    return path == entry or path.startswith(entry.rstrip("/") + "/")
+
+
+def _cred_is_proc_secret(path: str, *, pid_dir_too: bool) -> bool:
+    """`/proc/{self,thread-self,<digits>}/<something>`: environ, cmdline, mem,
+    maps, fd/N, root/..., cwd/... all expose another process's secrets.
+    `/proc/cpuinfo` and `/proc/meminfo` stay readable. With `pid_dir_too` the
+    bare pid directory also counts (a recursive reader would walk into it).
+    """
+    pieces = path.split("/")
+    if len(pieces) < 3 or pieces[0] != "" or pieces[1] != "proc":
+        return False
+    who = pieces[2]
+    if who not in ("self", "thread-self") and not who.isdigit():
+        return False
+    return len(pieces) >= 4 or pid_dir_too
+
+
+def _shell_command_targets_credentials(command: str, *, cwd: Path, home: Path, state_dir: Path) -> bool:
+    """D-2 option (b): True when any argv token of a non-HIGH command names a
+    credential-bearing path (see the `_CRED_*` constants). Lives in shell()
+    rather than the classifier because it needs cwd, $HOME, the state dir and
+    symlink resolution. Lexical and resolved forms are both compared (so a
+    workspace symlink to a credential file, `/proc/self/root<home>/...`, and
+    `../` spellings are caught), each folded through `_cred_canon`, and the
+    entries themselves are compared lexically and resolved. Fail closed (True)
+    on a NUL byte or any resolve() failure. Accepted false positives:
+    metadata-only reads (`ls ~/.ssh`) and any operand naming an EXISTING file
+    called `.env`, `*.pem`, `*.key`, `id_rsa*`. Residuals: pattern secrets are
+    matched by direct operand only (not as ancestors), `/dev/fd/N`, hard links.
+    """
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    if not parts:
+        return False
+    base = Path(parts[0]).name
+    cands = _path_candidates(command, cwd=cwd, home=home)
+    if cands is None:
+        return True
+    ancestor = base in _CRED_ANCESTOR_BASES
+    if base in _CRED_RECURSIVE_GREP:
+        # grep with no path operand searches the cwd when recursive.
+        cwd_s = _cred_canon(str(cwd))
+        cands.append((cwd_s, cwd_s))
+
+    state_dirs = {state_dir, home / ".codeyOS"}
+    entries = set()
+    state_roots = set()
+    for rel in _CRED_HOME_ENTRIES:
+        entries.add(home / rel)
+    for sd in state_dirs:
+        state_roots.add(sd)
+        for name in _CRED_STATE_ENTRIES:
+            entries.add(sd / name)
+    literal = set()
+    for e in entries:
+        literal.add(_cred_canon(str(e)))
+        try:
+            literal.add(_cred_canon(str(e.resolve(strict=False))))
+        except (OSError, ValueError, RuntimeError):
+            return True
+    roots = set()
+    for sd in state_roots:
+        roots.add(_cred_canon(str(sd)))
+        try:
+            roots.add(_cred_canon(str(sd.resolve(strict=False))))
+        except (OSError, ValueError, RuntimeError):
+            return True
+
+    def matches(path: str) -> bool:
+        if any(_cred_under(path, e) for e in literal):
+            return True
+        if _cred_is_proc_secret(path, pid_dir_too=ancestor):
+            return True
+        parent, name = os.path.split(path)
+        if parent in roots and any(
+            fnmatchcase(name, pat) for pat in _CRED_STATE_PATTERNS
+        ):
+            return True
+        if ancestor and (
+            any(_cred_under(e, path) for e in literal)
+            or _cred_under("/proc", path)
+        ):
+            return True
+        return False
+
+    def existing_secret_name(path: str) -> bool:
+        name = os.path.basename(path)
+        if name.endswith(".pub"):
+            return False
+        if not any(fnmatchcase(name, pat) for pat in _CRED_BASENAME_PATTERNS):
+            return False
+        try:
+            os.lstat(path)
+        except OSError:
+            # Not stat-able (absent, not a directory, or name too long): it
+            # cannot be a credential file the command would read, and treating
+            # every search pattern as a hit would make code searches unusable.
+            return False
+        return True
+
+    for lexical, resolved in cands:
+        if matches(lexical) or matches(resolved):
+            return True
+        if existing_secret_name(lexical) or existing_secret_name(resolved):
+            return True
+    return False
+
+
+def _scan_credentials_safely(command: str) -> bool:
+    """shell()-side wrapper: builds cwd/home/state_dir at call time and treats
+    any exception as a hit. Failing closed is safe here: the only cost of a
+    false positive is a refusal (or a human prompt), never an execution.
+    """
+    try:
+        return _shell_command_targets_credentials(
+            command,
+            cwd=Path(os.getcwd()),
+            home=Path.home(),
+            state_dir=Path(_config.CODEY_STATE_DIR),
+        )
+    except Exception:
+        return True
+
+
+def _command_shadows_system_binary(command: str) -> bool:
+    """Q2 PATH-shadow check: for a bare-name argv[0] (no `/`), True when the
+    name resolves via the current PATH to a file outside `_SYSTEM_BIN_DIRS`.
+    D-3 only sees a `/`; a planted `ls` in a user-writable PATH directory
+    ahead of $PREFIX/bin would otherwise inherit the READ label. An unresolvable
+    name is left alone (the exec fails with not-found). Uses the same
+    process PATH the child inherits. Any error fails closed (True).
+    """
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return True
+    if not parts or "/" in parts[0]:
+        return False
+    try:
+        found = shutil.which(parts[0])
+        if found is None:
+            return False
+        return os.path.normpath(os.path.dirname(os.path.abspath(found))) not in _SYSTEM_BIN_DIRS
+    except Exception:
+        return True
 
 
 def _parse_command(command: str) -> list:
@@ -1065,6 +1857,20 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
     ):
         authority = HIGH_IMPACT
         git_metadata_escalation = True
+    # D-2 option (b): credential-bearing operands. Needs cwd/$HOME/state dir
+    # and symlink resolution, so it lives here and not in the classifier
+    # (which must stay free of filesystem and environment access). Any
+    # exception inside the scan escalates (see _scan_credentials_safely).
+    credential_escalation = False
+    if authority != HIGH_IMPACT and _scan_credentials_safely(command):
+        authority = HIGH_IMPACT
+        credential_escalation = True
+    # Q2: bare-name PATH shadow (a planted executable in a user-writable PATH
+    # directory borrowing a system tool's READ/ACT label).
+    shadow_escalation = False
+    if authority != HIGH_IMPACT and _command_shadows_system_binary(command):
+        authority = HIGH_IMPACT
+        shadow_escalation = True
     # Both conditions matter here, not `not yolo` alone: TOOLS["shell"]'s
     # lambda never forwards yolo (always False there), so confirm_shell is
     # what's actually set to False in every "nobody's watching" context
@@ -1082,6 +1888,10 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
                     warning(f"Potentially dangerous command: `{command}`")
                 if git_metadata_escalation:
                     warning(f"Command targets this repository's own Git metadata directory: `{command}`")
+                if credential_escalation:
+                    warning(f"Command references a credential-bearing path: `{command}`")
+                if shadow_escalation:
+                    warning(f"Command name resolves outside the system bin directories: `{command}`")
                 return ask_confirm(f"Run shell command: `{command}`?")
     else:
         # Preserve READ/ACT UI choices before mediation, so cancellation is
