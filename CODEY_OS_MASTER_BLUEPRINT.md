@@ -3416,7 +3416,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > `tools/shell_tools.py`/`core/process_boundary.py` work resolves it, then
 > re-run HEAD probes) -> G15d.. further High slices (0-4) -> G15z closure
 > re-run and docs closeout. **G15a: code complete, code-reviewer APPROVED
-> (round 2), pending commit, no production behavior change, not live-verified
+> (round 2), committed as `90646ff`, no production behavior change, not live-verified
 > (N/A).** `tools/wp21_census.py` first census at `941ec3fb`: 332 files, 0
 > parse failures, 1,433 rows, of which 1,427 UNKNOWN (unclassified, NOT "no
 > bypass"), 5 READ_NOEFFECT, 1 GATED; `tests/test_wp21_census.py` 115 passed,

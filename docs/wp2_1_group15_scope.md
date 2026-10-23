@@ -781,3 +781,14 @@ slice, only for lifecycle rows. No model load is needed for any group 15 slice.
 - **G15-F11** (Confirmed, tooling): `NEW_ISSUES.md` has no machine-readable
   status field; a regex pass cannot reconcile it. Consider a one-line
   `Status:` convention for new entries.
+
+## ID mapping (appended by the coordinator, 2026-10-23; G15a committed as `90646ff`)
+
+Provisional `G15-F#` labels in this spec map to ledger ids in `NEW_ISSUES.md`
+(authoritative for status): G15-F1 and G15-F2 -> NEW-1006 (shell classifier,
+includes NEW-933); G15-F3 -> NEW-1007; G15-F4 -> NEW-1008; G15-F5 and G15-F7
+-> NEW-1009 (census blind spots / UNKNOWN inventory); G15-F6 -> NEW-1011;
+G15-F8 -> NEW-1010; G15-F9 -> NEW-1012; G15-F10 -> NEW-1013; G15-F11 ->
+NEW-1014. Ids with no spec label: NEW-1015 (database.py:1074 SyntaxWarning),
+NEW-1016 (blocking coverage test vs Track B), NEW-1017 (foreign
+`.claude/settings.local.json`). Decisions F1-F4 remain pending with Ish.
