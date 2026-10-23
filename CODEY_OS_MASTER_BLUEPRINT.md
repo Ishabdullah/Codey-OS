@@ -3477,7 +3477,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > confirmation) and G15z not started.**
 >
 > **Status update (2026-10-23, later) — G15d classifier tail: Units A, B, C
-> code complete and code-reviewer APPROVED, commit pending, NOT live-verified;
+> code complete and code-reviewer APPROVED, committed `890d4b9`, NOT live-verified;
 > WP2.1 remains OPEN.** Supersedes the paragraph above where they differ: G15c
 > is **committed as `e167e0c`**, and Ish recorded F1 (WP2.1 may close "with
 > accepted residuals"), F2, D-F5, F3, D-2 option (b), D-3 and D-4 as decided on
@@ -3514,7 +3514,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > coordinator's combined run of the G15d, G15c, shell-git, recovery and peer suites
 > plus the qwen allow-list test: 2171 passed, 19 subtests passed.
 > **Group 15: G15a, G15b, G15c done and committed; G15d code-complete,
-> reviewer-approved, commit pending; G15e (protected-path set, must fold both
+> reviewer-approved, committed `890d4b9`; G15e (protected-path set, must fold both
 > `/data` spellings), G15f, G15g.. and G15z not started.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**

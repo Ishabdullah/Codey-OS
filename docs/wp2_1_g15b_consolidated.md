@@ -548,7 +548,7 @@ NEW-1036 to NEW-1044 (allocated 2026-10-23 for G15d): NEW-1036 option-abbreviati
 
 ## 10. Status after G15d (2026-10-23; added, sections 2-3 are intentionally NOT rewritten, they remain the post-G15c snapshot and their counts still reconcile with the item table)
 
-Tier for every row below unless stated: **code complete, code-reviewer APPROVED, commit pending, NOT live-verified.** Counts for this state are NOT recomputed (do it at G15z). `NEW_ISSUES.md` is authoritative. Spec: `docs/wp2_1_g15d_spec.md`.
+Tier for every row below unless stated: **code complete, code-reviewer APPROVED, committed `890d4b9`, NOT live-verified.** Counts for this state are NOT recomputed (do it at G15z). `NEW_ISSUES.md` is authoritative. Spec: `docs/wp2_1_g15d_spec.md`.
 
 | id | post-G15c | after G15d | note |
 | --- | --- | --- | --- |
