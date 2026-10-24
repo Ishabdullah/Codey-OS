@@ -3519,7 +3519,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 >
 > **Status update (2026-10-24) — G15f Unit A (bench grader hardening) and G15g
 > Unit A (plugin discovery containment): code complete and code-reviewer
-> APPROVED, commit pending, NOT live-verified; WP2.1 remains OPEN.** Supersedes
+> APPROVED, committed `e9f593f`, NOT live-verified; WP2.1 remains OPEN.** Supersedes
 > the "G15f, G15g.. not started" line above for those two units only. **G15f
 > Unit A** (`bench/verify.py`, `bench/agents.py`): `grade()` runs
 > `python -I -m pytest --noconftest --disable-plugin-autoload` with an out-of-tree
@@ -3558,7 +3558,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > G15z open.**
 >
 > **Status update (2026-10-24) — G15e (protected-path set), Units A, B, C: code
-> complete and code-reviewer APPROVED, commit pending, NOT live-verified; WP2.1
+> complete and code-reviewer APPROVED, committed `c842d97`, NOT live-verified; WP2.1
 > remains OPEN.** Supersedes the "G15e ... open" line above for G15e only.
 > **Unit A:** new `core/protected_paths.py` (one shared set, two tiers: DENY, no
 > flag unlocks it including `--allow-self-mod`, and HIGH; per-form F3 override;
@@ -3601,7 +3601,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > reserved for G15h. Process note: the reviewer ran a bare-name `pkill -f` against
 > its own probe (rule 3 slip, not a product defect).
 > **Group 15: G15a-G15d committed; G15f Unit A and G15g Unit A committed
-> (`e9f593f`); G15e code-complete, reviewer-approved, commit pending; G15f Unit B,
+> (`e9f593f`); G15e code-complete, reviewer-approved, committed `c842d97`; G15f Unit B,
 > G15g Unit B, G15h, G15i, G15j and G15z open.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
