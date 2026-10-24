@@ -3696,7 +3696,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > G15f Q2, and the G15g questions (spawn policy, lazy activation, dead manifests).
 > New ids NEW-1067..1069.
 > **Group 15: G15d, G15e, G15f Unit A, G15g Units A and B, G15h Units A and B
-> committed; G15f Unit B code-complete, reviewer-approved, commit pending; G15i,
+> committed; G15f Unit B code-complete, reviewer-approved, committed `623e4c7`; G15i,
 > G15j and G15z open.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**

@@ -637,7 +637,7 @@ Rule-6 notes: (1) the section 1 coordinator observation and the G15b-12 table ro
 
 ### 10d. Addendum 2026-10-24: G15f Unit B (bench lock v2 / evaluator integrity; its own tier line, none of the earlier sections' tier lines applies)
 
-Tier for every row below: **code complete, code-reviewer APPROVED (round 1 APPROVED with warnings W1-W5, round 2 APPROVED), commit pending (the coordinator adds the hash), NOT live-verified** (the bench has never been run with the scrubbed env, the hardened grader or lock v2). Counts are not recomputed (G15z). `NEW_ISSUES.md` is authoritative. Spec: `docs/wp2_1_g15f_spec.md`. New ids: NEW-1067, NEW-1068, NEW-1069. Evidence supplied by the coordinator (the ledger writer ran no suites): 10-file suite 334 passed; new `tests/test_bench_integrity_lock.py` (41) and `tests/test_bench_integrity_classification.py` (5); scorecard anchors preserved (4a 6.0, 4c 7.0); evaluator hash independently recomputed by the reviewer (equal).
+Tier for every row below: **code complete, code-reviewer APPROVED (round 1 APPROVED with warnings W1-W5, round 2 APPROVED), committed `623e4c7`, NOT live-verified** (the bench has never been run with the scrubbed env, the hardened grader or lock v2). Counts are not recomputed (G15z). `NEW_ISSUES.md` is authoritative. Spec: `docs/wp2_1_g15f_spec.md`. New ids: NEW-1067, NEW-1068, NEW-1069. Evidence supplied by the coordinator (the ledger writer ran no suites): 10-file suite 334 passed; new `tests/test_bench_integrity_lock.py` (41) and `tests/test_bench_integrity_classification.py` (5); scorecard anchors preserved (4a 6.0, 4c 7.0); evaluator hash independently recomputed by the reviewer (equal).
 
 | id | before | after | tier / note |
 | --- | --- | --- | --- |

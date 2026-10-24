@@ -1,4 +1,4 @@
-## 2026-10-24 — WP2.1 G15f Unit B (bench lock v2 / evaluator integrity): code complete and code-reviewer APPROVED (2 rounds), commit pending; Ish decisions F4 and D-1 recorded; WP2.1 remains OPEN
+## 2026-10-24 — WP2.1 G15f Unit B (bench lock v2 / evaluator integrity): code complete and code-reviewer APPROVED (2 rounds), committed `623e4c7`; Ish decisions F4 and D-1 recorded; WP2.1 remains OPEN
 
 **Status tiers (kept distinct; nothing here is "done" in one word).** (1) **Code complete.** (2) **Code-reviewer APPROVED** — round 1 APPROVED with warnings W1-W5 (W1, W2, W3 fixed; W4, W5 accepted residuals), round 2 APPROVED. (3) **Commit pending** — about to be committed; the coordinator adds the hash (no hash is claimed here). (4) **NOT live-verified:** the bench has NEVER been run with the scrubbed env (G15f Unit A), the hardened grader or lock v2; the deferred live check is one manual real bench run by Ish (see "Open questions"). Evidence is unit tests, a reviewer-recomputed hash and mutation tests only. The ledger writer ran NO suites; every number below was supplied by the coordinator/reviewer.
 
@@ -16,7 +16,7 @@
 
 **Open questions for Ish.** (1) **NEW-1068 (OPEN QUESTION, not edited anywhere):** `CLAUDE.md` says not to enable `CODEY_TRAJECTORY=1` and run the bench until WP0.5 lands; the blueprint (around line 2507) says WP0.5 is DONE 2026-10-07. An unreconciled contradiction that Ish must resolve before the manual bench run. (2) **The deferred live check:** one real bench run by Ish with the scrubbed env; it must name `LD_PRELOAD` (dropped from the child), `SHELL`, `USER` and `LOGNAME` (kept) and compare shebang-script behavior in the child (NEW-1042 shows that failure mode exists here). (3) G15f Q2 and the other pending decisions above.
 
-**State.** Group 15: G15d, G15e, G15f Unit A, G15g Units A and B, G15h Units A and B committed; G15f Unit B code-complete and reviewer-approved, commit pending; G15i, G15j and G15z open. Docs touched this round: `NEW_ISSUES.md`, `PROJECT_LOG.md`, `CODEY_OS_MASTER_BLUEPRINT.md` (WP2.1 Status update), `docs/wp2_1_g15b_consolidated.md` (section 7 decisions, section 9 ids, new section 10d). No source or test edits by the ledger writer.
+**State.** Group 15: G15d, G15e, G15f Unit A, G15g Units A and B, G15h Units A and B committed; G15f Unit B code-complete and reviewer-approved, committed `623e4c7`; G15i, G15j and G15z open. Docs touched this round: `NEW_ISSUES.md`, `PROJECT_LOG.md`, `CODEY_OS_MASTER_BLUEPRINT.md` (WP2.1 Status update), `docs/wp2_1_g15b_consolidated.md` (section 7 decisions, section 9 ids, new section 10d). No source or test edits by the ledger writer.
 
 ## 2026-10-24 — WP2.1 G15g Unit B (audited plugin spawn), G15h Unit A (cloudflared token out of argv), G15h Unit B (secret masking): all three code complete and code-reviewer APPROVED; committed `f4353cf`; WP2.1 remains OPEN
 
