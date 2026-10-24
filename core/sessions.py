@@ -35,7 +35,10 @@ def redact_secrets(text: str) -> str:
         return text
     for pattern, replacement in _SECRET_PATTERNS:
         text = pattern.sub(replacement, text)
-    return text
+    # Legacy substitutions above keep the key; the shared table then masks the rest (G15h).
+    from core.export_hygiene import mask_secrets
+
+    return mask_secrets(text)
 
 
 def _session_path(project_dir: str = None, create: bool = True) -> Path:

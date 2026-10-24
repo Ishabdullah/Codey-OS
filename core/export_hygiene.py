@@ -41,7 +41,7 @@ _KW_YAML = (r'(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?to
             r'|client[_-]?secret|private[_-]?key)')
 # Quoted values that are obviously not literals: all '*', paths, shell/template refs, ENV_VAR names.
 # Also type annotations (Optional[...], Callable ...), which appear as quoted values in code.
-_VAL_GUARD = (r'(?![/~${])(?!\*+(?:["\'\\\s]|$))(?![^"\'\s]{0,200}\.\.\.)'
+_VAL_GUARD = (r'(?![/~${])(?!\[REDACTED(?::\w+)?\](?:["\'\s,}\\]|$))(?!\*+(?:["\'\\\s]|$))(?![^"\'\s]{0,200}\.\.\.)'
               r'(?!(?-i:[A-Z][A-Z0-9]*_[A-Z0-9_]*)(?:["\'\\\s]|$))'
               r'(?!(?-i:Optional|List|Dict|Union|Callable|Any|Tuple|Set|Type)\b)')
 # Shared by the env-style patterns: value must not be a code expression, path or placeholder.
@@ -97,6 +97,18 @@ SECRET_PATTERNS = tuple((n, re.compile(r)) for n, r in (
     # 12 covers `mysql -h HOST -P PORT -u USER --opt ... -pPASS`; still bounded, so linear.
     ("mysql_password_flag", r'\b(?:mysql|mysqldump|mysqladmin|mariadb)(?:[ \t]+[^\s]{1,48}){0,12}?'
      r'[ \t]+-p(?![$"\'\\\s\-])(?=[^\s]{0,100}[0-9A-Z!@#%^&*+=?<>|.])[^\s]{3,}'),
+    # G15h additions (NEW-1033): age identity, cloudflared-shaped base64-JSON blob (base64 of `{"`
+    # is `eyJ`), secret-valued CLI flags with a space or `=`, and .netrc passwords.
+    ("age_secret_key", r'\bAGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}\b'),
+    ("base64_json_blob", r'(?<![A-Za-z0-9+/_\-])eyJ[A-Za-z0-9+/_\-]{80,}={0,2}'),
+    # Value forms: a double- or single-quoted run (may hold spaces and \\-escaped quotes; an
+    # unterminated quote masks to end of line) or one unquoted token. Linear: the repeated
+    # groups have disjoint alternatives and the closing quote is optional (no backtracking).
+    ("secret_flag", r'(?<![A-Za-z0-9_\-])--(?:token|password|passwd|api-?key|secret|access-?token|auth-?token|client-?secret)'
+     r'(?:=|[ \t]+)(?:\\"(?![\-$%{/~<])(?:[^"\\\n]|\\[^"\n]){4,}(?:\\")?|"(?![\-$%{/~<])(?:[^"\\\n]|\\.){4,}"?|\'(?![\-$%{/~<])(?:[^\'\\\n]|\\.){4,}\'?'
+     r'|(?![\-$%{/~<])[^\s"\'\\]{8,})'),
+    ("netrc_inline", r'(?i)\bmachine[ \t]+\S+[ \t]+login[ \t]+\S+[ \t]+password[ \t]+(?![${*<])\S{4,}'),
+    ("netrc_line", r'(?im)^[ \t]*password[ \t]+(?![${*<])\S{6,}[ \t]*$'),
 ))
 
 
@@ -115,6 +127,32 @@ def find_secret(text: str) -> Optional[str]:
         if rx.search(text) or rx.search(view):
             return name
     return None
+
+
+WITHHELD_MARKER = "[withheld: redaction failed]"
+
+
+def mask_secrets(text, *, max_chars: int = 262144) -> str:
+    """Return `text` with every SECRET_PATTERNS match replaced by `[REDACTED:<name>]`.
+
+    For audit/log/session sinks, where the surrounding text is evidence worth keeping
+    (training export drops whole examples instead, see the module docstring). Pure and
+    never raises: any internal error returns WITHHELD_MARKER, never the raw text. Input
+    longer than `max_chars` is cut with a visible marker so the scan stays bounded.
+    """
+    try:
+        if not isinstance(text, str):
+            text = str(text)
+        extra = len(text) - max_chars
+        if extra > 0:
+            text = text[:max_chars]
+        for name, rx in SECRET_PATTERNS:
+            text = rx.sub(f"[REDACTED:{name}]", text)
+        # Marker is appended after masking so a cut right after a flag cannot swallow it.
+        return text + f"...[truncated {extra} chars]" if extra > 0 else text
+    except Exception:
+        # Fail closed by design: the caller gets a fixed marker, never the unmasked text.
+        return WITHHELD_MARKER
 
 
 def has_truncation_marker(text: str) -> bool:

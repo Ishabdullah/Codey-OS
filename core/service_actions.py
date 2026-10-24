@@ -177,11 +177,18 @@ def _show_config():
         load_user_config,
     )
 
+    from core.export_hygiene import mask_secrets
+
+    secret_keys = ("token", "secret", "api_key", "apikey", "api-key", "password", "passwd",
+                   "credential", "private_key", "access_key")
+
     def redact(value):
         if isinstance(value, dict):
-            return {key: "***redacted***" if any(part in key.lower() for part in ("token", "secret", "api_key")) else redact(item) for key, item in value.items()}
+            return {key: "***redacted***" if any(part in str(key).lower() for part in secret_keys) else redact(item) for key, item in value.items()}
         if isinstance(value, list):
             return [redact(item) for item in value]
+        if isinstance(value, str):
+            return mask_secrets(value)
         return value
     path = get_config_file_path()
     print(f"Config file: {path} (exists: {path.is_file()})")

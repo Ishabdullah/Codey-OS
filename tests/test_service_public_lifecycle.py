@@ -276,6 +276,9 @@ def test_all_six_start_profiles_use_owned_helper_and_stub_every_setup_effect(har
     daemon = profiles[0]
     assert daemon["argv"] == ["python3", str(ROOT / "core/daemon_bootstrap.py"), paths["pid_file"], paths["socket_file"], paths["log_file"]]
     assert profiles[2]["argv"] == ["node", "index.js"] and profiles[2]["cwd"] == str(harness.app)
+    # G15h (NEW-1021): the tunnel token is delivered via the helper's env, never argv.
+    assert profiles[3]["argv"] == ["cloudflared", "tunnel", "run"]
+    assert "fixture-secret-never-print" not in (harness.root / "commands.jsonl").read_text()
     labels = [event["label"] for event in events(harness)]
     assert labels.count("setup-litestream-stub") == labels.count("timeout-secrets-stub") == labels.count("backup-secrets-stub") == 1
     assert "application readiness pending" in result.stdout

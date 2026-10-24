@@ -28,6 +28,26 @@ def get_system_info() -> Dict[str, Any]:
     return info
 
 
+def _safe_command(full: str) -> str:
+    """Mask secret-shaped argv text (whole string first, then cut to 100 chars)."""
+    try:
+        try:
+            from core.export_hygiene import mask_secrets
+        except ImportError:
+            # Plugin run outside the repo root: append (never prepend, so the repo root
+            # cannot shadow other modules) and retry once.
+            import sys
+            root = str(Path(__file__).resolve().parents[4])
+            if root not in sys.path:
+                sys.path.append(root)
+            from core.export_hygiene import mask_secrets
+        return mask_secrets(full)[:100]
+    except Exception:
+        # Masker unavailable: expose only the program name, never arguments.
+        argv0 = full.split(None, 1)[0] if full.split() else ""
+        return Path(argv0).name
+
+
 def list_processes(limit: int = 20) -> List[Dict[str, Any]]:
     """List running processes."""
     processes = []
@@ -39,12 +59,13 @@ def list_processes(limit: int = 20) -> List[Dict[str, Any]]:
         for line in result.stdout.splitlines()[1:limit + 1]:
             parts = line.split(None, 10)
             if len(parts) >= 11:
+                command = _safe_command(parts[10])
                 processes.append({
                     "user": parts[0],
                     "pid": parts[1],
                     "cpu": parts[2],
                     "mem": parts[3],
-                    "command": parts[10][:100],
+                    "command": command,
                 })
     except Exception:
         pass

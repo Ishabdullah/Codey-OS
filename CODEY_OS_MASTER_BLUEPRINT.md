@@ -3603,6 +3603,49 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > **Group 15: G15a-G15d committed; G15f Unit A and G15g Unit A committed
 > (`e9f593f`); G15e code-complete, reviewer-approved, committed `c842d97`; G15f Unit B,
 > G15g Unit B, G15h, G15i, G15j and G15z open.**
+>
+> **Status update (2026-10-24) — G15g Unit B (audited plugin spawn), G15h Unit A
+> (cloudflared token out of argv), G15h Unit B (secret masking): each code complete
+> and code-reviewer APPROVED; commit pending (HEAD `c6d2618`, no hash yet); WP2.1
+> remains OPEN.** Supersedes the "G15g Unit B ... is NOT done" and "G15h ... open"
+> lines above for those units only. **Tiers, per unit:** G15g Unit B — live-verified
+> on DISPOSABLE fixture plugins (real `PluginManager` and `Popen`), NOT on the real
+> aigentik/private_agent manifests; G15h Unit A — live-verified on a DISPOSABLE chain
+> (stub plus the real `cloudflared` 2026.10.1 with a malformed fabricated token,
+> reviewer re-ran it), NOT with the real token; G15h Unit B — NOT live-verified
+> (unit, probe and fuzz evidence). **G15g Unit B** (`ccos/core/plugin_manager.py`):
+> every plugin spawn goes through `gate_exec(ACT, ccos.plugin_spawn:<name>)` with the
+> process handle stored inside the thunk; the row carries plugin, mode, cwd, argv
+> (cut at 512), `argv_sha256`, `env_policy=inherit-all`, override key names and
+> credential-looking env NAMES (never values); ACT `refused` rows for an unowned PID
+> record, a missing entry, unreadable liveness and a dead owned child whose stop
+> fails; the child env is byte-identical to HEAD through the `_plugin_child_env`
+> seam. 12 new tests. Live: sleeper row and PID record equal to the real child PID,
+> env names 61 vs 61, badexe/stale/escape/dupA/dupB rows as expected, canary value
+> absent from the audit file, unload clean, `ps` diff clean. Spawn policy shipped on
+> the spec default (ACT + audit); Ish's answer not recorded. Reviewer warning W-a
+> accepted: positional secrets in plugin argv reach the row. **G15h Unit A:**
+> `start_profile` returns `cloudflared tunnel run` (no token in any argv of the
+> three-process launch chain); `core/process_identity.py` delivers `TUNNEL_TOKEN` in
+> the cloudflared child's env only (`OwnedLaunch(env_provider=...)`, failure ->
+> existing `failed-cleanup-confirmed` rc 2); before: 3 cmdline hits, after: 0. 20 new
+> tests plus edits to two lifecycle test files (closes NEW-1059). **NEW-1021 severity
+> downgraded HIGH -> MEDIUM (rule 6, accepted by Ish): `/proc` is `hidepid=invisible`,
+> exposure is same-uid code plus adb, and same-uid code can decrypt via `age.key`.**
+> **G15h Unit B:** five new `SECRET_PATTERNS`, `mask_secrets`, wired into sessions,
+> the file logger, `codey config`, CCOS `system.processes` and the action-gateway
+> audit rows (Ish Q-a = YES); 101 new tests; reviewer APPROVED after 2 rounds.
+> **Rule-6 correction:** `sessions.redact_secrets` masked 2 of 15 probed shapes (the
+> earlier "catches `sk-or-` and `NAME=token`" claim was wrong). **Still open:**
+> G15b-11 (child env inherit-all; D-2 option (c) deferred, Q-b = no on the default),
+> real-token tunnel start (manual `LIVE_TEST_QUEUE.md` [G15h-A] step for Ish), other
+> raw-text sinks (NEW-1060), positional secrets, `start_command`/`env` arbitrary
+> (R1). New ids NEW-1055..1062 and NEW-1066; known failures unchanged
+> (`test_plugin_manager` for `private_agent`/`aigentik`; pre-existing
+> `test_new91_new163_rollback_preserves_finetune`). No suite totals claimed.
+> **Group 15: G15a-G15e, G15f Unit A and G15g Unit A committed; G15g Unit B, G15h
+> Unit A and G15h Unit B code-complete, reviewer-approved, commit pending; G15f Unit
+> B (in flight elsewhere, not covered here), G15i, G15j and G15z open.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

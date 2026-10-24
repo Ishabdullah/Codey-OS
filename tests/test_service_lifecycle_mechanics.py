@@ -293,6 +293,7 @@ def test_identity_cli_accepts_literal_absolute_spaces_dotdot_and_omitted_cwd(
         ("launch", ["fixture-command"], {
             "log_file": "/tmp/log space/../service.log", "ready_fd": 201,
             "cwd": None, "startup_delay": 0.5, "timeout": 5.0,
+            "env_provider": None,
         }),
     ]
     captured = capsys.readouterr()

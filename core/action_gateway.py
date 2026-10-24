@@ -116,6 +116,23 @@ def _append_audit(record: Dict[str, Any], path: Optional[Path] = None) -> None:
     change the operation result or policy decision.
     """
     path = path or audit_path()
+    # G15h B-3: mask secret-shaped spans in the free-text fields only; action, path,
+    # authority, outcome and ts stay verbatim so every row still identifies what happened.
+    # A masking failure never drops the row: it carries the withheld marker instead.
+    record = dict(record)
+    for _field in ("command", "reason"):
+        if record.get(_field) is not None:
+            try:
+                from core.export_hygiene import mask_secrets
+
+                record[_field] = mask_secrets(
+                    " ".join(str(x) for x in record[_field])
+                    if isinstance(record[_field], (list, tuple))
+                    else str(record[_field])
+                )
+            except Exception:
+                # Fail closed: write the fixed marker, never the unmasked text.
+                record[_field] = "[withheld: redaction failed]"
     line = json.dumps(record, default=str) + "\n"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

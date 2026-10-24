@@ -21,7 +21,10 @@ import inspect
 import json
 import logging
 import math
+import hashlib
 import os
+import re
+import shlex
 import subprocess
 import sys
 import time
@@ -276,6 +279,74 @@ def _audit_plugin_refusal(action: str, command: str, reason: str) -> None:
             action, type(exc).__name__)
 
 
+def _plugin_child_env(process_spec: Dict[str, Any]) -> "tuple[Dict[str, str], str]":
+    """Environment for an external plugin child, plus its policy label.
+
+    Today the child inherits the parent's entire environment plus the
+    manifest's `process_spec.env` overrides (policy "inherit-all"). This is
+    the single seam where G15h/D-10 will substitute an allowlist; the audit
+    row's `env_policy` reads the label returned here so it stays truthful.
+    """
+    env = dict(os.environ)
+    if isinstance(process_spec.get("env"), dict):
+        env.update(process_spec["env"])
+    return env, "inherit-all"
+
+
+_CRED_LIKE_ENV_RE = re.compile(r"(KEY|TOKEN|SECRET|PASS|CRED|AUTH|COOKIE)", re.IGNORECASE)
+
+
+def _spawn_audit_command(plugin: "Plugin", cmd: Any, cwd: str,
+                         env: Dict[str, str], env_policy: str,
+                         process_spec: Dict[str, Any]) -> str:
+    """One-line audit text for a plugin spawn attempt or pre-spawn refusal.
+
+    Records argv (truncated at 512 chars, plus a hash of the full argv), cwd,
+    manifest env-override NAMES, and the child-env NAMES that look
+    credential-like (a heuristic, not a completeness claim). Environment
+    values are never read into the row. `cmd` may be None when no argv could
+    be resolved (missing entry).
+    """
+    if cmd is None:
+        full = ""
+        argv = "<unresolved>"
+    else:
+        if isinstance(cmd, (list, tuple)):
+            full = shlex.join(str(a) for a in cmd)
+        else:
+            full = str(cmd)
+        argv = full[:512]
+    digest = hashlib.sha256(full.encode("utf-8", "replace")).hexdigest()[:16]
+    overrides = process_spec.get("env")
+    override_names = sorted(str(k) for k in overrides) if isinstance(overrides, dict) else []
+    cred_names = sorted(str(k) for k in env if _CRED_LIKE_ENV_RE.search(str(k)))[:20]
+    return (
+        f"plugin={plugin.name} mode={plugin.execution_mode} cwd={cwd} "
+        f"argv={argv} argv_sha256={digest} env_policy={env_policy} "
+        f"env_override_keys={json.dumps(override_names)} "
+        f"cred_like_env_names={json.dumps(cred_names)}"
+    )
+
+
+def _audit_spawn_refusal(plugin_name: str, command: str, reason: str) -> None:
+    """Write one ACT `refused` row for a spawn that was not attempted.
+
+    Best effort like `_audit_plugin_refusal`: the refusal (status/return
+    False) is enacted by the caller regardless of whether the row lands.
+    """
+    try:
+        get_action_gateway().refuse_exec(
+            authority=ACT, action=f"ccos.plugin_spawn:{plugin_name}",
+            command=command, reason=reason,
+        )
+    except Exception as exc:
+        # Safe: the caller already refuses the spawn; a failing audit sink
+        # must not turn a refusal into a crash. Log type only, never text.
+        logging.getLogger(__name__).warning(
+            "plugin spawn refusal audit row failed: plugin=%s error=%s",
+            plugin_name, type(exc).__name__)
+
+
 def _capability_name(definition: Dict[str, Any], plugin_name: str) -> Any:
     """The one derivation of a capability's registered name (staging and
     discovery both call this so the collision check cannot drift from what
@@ -426,22 +497,34 @@ class ProcessSupervisor:
     ) -> bool:
         """Start one owned child and observe early exit / configured health."""
         with self._lock:
+            process_spec = plugin.manifest.get("process_spec", {})
+            cmd = process_spec.get("start_command") or process_spec.get("command")
+            cwd = str(process_spec.get("working_dir") or plugin.path)
+            env, env_policy = _plugin_child_env(process_spec)
             owned = self._processes.get(plugin.name)
             if owned is not None:
                 try:
                     alive = owned.poll() is None
                 except Exception:
                     # Unknown liveness cannot authorize a duplicate child.
+                    _audit_spawn_refusal(
+                        plugin.name,
+                        _spawn_audit_command(plugin, cmd or None, cwd, env, env_policy, process_spec),
+                        "Owned process liveness unreadable; spawn not attempted",
+                    )
                     return False
                 if alive:
                     plugin.pid = owned.pid
                     return plugin.name in self._ready
                 if not self.stop_external_plugin(plugin.name):
+                    _audit_spawn_refusal(
+                        plugin.name,
+                        _spawn_audit_command(plugin, cmd or None, cwd, env, env_policy, process_spec),
+                        "Dead owned process could not be stopped; spawn not attempted",
+                    )
                     return False
                 plugin.pid = None
 
-            process_spec = plugin.manifest.get("process_spec", {})
-            cmd = process_spec.get("start_command") or process_spec.get("command")
             if not cmd:
                 entry_point = plugin.manifest.get("entry_point", "__init__.py")
                 try:
@@ -462,8 +545,15 @@ class ProcessSupervisor:
                 if not entry_file.is_file():
                     plugin.status = PluginStatus.BROKEN
                     plugin.error = "No start_command or entry_point found for external process"
+                    _audit_spawn_refusal(
+                        plugin.name,
+                        _spawn_audit_command(plugin, None, cwd, env, env_policy, process_spec),
+                        plugin.error,
+                    )
                     return False
                 cmd = [sys.executable, str(entry_file)]
+            audit_command = _spawn_audit_command(
+                plugin, cmd, cwd, env, env_policy, process_spec)
             pid_file = process_spec.get("pid_file")
             pid_path = _resolve_pid_path(pid_file) if pid_file else None
             # An integer file from another supervisor/session is evidence,
@@ -471,17 +561,34 @@ class ProcessSupervisor:
             if pid_path is not None and os.path.lexists(pid_path):
                 plugin.status = PluginStatus.BROKEN
                 plugin.error = "Unowned PID record blocks external process startup"
+                _audit_spawn_refusal(plugin.name, audit_command, plugin.error)
                 return False
-            env = dict(os.environ)
-            if isinstance(process_spec.get("env"), dict):
-                env.update(process_spec["env"])
-            try:
+
+            def _spawn():
+                # Handle ownership is recorded inside the thunk, atomically
+                # with the child's existence: if the gateway raises after
+                # this returns (non-OSError audit failure), the cleanup in
+                # the except below still finds and stops our child.
                 proc = subprocess.Popen(
-                    cmd, cwd=str(process_spec.get("working_dir") or plugin.path),
-                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    cmd, cwd=cwd, env=env,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 )
                 self._processes[plugin.name] = proc
                 plugin.pid = proc.pid
+                return proc
+
+            try:
+                decision = get_action_gateway().gate_exec(
+                    authority=ACT, action=f"ccos.plugin_spawn:{plugin.name}",
+                    command=audit_command, confirm_available=False,
+                    execute=_spawn,
+                )
+                if decision.outcome != OUTCOME_ALLOWED:
+                    # Popen failed (FAILED) or the gateway refused: no
+                    # handle was stored; the shared except path below sets
+                    # the same BROKEN status/message as before.
+                    raise RuntimeError(decision.reason)
+                proc = decision.detail["result"]
                 if pid_path is not None:
                     self._publish_pid(plugin.name, pid_path, proc)
                 try:

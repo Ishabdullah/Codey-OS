@@ -331,7 +331,11 @@ def test_supervisor_fallback_contained_missing_keeps_message(tmp_path):
     assert pm.ProcessSupervisor().start_external_plugin(plug) is False
     assert plug.status == PluginStatus.BROKEN
     assert plug.error == "No start_command or entry_point found for external process"
-    assert rows(tmp_path) == []
+    # G15g Unit B: a not-attempted spawn (missing entry) writes one ACT
+    # refusal row; Unit A had pinned "no row" before the spawn was audited.
+    got = rows(tmp_path)
+    assert len(got) == 1
+    assert got[0]["authority"] == pm.ACT and got[0]["outcome"] == "refused"
 
 
 def test_supervisor_fallback_spawns_resolved_path(tmp_path, monkeypatch):

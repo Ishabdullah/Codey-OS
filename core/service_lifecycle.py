@@ -122,9 +122,16 @@ def start_profile(service, selected):
         argv = [str(binary), "replicate", "-config", str(Path.home() / ".codeyOS/litestream.yml")]
     elif service == "cloudflared":
         import shutil
-        token = _config_helpers().get_cloudflare_tunnel_token() if shutil.which("cloudflared") else None
-        missing = not token
-        argv = ["cloudflared", "tunnel", "run", "--token", token] if token else []
+        # G15h (NEW-1021): the tunnel token is NEVER placed in argv. argv is
+        # visible in /proc/<pid>/cmdline and `ps` of this bash mechanics
+        # process, the owned-spawn helper and cloudflared itself. The spawn
+        # helper (core/process_identity.py, _SERVICE_SECRET_ENV) resolves the
+        # token and sets TUNNEL_TOKEN (documented by `cloudflared tunnel run
+        # --help`) in the final child environment only. The value is used here
+        # only to decide "configured?" and is not kept or returned.
+        configured = bool(_config_helpers().get_cloudflare_tunnel_token()) if shutil.which("cloudflared") else False
+        missing = not configured
+        argv = ["cloudflared", "tunnel", "run"] if configured else []
     elif service == "backup-docs":
         cwd = _REPO_ROOT / "core"
         argv = ["python3", "backup_documents.py", "--daemon"]

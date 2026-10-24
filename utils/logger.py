@@ -60,6 +60,14 @@ def _log_to_file(level: str, message: str):
     """Log a message to the file handler."""
     if _file_logger:
         log_method = getattr(_file_logger, level.lower(), _file_logger.info)
+        try:
+            # Lazy: the utils package must not import core at module import time.
+            from core.export_hygiene import mask_secrets
+
+            message = mask_secrets(message)
+        except Exception:
+            # Fail closed: an unmaskable message is replaced, never written raw.
+            message = "[withheld: redaction failed]"
         log_method(message)
 
 

@@ -26,6 +26,48 @@ DEAD = "absent-dead"
 UNSAFE = "unsafe-unverifiable"
 _KEYS = {"version", "service", "pid", "boot_id", "start_ticks", "uid"}
 _MAX_PID = 2**31 - 1
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# G15h (NEW-1021): fixed service -> environment variable table for credentials
+# that must reach a child without ever appearing in argv (argv is world-readable
+# via /proc/<pid>/cmdline and `ps`; environ is owner-only). The secret SOURCE
+# is hard-wired in _service_env_provider; neither the table nor the source is
+# configurable from argv. Same-uid code can still decrypt the source itself:
+# this removes a side channel, it is not a security boundary.
+_SERVICE_SECRET_ENV = {"cloudflared": "TUNNEL_TOKEN"}
+# Names cloudflared does not read; the helper consumed them as token sources.
+_SERVICE_CONSUMED_ENV = {"cloudflared": ("CLOUDFLARE_TUNNEL_TOKEN", "CLOUDFLARED_TOKEN")}
+
+
+def _service_env_provider(service):
+    """Return a zero-argument environment builder for a service, or None.
+
+    Only keys of _SERVICE_SECRET_ENV get one; every other service (including
+    unknown names) launches with the unchanged inherited environment. The
+    returned callable copies os.environ (the helper's own environment is never
+    mutated), drops the consumed source variables, injects the secret under the
+    table's variable name, and raises UnsafeRecord with fixed text when the
+    secret cannot be resolved, so a failure happens before any spawn.
+    """
+    name = _SERVICE_SECRET_ENV.get(service)
+    if name is None:
+        return None
+    consumed = _SERVICE_CONSUMED_ENV.get(service, ())
+
+    def provide():
+        if str(_REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT))
+        from utils import config
+        value = config.get_cloudflare_tunnel_token()
+        if not value:
+            raise UnsafeRecord("Service credential unavailable")
+        env = dict(os.environ)
+        for key in consumed:
+            env.pop(key, None)
+        env[name] = value
+        return env
+
+    return provide
 
 
 class UnsafeRecord(RuntimeError):
@@ -447,9 +489,16 @@ class OwnedLaunch:
     Failed cleanup never returns: this same helper retains its Popen and lock
     as a guardian until it can reap. SIGKILL/host crash can defeat that purely
     in-memory fallback; no durable marker is promised when writes fail.
+
+    env_provider (optional, zero-argument) returns the complete child
+    environment and is called only after the existing-evidence check, right
+    before Popen. It exists so a credential reaches the child's environ without
+    touching any argv. If it raises, no child exists and the normal failure path
+    (failed-cleanup-confirmed, rc 2) runs; nothing is passed through to Popen
+    when it is None, so other services' Popen kwargs are unchanged.
     """
 
-    def __init__(self, record, argv, *, log_file, ready_fd, cwd=None, startup_delay=0.5, timeout=5.0):
+    def __init__(self, record, argv, *, log_file, ready_fd, cwd=None, startup_delay=0.5, timeout=5.0, env_provider=None):
         self.record = record
         if not isinstance(argv, (list, tuple)):
             raise UnsafeRecord("Service arguments must be an argv list")
@@ -468,6 +517,7 @@ class OwnedLaunch:
         self.interrupted = False
         self.ready_attempted = False
         self.handed_off = False
+        self.env_provider = env_provider
 
     def _report(self, outcome):
         if self.ready_attempted:
@@ -538,12 +588,15 @@ class OwnedLaunch:
                 observed = self.record.inspect()
                 if observed.state != DEAD or not self.record.cleanup(observed):
                     raise UnsafeRecord("Service launch blocked by existing evidence")
+                # Resolved before the log is opened and before any spawn: a
+                # credential failure leaves no child (finish_failure path).
+                extra = {} if self.env_provider is None else {"env": self.env_provider()}
                 # Keep only our handle immediately after Popen returns. Every
                 # later operation, including file close, converges on cleanup.
                 with open(self.log_file, "ab", buffering=0) as log:
                     self.child = subprocess.Popen(
                         self.argv, cwd=self.cwd, stdin=subprocess.DEVNULL,
-                        stdout=log, stderr=subprocess.STDOUT, close_fds=True,
+                        stdout=log, stderr=subprocess.STDOUT, close_fds=True, **extra,
                     )
                 if self.interrupted:
                     raise UnsafeRecord("Service launch interrupted")
@@ -617,7 +670,7 @@ def _spawn_main(argv):
         if not args.command or args.command[0] != "--":
             raise UnsafeRecord("Service argv delimiter required")
         with LifecycleRecord(args.pid_file, args.service, lock_fd=args.lock_fd) as record:
-            launch = OwnedLaunch(record, args.command[1:], log_file=args.log_file, ready_fd=ready_fd, cwd=args.cwd, startup_delay=args.startup_delay, timeout=args.timeout)
+            launch = OwnedLaunch(record, args.command[1:], log_file=args.log_file, ready_fd=ready_fd, cwd=args.cwd, startup_delay=args.startup_delay, timeout=args.timeout, env_provider=_service_env_provider(args.service))
             ready_fd = None  # launch owns closing this pipe, including guardian path
             try:
                 return launch.run()
