@@ -3516,6 +3516,46 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > **Group 15: G15a, G15b, G15c done and committed; G15d code-complete,
 > reviewer-approved, committed `890d4b9`; G15e (protected-path set, must fold both
 > `/data` spellings), G15f, G15g.. and G15z not started.**
+>
+> **Status update (2026-10-24) — G15f Unit A (bench grader hardening) and G15g
+> Unit A (plugin discovery containment): code complete and code-reviewer
+> APPROVED, commit pending, NOT live-verified; WP2.1 remains OPEN.** Supersedes
+> the "G15f, G15g.. not started" line above for those two units only. **G15f
+> Unit A** (`bench/verify.py`, `bench/agents.py`): `grade()` runs
+> `python -I -m pytest --noconftest --disable-plugin-autoload` with an out-of-tree
+> `-c` ini (`pythonpath=<work>`, a fix for a reviewer-found regression on workspaces
+> with a root `__init__.py`), an out-of-tree `--junitxml`, explicit hidden paths
+> and a scrubbed env; a pass needs exit 0, a junit count equal to the count from
+> the locked reference run, and no failures/errors/skips; the copy skips all
+> symlinks, FIFOs and special files (closes a `GradingError` denominator escape);
+> the bench child gets an env allowlist (no credentials, proxies or
+> `ALLOW_SELF_MOD`; `LD_PRELOAD` dropped), `stdin=DEVNULL` and exact `extra_args`
+> `{--plan, --no-plan}`. 54 new tests; reviewer round 2: 118 passed and a probe
+> matrix of planted configs/modules all False for unsolved tasks. **Accepted
+> residual:** an in-process junit forgery with the correct count still passes
+> (documented-gap test). Closes G15b-31 and G15b-32 at the code-complete tier;
+> **G15f Unit B (lock v2 + evaluator hash, per-task re-hash, mixed-version
+> refusal, relock last; NEW-1046) is NOT done, so G15b-29 and G15b-30 stay
+> open.** The bench was never run: the env allowlist is unverified for a real run
+> (deferred live check must name `LD_PRELOAD`, `SHELL`, `USER`, `LOGNAME`).
+> **G15g Unit A** (`ccos/core/plugin_manager.py`): `entry_point` containment at
+> staging and at use (resolved path executed, no `__init__.py` fallback for an
+> escaping entry), symlinked category/plugin dir/`manifest.json` refused,
+> duplicate plugin names and capability-name collisions refused for all
+> claimants, `plugin_dirs` deduplicated by realpath, refused plugins become
+> DISABLED placeholders, HIGH_IMPACT refusal rows. 55 new tests; 19/19 real
+> manifests accepted, 0 collisions; `ccos/tests` 251 passed, 1 failed (the
+> pre-existing `test_plugin_manager` failure for `private_agent`/`aigentik`;
+> one unreproduced `test_multi_domain` failure logged SUSPECTED). **G15g Unit B
+> (audited spawn, `_plugin_child_env` seam; NEW-1053) is NOT done:** a successful
+> spawn still writes no audit row and the child still inherits the full
+> environment. Q2 (capability collision) shipped on the spec default; Ish's
+> answer not recorded; G15f Q1/Q2 and the spawn policy are pending Ish. New ids
+> NEW-1045..1047, NEW-1052..1054 (NEW-1048..1051 G15e and NEW-1055..1062 G15h
+> are reserved for in-flight slices).
+> **Group 15: G15a-G15d committed; G15f Unit A and G15g Unit A code-complete,
+> reviewer-approved, commit pending; G15f Unit B, G15g Unit B, G15e, G15h and
+> G15z open.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

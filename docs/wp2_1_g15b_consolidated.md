@@ -569,3 +569,19 @@ Tier for every row below unless stated: **code complete, code-reviewer APPROVED,
 | G15b-46 | NOT-A-SHELL-ITEM | PARTIALLY FIXED | Enter => No done; Q5 trim done; spec 5.3 pty check NOT done |
 
 Not changed by G15d: G15b-19, 21, 22 (G15i for 21), 25-37 (G15e-G15j), 38-44, 47-49. Spec questions Q1-Q4, Q6, Q7 were implemented on the stated default; Ish's answers are not recorded (Q5 'trim' accepted by Ish, not yet applied).
+
+### 10a. Addendum 2026-10-24: G15f Unit A and G15g Unit A (separate tier line; the section 10 header's "committed `890d4b9`" does NOT apply to these rows)
+
+Tier for every row below: **code complete, code-reviewer APPROVED, commit pending, NOT live-verified.** Counts are not recomputed (G15z). `NEW_ISSUES.md` is authoritative. Specs: `docs/wp2_1_g15f_spec.md`, `docs/wp2_1_g15g_spec.md`. New ids: NEW-1045, 1046, 1047 (G15f), NEW-1052, 1053, 1054 (G15g); NEW-1048..1051 and NEW-1055..1062 are reserved for in-flight slices.
+
+| id | post-G15d | after G15f/G15g Unit A | note |
+| --- | --- | --- | --- |
+| G15b-31 | OPEN | **CLOSED by G15f Unit A** (NEW-1045) | broader than the register: `tox.ini`, `pyproject.toml`, `setup.cfg`, `-p` via addopts and `os._exit(0)` forging also worked; in-process junit forgery with the correct count remains (accepted) |
+| G15b-32 | OPEN | **CLOSED by G15f Unit A** | env allowlist, `stdin=DEVNULL`, exact `extra_args`; allowlist sufficiency for a real bench run unverified (`LD_PRELOAD` dropped; deferred live check) |
+| G15b-30 | OPEN | OPEN | Unit B (lock v2, evaluator hash, snapshot, mixed-version refusal, relock last; NEW-1046); self-attestation pending Ish Q2 |
+| G15b-29 | OPEN | OPEN | needs G15e plus Ish's G15f Q1 (`bench/**` every suffix HIGH); not answered as such |
+| G15b-25 | OPEN | **PARTIALLY FIXED**: non-reversing containment half | entry-point containment, symlink and duplicate-name refusals (NEW-1052); audited spawn open (G15g Unit B, NEW-1053); `manifest.json` classification is G15e; `start_command`/`env` stay arbitrary (R1, NEW-1054) |
+| G15b-43 | OPEN, QUEUE | name-hijack route (B:PL-05 / C:M25) **narrowed** | capability-name collisions refused for in-memory manifests only (Q2 on spec default, Ish's answer not recorded); C:M24, M26, N03 and runtime handlers untouched |
+| G15b-11 | OPEN | **bench child narrowed**; shell and plugin children still open | G15h; plugin side is NEW-1053 |
+
+Rule-6 correction: spec 13 item 9 of `docs/wp2_1_g15f_spec.md` (symlinks followed by `copytree`; a dangling link gives `GradingError` that fails closed) was overclaimed; the reviewer showed a dangling symlink or FIFO let a task escape the denominator, now fixed by ignoring all symlinks and special files in the copy (NEW-1047). Not changed: G15b-26, 27, 28, and every other row.

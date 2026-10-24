@@ -29,22 +29,22 @@ _EXTERNAL_EXECUTION_MODES = {"external_process", "remote_bridge", "isolated_daem
 
 
 def _discovered_manifests():
-    """Mirror PluginManager._discover()'s own directory walk and
-    skip rules (category/plugin dirs starting with "_", manifest.json
-    must exist) so this test's scan can never silently diverge from
-    what _discover() actually loads.
+    """Ask a real PluginManager what _discover() accepts (G15g Unit A added
+    symlink/duplicate refusals a hand-written directory walk would miss), so
+    this scan can never silently diverge from what is actually loaded.
+    DISABLED placeholders (refused) are excluded; they carry no manifest.
     """
-    found = []
-    for category_dir in sorted(_PLUGINS_ROOT.iterdir()):
-        if not category_dir.is_dir() or category_dir.name.startswith("_"):
-            continue
-        for plugin_dir in sorted(category_dir.iterdir()):
-            if not plugin_dir.is_dir() or plugin_dir.name.startswith("_"):
-                continue
-            manifest_path = plugin_dir / "manifest.json"
-            if manifest_path.exists():
-                found.append(manifest_path)
-    return found
+    import tempfile
+
+    from ccos.core.capability_registry import CapabilityRegistry
+    from ccos.core.plugin_manager import PluginManager, PluginStatus
+
+    with tempfile.TemporaryDirectory(prefix="naming-inv-") as tmp:
+        manager = PluginManager([str(_PLUGINS_ROOT)], CapabilityRegistry(str(Path(tmp) / "reg.json")))
+        return sorted(
+            Path(p.path) / "manifest.json"
+            for p in manager._plugins.values() if p.status != PluginStatus.DISABLED
+        )
 
 
 MANIFEST_PATHS = _discovered_manifests()

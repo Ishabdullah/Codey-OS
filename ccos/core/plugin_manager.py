@@ -19,11 +19,13 @@ import importlib
 import importlib.util
 import inspect
 import json
+import logging
 import math
 import os
 import subprocess
 import sys
 import time
+import unicodedata
 from threading import RLock
 import urllib.request
 from dataclasses import dataclass, field
@@ -252,6 +254,94 @@ def _resolve_pid_path(pid_file_str: Union[str, Path]) -> Path:
     return pid_path
 
 
+def _audit_plugin_refusal(action: str, command: str, reason: str) -> None:
+    """Write one HIGH_IMPACT `refused` gateway row for a security refusal.
+
+    Rows are best effort by the gateway's own design (an audit sink OSError
+    is swallowed there); the refusal itself never depends on the row.
+    """
+    try:
+        get_action_gateway().refuse_exec(
+            authority=HIGH_IMPACT, action=action, command=command, reason=reason,
+        )
+    except Exception as exc:
+        # Safe: the refusal (placeholder / DISABLED / return False) is
+        # enacted by the caller independent of this row. A failing audit
+        # sink must not crash discovery or skip activation cleanup; the
+        # gateway already treats rows as best effort (R7).
+        # Leave a signal: action name and exception type only, never the
+        # command text, reason or exception message.
+        logging.getLogger(__name__).warning(
+            "plugin refusal audit row failed: action=%s error=%s",
+            action, type(exc).__name__)
+
+
+def _capability_name(definition: Dict[str, Any], plugin_name: str) -> Any:
+    """The one derivation of a capability's registered name (staging and
+    discovery both call this so the collision check cannot drift from what
+    activation registers)."""
+    return definition.get("name", f"{plugin_name}.{definition.get('id', 'unknown')}")
+
+
+def _declared_capability_names(manifest: Dict[str, Any], plugin_name: str) -> List[str]:
+    """Non-empty string capability names a normalized manifest declares.
+
+    Malformed shapes are ignored here; staging still rejects them before any
+    executable effect.
+    """
+    caps = manifest.get("capabilities", []) if isinstance(manifest, dict) else []
+    if not isinstance(caps, list):
+        return []
+    names = []
+    for definition in caps:
+        if isinstance(definition, dict):
+            name = _capability_name(definition, plugin_name)
+            if isinstance(name, str) and name:
+                names.append(name)
+    return names
+
+
+def _plugin_name_key(name: str) -> str:
+    """Duplicate-detection key: NFKC + strip + casefold, so `Agent`,
+    `agent ` and full-width variants cannot impersonate one another."""
+    return unicodedata.normalize("NFKC", name).strip().casefold()
+
+
+class PluginContainmentError(ValueError):
+    """A manifest path escapes the plugin's own directory (or is malformed)."""
+
+
+def resolve_plugin_file(plugin_dir, relative) -> Path:
+    """Resolve manifest path `relative` inside `plugin_dir`, or refuse.
+
+    Both sides are resolved (realpath) so symlinks and the /data/data vs
+    /data/user/0 alias cannot cause a false accept or refusal; containment
+    is judged with commonpath, never a string prefix. Absolute values are
+    refused even when they point inside the directory. The returned
+    resolved path (which need not exist) is what callers must execute --
+    never the raw manifest string.
+    """
+    if not isinstance(relative, str) or not relative or "\x00" in relative:
+        raise PluginContainmentError("malformed path")
+    if os.path.isabs(relative):
+        raise PluginContainmentError("absolute path")
+    try:
+        base = os.path.realpath(os.fspath(plugin_dir))
+        real = os.path.realpath(os.path.join(base, relative))
+        inside = os.path.commonpath([base, real]) == base
+        try:
+            os.stat(real)
+        except FileNotFoundError:
+            pass  # a missing entry is judged by containment alone
+        except NotADirectoryError:
+            pass  # a path under a regular file is likewise just absent
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        raise PluginContainmentError("unresolvable path") from exc
+    if not inside or real == base:
+        raise PluginContainmentError("path escapes plugin directory")
+    return Path(real)
+
+
 class PluginStatus(str, Enum):
     INSTALLED = "installed"
     ACTIVE = "active"
@@ -353,8 +443,23 @@ class ProcessSupervisor:
             process_spec = plugin.manifest.get("process_spec", {})
             cmd = process_spec.get("start_command") or process_spec.get("command")
             if not cmd:
-                entry_file = Path(plugin.path) / plugin.manifest.get("entry_point", "__init__.py")
-                if not entry_file.exists():
+                entry_point = plugin.manifest.get("entry_point", "__init__.py")
+                try:
+                    entry_file = resolve_plugin_file(plugin.path, entry_point)
+                except PluginContainmentError:
+                    # Defense in depth for direct supervisor callers: the
+                    # manager refuses an escaping entry_point before it gets
+                    # here, but the spawn re-checks and executes only the
+                    # resolved path.
+                    plugin.status = PluginStatus.DISABLED
+                    plugin.error = "entry_point escapes plugin directory"
+                    _audit_plugin_refusal(
+                        f"ccos.plugin_spawn:{plugin.name}",
+                        f"plugin={plugin.name} entry_point={entry_point!r}"[:200],
+                        "entry_point escapes plugin directory",
+                    )
+                    return False
+                if not entry_file.is_file():
                     plugin.status = PluginStatus.BROKEN
                     plugin.error = "No start_command or entry_point found for external process"
                     return False
@@ -579,35 +684,147 @@ class PluginManager:
         return _max_authority(candidates)
 
     def _discover(self):
-        """Scan plugin directories for available plugins."""
+        """Scan plugin directories and register plugins, refusing ambiguity.
+
+        Walk is sorted (deterministic). Symlinked category dirs, plugin dirs
+        and manifest.json are refused outright. A plugin name (NFKC/casefold
+        key, across ALL plugin_dirs) or a capability name claimed by more
+        than one manifest is refused for every claimant: each becomes a
+        DISABLED placeholder, so directory order can never pick a winner.
+        A placeholder never replaces an ACTIVE or mid-activation plugin.
+        """
+        self._discovery_refusals = []
+
+        def refuse(rel, reason, action_name):
+            self._discovery_refusals.append({"path": rel, "reason": reason})
+            _audit_plugin_refusal(f"ccos.plugin_discover:{action_name}", rel, reason)
+
+        claims = []  # (name, abs_path_str, rel_path, manifest)
+        seen_roots = set()
+        seen_plugin_dirs = set()
         for plugin_dir in self._plugin_dirs:
             plugin_path = Path(plugin_dir)
             if not plugin_path.exists():
                 continue
-            for category_dir in plugin_path.iterdir():
-                if not category_dir.is_dir() or category_dir.name.startswith("_"):
+            root_real = os.path.realpath(plugin_path)
+            if root_real in seen_roots:
+                continue  # same root listed twice / via alias: keep the first
+            seen_roots.add(root_real)
+
+            def inside(child, parent):
+                try:
+                    return os.path.commonpath([parent, os.path.realpath(child)]) == parent
+                except (OSError, ValueError):
+                    return False
+
+            for category_dir in sorted(plugin_path.iterdir()):
+                if category_dir.name.startswith("_"):
                     continue
-                for plugin_subdir in category_dir.iterdir():
-                    if not plugin_subdir.is_dir() or plugin_subdir.name.startswith("_"):
+                if category_dir.is_symlink():
+                    if category_dir.is_dir():
+                        refuse(category_dir.name, "symlinked category directory", category_dir.name)
+                    continue
+                if not category_dir.is_dir() or not inside(category_dir, root_real) \
+                        or os.path.realpath(category_dir) == root_real:
+                    continue
+                for plugin_subdir in sorted(category_dir.iterdir()):
+                    if plugin_subdir.name.startswith("_"):
+                        continue
+                    rel = f"{category_dir.name}/{plugin_subdir.name}"
+                    if plugin_subdir.is_symlink():
+                        if plugin_subdir.is_dir():
+                            refuse(rel, "symlinked plugin directory", plugin_subdir.name)
+                        continue
+                    if not plugin_subdir.is_dir():
+                        continue
+                    if not inside(plugin_subdir, root_real):
+                        refuse(rel, "plugin directory resolves outside plugin root", plugin_subdir.name)
                         continue
                     manifest_path = plugin_subdir / "manifest.json"
-                    if manifest_path.exists():
-                        try:
-                            raw_manifest = json.loads(manifest_path.read_text())
-                            manifest = normalize_manifest(raw_manifest)
-                            name = manifest.get("name", plugin_subdir.name)
-                            self._plugins[name] = Plugin(
-                                name=name,
-                                path=str(plugin_subdir),
-                                manifest=manifest,
-                                version=manifest.get("version", "1.0.0"),
-                                domain=manifest.get("domain", "general"),
-                                execution_mode=manifest.get("execution_mode", "in_process"),
-                                permissions=manifest.get("permissions", []),
-                                resource_limits=manifest.get("resource_limits", {}),
-                            )
-                        except Exception:
-                            pass  # skip malformed manifests
+                    if manifest_path.is_symlink():
+                        refuse(rel + "/manifest.json", "symlinked manifest.json", plugin_subdir.name)
+                        continue
+                    if not manifest_path.exists():
+                        continue
+                    if not inside(manifest_path, os.path.realpath(plugin_subdir)):
+                        refuse(rel + "/manifest.json", "manifest.json resolves outside plugin directory",
+                               plugin_subdir.name)
+                        continue
+                    real_dir = os.path.realpath(plugin_subdir)
+                    if real_dir in seen_plugin_dirs:
+                        # Defense in depth: with distinct realpath roots and
+                        # symlinked category/plugin dirs refused, no filesystem
+                        # layout reaches one plugin dir from two roots, so this
+                        # guard is not independently testable.
+                        continue  # overlapping roots reaching one dir: not a rival claim
+                    try:
+                        raw_manifest = json.loads(manifest_path.read_text())
+                        manifest = normalize_manifest(raw_manifest)
+                        name = manifest.get("name", plugin_subdir.name)
+                    except Exception:
+                        continue  # skip malformed manifests
+                    seen_plugin_dirs.add(real_dir)
+                    if not isinstance(name, str) or not name.strip():
+                        # Untrusted/unusable name: no sensible registry key,
+                        # so refuse with an audit row and no placeholder.
+                        refuse(rel, "manifest name is not a non-blank string", plugin_subdir.name)
+                        continue
+                    claims.append((name, str(plugin_subdir), rel, manifest))
+
+        # Refusing ALL claimants of a contested name/capability is a
+        # deliberate fail-closed trade-off: a planted same-name or
+        # same-capability directory also disables the legitimate plugin
+        # (denial of service). Accepted because planting requires write
+        # access to the plugin tree, which already allows corrupting the
+        # genuine plugin; the alternative (a winner by order) is hijack.
+        refused = {}  # claim index -> reason
+        by_key = {}
+        for idx, (name, _path, _rel, _m) in enumerate(claims):
+            by_key.setdefault(_plugin_name_key(name), []).append(idx)
+        for idxs in by_key.values():
+            if len(idxs) > 1:
+                rels = sorted(claims[i][2] for i in idxs)
+                for i in idxs:
+                    refused[i] = f"refused: plugin name claimed by {len(idxs)} manifests: {rels}"
+        by_cap = {}
+        for idx, (name, _path, _rel, manifest) in enumerate(claims):
+            if idx in refused:
+                continue
+            for cap_name in set(_declared_capability_names(manifest, name)):
+                by_cap.setdefault(cap_name, []).append(idx)
+        for cap_name, idxs in sorted(by_cap.items()):
+            if len(idxs) > 1:
+                owners = sorted(claims[i][0] for i in idxs)
+                for i in idxs:
+                    refused.setdefault(
+                        i, f"refused: capability {cap_name!r} declared by {owners}")
+
+        logged = set()
+        for idx, (name, path, rel, manifest) in enumerate(claims):
+            if idx in refused:
+                if (name, refused[idx]) not in logged:
+                    logged.add((name, refused[idx]))
+                    refuse(rel, refused[idx], name)
+                existing = self._plugins.get(name)
+                if existing is not None and (
+                    existing.status == PluginStatus.ACTIVE or name in self._activation_attempts
+                ):
+                    continue  # a live lifecycle is never rewritten
+                self._plugins[name] = Plugin(
+                    name=name, path=path, manifest={},
+                    status=PluginStatus.DISABLED, error=refused[idx],
+                )
+                continue
+            self._plugins[name] = Plugin(
+                name=name,
+                path=path,
+                manifest=manifest,
+                version=manifest.get("version", "1.0.0"),
+                domain=manifest.get("domain", "general"),
+                execution_mode=manifest.get("execution_mode", "in_process"),
+                permissions=manifest.get("permissions", []),
+                resource_limits=manifest.get("resource_limits", {}),
+            )
 
     def list_plugins(self) -> List[Dict[str, Any]]:
         """List all discovered plugins."""
@@ -638,6 +855,9 @@ class PluginManager:
         plugin = self._plugins.get(name)
         if not plugin:
             return False
+
+        if plugin.status == PluginStatus.DISABLED:
+            return False  # refused plugins are never retried in-process
 
         if plugin.status == PluginStatus.ACTIVE:
             if plugin.execution_mode in ("external_process", "isolated_daemon", "remote_bridge"):
@@ -677,6 +897,16 @@ class PluginManager:
             plugin.error = "Invalid activation capability or manifest fields"
             return False
 
+        # Containment, checked once here (before any executable effect) and
+        # again right before use below. An escaping value refuses the load
+        # for every execution mode and never falls back to __init__.py.
+        try:
+            resolve_plugin_file(plugin.path, plugin.manifest.get("entry_point", "__init__.py"))
+            resolve_plugin_file(plugin.path, "__init__.py")
+        except PluginContainmentError:
+            self._refuse_containment(plugin)
+            return False
+
         module_key = f"ccos_plugin_{name}"
         attempt = {
             "staged": {cap.name: cap for cap in staged},
@@ -699,9 +929,11 @@ class PluginManager:
                     raise RuntimeError("External startup failed")
             else:
                 attempt["failure_error"] = "Plugin activation module setup failed"
-                plugin_path = Path(plugin.path)
-                entry_path = plugin_path / plugin.manifest.get("entry_point", "__init__.py")
-                module_file = entry_path if entry_path.exists() else plugin_path / "__init__.py"
+                # Use-time recheck: the resolved path is what gets executed.
+                entry_real = resolve_plugin_file(
+                    plugin.path, plugin.manifest.get("entry_point", "__init__.py"))
+                init_real = resolve_plugin_file(plugin.path, "__init__.py")
+                module_file = entry_real if entry_real.is_file() else init_real
                 spec = importlib.util.spec_from_file_location(module_key, str(module_file))
                 if spec is None or spec.loader is None:
                     raise RuntimeError("Could not create module spec")
@@ -724,8 +956,16 @@ class PluginManager:
             del self._activation_attempts[name]
             return True
         except BaseException as exc:
-            plugin.status = PluginStatus.BROKEN
-            plugin.error = attempt["failure_error"]
+            if plugin.status != PluginStatus.DISABLED:
+                # DISABLED set by the supervisor's containment refusal is kept.
+                plugin.status = PluginStatus.BROKEN
+                plugin.error = attempt["failure_error"]
+            if isinstance(exc, PluginContainmentError):
+                # Use-time recheck refused: disable, never retry.
+                plugin.status = PluginStatus.DISABLED
+                plugin.error = "entry_point escapes plugin directory"
+                _audit_plugin_refusal(
+                    f"ccos.plugin_activate:{name}", f"plugin={name}", plugin.error)
             try:
                 self._cleanup_activation(plugin)
             except BaseException:
@@ -736,6 +976,14 @@ class PluginManager:
             if not isinstance(exc, Exception):
                 raise
             return False
+
+    def _refuse_containment(self, plugin: Plugin) -> None:
+        """Disable a plugin whose entry_point escapes its directory and
+        write the refusal row (no raw manifest text in the stored error)."""
+        plugin.status = PluginStatus.DISABLED
+        plugin.error = "entry_point escapes plugin directory"
+        _audit_plugin_refusal(
+            f"ccos.plugin_activate:{plugin.name}", f"plugin={plugin.name}", plugin.error)
 
     def _stage_capabilities(self, plugin: Plugin) -> List[Capability]:
         """Validate only activation-consumed shapes, before executable effects."""
@@ -780,7 +1028,7 @@ class PluginManager:
             for key in ("resource_limits", "inputs_schema", "outputs_schema"):
                 if key in definition and not isinstance(definition[key], dict):
                     raise ValueError(key)
-            cap_name = definition.get("name", f"{plugin.name}.{definition.get('id', 'unknown')}")
+            cap_name = _capability_name(definition, plugin.name)
             if not cap_name or cap_name in names:
                 raise ValueError("duplicate or empty capability name")
             names.add(cap_name)
@@ -1181,6 +1429,7 @@ class PluginManager:
             "broken": sum(1 for p in plugins if p.status == PluginStatus.BROKEN),
             "disabled": sum(1 for p in plugins if p.status == PluginStatus.DISABLED),
             "plugins": self.list_plugins(),
+            "refused": list(self._discovery_refusals),
         }
 
 
