@@ -3606,7 +3606,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 >
 > **Status update (2026-10-24) — G15g Unit B (audited plugin spawn), G15h Unit A
 > (cloudflared token out of argv), G15h Unit B (secret masking): each code complete
-> and code-reviewer APPROVED; commit pending (HEAD `c6d2618`, no hash yet); WP2.1
+> and code-reviewer APPROVED; committed `f4353cf`; WP2.1
 > remains OPEN.** Supersedes the "G15g Unit B ... is NOT done" and "G15h ... open"
 > lines above for those units only. **Tiers, per unit:** G15g Unit B — live-verified
 > on DISPOSABLE fixture plugins (real `PluginManager` and `Popen`), NOT on the real
@@ -3644,7 +3644,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > (`test_plugin_manager` for `private_agent`/`aigentik`; pre-existing
 > `test_new91_new163_rollback_preserves_finetune`). No suite totals claimed.
 > **Group 15: G15a-G15e, G15f Unit A and G15g Unit A committed; G15g Unit B, G15h
-> Unit A and G15h Unit B code-complete, reviewer-approved, commit pending; G15f Unit
+> Unit A and G15h Unit B code-complete, reviewer-approved, committed `f4353cf`; G15f Unit
 > B (in flight elsewhere, not covered here), G15i, G15j and G15z open.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
