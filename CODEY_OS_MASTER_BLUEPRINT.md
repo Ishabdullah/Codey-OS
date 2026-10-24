@@ -3649,8 +3649,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 >
 > **Status update (2026-10-24) — G15f Unit B (bench lock v2 / evaluator
 > integrity): code complete and code-reviewer APPROVED (round 1 APPROVED with
-> warnings W1-W5, round 2 APPROVED); commit pending (hash added by the
-> coordinator); NOT live-verified; WP2.1 remains OPEN.** Supersedes the "G15f Unit
+> warnings W1-W5, round 2 APPROVED); committed `623e4c7`; NOT live-verified; WP2.1 remains OPEN.** Supersedes the "G15f Unit
 > B (in flight elsewhere ...)" wording above for that unit only. `bench/lock.py`:
 > lock v2 is two lines, `tasks:<64hex>` (suite_hash unchanged, `90e1f380...f72f`)
 > and `evaluator:<64hex>` (sha256 over every `*.py` under `bench/` recursively,
@@ -3701,8 +3700,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 >
 > **Status update (2026-10-24) — G15i Units A+B (operator-script guards), G15j
 > Units A+B (HIGH_IMPACT file-write confirmation) and the D-9 `--tdd` fix: all
-> code complete and code-reviewer APPROVED; commit pending (hash added by the
-> coordinator); NOT live-verified on the real tty or the real store; WP2.1 remains
+> code complete and code-reviewer APPROVED; committed `781542a`; NOT live-verified on the real tty or the real store; WP2.1 remains
 > OPEN.** Supersedes the "G15i, G15j ... open" wording above for those items only.
 > **G15i-A:** new stdlib-only `core/tty_confirm.py` (`TTY_PATH`, `open_tty`,
 > `confirm_on_tty`, `gate_human_action`), extracted character-identically from the
@@ -3744,7 +3742,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > (Z-6/Z-7), Z-5, Z-8. G15i/G15j spec questions Q-A..Q-F were implemented on the spec
 > default and Ish's answers are not recorded. New ids NEW-1070..1078.
 > **Group 15: G15a-G15h committed (G15f Unit B `623e4c7`); G15i Units A+B and G15j
-> Units A+B code-complete, code-reviewer APPROVED, commit pending; G15z (closure)
+> Units A+B code-complete, code-reviewer APPROVED, committed `781542a`; G15z (closure)
 > open, staged plan and token estimates in `docs/wp2_1_g15z_spec.md`, budgeted per
 > Z-2 (full zero-UNKNOWN classification).**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
