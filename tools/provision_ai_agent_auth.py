@@ -23,7 +23,7 @@ Codey-OS-tracked file; the caller is responsible for putting it in
 never committed).
 
 Usage:
-    python -m tools.provision_ai_agent_auth [--username NAME] [--email EMAIL]
+    python3 -m tools.provision_ai_agent_auth [--username NAME] [--email EMAIL]
 
 Idempotent: re-running with the same --username reuses the existing user
 and revokes every prior unrevoked token for that user before issuing a
@@ -73,7 +73,9 @@ from restoricon_core.auth import (
     _validate_custom_permissions,
     utc_now_iso,
 )
-from restoricon_core.database import DatabaseManager
+from restoricon_core.database import DEFAULT_DB_PATH, DatabaseManager
+
+from core import tty_confirm
 
 DEFAULT_USERNAME = "codey-aigentik-agent"
 DEFAULT_EMAIL = "codey-aigentik-agent@local.invalid"
@@ -152,6 +154,41 @@ def _compute_crm_reader_deny_permissions() -> Dict[str, bool]:
 CRM_READER_DENY_PERMISSIONS: Dict[str, bool] = _compute_crm_reader_deny_permissions()
 
 
+_REFUSED_MESSAGE = (
+    "Refused: no human confirmation on /dev/tty (declined, unavailable or "
+    "interrupted); no token was minted. Run it directly in a terminal: "
+    "python3 -m tools.provision_ai_agent_auth"
+)
+
+
+class ProvisionNotConfirmed(PermissionError):
+    """No human confirmed on /dev/tty; nothing was created, revoked or minted."""
+
+
+def _open_tty() -> int:
+    """Seam: tests substitute a pty by patching this module attribute."""
+    return tty_confirm.open_tty()
+
+
+def _confirm_on_tty(prompt: str) -> bool:
+    """Ask the human on /dev/tty (looked up at call time so tests can patch
+    this module's seams). True only for an explicit y/yes."""
+    return tty_confirm.confirm_on_tty(prompt, open_tty=_open_tty)
+
+
+def _gate_provision(prompt: str, execute):
+    # STATIC audit labels: gate_exec writes action/command to the ledger, so
+    # no username, path or token may ever be put in them. Dynamic detail is
+    # only in `prompt`, which goes to the human's terminal.
+    return tty_confirm.gate_human_action(
+        "provision_ai_agent_auth.provision",
+        "provision ai_agent bearer token",
+        prompt,
+        execute,
+        confirm=lambda: _confirm_on_tty(prompt),
+    )
+
+
 def provision(
     username: str = DEFAULT_USERNAME,
     email: str = DEFAULT_EMAIL,
@@ -172,103 +209,154 @@ def provision(
     deny-list identity like `CRM_READER_USERNAME` can never drift back
     toward the bare `ROLE_AI_AGENT` grant just because a rerun's reuse
     path happened to skip re-applying it.
+
+    G15i: requires a per-attempt human "y" on /dev/tty BEFORE the DB is
+    opened (the rerun path revokes the deployed token). With no controlling
+    terminal (an agent harness, a daemon) it fails closed: raises
+    `ProvisionNotConfirmed` (a `PermissionError`) and mints nothing. The
+    attempt is recorded in the action-gateway audit ledger with static
+    labels only (never the username, DB path or token).
     """
     if custom_permissions is not None:
         _validate_custom_permissions(custom_permissions)
 
-    db = DatabaseManager(db_path) if db_path is not None else DatabaseManager()
-    try:
-        auth = AuthService(db)
-        conn = db.get_connection()
-        row = conn.execute("SELECT * FROM users WHERE username = ?;", (username.strip().lower(),)).fetchone()
-        if row is None:
-            # A random, never-used password: this identity authenticates via
-            # bearer token only, never via username/password login.
-            import secrets
+    # G15i: the DB is not opened (and so nothing is created, revoked or
+    # minted) until a human has answered on /dev/tty. The mutating body is
+    # deliberately a CLOSURE passed to the gate, not a module-level function:
+    # there is no importable unguarded twin to call. (A same-uid script can
+    # still patch this module or use DatabaseManager/AuthService directly --
+    # an accepted residual, G15i spec 1.2/1.6; this stops the casual and
+    # accidental caller, not an adversarial one.)
+    resolved_db = db_path if db_path is not None else str(DEFAULT_DB_PATH)
+    stdout_note = (
+        "a terminal" if sys.stdout.isatty()
+        else "NOT a terminal - it may be captured by the calling process"
+    )
+    prompt = (
+        "\n[HIGH IMPACT] Mint a Restoricon Core bearer token.\n"
+        f"  db:   {resolved_db!a}\n"
+        f"  user: {username!a}\n"
+        "  role: ai_agent\n"
+        "  any existing unrevoked token for this user is REVOKED (the deployed "
+        "core_api.token stops working)\n"
+        f"  the token will be printed on stdout ({stdout_note})\n"
+        "Proceed? [y/N]: "
+    )
+    escaped: list = []
 
-            full_name = (
-                "Codey-Aigentik (ai_agent)" if username == DEFAULT_USERNAME else f"{username} (ai_agent)"
-            )
-            user = auth.create_user(
-                username=username,
-                plain_password=secrets.token_urlsafe(32),
-                full_name=full_name,
-                email=email,
-                role=ROLE_AI_AGENT,
-                custom_permissions=custom_permissions,
-            )
-        else:
-            from restoricon_core.models import User
+    def _run() -> str:
+        try:
+            db = DatabaseManager(db_path) if db_path is not None else DatabaseManager()
+            try:
+                auth = AuthService(db)
+                conn = db.get_connection()
+                row = conn.execute("SELECT * FROM users WHERE username = ?;", (username.strip().lower(),)).fetchone()
+                if row is None:
+                    # A random, never-used password: this identity authenticates via
+                    # bearer token only, never via username/password login.
+                    import secrets
 
-            user = User(
-                id=row["id"],
-                username=row["username"],
-                password_hash=row["password_hash"],
-                full_name=row["full_name"],
-                email=row["email"],
-                phone=row["phone"],
-                role=row["role"],
-                department=row["department"],
-                customer_id=row["customer_id"],
-                active=row["active"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-            )
-            if user.role != ROLE_AI_AGENT:
-                raise ValueError(
-                    f"User '{username}' already exists with role '{user.role}', not '{ROLE_AI_AGENT}'"
-                )
-            # Revoke every prior unrevoked token for this user before issuing
-            # a new one, so reruns don't accumulate live credentials
-            # (NEW-227). No bulk-revoke method exists on AuthService, so
-            # revoke each one individually via the existing per-token API.
-            stale_tokens = conn.execute(
-                "SELECT token FROM api_tokens WHERE user_id = ? AND is_revoked = 0;",
-                (user.id,),
-            ).fetchall()
-            for stale_row in stale_tokens:
-                auth.revoke_token(stale_row["token"])
-            if stale_tokens:
-                # Loud on the actual footgun path (code-reviewer finding,
-                # 2026-08-27): the docstring warns about this, but a normal
-                # run only ever printed the new token to stdout -- nothing
-                # said the old one just died. do-not-contact.js/
-                # email-rules.js/sms-rules.js are Core-only with no local
-                # fallback, so an old deployed token going dead silently
-                # breaks their write-through until the new one is pasted
-                # into config.json.
-                print(
-                    f"Revoked {len(stale_tokens)} prior token(s) for "
-                    f"'{username}' -- update every deployed config.json's "
-                    f"core_api.token now, or its write-through calls will "
-                    f"start failing.",
-                    file=sys.stderr,
-                )
-            if custom_permissions is not None:
-                # Reapply the deny-list on every rerun for an already-
-                # existing user too, so it can never silently drift back
-                # toward the bare ROLE_AI_AGENT grant. AuthService's own
-                # set_user_permissions() requires an actor_context holding
-                # PERM_MANAGE_USERS (auth.py:1684) -- this script already
-                # operates with direct, trusted DB access (see module
-                # docstring: there is no HTTP route for user provisioning
-                # by design), so it writes custom_permissions_json directly
-                # via the connection it already holds, after the same
-                # _validate_custom_permissions() check set_user_permissions
-                # itself would run, rather than constructing a throwaway
-                # admin AuthContext just to satisfy that RBAC check.
-                with conn:
-                    conn.execute(
-                        "UPDATE users SET custom_permissions_json = ?, updated_at = ? WHERE id = ?;",
-                        (json.dumps(custom_permissions), utc_now_iso(), user.id),
+                    full_name = (
+                        "Codey-Aigentik (ai_agent)" if username == DEFAULT_USERNAME else f"{username} (ai_agent)"
                     )
-        return auth.create_token(user)
-    finally:
-        db.close()
+                    user = auth.create_user(
+                        username=username,
+                        plain_password=secrets.token_urlsafe(32),
+                        full_name=full_name,
+                        email=email,
+                        role=ROLE_AI_AGENT,
+                        custom_permissions=custom_permissions,
+                    )
+                else:
+                    from restoricon_core.models import User
+
+                    user = User(
+                        id=row["id"],
+                        username=row["username"],
+                        password_hash=row["password_hash"],
+                        full_name=row["full_name"],
+                        email=row["email"],
+                        phone=row["phone"],
+                        role=row["role"],
+                        department=row["department"],
+                        customer_id=row["customer_id"],
+                        active=row["active"],
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                    )
+                    if user.role != ROLE_AI_AGENT:
+                        raise ValueError(
+                            f"User '{username}' already exists with role '{user.role}', not '{ROLE_AI_AGENT}'"
+                        )
+                    # Revoke every prior unrevoked token for this user before issuing
+                    # a new one, so reruns don't accumulate live credentials
+                    # (NEW-227). No bulk-revoke method exists on AuthService, so
+                    # revoke each one individually via the existing per-token API.
+                    stale_tokens = conn.execute(
+                        "SELECT token FROM api_tokens WHERE user_id = ? AND is_revoked = 0;",
+                        (user.id,),
+                    ).fetchall()
+                    for stale_row in stale_tokens:
+                        auth.revoke_token(stale_row["token"])
+                    if stale_tokens:
+                        # Loud on the actual footgun path (code-reviewer finding,
+                        # 2026-08-27): the docstring warns about this, but a normal
+                        # run only ever printed the new token to stdout -- nothing
+                        # said the old one just died. do-not-contact.js/
+                        # email-rules.js/sms-rules.js are Core-only with no local
+                        # fallback, so an old deployed token going dead silently
+                        # breaks their write-through until the new one is pasted
+                        # into config.json.
+                        print(
+                            f"Revoked {len(stale_tokens)} prior token(s) for "
+                            f"'{username}' -- update every deployed config.json's "
+                            f"core_api.token now, or its write-through calls will "
+                            f"start failing.",
+                            file=sys.stderr,
+                        )
+                    if custom_permissions is not None:
+                        # Reapply the deny-list on every rerun for an already-
+                        # existing user too, so it can never silently drift back
+                        # toward the bare ROLE_AI_AGENT grant. AuthService's own
+                        # set_user_permissions() requires an actor_context holding
+                        # PERM_MANAGE_USERS (auth.py:1684) -- this script already
+                        # operates with direct, trusted DB access (see module
+                        # docstring: there is no HTTP route for user provisioning
+                        # by design), so it writes custom_permissions_json directly
+                        # via the connection it already holds, after the same
+                        # _validate_custom_permissions() check set_user_permissions
+                        # itself would run, rather than constructing a throwaway
+                        # admin AuthContext just to satisfy that RBAC check.
+                        with conn:
+                            conn.execute(
+                                "UPDATE users SET custom_permissions_json = ?, updated_at = ? WHERE id = ?;",
+                                (json.dumps(custom_permissions), utc_now_iso(), user.id),
+                            )
+                return auth.create_token(user)
+            finally:
+                db.close()
+        except Exception as exc:  # noqa: BLE001 - kept in `escaped`, re-raised below
+            # The original exception is re-raised to the caller after the gate
+            # returns; only a static message reaches the audit ledger (an
+            # exception text could carry a username, path or DB error).
+            escaped.append(exc)
+            raise RuntimeError("provision failed") from None
+
+    from core.action_gateway import OUTCOME_ALLOWED, OUTCOME_FAILED
+
+    decision = _gate_provision(prompt, _run)
+    if decision.outcome == OUTCOME_FAILED:
+        # `escaped` is empty if the gateway reports FAILED without our thunk
+        # having raised (e.g. an internal gateway failure); fall back to a
+        # static error rather than an IndexError, never exception text.
+        raise escaped[0] if escaped else RuntimeError("provision failed")
+    if decision.outcome != OUTCOME_ALLOWED:
+        raise ProvisionNotConfirmed(_REFUSED_MESSAGE)
+    return decision.detail["result"]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="python3 -m tools.provision_ai_agent_auth", description=__doc__)
     parser.add_argument("--username", default=DEFAULT_USERNAME)
     parser.add_argument("--email", default=DEFAULT_EMAIL)
     parser.add_argument("--db-path", default=None, help="Override the Core DB path (defaults to the real persistent DB)")
@@ -283,7 +371,13 @@ def main() -> int:
     custom_permissions = CRM_READER_DENY_PERMISSIONS if is_crm_reader else None
     email = CRM_READER_EMAIL if (is_crm_reader and args.email == DEFAULT_EMAIL) else args.email
 
-    token = provision(args.username, email, db_path=args.db_path, custom_permissions=custom_permissions)
+    try:
+        token = provision(args.username, email, db_path=args.db_path, custom_permissions=custom_permissions)
+    except ProvisionNotConfirmed as exc:
+        # A clean refusal line (static text), not a traceback; nothing was
+        # minted and stdout stays empty.
+        print(str(exc), file=sys.stderr)
+        return 2
     print(token)
     return 0
 

@@ -161,3 +161,59 @@ def _lora_import_tty_confirm_approves_by_default(monkeypatch):
 
     monkeypatch.setattr(lora_import, "_confirm_on_tty", lambda prompt: True)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_action_gateway_audit(tmp_path, monkeypatch):
+    """
+    WP2.1 G15i-B. core.action_gateway appends one JSONL row per gated action
+    to ~/.codeyOS/action_gateway_audit.jsonl unless CODEY_ACTION_GATEWAY_AUDIT
+    is set. tools.provision_ai_agent_auth.provision() now goes through
+    gate_exec, and ~15 existing tests call it (plus the CRM-read and
+    mutation-authority fixtures), so without this every run would append rows
+    to the REAL ledger. Pointing the env var at a per-test tmp file (and
+    dropping the process-wide gateway singleton before and after) keeps the
+    real ledger untouched. Function-scoped monkeypatch ordering means a test
+    that sets its own CODEY_ACTION_GATEWAY_AUDIT later simply overrides this.
+    """
+    monkeypatch.setenv("CODEY_ACTION_GATEWAY_AUDIT", str(tmp_path / "gateway_audit_isolated.jsonl"))
+    ag = sys.modules.get("core.action_gateway")
+    if ag is not None:
+        ag.reset_action_gateway()
+    yield
+    ag = sys.modules.get("core.action_gateway")
+    if ag is not None:
+        ag.reset_action_gateway()
+
+
+@pytest.fixture(autouse=True)
+def _operator_script_tty_confirm_approves_by_default(monkeypatch):
+    """
+    WP2.1 G15i-B: tools.provision_ai_agent_auth.provision() and
+    core.setup_dr_key.main() now require a per-attempt human "y" on /dev/tty
+    (and setup_dr_key additionally a terminal stdout). Existing tests exercise
+    the provisioning / key-writing mechanics themselves, so they get an
+    approving stand-in for each module's own seam instead of the real
+    terminal (which fails closed under pytest). This is the ONE place that
+    changes; no existing test was edited. tests/test_g15i_operator_script_guards.py
+    overrides these per test to exercise the real refuse/decline paths.
+    """
+    from core import setup_dr_key
+    from tools import provision_ai_agent_auth
+
+
+    def _approve(real):
+        def stand_in(prompt):
+            return True
+
+        # Keep the module's REAL seam reachable so the guard tests can put it
+        # back and drive it against a pty (stand_in.real).
+        stand_in.real = real
+        return stand_in
+
+    monkeypatch.setattr(
+        provision_ai_agent_auth, "_confirm_on_tty", _approve(provision_ai_agent_auth._confirm_on_tty)
+    )
+    monkeypatch.setattr(setup_dr_key, "_confirm_on_tty", _approve(setup_dr_key._confirm_on_tty))
+    monkeypatch.setattr(setup_dr_key, "_stdout_is_terminal", lambda: True)
+    yield

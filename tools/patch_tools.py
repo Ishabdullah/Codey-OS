@@ -134,6 +134,9 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
             # Protected / out-of-bounds: skip the snapshot; the gateway call
             # below fails with the same error and writes the audit row.
             pass
+        # No gateway `confirm=` here by design (G15j): the earlier
+        # ask_confirm("Apply patch?") under confirm_write is the human consent
+        # for HIGH targets; see file_tools._high_write_confirm for the file path.
         decision = get_action_gateway().gate_write(
             authority=authority,
             action="patch_tools.tool_patch_file",

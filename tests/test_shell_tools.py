@@ -177,8 +177,8 @@ class TestShellHighImpactFailsClosed(unittest.TestCase):
 class TestTermuxApiYoloRefusal(unittest.TestCase):
     """WP2.1 group 6: the concrete device-specific instance of NEW-786's
     general "ACT/READ bypassable via yolo" risk -- a termux-* command run
-    with yolo=True (main.py --yolo / fixmode / tdd's own no-confirmation
-    context) must be refused, audited, and must NEVER reach
+    with yolo=True (main.py --yolo / fixmode / `--tdd --yolo`; plain
+    `--tdd` keeps confirmations since D-9) must be refused, audited, and must NEVER reach
     subprocess.run -- confirmed via a mock, never a real termux-*
     invocation.
     """
@@ -219,8 +219,8 @@ class TestTermuxApiYoloRefusal(unittest.TestCase):
 class TestNetworkClientYoloRefusal(unittest.TestCase):
     """WP2.1 group 9: the network-client counterpart of
     TestTermuxApiYoloRefusal -- a curl/wget/scp/rsync/ssh/etc. command
-    run with yolo=True (main.py --yolo / fixmode / tdd's own
-    no-confirmation context) must be refused, audited, and must NEVER
+    run with yolo=True (main.py --yolo / fixmode / `--tdd --yolo`;
+    plain `--tdd` keeps confirmations since D-9) must be refused, audited, and must NEVER
     reach subprocess.run -- confirmed via a mock, never a real network
     client invocation.
 

@@ -1957,7 +1957,7 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
     # Both conditions matter here, not `not yolo` alone: TOOLS["shell"]'s
     # lambda never forwards yolo (always False there), so confirm_shell is
     # what's actually set to False in every "nobody's watching" context
-    # (main.py --yolo, fixmode, tdd, the daemon's own prior check). Using
+    # (main.py --yolo, fixmode, `--tdd --yolo` (plain --tdd confirms since D-9), the daemon's own prior check). Using
     # `not yolo` alone would make confirm_available=True (not fail-closed)
     # in exactly those contexts — the opposite of the intended tightening.
     confirm_available = (not yolo) and bool(AGENT_CONFIG.get("confirm_shell", True))

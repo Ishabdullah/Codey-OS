@@ -3698,6 +3698,55 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > **Group 15: G15d, G15e, G15f Unit A, G15g Units A and B, G15h Units A and B
 > committed; G15f Unit B code-complete, reviewer-approved, committed `623e4c7`; G15i,
 > G15j and G15z open.**
+>
+> **Status update (2026-10-24) — G15i Units A+B (operator-script guards), G15j
+> Units A+B (HIGH_IMPACT file-write confirmation) and the D-9 `--tdd` fix: all
+> code complete and code-reviewer APPROVED; commit pending (hash added by the
+> coordinator); NOT live-verified on the real tty or the real store; WP2.1 remains
+> OPEN.** Supersedes the "G15i, G15j ... open" wording above for those items only.
+> **G15i-A:** new stdlib-only `core/tty_confirm.py` (`TTY_PATH`, `open_tty`,
+> `confirm_on_tty`, `gate_human_action`), extracted character-identically from the
+> NEW-977 logic; `core/lora_import.py::_confirm_on_tty` delegates and its 45 lora
+> tests pass unmodified; `tests/test_tty_confirm.py` (49); reviewer 8 mutants killed.
+> **G15i-B:** `provision()` in `tools/provision_ai_agent_auth.py` is a wrapper over
+> the closure `_run` (no unguarded twin) with a `/dev/tty` confirm BEFORE any DB
+> side effect (`ProvisionNotConfirmed`, `main()` rc 2, static audit labels);
+> `core/setup_dr_key.py` guards first generation and `--force` and requires a
+> terminal stdout (no audit row); two autouse conftest fixtures;
+> `tests/test_g15i_operator_script_guards.py` (44+). Closes G15b-21 for those TWO
+> named entry points only (siblings queued, NEW-1070). Rule-6 correction: `python3
+> -m tools.provision_ai_agent_auth` was already HIGH (G15d-B); the ACT form is the
+> script form. Accepted residual: a script that creates its own pty and answers `y`
+> mints a token (NEW-1071). **The escrow DR key creation REMAINS PENDING ISH**; no
+> real config was touched. **G15j-A/B:** optional `confirm=` on
+> `gate_write`/`gate_append` (literal `True` only, fail-closed, `gate_exec` strings
+> byte-identical; 41 tests) and a REPL/tty prompt for HIGH new-file and append writes
+> in `tools/file_tools.py` (no tty means refusal, DENY targets never prompt,
+> `--allow-self-mod` still prompts; 33 tests); `utils/logger.py`: the `[y/N]` hint was
+> swallowed by rich markup in every `ask_confirm` prompt and is now escaped
+> (NEW-1072). Closes NEW-1027 / G15b-37 at the code-complete tier; accepted residuals
+> NEW-1078; adjacent open items NEW-1074 (no typeahead flush / `isatty()` on
+> `ask_confirm`) and NEW-1075 (`_sync_to_codeymd` callback-free). **D-9:**
+> `core/tdd.py::run_tdd_loop` was confirm-less two ways and now confirms unless
+> `--yolo` (7 tests); without a tty and without `--yolo` the loop wastes 5 iterations
+> (NEW-1076); the `--fix` half of G15b-47 is UNCHANGED and open (NEW-1077). Supplied
+> numbers (the ledger writer ran no suites): regression 431 passed after the G15i-B
+> fix, reviewer runs 108 + 60 + 261 + 75 passed. L1-a/L1-b live-verifier runs not
+> done. **Ish decisions recorded 2026-10-24:** G15j GO (D-8 for item 37 = keep
+> HIGH); D-9 = `--tdd` must confirm; Z-2 = full zero-UNKNOWN census classification
+> before closure; Z-4 (= D-5) narrow defensive hunter-B relaunch YES; Z-3 preserve the
+> G15b harnesses under `docs/wp2_1_g15b_harness/` YES; RATIFIED: G15f Q2, G15g spawn
+> policy (ACT + audit), G15h Q-b; accepted-residual deferrals NEW-972, NEW-943/944,
+> NEW-904/905/913/914, NEW-846, NEW-753/936. **Still pending, not decided:** D-6, D-7
+> and NEW-1016 formal confirmation, D-8 beyond item 37, G15g lazy activation and the
+> dead `private_agent`/`aigentik` manifests, NEW-1068 (CLAUDE.md vs this blueprint on
+> WP0.5; CLAUDE.md not edited), Z-1, signing the R1-R18 residual list and the DoD text
+> (Z-6/Z-7), Z-5, Z-8. G15i/G15j spec questions Q-A..Q-F were implemented on the spec
+> default and Ish's answers are not recorded. New ids NEW-1070..1078.
+> **Group 15: G15a-G15h committed (G15f Unit B `623e4c7`); G15i Units A+B and G15j
+> Units A+B code-complete, code-reviewer APPROVED, commit pending; G15z (closure)
+> open, staged plan and token estimates in `docs/wp2_1_g15z_spec.md`, budgeted per
+> Z-2 (full zero-UNKNOWN classification).**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

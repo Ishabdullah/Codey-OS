@@ -183,12 +183,14 @@ def test_selfmod_confirmless_f3_allowed_deny_still_refused(env, monkeypatch):
     assert env.rows()[-1]["outcome"] == "failed"
 
 
-def test_repl_f3_new_file_and_append_unprompted_deny_refused(env, monkeypatch):
-    # NEW-1027 / G15j: in the REPL (confirm_write True) a HIGH new-file write or
-    # append proceeds with no prompt because confirm_available is a Boolean.
-    # Pinned here so G15j flips it knowingly. DENY is the protection in the REPL.
+def test_repl_f3_new_file_and_append_prompt_deny_refused(env, monkeypatch):
+    # NEW-1027 / G15j (flipped from "unprompted"): in the REPL (confirm_write
+    # True, a tty) a HIGH new-file write or append now prompts once each; the
+    # overwrite of the existing file adds only the legacy "Overwrite?" prompt
+    # (no double prompt). DENY is still refused with no prompt.
     monkeypatch.setitem(AGENT_CONFIG, "confirm_write", True)
     monkeypatch.setitem(AGENT_CONFIG, "allow_self_modification", True)
+    monkeypatch.setattr(file_tools, "_stdin_is_tty", lambda: True)
     fs = Filesystem(workspace=env.code, allow_self_modification=True)
     monkeypatch.setattr(file_tools, "_get_fs", lambda: fs)
     ask = Mock(return_value=True)
@@ -197,15 +199,18 @@ def test_repl_f3_new_file_and_append_unprompted_deny_refused(env, monkeypatch):
     monkeypatch.setattr(logger, "confirm", ask)
     new = env.code / "install.sh"
     assert "Written" in file_tools.tool_write_file(str(new), "x")
-    assert "Appended" in file_tools.tool_append_file(str(new), "y")
-    ask.assert_not_called()
-    # overwriting an EXISTING file still hits the ordinary confirm_write prompt
-    file_tools.tool_write_file(str(new), "z")
     assert ask.call_count == 1
+    assert "Appended" in file_tools.tool_append_file(str(new), "y")
+    assert ask.call_count == 2
+    # overwriting an EXISTING file hits only the ordinary confirm_write prompt
+    file_tools.tool_write_file(str(new), "z")
+    assert ask.call_count == 3
+    ask.reset_mock()
     fs2 = Filesystem(workspace=env.home, allow_self_modification=True)
     monkeypatch.setattr(file_tools, "_get_fs", lambda: fs2)
     assert file_tools.tool_append_file(str(env.home / ".ssh" / "authorized_keys"), "k").startswith("[ERROR]")
     assert not (env.home / ".ssh").exists()
+    ask.assert_not_called()
 
 
 def test_patch_tool_uses_filesystem_workspace_and_denies(env, monkeypatch):

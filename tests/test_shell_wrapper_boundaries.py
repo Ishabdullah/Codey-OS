@@ -163,7 +163,7 @@ def test_time_wrapped_benign_command_now_refused_without_confirmation(gateway, m
     """Documents the functional behavior change code-reviewer flagged
     (W2): adding `time` to _EXEC_WRAPPER_BASENAMES makes every
     `time <cmd>` HIGH_IMPACT, so under confirm_shell=False (yolo/fixmode/
-    tdd) a previously-unconfirmed, benign `time pytest` is now refused
+    `--tdd --yolo`) a previously-unconfirmed, benign `time pytest` is now refused
     fail-closed rather than executed ambiently."""
     runner, prompt = Mock(), Mock()
     monkeypatch.setattr(shell_tools.subprocess, "run", runner)

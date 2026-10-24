@@ -113,19 +113,35 @@ def build_generate_prompt(source_path, test_path, test_code):
     )
 
 
-def run_tdd_loop(source_path, test_path, yolo=True):
+def run_tdd_loop(source_path, test_path, yolo=False):
     """
     Main TDD loop:
     1. Run tests
     2. If fail: ask model to fix
     3. Repeat until pass or MAX_TDD_ITERATIONS
+
+    D-9 (Ish, 2026-10-24): confirmations stay on unless the caller opts in
+    with yolo=True (--tdd --yolo), exactly like every other mode. Without
+    yolo the model's write_file/patch/shell actions go through the normal
+    confirm_write/confirm_shell prompts. With no human attached (stdin not a
+    tty / closed) utils.logger.confirm() answers False on EOF and the HIGH
+    write confirm callbacks refuse without a tty, so a gated action is
+    cancelled/blocked fail-closed -- never a hang, never an unattended
+    approval. In that case the model's edit for the turn does not happen and
+    the loop simply ends "still failing"; use --yolo for unattended runs.
+    The loop's own pytest run is ACT (not confirmation-gated) either way.
+    With yolo=True the process-global AGENT_CONFIG confirm flags are set False
+    and never restored: this is one-shot from main.py (which shuts down right
+    after), the same state --yolo already sets via apply_overrides. A caller
+    that runs this loop inside a longer-lived process must restore them.
     """
     from core.agent import run_agent
     from core.context import load_file
     from utils import config as _cfg
 
-    _cfg.AGENT_CONFIG["confirm_write"] = False
-    _cfg.AGENT_CONFIG["confirm_shell"] = False
+    if yolo:
+        _cfg.AGENT_CONFIG["confirm_write"] = False
+        _cfg.AGENT_CONFIG["confirm_shell"] = False
     source_p = Path(source_path)
     test_p = Path(test_path)
     if not test_p.exists():
@@ -138,7 +154,7 @@ def run_tdd_loop(source_path, test_path, yolo=True):
         info(f"Generating {source_p.name} from tests...")
         load_file(str(test_p))
         prompt = build_generate_prompt(source_path, test_path, test_code)
-        _, history = run_agent(prompt, history, yolo=True)
+        _, history = run_agent(prompt, history, yolo=yolo)
         # Verify file was actually written with content
         if not source_p.exists() or source_p.stat().st_size < 10:
             show_error(f"{source_p.name} was not created or is empty. Retrying...")
@@ -146,7 +162,7 @@ def run_tdd_loop(source_path, test_path, yolo=True):
                 f"You must create {source_p.name} using write_file with actual Python code. "
                 f"The file does not exist yet. Write the implementation now.",
                 history,
-                yolo=True,
+                yolo=yolo,
             )
     # TDD loop
     for iteration in range(1, MAX_TDD_ITERATIONS + 1):
@@ -183,7 +199,7 @@ def run_tdd_loop(source_path, test_path, yolo=True):
         fix_prompt = build_fix_prompt(
             source_path, source_code, test_path, result.failures, iteration
         )
-        _, history = run_agent(fix_prompt, history, yolo=True)
+        _, history = run_agent(fix_prompt, history, yolo=yolo)
     # Exhausted iterations
     show_tdd_complete(result.passed, result.total, MAX_TDD_ITERATIONS)
     show_error(

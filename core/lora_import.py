@@ -72,36 +72,12 @@ def _open_tty() -> int:
 
 def _confirm_on_tty(prompt: str) -> bool:
     """Ask the human on /dev/tty. True only for an explicit y/yes; decline,
-    empty answer, EOF and any I/O failure never return True."""
-    fd = _open_tty()
-    try:
-        # Discard stale typeahead (an earlier stray "y\n") BEFORE prompting, so
-        # only an answer typed after the prompt appears can approve. Fail
-        # closed: if the flush fails (or termios is unavailable) we cannot
-        # prove the input queue is clean, so raise and the gateway refuses.
-        try:
-            import termios
-        except ImportError as exc:
-            raise OSError("termios unavailable; refusing to confirm") from exc
-        try:
-            termios.tcflush(fd, termios.TCIFLUSH)
-        except (OSError, termios.error) as exc:
-            raise OSError("cannot flush tty input; refusing to confirm") from exc
-        os.write(fd, prompt.encode("utf-8", errors="replace"))
-        line = b""
-        while len(line) < 256:
-            chunk = os.read(fd, 1)
-            if not chunk:
-                break  # EOF
-            if chunk == b"\n":
-                line += chunk
-                break
-            line += chunk
-    finally:
-        os.close(fd)
-    if line == b"":
-        raise EOFError("no answer on tty")
-    return line.decode("utf-8", errors="replace").strip().lower() in ("y", "yes")
+    empty answer, EOF and any I/O failure never return True. Delegates to the
+    shared primitive (G15i-A); `_open_tty` is looked up at call time so tests
+    can substitute a pty by patching this module's seam."""
+    from core import tty_confirm
+
+    return tty_confirm.confirm_on_tty(prompt, open_tty=_open_tty)
 
 
 def _gate_lora_action(action: str, command: str, prompt: str, execute):

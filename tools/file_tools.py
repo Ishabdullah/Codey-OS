@@ -157,6 +157,78 @@ def classify_write_action(path: str, *, workspace=None) -> str:
     return ACT
 
 
+def _stdin_is_tty() -> bool:
+    """True only when stdin is a terminal. Any failure (closed stream, no
+    isatty) is "no human here": the G15j prompt must fail closed."""
+    import sys
+
+    try:
+        return bool(sys.stdin.isatty())
+    except Exception:
+        # Fail closed: an unusable stdin cannot carry human consent.
+        return False
+
+
+def _high_write_confirm(kind: str, path: str, content):
+    """Build the zero-arg human-confirmation callback for a HIGH_IMPACT file
+    write/append (G15j / NEW-1027). Same stdin `ask_confirm` convention as the
+    shell HIGH confirm and the overwrite prompt (no /dev/tty primitive).
+
+    Fail-closed: no tty -> False WITHOUT reading stdin (a piped "y" cannot
+    approve). The callback makes exactly one call to utils.logger.confirm();
+    confirm() itself re-asks on input that is neither yes nor no, returns
+    True only for y/yes, and returns False for n/no/empty/EOF/interrupt. Only
+    a literal True approves. The model-chosen path is ascii-escaped, shown as
+    head+tail when over 300 chars, and rich-markup-escaped before display.
+    """
+
+    def confirm() -> bool:
+        if not _stdin_is_tty():
+            return False
+        from rich.markup import escape
+
+        from utils.logger import confirm as ask_confirm
+
+        shown_raw = ascii(str(path))
+        if len(shown_raw) > 300:
+            # Keep head AND tail so a long benign prefix cannot hide the
+            # real file name.
+            shown_raw = shown_raw[:120] + "..." + shown_raw[-160:]
+        shown = escape(shown_raw)
+        try:
+            size = len(str(content).encode("utf-8", "replace"))
+        except Exception:
+            size = -1
+        question = (
+            f"{kind} {shown} ({size} bytes)? This is a Codey-OS core / "
+            f"protected file (HIGH_IMPACT)."
+        )
+        return ask_confirm(question) is True
+
+    return confirm
+
+
+def _high_confirm_kwargs(fs, kind: str, path: str, content, authority: str, human_consented: bool) -> dict:
+    """Return {"confirm": callback} only when a human prompt is warranted:
+    HIGH_IMPACT, confirm_write on (a REPL-style prompt path exists), no consent
+    already obtained in this call, and the path passes Filesystem's mutation
+    validation (DENY / out-of-workspace targets are refused by Filesystem with
+    no prompt). Otherwise {} so the gateway is called exactly as before."""
+    if authority != HIGH_IMPACT or human_consented:
+        return {}
+    if not bool(AGENT_CONFIG.get("confirm_write", True)):
+        return {}
+    try:
+        fs._validate_for_mutation(path)
+    except FilesystemAccessError:
+        return {}
+    except Exception:
+        # Unexpected validator failure: keep the prompt (fail toward asking
+        # the human) -- Filesystem re-validates and refuses after it anyway.
+        pass
+    return {"confirm": _high_write_confirm(kind, path, content)}
+
+
 # Global filesystem instance
 _fs: Filesystem = None
 _fs_allow_self_mod: bool = False
@@ -241,6 +313,7 @@ def tool_write_file(path: str, content: str) -> str:
     if not isinstance(content, str):
         content = str(content)
 
+    human_consented = False  # set when an overwrite prompt below was approved
     p = Path(path)
     if not p.is_absolute():
         import os
@@ -299,12 +372,14 @@ def tool_write_file(path: str, content: str) -> str:
         log_warning(f"Attempting to overwrite protected file: {path}")
         if not ask_confirm(f"Really overwrite {p.name}?"):
             return f"[CANCELLED] Overwrite of {path} cancelled."
+        human_consented = True
 
     # Regular files: confirm if the flag is set.
     elif file_exists and AGENT_CONFIG.get("confirm_write"):
         log_warning(f"About to overwrite: {path}")
         if not ask_confirm(f"Overwrite {path}?"):
             return f"[CANCELLED] Overwrite of {path} cancelled."
+        human_consented = True
 
     if p.suffix.lower() in _DECODE_EXTS:
         content = content.replace('\\"', '"')
@@ -331,6 +406,10 @@ def tool_write_file(path: str, content: str) -> str:
     confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(
         AGENT_CONFIG.get("allow_self_modification", False)
     )
+    # G15j: for a HIGH_IMPACT target where no human consent was obtained above
+    # (new file; NEW-1063 pre-check mismatch included), pass a stdin confirm
+    # callback. Only attached when warranted -- see _high_confirm_kwargs.
+    extra = _high_confirm_kwargs(_get_fs(), "Write to", path, content, authority, human_consented)
     decision = get_action_gateway().gate_write(
         authority=authority,
         action="file_tools.write_file",
@@ -338,6 +417,7 @@ def tool_write_file(path: str, content: str) -> str:
         content=content,
         confirm_available=confirm_available,
         filesystem=_get_fs(),
+        **extra,
     )
     if decision.outcome == OUTCOME_REFUSED:
         return f"[BLOCKED] {decision.reason}"
@@ -367,6 +447,8 @@ def tool_append_file(path: str, content: str) -> str:
     confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(
         AGENT_CONFIG.get("allow_self_modification", False)
     )
+    # G15j: append never has a legacy human prompt, so human_consented=False.
+    extra = _high_confirm_kwargs(_get_fs(), "Append to", path, content, authority, False)
     decision = get_action_gateway().gate_append(
         authority=authority,
         action="file_tools.append_file",
@@ -374,6 +456,7 @@ def tool_append_file(path: str, content: str) -> str:
         content=content,
         confirm_available=confirm_available,
         filesystem=_get_fs(),
+        **extra,
     )
     if decision.outcome == OUTCOME_REFUSED:
         return f"[BLOCKED] {decision.reason}"
