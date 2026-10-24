@@ -572,7 +572,7 @@ Not changed by G15d: G15b-19, 21, 22 (G15i for 21), 25-37 (G15e-G15j), 38-44, 47
 
 ### 10a. Addendum 2026-10-24: G15f Unit A and G15g Unit A (separate tier line; the section 10 header's "committed `890d4b9`" does NOT apply to these rows)
 
-Tier for every row below: **code complete, code-reviewer APPROVED, commit pending, NOT live-verified.** Counts are not recomputed (G15z). `NEW_ISSUES.md` is authoritative. Specs: `docs/wp2_1_g15f_spec.md`, `docs/wp2_1_g15g_spec.md`. New ids: NEW-1045, 1046, 1047 (G15f), NEW-1052, 1053, 1054 (G15g); NEW-1048..1051 and NEW-1055..1062 are reserved for in-flight slices.
+Tier for every row below: **code complete, code-reviewer APPROVED, committed `e9f593f`, NOT live-verified.** Counts are not recomputed (G15z). `NEW_ISSUES.md` is authoritative. Specs: `docs/wp2_1_g15f_spec.md`, `docs/wp2_1_g15g_spec.md`. New ids: NEW-1045, 1046, 1047 (G15f), NEW-1052, 1053, 1054 (G15g); NEW-1048..1051 and NEW-1055..1062 are reserved for in-flight slices.
 
 | id | post-G15d | after G15f/G15g Unit A | note |
 | --- | --- | --- | --- |

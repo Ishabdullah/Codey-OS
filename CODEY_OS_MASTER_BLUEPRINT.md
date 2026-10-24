@@ -3554,7 +3554,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > NEW-1045..1047, NEW-1052..1054 (NEW-1048..1051 G15e and NEW-1055..1062 G15h
 > are reserved for in-flight slices).
 > **Group 15: G15a-G15d committed; G15f Unit A and G15g Unit A code-complete,
-> reviewer-approved, commit pending; G15f Unit B, G15g Unit B, G15e, G15h and
+> reviewer-approved, committed `e9f593f`; G15f Unit B, G15g Unit B, G15e, G15h and
 > G15z open.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
