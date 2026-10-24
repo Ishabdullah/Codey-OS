@@ -3646,6 +3646,58 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > **Group 15: G15a-G15e, G15f Unit A and G15g Unit A committed; G15g Unit B, G15h
 > Unit A and G15h Unit B code-complete, reviewer-approved, committed `f4353cf`; G15f Unit
 > B (in flight elsewhere, not covered here), G15i, G15j and G15z open.**
+>
+> **Status update (2026-10-24) — G15f Unit B (bench lock v2 / evaluator
+> integrity): code complete and code-reviewer APPROVED (round 1 APPROVED with
+> warnings W1-W5, round 2 APPROVED); commit pending (hash added by the
+> coordinator); NOT live-verified; WP2.1 remains OPEN.** Supersedes the "G15f Unit
+> B (in flight elsewhere ...)" wording above for that unit only. `bench/lock.py`:
+> lock v2 is two lines, `tasks:<64hex>` (suite_hash unchanged, `90e1f380...f72f`)
+> and `evaluator:<64hex>` (sha256 over every `*.py` under `bench/` recursively,
+> except `bench/tasks/**` and top-level `scorecard.py`/`power_analysis.py`,
+> length-framed); `verify_lock` is True only for the exact two-line format.
+> `bench/runner.py`: tasks are snapshotted once to a 0700 temp dir and graded from
+> the copy, each task is re-hashed before every rep and every grade and a mismatch
+> raises BEFORE any ledger row (closes NEW-1046's TOCTOU), every row carries
+> `evaluator_hash`, the row suite_hash is the snapshot's hash. `bench/compare.py`:
+> `compare()` raises on mixed evaluator hashes (gate reports "not comparable";
+> `gate.py` untouched). `bench/suite.lock` regenerated last
+> (`evaluator:b3902418...937b`, independently recomputed by the reviewer: equal).
+> Closes G15b-30 and the hash half of G15b-29 (the classification half was G15e)
+> at the code-complete tier; all of G15b-29..32 are now closed at their respective
+> tiers. Tests: new `tests/test_bench_integrity_lock.py` (41) and
+> `tests/test_bench_integrity_classification.py` (5); 10-file suite 334 passed
+> (supplied); scorecard anchors preserved (4a 6.0, 4c 7.0). Reviewer mutants
+> caught (NUL framing, OSError-only, non-recursive glob, tasks exclusion, per-task
+> rehash, grading from source, exclusion widened to verify.py, v1 lock accepted,
+> compare check dropped). **Accepted residuals (NEW-1067):** the lock is
+> self-attesting (G15f Q2 unanswered, implemented on the spec default = no
+> `/dev/tty` gate); same-uid windows and a discoverable temp dir;
+> symlink-following copy (task trees have none); unchecked-hash `.pyc`; the hash
+> is of disk bytes; `scorecard_manual.json`, README, `scorecard.md`,
+> `scorecard_history.jsonl`, `power_analysis.md`, `suite.lock` intentionally
+> uncovered; `compare()` accepts an all-absent `evaluator_hash` set; the scorecard
+> sidecar hash (spec 4.5) not done. **Ops rules:** any edit to a covered
+> `bench/*.py` requires a relock; every existing baseline MUST be re-run (legacy
+> rows lack `evaluator_hash`). **NOT proven:** the bench has never been run with
+> the scrubbed env, the hardened grader or lock v2; the deferred live check is one
+> manual real bench run by Ish naming `LD_PRELOAD`, `SHELL`, `USER`, `LOGNAME`.
+> **OPEN QUESTION (NEW-1068, for Ish; CLAUDE.md not edited):** CLAUDE.md says do
+> not run the bench with `CODEY_TRAJECTORY=1` until WP0.5 lands, while this
+> blueprint (~line 2507) says WP0.5 is DONE 2026-10-07 - an unreconciled
+> contradiction. **Ish decisions recorded 2026-10-24:** F4 = YES (severity rubric
+> ratified); D-1 = YES (G15b-19, G15b-22 and G15b-36 are ACCEPTED RESIDUALS under
+> the "ceiling" statement: the shell stays an audited ACT surface, only an
+> OS-level uid/proot boundary removes it) and that boundary is logged as a
+> CANDIDATE future WP (D-10 default, NEW-1069, not part of WP2.1). Still pending,
+> not decided: D-5, D-6, D-7 formal confirmation (the recommended set was
+> implemented by G15e on Ish's "all extra sets" answer), D-8 (07/31/35/37 kept
+> HIGH in code, not formally confirmed), D-9, D-10 beyond the candidate-WP log,
+> G15f Q2, and the G15g questions (spawn policy, lazy activation, dead manifests).
+> New ids NEW-1067..1069.
+> **Group 15: G15d, G15e, G15f Unit A, G15g Units A and B, G15h Units A and B
+> committed; G15f Unit B code-complete, reviewer-approved, commit pending; G15i,
+> G15j and G15z open.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

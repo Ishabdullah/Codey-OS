@@ -15,9 +15,16 @@ def _by_key(rows):
 
 
 def compare(base_rows, cand_rows) -> dict:
+    """Paired comparison. Refuses (ValueError) rows from different suite versions or
+    different evaluator versions (`evaluator_hash`; all-absent legacy rows are one
+    version, a mix of absent and present is refused). gate.decide turns the
+    ValueError into "not comparable" -> never promote."""
     hashes = {r["suite_hash"] for r in base_rows} | {r["suite_hash"] for r in cand_rows}
     if len(hashes) != 1:
         raise ValueError("base and candidate ran on different suite versions")
+    evals = {r.get("evaluator_hash") for r in list(base_rows) + list(cand_rows)}
+    if len(evals) != 1:
+        raise ValueError("base and candidate ran on different evaluator versions")
     a, b = _by_key(base_rows), _by_key(cand_rows)
     keys = sorted(set(a) & set(b))
     if not keys:

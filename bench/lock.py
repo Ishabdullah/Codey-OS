@@ -1,9 +1,41 @@
-"""Suite integrity lock: sha256 over every task file. Detects tampering/drift."""
+"""Suite + evaluator integrity lock.
+
+suite.lock (v2) has exactly two lines: ``tasks:<sha256>`` (every file under
+bench/tasks) and ``evaluator:<sha256>`` (every bench/*.py except the
+measurement-only modules in NOT_EVALUATOR). A NEW bench/*.py is covered by
+default, so adding one changes the hash until the lock is regenerated.
+
+Honest claim: the lock detects edits that are not accompanied by a deliberate
+relock. It cannot stop a writer who can edit both the files and the lock
+(write_lock() is self-attesting; accepted residual, G15f Q2), and it does not
+defend the verifier itself (a modified lock.py/runner.py can skip the check;
+its value there is a verifier run from an unmodified copy). The evaluator hash
+is also recorded in every ledger row so compare() can refuse mixed versions.
+A legacy single-line (v1) lock fails closed: verify_lock() is False (so does a
+lock that is not valid UTF-8).
+
+Coverage: every *.py at any depth under bench/ (excluding bench/tasks/**, which the
+tasks hash covers, __pycache__, and NOT_EVALUATOR) feeds the evaluator hash, so a
+new module or subpackage is covered by default. Intentionally uncovered: non-.py
+data (suite.lock itself, scorecard_manual.json, scorecard_history.jsonl, *.md)
+because they do not influence pass/fail. Residual: an unchecked-hash .pyc could
+shadow a source file; not defended here.
+
+Framing: evaluator_hash length-prefixes each path and content (unambiguous).
+suite_hash keeps its original path\0bytes\0 framing UNCHANGED, which is
+ambiguous ({f: b"X\0g\0Y"} collides with {f: b"X", g: b"Y"}); accepted residual,
+kept so existing ledger suite_hash values stay comparable (Ish has not decided
+to change it; tests/test_bench_integrity_lock.py pins the collision).
+"""
 import hashlib
+import struct
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 LOCK = ROOT / "suite.lock"
+
+# Measurement, not verdict path (G15f Q3). Everything else under bench/*.py is covered.
+NOT_EVALUATOR = frozenset({"scorecard.py", "power_analysis.py"})
 
 
 def suite_hash(tasks_dir: Path = ROOT / "tasks") -> str:
@@ -17,13 +49,60 @@ def suite_hash(tasks_dir: Path = ROOT / "tasks") -> str:
     return h.hexdigest()
 
 
-def write_lock(tasks_dir: Path = ROOT / "tasks", lock: Path = LOCK) -> str:
+def evaluator_files(bench_dir: Path = ROOT) -> list:
+    bench_dir = Path(bench_dir)
+    out = []
+    for p in bench_dir.rglob("*.py"):
+        rel = p.relative_to(bench_dir)
+        if not p.is_file() or "__pycache__" in rel.parts or rel.parts[0] == "tasks":
+            continue
+        if len(rel.parts) == 1 and p.name in NOT_EVALUATOR:
+            continue
+        out.append(p)
+    return sorted(out)
+
+
+def evaluator_hash(bench_dir: Path = ROOT) -> str:
+    bench_dir = Path(bench_dir)
+    h = hashlib.sha256()
+    for p in evaluator_files(bench_dir):
+        name = p.relative_to(bench_dir).as_posix().encode()
+        data = p.read_bytes()
+        h.update(struct.pack(">Q", len(name)) + name + struct.pack(">Q", len(data)) + data)
+    return h.hexdigest()
+
+
+def write_lock(tasks_dir: Path = ROOT / "tasks", lock: Path = LOCK, bench_dir=None) -> str:
+    """Write the v2 lock; returns the tasks hash (as the v1 version did)."""
     d = suite_hash(tasks_dir)
-    lock.write_text(d + "\n")
+    e = evaluator_hash(ROOT if bench_dir is None else bench_dir)
+    lock.write_text(f"tasks:{d}\nevaluator:{e}\n")
     return d
 
 
-def verify_lock(tasks_dir: Path = ROOT / "tasks", lock: Path = LOCK) -> bool:
-    if not lock.exists():
+def read_lock(lock: Path = LOCK):
+    """Parse a v2 lock into {"tasks": hex, "evaluator": hex}; None if missing or not exactly v2."""
+    try:
+        text = lock.read_text()
+    except (OSError, UnicodeError):
+        # unreadable or non-UTF8 lock == no valid lock: fail closed (verify_lock -> False)
+        return None
+    lines = text.splitlines()
+    if len(lines) != 2:
+        return None
+    out = {}
+    for line, key in zip(lines, ("tasks", "evaluator")):
+        prefix = key + ":"
+        val = line[len(prefix):]
+        if not line.startswith(prefix) or len(val) != 64 or any(c not in "0123456789abcdef" for c in val):
+            return None
+        out[key] = val
+    return out
+
+
+def verify_lock(tasks_dir: Path = ROOT / "tasks", lock: Path = LOCK, bench_dir=None) -> bool:
+    got = read_lock(lock)
+    if got is None:
         return False
-    return lock.read_text().strip() == suite_hash(tasks_dir)
+    return (got["tasks"] == suite_hash(tasks_dir)
+            and got["evaluator"] == evaluator_hash(ROOT if bench_dir is None else bench_dir))
