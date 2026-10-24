@@ -174,25 +174,23 @@ def test_introspection_still_succeeds_on_git_metadata(fs, workspace):
 
 
 # ---------------------------------------------------------------------------
-# 5: nested repository's own .git is out of scope (root-only match)
-# ---------------------------------------------------------------------------
+# 5: nested repository's own .git IS now denied (G15e any-component rule;
+# declared flip of the former root-only test_nested_repository_git_is_not_blocked)
 
 @pytest.mark.parametrize("op", ["write", "patch", "append"])
-def test_nested_repository_git_is_not_blocked(fs, workspace, op):
+def test_nested_repository_git_is_blocked(fs, workspace, op):
     nested_config = workspace / "vendor" / "sub" / ".git" / "config"
     nested_config.parent.mkdir(parents=True, exist_ok=True)
     nested_config.write_text("[core]\nold\n")
 
-    if op == "write":
-        result = fs.write(str(nested_config), "replaced")
-        assert "Written" in result
-        assert nested_config.read_text() == "replaced"
-    elif op == "patch":
-        fs.patch(str(nested_config), "old", "new")
-        assert nested_config.read_text() == "[core]\nnew\n"
-    else:
-        fs.append(str(nested_config), "\nappended\n")
-        assert nested_config.read_text() == "[core]\nold\n\nappended\n"
+    with pytest.raises(FilesystemAccessError, match="is inside a Git metadata directory"):
+        if op == "write":
+            fs.write(str(nested_config), "replaced")
+        elif op == "patch":
+            fs.patch(str(nested_config), "old", "new")
+        else:
+            fs.append(str(nested_config), "\nappended\n")
+    assert nested_config.read_text() == "[core]\nold\n"
 
 
 # ---------------------------------------------------------------------------

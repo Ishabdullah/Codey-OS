@@ -48,6 +48,11 @@ from utils.logger import error, warning
 #                      daemon env is always refused (same shape as find)
 #   Credential-bearing path operands (~/.ssh, state-dir keys, /proc/*/environ,
 #   ...) are refused inside shell() for every admitted prefix (G15d D-2).
+#   Protected-path operands (G15e: audit ledger, state dir, $HOME startup files,
+#   .git components, PATH directories, F3 launchers/scripts/config/plugin data)
+#   are refused inside shell() too. This list admits none of the file mutators
+#   (cp mv rm ln touch mkdir chmod dd), so for the daemon the scan matters for
+#   script operands such as `python3 main.py` or `python3 install.sh`.
 #
 # Security note: Python/pip commands are validated to prevent arbitrary code
 # execution. Only specific patterns are allowed (e.g., "python script.py",
@@ -510,8 +515,9 @@ class TaskExecutor:
         (action "shell_tools.shell", not "task_executor.daemon_shell"): env in
         any form, bare printenv or printenv of a name outside the allowlist,
         and any command whose operand names a credential-bearing path or whose
-        bare name resolves outside the system bin directories. Those checks
-        live in shell() on purpose, so they are not duplicated here.
+        bare name resolves outside the system bin directories, or (G15e) whose
+        operand names a protected path such as an F3 file (`python3 main.py`).
+        Those checks live in shell() on purpose, so they are not duplicated here.
         """
         from core.action_gateway import HIGH_IMPACT, get_action_gateway
         from tools.shell_tools import classify_shell_command, shell

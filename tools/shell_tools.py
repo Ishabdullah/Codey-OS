@@ -11,6 +11,7 @@ from time import monotonic
 from typing import Optional
 
 import utils.config as _config
+from core import protected_paths as _protected_paths
 from core.action_gateway import (
     ACT,
     HIGH_IMPACT,
@@ -306,11 +307,7 @@ _BUILD_TOOL_ACT_BASENAMES = frozenset({
 # on this device. This is a naming convention, NOT an ownership boundary: the
 # Termux bin dir is writable by the agent's own uid, so a write into it is a
 # protected-path (G15e) question, not a classifier one.
-_SYSTEM_BIN_DIRS = frozenset({
-    "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin",
-    "/system/bin", "/system/xbin",
-    "/data/data/com.termux/files/usr/bin",
-})
+_SYSTEM_BIN_DIRS = _protected_paths.SYSTEM_BIN_DIRS  # lifted to core/protected_paths.py (G15e)
 
 
 def _argv0_in_system_dir(argv0: str) -> bool:
@@ -1325,8 +1322,10 @@ def _shell_command_targets_git_metadata(command: str, *, cwd: Path, roots) -> bo
       for find/xargs (not a full argument-grammar parser per tool).
     - Interpreter-internal writes (`python3 -c "open('.git/config','w')"`)
       are invisible to argv inspection by construction.
-    - Nested/submodule .git elsewhere in the tree: out of scope, same
-      caveat already logged against NEW-894.
+    - Nested/submodule .git elsewhere in the tree: out of scope here, same
+      caveat already logged against NEW-894. Closed for non-exempt bases by
+      the G15e protected-path scan in shell() (`_shell_command_targets_protected_path`,
+      any `.git` component, no root limit); this scan is unchanged.
     - `.git` used as an exclusion/archival pattern (`tar --exclude=.git`)
       is escalated to require confirmation even though it's common and
       harmless -- the accepted cost of a generic scan; adds a prompt,
@@ -1401,47 +1400,20 @@ def _shell_command_targets_git_metadata(command: str, *, cwd: Path, roots) -> bo
 # Entries under $HOME (equal or descendant). Why: private keys, API/registry
 # tokens, cloud and VCS credential stores, and shell history (can embed
 # secrets typed on a command line).
-_CRED_HOME_ENTRIES = (
-    ".ssh", ".netrc", ".git-credentials", ".gnupg", ".aws", ".kube",
-    ".npmrc", ".pypirc", ".docker/config.json", ".config/gh",
-    ".config/gcloud", ".config/git/credentials",
-    ".bash_history", ".zsh_history",
-)
-# Entries directly under the Codey state dir (and under ~/.codeyOS, the usual
-# default, so an overridden CODEY_STATE_DIR does not unprotect it). Why: the
-# age key, tunnel-token fallback config, GCP creds, internal service tokens.
-_CRED_STATE_ENTRIES = (
-    "age.key", "config.json", "gcp_credentials.json",
-    "aigentik_internal_token", "ccos_crm_read_token",
-)
-# fnmatch patterns for names directly under the state dir: encrypted secrets
-# and the Restoricon database with its -wal/-shm/-journal siblings (PII).
-_CRED_STATE_PATTERNS = ("*.age", "restoricon.db*")
-# Basename patterns, any directory, applied ONLY to candidates that exist on
-# disk (otherwise a search pattern such as `grep -rn .env src` would be HIGH).
-# Same family as core/context.py's default ignore list. `.pub` is excluded.
-_CRED_BASENAME_PATTERNS = (
-    ".env", ".env.*", "*.pem", "*.key",
-    "id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*",
-)
+# The credential data below was lifted verbatim into core/protected_paths.py
+# (G15e, the single shared protected-path set) and is re-exported under the
+# old names so the G15d scan and its tests are unchanged.
+_CRED_HOME_ENTRIES = _protected_paths.CRED_HOME_ENTRIES
+_CRED_STATE_ENTRIES = _protected_paths.CRED_STATE_ENTRIES
+_CRED_STATE_PATTERNS = _protected_paths.CRED_STATE_PATTERNS
+_CRED_BASENAME_PATTERNS = _protected_paths.CRED_BASENAME_PATTERNS
 # Recursive content readers: any directory operand is treated as recursive, so
 # a path that is an ancestor of a credential entry also escalates (no flag
 # parsing: abbreviations and clusters would be the hand-scan trap again).
 _CRED_ANCESTOR_BASES = frozenset({"grep", "egrep", "fgrep", "rgrep", "diff", "cp"})
 _CRED_RECURSIVE_GREP = frozenset({"grep", "egrep", "fgrep", "rgrep"})
-# This device exposes the same tree as /data/data/<pkg> and /data/user/0/<pkg>
-# and realpath() does not collapse one to the other, so both spellings are
-# folded to the first before any comparison.
-_CRED_PATH_ALIASES = (("/data/user/0/", "/data/data/"),)
-
-
-def _cred_canon(path: str) -> str:
-    """Normalize a path string and fold the known device alias prefixes."""
-    path = os.path.normpath(path)
-    for alias, target in _CRED_PATH_ALIASES:
-        if path.startswith(alias):
-            return target + path[len(alias):]
-    return path
+_CRED_PATH_ALIASES = _protected_paths.CRED_PATH_ALIASES
+_cred_canon = _protected_paths.canon
 
 
 def _path_candidates(command: str, *, cwd: Path, home: Path):
@@ -1618,6 +1590,107 @@ def _scan_credentials_safely(command: str) -> bool:
         )
     except Exception:
         return True
+
+
+# --- G15e Unit B: write-target scan over the shared protected-path set -------
+# Lives in shell() (like the credential scan), NOT in classify_shell_command:
+# it needs cwd, $HOME, the state dir, symlink resolution and the PATH.
+# Bases that cannot write by construction, so a protected path in their argv is
+# a read or a literal: READ_COMMANDS (after G15d every member is read-only; the
+# ones with an output option are READ only through an option table), `sed`
+# (ACT only with --sandbox and no -i), and echo/cd/cut/tr/termux-clipboard-get
+# which have no write option (shell=False, so `>` is a literal argument).
+# Git basenames are already HIGH. Pinned exactly by a drift test: widening this
+# set is a deliberate, reviewed edit. Every other base is scanned by default.
+_PROTECTED_SCAN_EXEMPT_BASES = frozenset(READ_COMMANDS) | frozenset({
+    "echo", "cd", "cut", "tr", "sed", "termux-clipboard-get",
+})
+# File mutators: every rule applies, including the runner-exempt rows, so
+# `cp x core/agent.py` is HIGH.
+_PROTECTED_MUTATOR_BASES = frozenset({
+    "cp", "mv", "ln", "touch", "mkdir", "rm", "rmdir", "chmod", "dd",
+})
+# Bases whose operand may be a DIRECTORY that contains a protected entry
+# (`rm -rf ~`, `cp -r payload ~`, `ln -s x ~`, `mv ~/.codeyOS elsewhere`).
+_PROTECTED_ANCESTOR_BASES = frozenset({"cp", "mv", "ln", "rm", "rmdir", "chmod"})
+# Rows that do not apply to runner operands. `core-py-mirror` / rows tagged
+# runner_exempt: `python3 tools/x.py` or `pytest tests/...` executing a core
+# file is the registered script-file ceiling (G15b-19), flagging it would make
+# normal development HIGH. `path-shadow` is a file-CREATION rule: a runner's
+# token such as `pytest` in `python3 -m pytest` or `install` in `pip install`
+# is a subcommand name, not a path it creates, and would otherwise refuse the
+# common case of cwd == repo root. F3 rows are deliberately NOT exempt:
+# running an F3 file (`python3 main.py`, `bash install.sh`) is flagged on
+# purpose, which also NARROWS (does not close) G15b-22.
+_PROTECTED_RUNNER_SKIP_RULES = frozenset({"core-py-mirror", "path-shadow"})
+
+
+def _protected_scan_base(command: str) -> Optional[str]:
+    """Basename of argv[0] when the protected scan applies to `command`, else
+    None (empty command, git, or an exempt read-only base)."""
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    if not parts:
+        return None
+    base = Path(parts[0]).name
+    if _is_git_basename(base) or base in _PROTECTED_SCAN_EXEMPT_BASES:
+        return None
+    return base
+
+
+def _shell_command_targets_protected_path(command: str, *, cwd: Path, home: Path, ctx) -> Optional[str]:
+    """G15e: the rule id of the first protected path (core.protected_paths)
+    named by a non-exempt command's argv, or None. Candidate extraction is
+    G15d's `_path_candidates` (every token after argv[0], the text after `=`,
+    attached short operands, `~`/`$HOME` expansion, lexical and resolved
+    forms), deliberately with no positional parsing: GNU option abbreviation
+    and clustering would reopen a hand-written operand scan, so every
+    non-option-looking token is a candidate (accepted false positives, spec
+    section 8). Mutator bases get every rule; other bases skip
+    `_PROTECTED_RUNNER_SKIP_RULES` and the rows tagged runner_exempt.
+    Fail closed: a NUL byte or resolve() failure returns "unresolvable-operand".
+    """
+    base = _protected_scan_base(command)
+    if base is None:
+        return None
+    cands = _path_candidates(command, cwd=cwd, home=home)
+    if cands is None:
+        return "unresolvable-operand"
+    skip = frozenset()
+    if base not in _PROTECTED_MUTATOR_BASES:
+        skip = _PROTECTED_RUNNER_SKIP_RULES | frozenset(
+            e.rule for e in ctx.entries if e.runner_exempt
+        )
+    ancestor = base in _PROTECTED_ANCESTOR_BASES
+    for lexical, resolved in cands:
+        forms = (lexical, resolved)
+        hit = _protected_paths.first_hit(forms, ctx, shell=True, skip=skip)
+        if hit is None and ancestor:
+            hit = _protected_paths.ancestor_hit(forms, ctx)
+        if hit is not None:
+            return hit.rule
+    return None
+
+
+def _scan_protected_safely(command: str) -> Optional[str]:
+    """shell()-side wrapper: builds cwd/home/context at call time (nothing is
+    cached across calls) and turns ANY exception into the rule "scan-error".
+    Failing closed is safe: the only cost of a false positive is a refusal or
+    a human prompt, never an execution.
+    """
+    try:
+        if _protected_scan_base(command) is None:
+            return None
+        ctx = _protected_paths.build_context(
+            code_dir=CODE_DIR, workspace_root=_config.WORKSPACE_ROOT,
+        )
+        return _shell_command_targets_protected_path(
+            command, cwd=Path(os.getcwd()), home=Path.home(), ctx=ctx,
+        )
+    except Exception:
+        return "scan-error"
 
 
 def _command_shadows_system_binary(command: str) -> bool:
@@ -1865,6 +1938,16 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
     if authority != HIGH_IMPACT and _scan_credentials_safely(command):
         authority = HIGH_IMPACT
         credential_escalation = True
+    # G15e: write targets in the shared protected-path set (core/protected_paths:
+    # audit ledger, state dir, $HOME startup/credential files, .git components,
+    # PATH directories, F3 launchers/scripts/config/plugin data). Only ACT is
+    # escalated: READ commands cannot write and HIGH is already gated. A scan
+    # failure escalates too (rule "scan-error").
+    protected_rule = None
+    if authority == ACT:
+        protected_rule = _scan_protected_safely(command)
+        if protected_rule is not None:
+            authority = HIGH_IMPACT
     # Q2: bare-name PATH shadow (a planted executable in a user-writable PATH
     # directory borrowing a system tool's READ/ACT label).
     shadow_escalation = False
@@ -1890,6 +1973,8 @@ def shell(command: str, yolo: bool = False, timeout: int = 1800) -> str:
                     warning(f"Command targets this repository's own Git metadata directory: `{command}`")
                 if credential_escalation:
                     warning(f"Command references a credential-bearing path: `{command}`")
+                if protected_rule is not None:
+                    warning(f"Command references a protected path ({protected_rule}): `{command}`")
                 if shadow_escalation:
                     warning(f"Command name resolves outside the system bin directories: `{command}`")
                 return ask_confirm(f"Run shell command: `{command}`?")

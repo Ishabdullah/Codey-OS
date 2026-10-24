@@ -546,6 +546,8 @@ NEW-1025 (G15b-29, 30, 31, 32), NEW-1026 (G15b-33, 34, 35), NEW-1027 (G15b-37 an
 NEW-1032 (G15b-39, 40), NEW-1033 (G15b-48), NEW-1034 (G15b-43), NEW-1035 (G15b-49).
 NEW-1036 to NEW-1044 (allocated 2026-10-23 for G15d): NEW-1036 option-abbreviation class and the npm/pip instances (G15b-03 npm part, 13, 14, 15), NEW-1037 PATH order/PATH-dependent classification (G15b-09), NEW-1038 `_BUILD_TOOL_SYSTEM_DIRS` device mismatch, NEW-1039 `/data/user/0` alias, NEW-1040 `node inspect --probe/--expr`, NEW-1041 `.qwen/settings.json` provenance (G15b-46), NEW-1042 qwen launcher shebang, NEW-1043 `test_daemon_shutdown_budget` fails at clean HEAD, NEW-1044 G15d accepted residuals and false positives.
 
+NEW-1048 to NEW-1051 (written 2026-10-24 for G15e): NEW-1048 file-tool credential reads and the `patch_file` echo (G15b-38 half), NEW-1049 unlisted startup/exec vectors ($PREFIX/etc, site-packages, peer-agent config), NEW-1050 repo root on PATH (decided friction), NEW-1051 G15e accepted residuals, false positives and reviewer warnings. NEW-1063 (`tool_write_file` pre-checks use `os.getcwd()`), NEW-1064 (order-dependent pre-existing test failures), NEW-1065 (`tests/test_patch_tools.py` writes into the real repo `core/`) were found during G15e. NEW-1045..1047 are G15f and NEW-1052..1054 G15g (see 10a); NEW-1055..1062 are reserved for G15h.
+
 ## 10. Status after G15d (2026-10-23; added, sections 2-3 are intentionally NOT rewritten, they remain the post-G15c snapshot and their counts still reconcile with the item table)
 
 Tier for every row below unless stated: **code complete, code-reviewer APPROVED, committed `890d4b9`, NOT live-verified.** Counts for this state are NOT recomputed (do it at G15z). `NEW_ISSUES.md` is authoritative. Spec: `docs/wp2_1_g15d_spec.md`.
@@ -585,3 +587,28 @@ Tier for every row below: **code complete, code-reviewer APPROVED, committed `e9
 | G15b-11 | OPEN | **bench child narrowed**; shell and plugin children still open | G15h; plugin side is NEW-1053 |
 
 Rule-6 correction: spec 13 item 9 of `docs/wp2_1_g15f_spec.md` (symlinks followed by `copytree`; a dangling link gives `GradingError` that fails closed) was overclaimed; the reviewer showed a dangling symlink or FIFO let a task escape the denominator, now fixed by ignoring all symlinks and special files in the copy (NEW-1047). Not changed: G15b-26, 27, 28, and every other row.
+
+
+### 10b. Addendum 2026-10-24: G15e Units A, B, C (protected-path set; separate tier line; neither "committed `890d4b9`" of section 10 nor "committed `e9f593f`" of 10a applies to these rows)
+
+Tier for every row below: **code complete, code-reviewer APPROVED (Unit A after one CHANGES REQUESTED round, Units B and C first pass), commit pending, NOT live-verified** (recording-fake and disposable-directory evidence only). Counts are not recomputed (G15z). `NEW_ISSUES.md` is authoritative. Spec: `docs/wp2_1_g15e_spec.md`. New ids: NEW-1048..1051, NEW-1063..1065 (NEW-1055..1062 reserved for G15h). Ish decisions applied (2026-10-23/24): F3 yes (Q1(b) not taken), DENY tier for non-repo targets, `--allow-self-mod` unlocks only HIGH, repo root stays on PATH (friction accepted), `codey-metrics` added, D-7 = `ccos/core/**` and `restoricon_core/authority*.py`, Q6 extras all accepted, `bench/**` HIGH, read side yes. D-8 NOT decided: the "HIGH (amb)" labels stay.
+
+| id | before | after G15e | note |
+| --- | --- | --- | --- |
+| G15b-07 | narrowed | **CLOSED for argv-visible forms** (NEW-1022) | `cp mv ln touch mkdir rm rmdir chmod dd` checked against every rule, alias spelling included; runners checked except `core-py-mirror`/`path-shadow`/`runner_exempt`; opaque execution (F2), hard links, `/dev/fd/N` remain (NEW-1051) |
+| G15b-08 | narrowed | **CLOSED for G11-G13 and nested/case `.git`** (NEW-1022) | sibling-repo hooks, `~/.gitconfig`, `~/.config/git/**`, any-component casefolded `.git` on both surfaces; `rm -rf` of a dir containing a nested `.git` is not a hit |
+| G15b-26 | OPEN | **CLOSED** (file tools + shell argv; NEW-1024) | state/active config DENY (call-time `get_config_file_path()` and `CODEY_CONFIG_PATH`); repo-root `config.json` HIGH (F3); operator writers do not import the guarded layer (AST test) |
+| G15b-27 | OPEN | **CLOSED in confirm-less modes** (NEW-1024) | launchers incl. `codey-metrics`, `main.py`, `lib/**`, any `*.sh`, `install.sh`, `setup*.sh` HIGH; REPL new-file/append unprompted until G15j (NEW-1027); drift test covers future launchers |
+| G15b-28 | OPEN | **PARTIALLY CLOSED** (D-7) | `ccos/core/**` and `restoricon_core/authority*.py` (direct-child `.py` only) HIGH; `telemetry/store.py`, `pipeline/run.py`, `codey_estimator/__init__.py` queued, NOT added; HIGH but not core files, so no checkpoint under `--allow-self-mod` |
+| G15b-33 | OPEN | **CLOSED** (given repo/`$HOME` in the workspace; NEW-1026) | DENY tier: `$HOME` startup files, `~/.termux`, credentials, `.gitconfig`, state dir, peer-agent config; C1 (per-form F3 override) found and fixed in review |
+| G15b-34 | OPEN | **CLOSED for the named forms** (NEW-1026) | `audit_path()` resolved at call time (env override and default both guarded) plus the state dir; the gateway's own appends still work; hash chain stays queue |
+| G15b-35 | OPEN | **CLOSED** (NEW-1026) | any-component, casefold, `rstrip('. ')`, below the workspace/CODE_DIR base; Unicode-ignorable aliasing residual |
+| G15b-37 | OPEN | OPEN, unchanged | G15j / NEW-1027; DENY tier is the REPL protection; HIGH-tier new-file/append writes still unprompted in the REPL |
+| G15b-38 | UNSUPPORTED | **CONFIRMED (rule-6 correction), then FIXED** (NEW-1031, NEW-1048) | spec probe retained the echo of a fake `age.key` and an out-of-workspace secret; `patch_file` validates before read, no existence oracle; `Filesystem.read` also denies the credential set (Q7(b)) |
+| G15b-39 | OPEN | OPEN, boundary clarified | `.env`/`*.pem`/`*.key` reads through the file tools intentionally still allowed; `.codeyignore` still not applied |
+| G15b-09 | NARROWED | **still NARROWED, NOT closed** (NEW-1037) | dedicated bin dirs DENY, mixed-dir `path-shadow`; `pip install`/`npm -g`/`pkg` write without an operand; `/system/bin` unlistable; Q3: repo root stays on PATH |
+| G15b-22 | PARTIALLY CLOSED | **NARROWED, NOT closed** (NEW-1028) | literal `python3 main.py --yolo --allow-self-mod` / `bash codeyOS` / `bash setup_repo.sh` now HIGH (runners do not skip F3 rows); internal exec, PATH-resolved launcher and `-c` forms unchanged |
+| G15b-25 | PARTIALLY FIXED (containment half, 10a) | classification half done | non-`.py` `ccos/plugins/**` incl. `manifest.json` HIGH; audited spawn and child env are G15g Unit B (NEW-1053) |
+| G15b-29 | OPEN | classification half delivered, **OPEN** | `bench/**` every suffix HIGH via the `bench-evaluator` row; lock/evaluator hash is G15f Unit B (NEW-1046) |
+
+Rule-6 note: the spec's section 13 had NEW-1048/1049/1050 as provisional entries describing open findings; they are written here as FIXED (1048, 1049) and DECIDED (1050) because Ish accepted Q7 and Q6 and decided Q3 before the commit. Not changed: G15b-19, 21 (apart from the `bash setup_repo.sh` example), 30, 36, 40-49, and every row of 10 and 10a not listed above.

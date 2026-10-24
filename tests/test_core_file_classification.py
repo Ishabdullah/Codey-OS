@@ -56,9 +56,6 @@ def test_py_at_any_depth_under_each_root_is_core_high(code_dir, root, rel):
     [
         "core/a/notes.md",
         "core/a/data.json",
-        "tools/x/y.sh",
-        "main.py",
-        "ccos/core/x.py",
         "tests/sub/test_x.py",
         "corex/a/b.py",
         "coreish.py",
@@ -69,6 +66,24 @@ def test_non_core_nested_path_unaffected(code_dir, rel):
     target = code_dir / rel
     assert checkpoint.is_core_file(str(target)) is False
     assert classify_write_action(str(target)) == ACT
+
+
+# Declared G15e Unit C flip (D-7, Ish 2026-10-24): `ccos/core/x.py` moved from
+# the ACT list above to HIGH (d7-authority); still not a core file.
+def test_ccos_core_is_high_but_not_core_file(code_dir):
+    target = code_dir / "ccos/core/x.py"
+    assert checkpoint.is_core_file(str(target)) is False
+    assert classify_write_action(str(target)) == HIGH_IMPACT
+
+
+# Declared G15e flip (Ish F3, 2026-10-23): these were ACT; they are still NOT
+# core files (is_core_file False, no checkpoint) but now classify HIGH_IMPACT
+# through core.protected_paths.
+@pytest.mark.parametrize("rel", ["tools/x/y.sh", "main.py"])
+def test_f3_paths_are_high_but_not_core(code_dir, rel):
+    target = code_dir / rel
+    assert checkpoint.is_core_file(str(target)) is False
+    assert classify_write_action(str(target)) == HIGH_IMPACT
 
 
 def test_outside_code_dir_is_not_core(code_dir, tmp_path):

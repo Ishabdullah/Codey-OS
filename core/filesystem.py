@@ -13,12 +13,15 @@ Removes need for JSON tool-call parsing. Agent calls methods directly.
 """
 
 import difflib
+import os
 from pathlib import Path
 from typing import List, Optional, Union
 
 from core.checkpoint import create_checkpoint
 from core.checkpoint import is_core_file as _is_core_file
 from core.filehistory import snapshot as _snapshot
+from core.protected_paths import (TIER_DENY, build_context, credential_read_hit,
+                                  first_hit, has_git_component)
 from utils.config import CODE_DIR
 import utils.config as _config
 from utils.logger import info, success
@@ -79,34 +82,82 @@ class Filesystem:
             raise FilesystemAccessError(f"Failed to create checkpoint: {e}")
 
     def _reject_git_metadata_mutation(self, path: Path) -> None:
-        """Deny write/patch/append under the repository's own `.git` directory
-        at the workspace or CODE_DIR root (NEW-894). Read access is
-        intentionally unaffected -- see read()/exists()/is_file()/is_dir()/
-        list_dir(), which still resolve these paths via _validate_path() alone
-        -- inspecting `.git/config` has a legitimate introspection use and
-        poses no injection risk by itself; only mutation does, since writing
-        new credential.helper/core.sshCommand/remote.origin.url lines (or
-        rewriting a worktree/submodule `.git` gitfile's `gitdir:` redirect)
+        """Deny write/patch/append/restore of any path with a `.git` component
+        (NEW-894, widened by G15e): the repository's own `.git`, a nested
+        repository's or submodule's, a sibling repository's reached by
+        absolute path, and case variants (`.GIT`). Components are measured
+        below the workspace / CODE_DIR base (core.protected_paths.
+        has_git_component), so a workspace that itself lives under a `.git`
+        directory is not denied wholesale. Read access is intentionally
+        unaffected -- see read()/exists()/is_file()/is_dir()/list_dir(), which
+        still resolve these paths via _validate_path() alone -- inspecting
+        `.git/config` has a legitimate introspection use and poses no
+        injection risk by itself; only mutation does, since writing new
+        credential.helper/core.sshCommand/remote.origin.url lines (or a hook)
         takes effect on Git's next invocation with no executable bit needed.
 
-        Matches only the exact `.git` entry at the workspace or CODE_DIR root
-        (first path component after relative_to() succeeds against one of
-        those two roots), not any path containing the literal string ".git"
-        (so `.github/`, `.gitignore`, `foo.git.txt` are unaffected) and not a
-        nested repository's or submodule's own `.git` elsewhere in the tree
-        (a distinct directory, out of scope for this check -- see
-        NEW_ISSUES.md for the scope caveat on this).
+        Not matched: `.github/`, `.gitignore`, `foo.git.txt`, `a.git/b`.
         """
-        for root in (self.workspace, CODE_DIR):
-            try:
-                rel = path.relative_to(root)
-            except ValueError:
-                continue
-            if rel.parts and rel.parts[0] == ".git":
-                raise FilesystemAccessError(
-                    f"Access denied: {path} is inside a Git metadata directory "
-                    f"({root / '.git'}) and cannot be modified."
-                )
+        if has_git_component(str(path), (self.workspace, CODE_DIR)):
+            raise FilesystemAccessError(
+                f"Access denied: {path} is inside a Git metadata directory "
+                f"and cannot be modified."
+            )
+
+    def _check_protected(self, lexical: str, resolved: Path) -> None:
+        """Raise for a DENY-tier protected path (core.protected_paths). HIGH
+        tier is NOT acted on here: that is classification, done by the caller
+        (tools.file_tools.classify_write_action). No flag unlocks DENY,
+        including allow_self_modification."""
+        self._reject_git_metadata_mutation(resolved)
+        self._reject_git_metadata_mutation(Path(lexical))
+        ctx = build_context(code_dir=CODE_DIR, workspace_root=self.workspace)
+        hit = first_hit((lexical, str(resolved)), ctx)
+        if hit is not None and hit.tier == TIER_DENY:
+            raise FilesystemAccessError(
+                f"Access denied: {resolved} is a protected path ({hit.rule}) "
+                f"and cannot be modified by file tools."
+            )
+
+    def _lexical_form(self, raw: Union[str, Path]) -> str:
+        """Pre-resolve() absolute spelling of `raw` (workspace-joined), so a
+        symlink planted AT a protected path is judged by its own name as well
+        as by its target."""
+        p = Path(raw)
+        if not p.is_absolute():
+            p = self.workspace / p
+        return os.path.normpath(str(p))
+
+    def _validate_for_mutation(self, raw: Union[str, Path]) -> Path:
+        """Workspace/CODE_DIR boundary (_validate_path) plus the protected-path
+        guard, for the five mutation entry points. Runs before any checkpoint,
+        mkdir or snapshot so a denied call has no side effect."""
+        resolved = self._validate_path(raw)
+        self._check_protected(self._lexical_form(raw), resolved)
+        return resolved
+
+    def _validate_for_read(self, raw: Union[str, Path]) -> Path:
+        """Workspace/CODE_DIR boundary plus the credential-read guard (G15e
+        Unit C, Q7b): file tools must not return ~/.ssh keys, .netrc,
+        .git-credentials, the age key and state-dir secrets, shell history or
+        /proc/<pid>/* even when the workspace contains them. Only the agent-
+        facing read path (tool_read_file, patch_file's pre-read) calls this;
+        operator code (daemon_config, setup_dr_key, backup_secrets, the
+        dashboard) reads with plain IO and is unaffected. Fail closed: if the
+        credential check itself errors the read is refused."""
+        resolved = self._validate_path(raw)
+        try:
+            rule = credential_read_hit((self._lexical_form(raw), str(resolved)))
+        except Exception as e:
+            raise FilesystemAccessError(
+                f"Access denied: could not evaluate credential guard for {resolved}: {e}"
+            )
+        if rule is not None:
+            raise FilesystemAccessError(
+                f"Access denied: {resolved} is a credential file ({rule}) and "
+                f"cannot be read by file tools."
+            )
+        return resolved
 
     def _validate_path(self, path: Union[str, Path]) -> Path:
         """
@@ -173,7 +224,7 @@ class Filesystem:
         """
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
         try:
-            path = self._validate_path(path)
+            path = self._validate_for_read(path)
 
             if not path.exists():
                 raise FilesystemAccessError(f"File not found: {path}")
@@ -218,8 +269,7 @@ class Filesystem:
             FilesystemAccessError: If file cannot be written
         """
         try:
-            path = self._validate_path(path)
-            self._reject_git_metadata_mutation(path)
+            path = self._validate_for_mutation(path)
 
             # Check if modifying Codey's own code (requires checkpoint)
             is_core = _is_core_file(str(path))
@@ -261,8 +311,7 @@ class Filesystem:
         The caller owns authority/confirmation.
         """
         try:
-            path = self._validate_path(path)
-            self._reject_git_metadata_mutation(path)
+            path = self._validate_for_mutation(path)
             if _is_core_file(str(path)):
                 self._require_checkpoint(path)
             path.write_text(content, encoding="utf-8")
@@ -279,9 +328,13 @@ class Filesystem:
         metadata denial and core-file checkpointing match write().
         """
         try:
-            path = self._validate_path(path)
-            self._reject_git_metadata_mutation(path)
-            self._reject_git_metadata_mutation(path.parent)
+            raw = path
+            path = self._validate_for_mutation(raw)
+            # The parent is checked too: creating a protected directory
+            # (e.g. a shadow-named child of a PATH dir) is itself the plant.
+            self._check_protected(
+                os.path.dirname(self._lexical_form(raw)), path.parent
+            )
             if _is_core_file(str(path)):
                 self._require_checkpoint(path)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -309,8 +362,7 @@ class Filesystem:
             FilesystemAccessError: If patch cannot be applied
         """
         try:
-            path = self._validate_path(path)
-            self._reject_git_metadata_mutation(path)
+            path = self._validate_for_mutation(path)
 
             if not path.exists():
                 raise FilesystemAccessError(f"File not found: {path}")
@@ -368,8 +420,7 @@ class Filesystem:
             FilesystemAccessError: If append fails
         """
         try:
-            path = self._validate_path(path)
-            self._reject_git_metadata_mutation(path)
+            path = self._validate_for_mutation(path)
 
             # Check if modifying core files (requires checkpoint)
             is_core = _is_core_file(str(path))

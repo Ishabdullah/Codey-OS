@@ -86,7 +86,7 @@ _DECODE_EXTS = {
     ".cfg",
 }
 
-def classify_write_action(path: str) -> str:
+def classify_write_action(path: str, *, workspace=None) -> str:
     """Classify a write/append/patch action into an ActionGateway authority
     class (WP2.1 slice 3, CODEY_OS_MASTER_BLUEPRINT.md §21).
 
@@ -95,7 +95,20 @@ def classify_write_action(path: str) -> str:
       core.checkpoint.is_core_file) — "modify
       Codey itself" is the one HIGH_IMPACT category that clearly applies
       to these tools.
+    - HIGH_IMPACT when the target is in the shared protected-path set
+      (core.protected_paths), at EITHER tier: the F3 repo files (launchers,
+      `*.sh`, `lib/`, root config.json, non-.py plugin files), and, as
+      defense in depth, the DENY-tier paths too, so confirm-less modes refuse
+      them with an audited HIGH row before Filesystem is reached (Filesystem
+      itself still raises for DENY in every mode). is_core_file is
+      deliberately NOT widened: it also decides _require_checkpoint (git
+      commit + backup), a separate scope (NEW-951).
     - ACT otherwise (ordinary workspace file writes).
+
+    The target is the path Filesystem will actually write: a relative `path`
+    is joined to `workspace` (default utils.config.WORKSPACE_ROOT, what
+    Filesystem defaults to), NOT to the process cwd. Callers pass the
+    Filesystem instance's `.workspace`.
 
     Deliberately does NOT promote WRITE_PROTECTED filenames (.gitignore,
     README.md, etc.) to HIGH_IMPACT — that set already has its own
@@ -105,18 +118,42 @@ def classify_write_action(path: str) -> str:
     oversight, it's two independent mechanisms that don't need to be
     unified.
 
-    is_core_file() resolves the path via Path(...).resolve() and can
-    raise on a genuinely malformed path (e.g. embedded NUL). Falling back
-    to ACT on that failure, rather than letting it propagate, preserves
-    the tools' existing error shape (a clean "[ERROR] ..." string from
-    Filesystem's own validation) instead of a new unhandled exception —
-    the caller downstream still rejects the bad path, just later.
+    Resolving the path can raise on a genuinely malformed path (e.g.
+    embedded NUL). Falling back to ACT on that failure, rather than letting
+    it propagate, preserves the tools' existing error shape (a clean
+    "[ERROR] ..." string from Filesystem's own validation) instead of a new
+    unhandled exception — the caller downstream still rejects the bad path,
+    just later. Any OTHER failure while evaluating the protected set fails
+    closed to HIGH_IMPACT (the cost of a false HIGH is a refusal).
     """
+    import os
+
+    import core.checkpoint as _ckpt
+    import utils.config as _config
+    from core.protected_paths import RULE_GIT, build_context, first_hit
+
     try:
-        if is_core_file(path):
+        ws = Path(workspace) if workspace is not None else _config.WORKSPACE_ROOT
+        p = Path(path)
+        if not p.is_absolute():
+            p = ws / p
+        lexical = os.path.normpath(str(p))
+        target = Path(lexical).resolve()
+        if is_core_file(str(target)):
             return HIGH_IMPACT
     except (TypeError, ValueError, OSError):
         return ACT
+    try:
+        ctx = build_context(code_dir=_ckpt.CODE_DIR, workspace_root=ws)
+        # `git-component` is skipped: Filesystem already denies every `.git`
+        # path with its pinned "Git metadata directory" FAILED outcome, and
+        # relabelling those HIGH would change that contract (the same class
+        # of path was ACT before G15e). Every other DENY rule is HIGH here.
+        if first_hit((lexical, str(target)), ctx, skip=frozenset({RULE_GIT})) is not None:
+            return HIGH_IMPACT
+    except Exception:
+        # Fail closed: an unevaluable protected set must not downgrade to ACT.
+        return HIGH_IMPACT
     return ACT
 
 
@@ -290,7 +327,7 @@ def tool_write_file(path: str, content: str) -> str:
     # self-modification permission silently defeated by the gateway's
     # fail-closed rule, even though allow_self_modification exists
     # specifically to permit this.
-    authority = classify_write_action(path)
+    authority = classify_write_action(path, workspace=_get_fs().workspace)
     confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(
         AGENT_CONFIG.get("allow_self_modification", False)
     )
@@ -324,7 +361,7 @@ def tool_append_file(path: str, content: str) -> str:
     Returns:
         Success message or error message
     """
-    authority = classify_write_action(path)
+    authority = classify_write_action(path, workspace=_get_fs().workspace)
     # See tool_write_file's comment above on why allow_self_modification
     # also counts as a confirmation path here.
     confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(

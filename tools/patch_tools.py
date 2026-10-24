@@ -3,6 +3,7 @@ patch_file — surgical find/replace in files.
 Much more efficient than write_file for small edits.
 """
 
+import os
 from pathlib import Path
 
 from core.filehistory import snapshot
@@ -28,9 +29,26 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
     p = Path(path).expanduser()
     if not p.exists():
         # Try relative to cwd
-        import os
-
         p = Path(os.getcwd()) / path
+
+    # G15e Unit C (Q7a, NEW-1031): validate the path BEFORE anything is read,
+    # so a non-matching old_str can no longer echo a file outside the
+    # workspace or a credential file (the [PATCH_FAILED] branch below returns
+    # the whole file). Runs before the exists() check on purpose: a refusal
+    # that depended on existence would be an existence oracle for secrets.
+    # Same boundary as Filesystem.read(): workspace/CODE_DIR plus credentials.
+    try:
+        from core.filesystem import FilesystemAccessError, get_filesystem
+
+        fs = get_filesystem(
+            allow_self_modification=AGENT_CONFIG.get("allow_self_modification", False)
+        )
+        fs._validate_for_read(os.path.abspath(p))
+    except FilesystemAccessError as e:
+        return f"[ERROR] {e}"
+    except (ValueError, OSError) as e:
+        # Malformed path (e.g. embedded NUL): refuse before reading.
+        return f"[ERROR] Invalid path {path!r}: {e}"
     if not p.exists():
         return f"[ERROR] File not found: {path}"
 
@@ -90,31 +108,39 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
         except Exception:
             pass  # linter unavailable — allow patch
 
-    snapshot(str(p))
     try:
         # Route through Filesystem layer (workspace boundary + safety
         # enforcement) via core.action_gateway (WP2.1 slice 3): classified
         # here, then gated, same as tools.file_tools.tool_write_file.
         from core.action_gateway import OUTCOME_FAILED, OUTCOME_REFUSED, get_action_gateway
-        from core.filesystem import get_filesystem
+        from core.filesystem import FilesystemAccessError
         from tools.file_tools import classify_write_action
 
-        authority = classify_write_action(str(p))
+        authority = classify_write_action(str(p), workspace=fs.workspace)
         # See tools.file_tools.tool_write_file's comment on why
         # allow_self_modification also counts as a confirmation path for
         # HIGH_IMPACT (core-file) writes here.
         confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(
             AGENT_CONFIG.get("allow_self_modification", False)
         )
+        # G15e Unit C: snapshot for /undo only AFTER the protection check, so a
+        # DENY-tier target (state dir, audit ledger, ~/.bashrc, .git, ...) is
+        # never copied into file history before the gateway refuses it. The
+        # denied call still goes to the gateway below so it is audited.
+        try:
+            fs._validate_for_mutation(p)
+            snapshot(str(p))
+        except FilesystemAccessError:
+            # Protected / out-of-bounds: skip the snapshot; the gateway call
+            # below fails with the same error and writes the audit row.
+            pass
         decision = get_action_gateway().gate_write(
             authority=authority,
             action="patch_tools.tool_patch_file",
             path=str(p),
             content=new_content,
             confirm_available=confirm_available,
-            filesystem=get_filesystem(
-                allow_self_modification=AGENT_CONFIG.get("allow_self_modification", False)
-            ),
+            filesystem=fs,
         )
         if decision.outcome == OUTCOME_REFUSED:
             return f"[BLOCKED] {decision.reason}"

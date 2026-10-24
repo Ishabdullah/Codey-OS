@@ -3556,6 +3556,53 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > **Group 15: G15a-G15d committed; G15f Unit A and G15g Unit A code-complete,
 > reviewer-approved, committed `e9f593f`; G15f Unit B, G15g Unit B, G15e, G15h and
 > G15z open.**
+>
+> **Status update (2026-10-24) — G15e (protected-path set), Units A, B, C: code
+> complete and code-reviewer APPROVED, commit pending, NOT live-verified; WP2.1
+> remains OPEN.** Supersedes the "G15e ... open" line above for G15e only.
+> **Unit A:** new `core/protected_paths.py` (one shared set, two tiers: DENY, no
+> flag unlocks it including `--allow-self-mod`, and HIGH; per-form F3 override;
+> `/data/user/0` -> `/data/data` alias fold; casefold; lexical and resolved forms;
+> audit sink, config, state dir, `HOME` and `PATH` read at call time),
+> `core/filesystem.py` (`_validate_for_mutation` on all five mutation entry
+> points, any-component casefolded `.git`), `classify_write_action(path, *,
+> workspace=None)` (F3 or protected -> HIGH, fail closed). **Unit B:**
+> `shell()` argv scan `_shell_command_targets_protected_path` (mutators `cp mv ln
+> touch mkdir rm rmdir chmod dd` get every rule; runners skip `core-py-mirror`,
+> `path-shadow` and `runner_exempt` rows but not F3 rows; ancestor rule; fail
+> closed); `core/task_executor.py` comments only, rule 4 not triggered. **Unit
+> C:** read side (`_validate_for_read` credential denial; `patch_file` validates
+> before reading) and data rows for D-7 (`ccos/core/**`, `restoricon_core/authority*.py` HIGH),
+> `bench/**` every suffix HIGH, `$PREFIX/etc`, site-packages `.pth`/
+> `sitecustomize`/`usercustomize` and peer-agent config DENY. Ish decided (2026-10-23/24):
+> F3 yes (launchers incl. `codey-metrics`, `lib/*.sh`, `install.sh`, `setup*.sh`,
+> root `config.json`, non-`.py` plugin files -> HIGH; Q1(b) not taken), DENY tier
+> for non-repo targets, `--allow-self-mod` unlocks only HIGH, keep the repo root on
+> PATH and accept the friction, read side yes. Not decided: D-8; the other three
+> D-7 files are queued, not added. **Review:** Unit A round 1 CHANGES REQUESTED
+> (Critical: F3 override pooled across forms let a symlink at an F3 name
+> downgrade a DENY config to HIGH; fixed per-form, 3 surviving mutants killed),
+> then APPROVED; Units B and C APPROVED (21+ mutants killed in C). **Numbers
+> (supplied, not re-run by the ledger writer):** new suites 197 (shell scan) and
+> 145 (Unit C) plus four others; 14 G15 suites 2078 passed; reviewer 325 + 188 +
+> 1565 passed; known baseline failures unchanged (NEW-1043, NEW-1035, the
+> `test_74b` four, `test_new84`/`test_new91`). **Closes at the code-complete
+> tier:** G15b-26, 27, 33, 34, 35, 38 and (argv-visible forms) 07 and 08;
+> G15b-25 classification half; G15b-28 partially. **Stay open or narrowed:**
+> G15b-09 and G15b-22 NARROWED not closed; G15b-29/30 open (G15f Unit B);
+> G15b-37 unchanged (G15j: HIGH-tier new-file/append writes still unprompted in
+> the REPL; the DENY tier is the protection there). **Residuals:** hard links,
+> `/dev/fd/N`, `rm -rf` of a directory containing a nested `.git`, the F2 opaque
+> execution ceiling; `restoricon_core/authority*.py` matches only a direct-child
+> `.py`; `ccos/core/**` and `bench/**` are HIGH but not core files (no checkpoint
+> under `--allow-self-mod`). New ids NEW-1048..1051 and NEW-1063..1065
+> (`tool_write_file` pre-checks use `os.getcwd()`, order-dependent pre-existing
+> test failures, a test that writes into the real `core/`); NEW-1055..1062 remain
+> reserved for G15h. Process note: the reviewer ran a bare-name `pkill -f` against
+> its own probe (rule 3 slip, not a product defect).
+> **Group 15: G15a-G15d committed; G15f Unit A and G15g Unit A committed
+> (`e9f593f`); G15e code-complete, reviewer-approved, commit pending; G15f Unit B,
+> G15g Unit B, G15h, G15i, G15j and G15z open.**
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

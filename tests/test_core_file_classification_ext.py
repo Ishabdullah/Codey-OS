@@ -41,16 +41,7 @@ def test_nested_py_under_ext_roots_is_high(code_dir, rel):
 @pytest.mark.parametrize(
     "rel",
     [
-        "ccos/plugins/coding/agent/manifest.json",
-        "ccos/plugins/README.md",
-        "ccos/plugins/a/run.sh",
-        "ccos/plugins/a/x.pyc",
-        "bench/scorecard.md",
-        "bench/suite.lock",
-        "bench/scorecard_history.jsonl",
-        "bench/tasks/t01/task.yaml",
-        # ccos outside plugins stays ACT
-        "ccos/core/plugin_manager.py",
+        # ccos outside plugins and outside ccos/core stays ACT
         "ccos/data/x.py",
         "ccos/tests/test_x.py",
         "ccos/x.py",
@@ -67,6 +58,46 @@ def test_non_py_and_non_ext_paths_unaffected(code_dir, rel):
     target = code_dir / rel
     assert checkpoint.is_core_file(str(target)) is False
     assert classify_write_action(str(target)) == ACT
+
+
+# Declared G15e flip (Ish F3, 2026-10-23): non-.py plugin files were ACT; they
+# are still NOT core files but now classify HIGH_IMPACT (f3-plugin-data).
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "ccos/plugins/coding/agent/manifest.json",
+        "ccos/plugins/README.md",
+        "ccos/plugins/a/run.sh",
+        "ccos/plugins/a/x.pyc",
+    ],
+)
+def test_plugin_non_py_paths_are_high_but_not_core(code_dir, rel):
+    target = code_dir / rel
+    assert checkpoint.is_core_file(str(target)) is False
+    assert classify_write_action(str(target)) == HIGH_IMPACT
+
+
+# Declared G15e Unit C flips (Ish 2026-10-24): `bench/**` every suffix is HIGH via
+# the `bench-evaluator` row (G15f spec section 5, four rows plus the manual
+# scorecard), and `ccos/core/**` is HIGH via D-7 (`d7-authority`), formerly
+# ACT. None of them is a core file (is_core_file stays False for non-.py
+# bench files and for ccos/core, so no checkpoint behaviour changes).
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "bench/scorecard.md",
+        "bench/suite.lock",
+        "bench/scorecard_history.jsonl",
+        "bench/tasks/t01/task.yaml",
+        "bench/scorecard_manual.json",
+        "ccos/core/plugin_manager.py",
+    ],
+)
+def test_bench_and_d7_non_core_paths_are_high(code_dir, rel):
+    target = code_dir / rel
+    if not rel.endswith(".py"):
+        assert checkpoint.is_core_file(str(target)) is False
+    assert classify_write_action(str(target)) == HIGH_IMPACT
 
 
 def test_dotdot_and_symlink_into_ext_roots(code_dir, tmp_path):
