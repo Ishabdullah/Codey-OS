@@ -3747,8 +3747,8 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > Z-2 (full zero-UNKNOWN classification).**
 >
 > **Status update (2026-10-24, later) — WP2.1 G15z stages S0, S1, S1b and S2 units
-> A-E: verification done; fixes code complete and code-reviewer APPROVED, commit
-> pending, NOT live-verified; WP2.1 remains OPEN (S3-S8 not started).** Supersedes the
+> A-E: verification done; fixes code complete and code-reviewer APPROVED, committed
+> `84c7bfd`, NOT live-verified; WP2.1 remains OPEN (S3-S8 not started).** Supersedes the
 > 'G15z (closure) open' tally above for S0/S1/S1b/S2 only. Tiers are kept distinct.
 > **S0:** the G15b hunter harnesses are preserved under
 > `docs/wp2_1_g15b_harness/{A,B,C}` behind `g15z_guard.py` (refuses an unset, relative
@@ -3772,7 +3772,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > the `import readline` fix touches line editing and the signal path and is a DECISION
 > FOR ISH (NEW-996). The real `age-keygen`/`--force`, the real escrow DR key (PENDING
 > ISH), real peers, `/git push`/merge and LoRA live were not run. **S2 fixes (code
-> complete + code-reviewer APPROVED, commit pending, NOT live-verified; the affected
+> complete + code-reviewer APPROVED, committed `84c7bfd`, NOT live-verified; the affected
 > verify units have not re-run):** A casefolded credential read scan and a mid-line
 > `NAME=secret` mask-only pattern (NEW-1079, NEW-1080); B plugin-name key
 > (zero-width/format characters), `call_capability` refuses caller-supplied
@@ -3801,10 +3801,10 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > sign-off (`docs/wp2_1_g15z_spec.md`). Reports:
 > `docs/wp2_1_g15z_verify_{A,B,C,C2,C3}`, `docs/wp2_1_g15z_s1b_live`. **Group 15:
 > G15a-G15j done and committed; G15z S0, S1, S1b done; S2 units A-E code-complete and
-> code-reviewer APPROVED (commit pending); G15z S3-S8 (freeze, zero-UNKNOWN
+> code-reviewer APPROVED (committed `84c7bfd`); G15z S3-S8 (freeze, zero-UNKNOWN
 > classification, review, gate, docs, sign-off) open.**
 > **Status update (2026-10-25) — takeover corrective review: NEW-1093 fixed,
-> code complete + reviewer APPROVED, commit pending; WP2.1 remains OPEN.**
+> code complete + reviewer APPROVED, committed `84c7bfd`; WP2.1 remains OPEN.**
 > The final-tree review found that S2-B refused relaxing keyword arguments but
 > positional `yolo`/confirmation flags still reached the canonical wrapper.
 > **Rule-6 correction:** earlier all-caller-argument wording was overbroad.
@@ -3828,8 +3828,9 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > `test_plugin_manager` is safety-blocked; 8 canonical-service guard refusals
 > per run, fixture spawns preserved, no canonical external/live claim.
 > Literal results and node IDs are in the takeover report. Proposed scope is the
-> handoff's 98 paths plus `docs/wp2_1_g15z_takeover_2026-10-25.md` (99), awaiting
-> Ish's exact-path approval. S3-S8, historical S1/S1b replay and all pending
+> handoff's 98 paths plus `docs/wp2_1_g15z_takeover_2026-10-25.md` (99).
+> Ish approved all 99 exact paths together; committed as `84c7bfd`
+> (`84c7bfdc06225ed775c03984d21074540b18e26c`), not yet pushed. S3-S8, historical S1/S1b replay and all pending
 > handoff §4 decisions remain open; no gate/DoD/closure decision inferred.
 > Details and evidence paths: the takeover report and NEW-1093/NEW-1094.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
