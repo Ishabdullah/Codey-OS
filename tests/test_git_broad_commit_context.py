@@ -603,7 +603,13 @@ def test_private_main_resolution_then_explicit_commit(repository, monkeypatch):
     old = r.git("rev-parse", "HEAD").stdout.strip()
     monkeypatch.chdir(r.repo)
     monkeypatch.setattr(githelper, "run_git", git_execution.run_git)
-    monkeypatch.setattr(main, "input", Mock(return_value="y"), raising=False)
+    # NEW-1074 declared flip: the conflict prompt uses the fail-closed
+    # utils.logger.confirm; only the seam/prompt source changes (same "y" mock).
+    import utils.logger as _lg
+
+    monkeypatch.setattr(_lg, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(_lg, "_flush_stdin_typeahead", lambda: None)
+    monkeypatch.setattr(_lg.console, "input", Mock(return_value="y"))
     def resolve(prompt, history, **kwargs):
         assert "merge conflicts" in prompt
         (r.repo / "core/example.py").write_text("resolved without inference\n")

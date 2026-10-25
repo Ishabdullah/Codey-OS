@@ -318,3 +318,78 @@ def test_private_main_explicit_commit_handler(repository, monkeypatch):
     main.success.assert_called_once()
     main.error.assert_not_called()
     assert_audit(r, "githelper.git_commit", queries=("githelper.is_git_repo",))
+
+
+def _load_private_main(monkeypatch):
+    import core
+
+    source = Path(__file__).resolve().parents[1] / "main.py"
+    with monkeypatch.context() as imports:
+        imports.setattr(sys, "path", list(sys.path))
+        for name, attrs in {
+            "context": {}, "dashboard_data": {"get_render_text": Mock()},
+            "inference_v2": {"was_last_streamed": Mock()},
+            "loader_v2": {"get_loader": Mock()}, "sysmon": {"get_monitor": Mock()},
+        }.items():
+            stub = ModuleType(f"core.{name}")
+            stub.__dict__.update(attrs)
+            imports.setitem(sys.modules, f"core.{name}", stub)
+            imports.setattr(core, name, stub, raising=False)
+        spec = importlib.util.spec_from_file_location("_git_test_main2", source)
+        main = importlib.util.module_from_spec(spec)
+        imports.setitem(sys.modules, spec.name, main)
+        spec.loader.exec_module(main)
+    for n in ("success", "error", "info"):
+        monkeypatch.setattr(main, n, Mock())
+    return main
+
+
+@pytest.mark.parametrize("piped", ["\n", "my piped message\n"])
+def test_main_interactive_commit_piped_non_tty_cancelled(repository, monkeypatch, piped):
+    """NEW-1074: no tty => /git commit (no inline message) cancels; stdin unread,
+    no generation, no commit."""
+    import io
+
+    import utils.logger as _lg
+
+    r = repository
+    main = _load_private_main(monkeypatch)
+    monkeypatch.chdir(r.repo)
+    reads = []
+
+    class Piped(io.StringIO):
+        def isatty(self):
+            return False
+
+        def readline(self, *a):
+            reads.append(1)
+            return super().readline(*a)
+
+    monkeypatch.setattr(sys, "stdin", Piped(piped))
+    monkeypatch.setattr("builtins.input", Mock(side_effect=AssertionError("bare input() used")))
+    monkeypatch.setattr(githelper, "generate_commit_message", Mock(side_effect=AssertionError("no generation off-tty")))
+    (r.repo / "one.txt").write_text("one changed\n")
+    before = r.git("rev-parse", "HEAD").stdout
+    handled, _ = main.handle_command("/git commit", [])
+    assert handled is True and reads == []
+    assert r.git("rev-parse", "HEAD").stdout == before
+    main.info.assert_called_once()
+    assert "cancelled" in main.info.call_args.args[0]
+    main.success.assert_not_called()
+
+
+@pytest.mark.parametrize(("typed", "expected"), [("", "suggested msg"), ("typed msg", "typed msg")])
+def test_main_interactive_commit_tty_proceeds(repository, monkeypatch, typed, expected):
+    import utils.logger as _lg
+
+    r = repository
+    main = _load_private_main(monkeypatch)
+    monkeypatch.chdir(r.repo)
+    monkeypatch.setattr(_lg, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": typed)
+    monkeypatch.setattr(githelper, "generate_commit_message", Mock(return_value="suggested msg"))
+    (r.repo / "one.txt").write_text("one changed\n")
+    handled, _ = main.handle_command("/git commit", [])
+    assert handled is True
+    assert r.git("log", "-1", "--format=%s").stdout.strip() == expected
+    main.success.assert_called_once()

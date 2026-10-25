@@ -111,6 +111,30 @@ SECRET_PATTERNS = tuple((n, re.compile(r)) for n, r in (
     ("netrc_line", r'(?im)^[ \t]*password[ \t]+(?![${*<])\S{6,}[ \t]*$'),
 ))
 
+# S2-A (G15z V-C3 GW-10b): masking-only patterns. `env_secret_assignment` above is anchored to line
+# start, so `env AIGENTIK_INTERNAL_TOKEN=<hex> python3 x` reached the audit ledger unmasked. Same name
+# rule (_ENV_NAME) and value rule (_ENV_VAL) as that pattern, but anchored to a word boundary (not
+# preceded by [A-Za-z0-9_-]) with `=` directly after the name (no spaces: mid-line `TOKEN = x` is
+# prose-shaped). The NAME= prefix is kept (group `keep`) and only the value is replaced, so the
+# audit still shows WHICH variable was set. Deliberately NOT in SECRET_PATTERNS: find_secret (the
+# fine-tune export drop decision) is unchanged. Linear: the match can only start at the beginning of
+# a name run (lookbehind) and every repeat is bounded. Same accepted false positives as the
+# line-start rule: any 8+ char non-path value for an upper-case NAME containing TOKEN/SECRET/
+# PASSWORD/API_KEY/... (e.g. MAX_TOKENS=1000000000); `$VAR`, `${VAR}`, paths, quoted values, lower-case
+# flags such as --token-file=... and short values are untouched.
+# The name prefix allowance here is 128 chars (the shared _ENV_NAME, and so the line-start rule, keeps 32);
+# still linear because a match starts only at the beginning of a name run, so a start costs <= ~160 steps
+# and consumes >= that many chars of a run before the next start. Residuals, pinned in tests: a name with
+# more than 128 chars before the keyword is unmasked; mixed-case/lower-case names (`Api_Token=`, `a_TOKEN=`,
+# `xTOKEN=`) are not matched (pre-existing limitation shared with the line-start rule); a `-` prefix
+# (`-TOKEN=`) is excluded on purpose (option-like).
+_ENV_NAME_INLINE = _ENV_NAME.replace('{0,32}(?:', '{0,128}(?:', 1)
+assert _ENV_NAME_INLINE != _ENV_NAME
+MASK_ONLY_PATTERNS = tuple((n, re.compile(r)) for n, r in (
+    ("env_secret_assignment_inline",
+     r'(?P<keep>(?<![A-Za-z0-9_\-])' + _ENV_NAME_INLINE + r'=)' + _ENV_VAL),
+))
+
 
 def _scan_view(line: str) -> str:
     """Un-escape JSON string escapes (up to 3 nested passes) so line-anchored and
@@ -148,6 +172,9 @@ def mask_secrets(text, *, max_chars: int = 262144) -> str:
             text = text[:max_chars]
         for name, rx in SECRET_PATTERNS:
             text = rx.sub(f"[REDACTED:{name}]", text)
+        for name, rx in MASK_ONLY_PATTERNS:
+            marker = f"[REDACTED:{name}]"
+            text = rx.sub(lambda m, marker=marker: m.group("keep") + marker, text)
         # Marker is appended after masking so a cut right after a flag cannot swallow it.
         return text + f"...[truncated {extra} chars]" if extra > 0 else text
     except Exception:

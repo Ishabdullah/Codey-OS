@@ -1521,29 +1521,39 @@ def _shell_command_targets_credentials(command: str, *, cwd: Path, home: Path, s
         state_roots.add(sd)
         for name in _CRED_STATE_ENTRIES:
             entries.add(sd / name)
+    # Every comparison below is casefolded (S2-A, G15z NV33/EV03), like the
+    # write-side scan in core.protected_paths: `$HOME/.SSH/id_rsa` must not
+    # dodge the credential scan on a case-insensitive mount, while the
+    # write scan already blocks `$HOME/.BASHRC`. Accepted false positive: on a
+    # case-sensitive filesystem a differently-cased sibling such as `.SSH`
+    # is also escalated (the cost is a prompt/refusal, never an execution).
     literal = set()
     for e in entries:
-        literal.add(_cred_canon(str(e)))
+        literal.add(_cred_canon(str(e)).casefold())
         try:
-            literal.add(_cred_canon(str(e.resolve(strict=False))))
+            literal.add(_cred_canon(str(e.resolve(strict=False))).casefold())
         except (OSError, ValueError, RuntimeError):
             return True
     roots = set()
     for sd in state_roots:
-        roots.add(_cred_canon(str(sd)))
+        roots.add(_cred_canon(str(sd)).casefold())
         try:
-            roots.add(_cred_canon(str(sd.resolve(strict=False))))
+            roots.add(_cred_canon(str(sd.resolve(strict=False))).casefold())
         except (OSError, ValueError, RuntimeError):
             return True
 
+    state_patterns = tuple(pat.casefold() for pat in _CRED_STATE_PATTERNS)
+    basename_patterns = tuple(pat.casefold() for pat in _CRED_BASENAME_PATTERNS)
+
     def matches(path: str) -> bool:
+        path = path.casefold()
         if any(_cred_under(path, e) for e in literal):
             return True
         if _cred_is_proc_secret(path, pid_dir_too=ancestor):
             return True
         parent, name = os.path.split(path)
         if parent in roots and any(
-            fnmatchcase(name, pat) for pat in _CRED_STATE_PATTERNS
+            fnmatchcase(name, pat) for pat in state_patterns
         ):
             return True
         if ancestor and (
@@ -1554,10 +1564,10 @@ def _shell_command_targets_credentials(command: str, *, cwd: Path, home: Path, s
         return False
 
     def existing_secret_name(path: str) -> bool:
-        name = os.path.basename(path)
+        name = os.path.basename(path).casefold()
         if name.endswith(".pub"):
             return False
-        if not any(fnmatchcase(name, pat) for pat in _CRED_BASENAME_PATTERNS):
+        if not any(fnmatchcase(name, pat) for pat in basename_patterns):
             return False
         try:
             os.lstat(path)

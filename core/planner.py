@@ -56,6 +56,15 @@ def show_and_confirm_plan(plan: str) -> bool:
         if line.strip():
             console.print(f"  {line}")
     separator()
+    # S2 unit E: default-Yes (and 'edit' runs the typed text as the new
+    # instruction), so this is an approval. No tty => reject WITHOUT reading
+    # stdin; neither prompt is reached. No env/flag override.
+    import utils.logger as _lg
+
+    if not _lg._stdin_is_tty():
+        info("Plan rejected: no interactive terminal (use --no-plan for unattended runs).")
+        return False, plan
+    _lg._flush_stdin_typeahead()  # stale Enter/'y' must not approve (default-Yes)
     try:
         ans = console.input("Execute this plan? [Y/n/edit]: ").strip().lower()
         if ans in ("", "y", "yes"):
@@ -65,6 +74,7 @@ def show_and_confirm_plan(plan: str) -> bool:
             return False, plan
         else:
             # User wants to edit — let them type a revised instruction
+            _lg._flush_stdin_typeahead()  # stale typeahead must not become the instruction
             revised = console.input("Revised instruction: ").strip()
             return True, revised
     except (KeyboardInterrupt, EOFError):

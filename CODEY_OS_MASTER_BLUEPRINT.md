@@ -3745,6 +3745,93 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > Units A+B code-complete, code-reviewer APPROVED, committed `781542a`; G15z (closure)
 > open, staged plan and token estimates in `docs/wp2_1_g15z_spec.md`, budgeted per
 > Z-2 (full zero-UNKNOWN classification).**
+>
+> **Status update (2026-10-24, later) — WP2.1 G15z stages S0, S1, S1b and S2 units
+> A-E: verification done; fixes code complete and code-reviewer APPROVED, commit
+> pending, NOT live-verified; WP2.1 remains OPEN (S3-S8 not started).** Supersedes the
+> 'G15z (closure) open' tally above for S0/S1/S1b/S2 only. Tiers are kept distinct.
+> **S0:** the G15b hunter harnesses are preserved under
+> `docs/wp2_1_g15b_harness/{A,B,C}` behind `g15z_guard.py` (refuses an unset, relative
+> or in-repo output dir); the WP0.5 check passed (`tests/test_trajectory.py` 19
+> passed, including the NEW-761 leakage guard), so the 'WP0.5 DONE 2026-10-07' line of
+> this blueprint is supported by code and tests while `CLAUDE.md` lines 28-31 are
+> stale on their face; `CLAUDE.md` was NOT edited and NEW-1068 stays OPEN for Ish.
+> **S1 (INDEPENDENTLY RE-PROBED at `b230ce9` on `git archive` snapshots with recording
+> fakes and disposable fixtures; NOT live; it pre-dates the S2 fixes):** 1,014 rows
+> over six units (V-A 260, V-B1 187, V-B2 85, V-C1 88, V-C2 249, V-C3 145) = 878 PASS,
+> 98 ACCEPTED-RESIDUAL, 13 FAIL, 23 INCONCLUSIVE, 2 BLOCKED-BY-SAFETY (sums by
+> addition); no regression of a fix the register claims closed was found. The 13 FAILs
+> were unclaimed gaps or new LOW items (NEW-1079..NEW-1082, NEW-1086) or register-open
+> items (KILL-08/service stop forms, `--fix`, the legacy piped prompts); the not-run
+> and inconclusive list is NEW-1092. **S1b (live-STYLE `pty.fork`, disposable env, 62
+> rows: 59 PASS, 3 FAIL; NOT the attended Termux terminal):** the G15i-B and G15j
+> prompts and the legacy overwrite/patch prompts behave as designed on a real tty;
+> FAILs were prompt typeahead consumed by the peer confirm and the `/git commit`
+> accept prompt (NEW-1084, fixed afterwards, not re-run live) and a Ctrl-C delay whose
+> cause was reproduced (stdio reads without `readline` do not wake on SIGINT here);
+> the `import readline` fix touches line editing and the signal path and is a DECISION
+> FOR ISH (NEW-996). The real `age-keygen`/`--force`, the real escrow DR key (PENDING
+> ISH), real peers, `/git push`/merge and LoRA live were not run. **S2 fixes (code
+> complete + code-reviewer APPROVED, commit pending, NOT live-verified; the affected
+> verify units have not re-run):** A casefolded credential read scan and a mid-line
+> `NAME=secret` mask-only pattern (NEW-1079, NEW-1080); B plugin-name key
+> (zero-width/format characters), `call_capability` refuses caller-supplied
+> `yolo`/`confirm*`/`shell_fn` with `call_capability_trusted` limited to
+> `core/task_executor.py` and `main.py`, and canonical-tree binding of the 165
+> declared capability names (M25b, M26, NEW-1034, NEW-1081); C bench lock
+> refuses/fails on any symlink under `bench/` (NEW-1082; new evaluator hash, every
+> baseline must be re-run, NEW-1067); D off-tty `confirm()` fails closed without
+> reading stdin, typeahead flushed, `PeerCLIManager.confirm` fail-closed (NEW-1074,
+> NEW-1083, NEW-1084); E default-Yes plan prompts cancel off-tty (NEW-1085). **RULE-6
+> CORRECTION:** earlier reviewer claims that a piped `y` could not approve a peer
+> escalation because it parks off-tty were false (`is_interactive_environment()` has
+> no production caller and the env signals are never set); fixed in D; follow-up
+> NEW-1089. Residuals and unratified side effects: NEW-1087, NEW-1088, NEW-1091. **Ish
+> decisions recorded 2026-10-24:** REPL non-tty `ask_confirm` fail-closed (NEW-1074)
+> YES; `--fix` unattended = ACCEPTED RESIDUAL (NEW-1077); fix M25b and M26 YES;
+> KILL-08/service stop-script forms = ACCEPTED RESIDUAL (NEW-1070). Executed: Z-3, Z-4
+> (V-B2 relaunch complete, 0 FAIL). **Still pending, not decided:** D-6, D-7/NEW-1016,
+> D-8 beyond item 37, G15g lazy activation and the dead `private_agent`/`aigentik`
+> manifests, NEW-1068, Z-1, Z-5, Z-6, Z-7, Z-8, the readline decision, the daemon
+> `CODEY_NON_INTERACTIVE` follow-up, and the next work package. The recount of the 49
+> G15b items is `docs/wp2_1_g15b_consolidated.md` section 10f. WP2.1's headline and
+> definition of done are NOT rewritten (only after Ish signs the DoD text, spec
+> 4.2(a)). Remaining stages: S3 freeze + census re-run (every file S2 touched must be
+> re-classified), S4 classification, S5 independent review, S6 gate, S7 docs, S8
+> sign-off (`docs/wp2_1_g15z_spec.md`). Reports:
+> `docs/wp2_1_g15z_verify_{A,B,C,C2,C3}`, `docs/wp2_1_g15z_s1b_live`. **Group 15:
+> G15a-G15j done and committed; G15z S0, S1, S1b done; S2 units A-E code-complete and
+> code-reviewer APPROVED (commit pending); G15z S3-S8 (freeze, zero-UNKNOWN
+> classification, review, gate, docs, sign-off) open.**
+> **Status update (2026-10-25) — takeover corrective review: NEW-1093 fixed,
+> code complete + reviewer APPROVED, commit pending; WP2.1 remains OPEN.**
+> The final-tree review found that S2-B refused relaxing keyword arguments but
+> positional `yolo`/confirmation flags still reached the canonical wrapper.
+> **Rule-6 correction:** earlier all-caller-argument wording was overbroad.
+> Public `call_capability` now requires keyword payload data: every positional
+> payload argument is HIGH_IMPACT refused before handler/module/HTTP dispatch.
+> Trusted internal dispatch keeps positional compatibility and gateway checks.
+> Implementer supplied 69+20 green tests; reviewer independently ran 69 tests
+> and twice refused the exact positional exploit with zero mocked inner-agent
+> calls, then explicitly APPROVED the corrected pending source/test scope.
+> No live success is claimed. **NEW-1094:** the old “whole tests tree” run
+> enumerated 216 top-level files and omitted 2 security + 94 Restoricon nested
+> files. Corrective recursive `tests/` verification completed in 32 chunks:
+> effective 9,196 passed / 10 recorded baseline failures / 2 skipped / 19 subtests
+> passed, after whole-chunk rerun corrected a coordinator DB-env mismatch;
+> source/test hash drift `[]` (coordinator report). Separate disposable-snapshot
+> guarded CCOS completed: pending 183 passed / 1 known NEW-805 failure /
+> 1 safety-deselected; clean baseline 182 passed / 2 failed / 1 deselected.
+> Both reproduce NEW-805 serially; baseline-only immediate-exit fixture failure
+> is recorded under NEW-1090 (cause suspected). Two initial temp-layout artifacts
+> disappeared with corrected disposable layout outside system temp. Exactly
+> `test_plugin_manager` is safety-blocked; 8 canonical-service guard refusals
+> per run, fixture spawns preserved, no canonical external/live claim.
+> Literal results and node IDs are in the takeover report. Proposed scope is the
+> handoff's 98 paths plus `docs/wp2_1_g15z_takeover_2026-10-25.md` (99), awaiting
+> Ish's exact-path approval. S3-S8, historical S1/S1b replay and all pending
+> handoff §4 decisions remain open; no gate/DoD/closure decision inferred.
+> Details and evidence paths: the takeover report and NEW-1093/NEW-1094.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

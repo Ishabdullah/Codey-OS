@@ -516,6 +516,9 @@ def _init_confirmation(yolo=False, overwrite=False):
         return None
 
     def confirm():
+        from utils.logger import _flush_stdin_typeahead
+
+        _flush_stdin_typeahead()  # NEW-1074: drop stale typeahead before asking
         verb = "Generate and OVERWRITE the existing" if overwrite else "Generate and write a new"
         answer = input(f"{verb} CODEY.md in this project? [y/N]: ")
         return answer.strip().lower() in ("y", "yes")
@@ -644,7 +647,7 @@ def _execute_agent_capability(
     if "agent" not in pm._modules:
         pm.load("agent")
 
-    return pm.call_capability(
+    return pm.call_capability_trusted(
         "coding.run_agent",
         prompt=prompt,
         history=history,
@@ -874,6 +877,9 @@ def _voice_confirmation(yolo=False):
         return None
 
     def confirm():
+        from utils.logger import _flush_stdin_typeahead
+
+        _flush_stdin_typeahead()  # NEW-1074: drop stale typeahead before asking
         answer = input("Record one microphone utterance now? [y/N]: ")
         return answer.strip().lower() in ("y", "yes")
 
@@ -898,6 +904,9 @@ def _undo_confirmation(yolo=False, path=""):
         return None
 
     def confirm():
+        from utils.logger import _flush_stdin_typeahead
+
+        _flush_stdin_typeahead()  # NEW-1074: drop stale typeahead before asking
         prompt = f"Restore Codey core file {path} from history? [y/N]: "
         answer = input(prompt)
         return answer.strip().lower() in ("y", "yes")
@@ -1070,11 +1079,11 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     error("Git metadata query failed.")
                     return True, history
                 console.print(f"Switching from [bold]{current}[/bold] → [bold]{arg}[/bold]")
-                try:
-                    confirm = input("Confirm? [y/N] ").strip().lower()
-                except (EOFError, KeyboardInterrupt):
-                    confirm = "n"
-                if confirm == "y":
+                # NEW-1074: utils.logger.confirm fails closed (no tty => False,
+                # stdin unread) and flushes typeahead; default No.
+                import utils.logger as _lg
+
+                if _lg.confirm("Confirm?"):
                     result = git_checkout(arg)
                     success(result) if not result.startswith("[ERROR]") else error(result)
                 else:
@@ -1101,13 +1110,10 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                         )
                         for cf in conflict_files:
                             console.print(f"  • {cf}")
-                        try:
-                            resolve = (
-                                input("\nAsk Codey to resolve conflicts? [y/N] ").strip().lower()
-                            )
-                        except (EOFError, KeyboardInterrupt):
-                            resolve = "n"
-                        if resolve == "y":
+                        # NEW-1074: fail-closed confirm (no tty => decline).
+                        import utils.logger as _lg
+
+                        if _lg.confirm("Ask Codey to resolve conflicts?"):
                             conflict_context = []
                             for cf in conflict_files[:3]:  # cap at 3 files
                                 sections = get_conflict_sections(cf)
@@ -1157,8 +1163,18 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 except Exception:  # noqa: BLE001 - query failures abort dependent work with static diagnostics
                     error("Git metadata query failed.")
                     return True, history
+                # NEW-1074: Enter accepts the suggested message and commits, so
+                # the interactive prompt is an approval. No tty => cancel
+                # WITHOUT generating or reading stdin (piped lines cannot
+                # commit); /git commit <message> remains the explicit path.
+                import utils.logger as _lg
+
+                if not _lg._stdin_is_tty():
+                    info("Commit cancelled: no interactive terminal (use /git commit <message>).")
+                    return True, history
                 suggested = generate_commit_message(diff, history_msgs)
                 console.print(f"\nSuggested message: [bold cyan]{suggested}[/bold cyan]")
+                _lg._flush_stdin_typeahead()  # stale Enter must not accept (NEW-1074)
                 try:
                     user_msg = input("Press Enter to accept, or type a new message: ").strip()
                 except (EOFError, KeyboardInterrupt):
@@ -1187,6 +1203,9 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     interactive = False
                 if interactive:
                     def confirm():
+                        from utils.logger import _flush_stdin_typeahead
+
+                        _flush_stdin_typeahead()  # NEW-1074: drop stale typeahead before asking
                         answer = input(
                             "Publish this repository's commits to its configured remote? [y/N]: "
                         )
@@ -1537,8 +1556,10 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         # Offer agent explanation + fix
         if total_issues > 0 and review_lines:
             try:
-                ans = console.input("  Ask Codey to explain and fix? [y/N]: ").strip().lower()
-                if ans in ("y", "yes"):
+                # NEW-1074: fail-closed confirm (no tty => decline, default No).
+                import utils.logger as _lg
+
+                if _lg.confirm("Ask Codey to explain and fix?"):
                     ctx_block = "\n".join(review_lines[:15])
                     response, history = _execute_agent_capability(
                         f"Review {filepath} and fix these linter issues (read the file first):\n{ctx_block}",
@@ -1786,6 +1807,9 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     interactive = False
                 if interactive:
                     def confirm():
+                        from utils.logger import _flush_stdin_typeahead
+
+                        _flush_stdin_typeahead()  # NEW-1074: drop stale typeahead before asking
                         answer = input("Delete the entire symbolic graph? [y/N]: ")
                         return answer.strip().lower() in ("y", "yes")
             decision = _mem.symbolic.clear(confirm=confirm)

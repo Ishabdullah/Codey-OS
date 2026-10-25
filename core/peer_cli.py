@@ -261,7 +261,17 @@ class PeerCLIManager:
           ("switch",   cli_name)     — user wants a specific different CLI
           ("redirect", instruction)  — user gave Codey a new instruction
         """
-        from utils.logger import console
+        from utils.logger import _stdin_is_tty, console
+
+        # NEW-1074: this answer authorises a HIGH_IMPACT peer egress. No tty
+        # (piped/closed stdin) => skip WITHOUT reading stdin. Note that
+        # is_interactive_environment() is not called by escalate_or_park().
+        if not _stdin_is_tty():
+            return False, None
+        # A stale "y" buffered before the prompt must not approve (fail-soft flush).
+        from utils.logger import _flush_stdin_typeahead
+
+        _flush_stdin_typeahead()
 
         available_names = [c.name for c in self.available()]
         others = [n for n in available_names if n != cli.name]

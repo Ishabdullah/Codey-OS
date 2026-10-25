@@ -121,10 +121,41 @@ def separator():
     console.rule(style="dim")
 
 
+def _stdin_is_tty() -> bool:
+    """True only when stdin is a terminal. Any failure (stdin None/closed,
+    isatty missing or raising) is "no human here". Test seam; there is
+    deliberately no env/flag override (NEW-1074)."""
+    try:
+        return bool(sys.stdin.isatty())
+    except Exception:
+        # Fail closed: an unusable stdin cannot carry human consent.
+        return False
+
+
+def _flush_stdin_typeahead() -> None:
+    """Discard keystrokes buffered before the prompt (same idea as
+    core/tty_confirm.py; inlined so utils never imports core). Fail-soft:
+    the tty check already ran and a flush failure must not block the prompt
+    -- the residual risk is only stale typeahead on an interactive tty."""
+    try:
+        import termios
+
+        termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    except Exception:
+        pass  # termios unavailable / not flushable: best-effort only
+
+
 def confirm(question) -> bool:
-    """Keep asking until we get a real y or n — never auto-cancel."""
+    """Keep asking until we get a real y or n — never auto-cancel.
+
+    Fails closed (NEW-1074): stdin not a tty -> False WITHOUT reading it, so
+    piped/queued input can never approve (use --yolo for unattended runs).
+    On a tty, stale typeahead is flushed before the prompt."""
+    if not _stdin_is_tty():
+        return False
     sys.stdout.flush()
     sys.stderr.flush()
+    _flush_stdin_typeahead()
     while True:
         try:
             ans = console.input(f"\n⚠  {question} \\[y/N]: ").strip().lower()

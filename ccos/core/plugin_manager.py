@@ -372,10 +372,98 @@ def _declared_capability_names(manifest: Dict[str, Any], plugin_name: str) -> Li
     return names
 
 
+# Default_Ignorable / blank code points outside Cf/Mn (Unicode
+# DerivedCoreProperties): Hangul fillers, halfwidth filler, braille blank,
+# Mongolian vowel separator. Cf (ZW*, BOM, soft hyphen, bidi, tag chars) and
+# Mn/Me (combining marks, variation selectors, U+034F) are dropped by category.
+_BLANK_LETTERS = frozenset(
+    (0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x180E, 0x17B4, 0x17B5))
+
+
 def _plugin_name_key(name: str) -> str:
-    """Duplicate-detection key: NFKC + strip + casefold, so `Agent`,
-    `agent ` and full-width variants cannot impersonate one another."""
-    return unicodedata.normalize("NFKC", name).strip().casefold()
+    """Duplicate-detection key: NFKC + drop Unicode format/control chars
+    (Cf/Cc/Mn/Me: ZWSP/ZWJ/ZWNJ, BOM, soft hyphen, bidi, tags, controls,
+    combining marks, variation selectors, plus _BLANK_LETTERS; real plugin
+    names are ASCII slugs, so stripping marks cannot merge legit names)
+    + strip + casefold, so `Agent`, `agent `, full-width and zero-width
+    variants cannot impersonate one another.
+
+    ACCEPTED RESIDUAL (S2-B, Ish 2026-10-24): cross-script homoglyphs (a
+    Cyrillic `a` in `agent`) are not NFKC-equivalent and still yield a
+    distinct key; closing that needs a confusables table, out of scope.
+    """
+    # NFKD first so precomposed letters (g + U+0301 -> U+01F5) are split
+    # and their marks stripped before recomposition.
+    text = unicodedata.normalize("NFKD", name)
+    text = "".join(
+        c for c in text
+        if unicodedata.category(c) not in ("Cf", "Cc", "Mn", "Me")
+        and ord(c) not in _BLANK_LETTERS)
+    return unicodedata.normalize("NFKC", text).strip().casefold()
+
+
+# S2-B (M25b): the canonical plugin tree. A capability name classified in
+# CAPABILITY_AUTHORITY is bound to this tree; a plugin discovered under any
+# other plugin_dir may not claim it (see PluginManager._discover).
+_CANONICAL_PLUGIN_ROOT = os.path.realpath(Path(__file__).resolve().parent.parent / "plugins")
+
+
+def _scan_canonical_capability_names() -> frozenset:
+    """Every capability name declared by a canonical manifest under
+    ccos/plugins, derived with the same helpers discovery/staging use, unioned
+    with the CAPABILITY_AUTHORITY names. Fails closed to the table alone
+    (logged) if the canonical tree cannot be read, never to an empty set."""
+    names = set(CAPABILITY_AUTHORITY)
+    try:
+        root = Path(_CANONICAL_PLUGIN_ROOT)
+        manifests = sorted(root.glob("*/*/manifest.json"))
+        if not manifests:
+            raise OSError("no canonical manifests found")
+        for mf in manifests:
+            try:
+                manifest = normalize_manifest(json.loads(mf.read_text()))
+                pname = manifest.get("name", mf.parent.name)
+                if isinstance(pname, str):
+                    names.update(_declared_capability_names(manifest, pname))
+            except Exception:
+                continue  # malformed manifest: discovery skips it too
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "canonical capability scan failed (%s); binding only the "
+            "CAPABILITY_AUTHORITY names", type(exc).__name__)
+    return frozenset(names)
+
+
+# Import-time snapshot: later mutation of the CAPABILITY_AUTHORITY dict (e.g.
+# a test or plugin adding a synthetic name) cannot widen or shrink the set.
+_CANONICAL_CAPABILITY_NAMES = _scan_canonical_capability_names()
+
+
+def _is_canonical_root(root_real: str) -> bool:
+    try:
+        return os.path.commonpath([_CANONICAL_PLUGIN_ROOT, root_real]) == _CANONICAL_PLUGIN_ROOT
+    except ValueError:
+        return False
+
+
+def _authority_relaxing_args(args: tuple, kwargs: Dict[str, Any]) -> List[str]:
+    """Arguments refused by the public keyword-data contract (S2-B, M26).
+
+    Refuse every positional tail argument: its target parameter name is
+    unknown here, so it could bind to a permission or consent override.
+    Also refuse yolo truthy, confirm_* other than None/True, shell_fn,
+    or any callable supplied by keyword.
+    """
+    # Key-name matching is exact-lowercase on purpose: any future plugin that
+    # reads case-variant or nested config knobs needs a re-audit of this list.
+    found = [f"args[{i}]" for i in range(len(args))]
+    for key, value in kwargs.items():
+        k = str(key).lower()
+        if (callable(value) or (k == "shell_fn" and value is not None)
+                or (k == "yolo" and value)
+                or (k.startswith("confirm") and value is not None and value is not True)):
+            found.append(str(key))
+    return found
 
 
 class PluginContainmentError(ValueError):
@@ -807,6 +895,7 @@ class PluginManager:
             _audit_plugin_refusal(f"ccos.plugin_discover:{action_name}", rel, reason)
 
         claims = []  # (name, abs_path_str, rel_path, manifest)
+        noncanonical = set()  # claim indexes found outside the canonical tree
         seen_roots = set()
         seen_plugin_dirs = set()
         for plugin_dir in self._plugin_dirs:
@@ -877,6 +966,8 @@ class PluginManager:
                         refuse(rel, "manifest name is not a non-blank string", plugin_subdir.name)
                         continue
                     claims.append((name, str(plugin_subdir), rel, manifest))
+                    if not _is_canonical_root(root_real):
+                        noncanonical.add(len(claims) - 1)
 
         # Refusing ALL claimants of a contested name/capability is a
         # deliberate fail-closed trade-off: a planted same-name or
@@ -893,6 +984,19 @@ class PluginManager:
                 rels = sorted(claims[i][2] for i in idxs)
                 for i in idxs:
                     refused[i] = f"refused: plugin name claimed by {len(idxs)} manifests: {rels}"
+        # S2-B (M25b): names classified in CAPABILITY_AUTHORITY (== every
+        # canonical manifest capability, per the coverage test) belong to the
+        # canonical tree; a plugin from another plugin_dir may not claim one,
+        # even when the canonical plugin is not in this manager's dirs.
+        for idx in sorted(noncanonical):
+            if idx in refused:
+                continue
+            name, _path, _rel, manifest = claims[idx]
+            bound = sorted(c for c in set(_declared_capability_names(manifest, name))
+                           if c in _CANONICAL_CAPABILITY_NAMES)
+            if bound:
+                refused[idx] = ("refused: capability name(s) %r are bound to the canonical "
+                                "plugin tree; plugin is outside it" % bound)
         by_cap = {}
         for idx, (name, _path, _rel, manifest) in enumerate(claims):
             if idx in refused:
@@ -1310,15 +1414,40 @@ class PluginManager:
         context: Optional[TaskContext] = None,
         **kwargs,
     ) -> Any:
-        """Keep activation state, authority and execution in one lifecycle epoch."""
+        """Keep activation state, authority and execution in one lifecycle epoch.
+
+        Capability data must be supplied by keyword. Every positional tail
+        argument is refused and audited before dispatch, as are authority-
+        relaxing keywords (yolo, confirm_*=False, shell_fn, any callable).
+        In-repo code that deliberately supplies positional arguments or
+        relaxes authority uses call_capability_trusted().
+        """
         with self._lifecycle_lock:
-            return self._call_capability(cap_name, *args, context=context, **kwargs)
+            return self._call_capability(
+                cap_name, *args, context=context, _trusted=False, **kwargs)
+
+    def call_capability_trusted(
+        self,
+        cap_name: str,
+        *args,
+        context: Optional[TaskContext] = None,
+        **kwargs,
+    ) -> Any:
+        """call_capability() for in-repo callers that deliberately set the
+        relaxed daemon/CLI profile in code (core/task_executor.py, main.py).
+        Retains positional argument support. Never route model-, plan- or
+        user-data-supplied args or kwargs through this.
+        """
+        with self._lifecycle_lock:
+            return self._call_capability(
+                cap_name, *args, context=context, _trusted=True, **kwargs)
 
     def _call_capability(
         self,
         cap_name: str,
         *args,
         context: Optional[TaskContext] = None,
+        _trusted: bool = False,
         **kwargs,
     ) -> Any:
         """
@@ -1351,6 +1480,15 @@ class PluginManager:
                 reason="plugin activation incomplete; capability unavailable",
             )
             raise CapabilityRefused(decision.reason)
+        if not _trusted:
+            relaxing = _authority_relaxing_args(args, kwargs)
+            if relaxing:
+                decision = gateway.refuse_exec(
+                    authority=HIGH_IMPACT, action=action_label, command=cap_name,
+                    reason=("caller-supplied authority-relaxing argument(s) %s refused "
+                            "on a mediated capability call" % sorted(relaxing)),
+                )
+                raise CapabilityRefused(decision.reason)
         authority = self._authority_for(cap_name, cap)
 
         if authority is None:

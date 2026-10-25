@@ -1794,6 +1794,18 @@ def run_agent(
         queue = plan_tasks(user_message, read_codeymd())
         if queue.tasks:
             show_task_plan(queue)
+            # S2 unit E: the prompt is default-Yes (Enter/'y' starts run_queue),
+            # so it is an approval. No tty => cancel WITHOUT reading stdin;
+            # piped lines cannot approve. There is no env/flag override.
+            import utils.logger as _lg
+
+            if not _lg._stdin_is_tty():
+                info(
+                    "Plan cancelled: no interactive terminal "
+                    "(use --no-plan for unattended runs; --yolo does not skip this prompt)."
+                )
+                return "[Cancelled]", history
+            _lg._flush_stdin_typeahead()  # stale Enter/'y' must not approve (default-Yes)
             try:
                 ans = console.input("  Execute this plan? [Y/n]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):

@@ -143,6 +143,9 @@ def test_callback_real_logger_default_no_and_only_yes(env, monkeypatch):
     answers = iter(["", "no", "YES"])
     monkeypatch.setattr(logger.console, "input", Mock(side_effect=lambda q: next(answers)))
     monkeypatch.setattr(logger, "confirm", _REAL_CONFIRM)
+    # NEW-1074 declared flip: the real confirm now fails closed off-tty, so
+    # scripted console input needs the logger tty seam (not a prod backdoor).
+    monkeypatch.setattr(logger, "_stdin_is_tty", lambda: True)
     cb = file_tools._high_write_confirm("Write to", "p", "c")
     assert cb() is False  # empty -> default No
     assert cb() is False  # "no"
@@ -446,6 +449,8 @@ def test_logger_confirm_prompt_shows_yn_hint(monkeypatch):
 
     monkeypatch.setattr(logger, "console", c)
     monkeypatch.setattr(c, "input", fake_input)
+    # NEW-1074 declared flip: logger.confirm needs a tty to prompt at all.
+    monkeypatch.setattr(logger, "_stdin_is_tty", lambda: True)
     assert _REAL_CONFIRM("Write to x?") is False
     assert "[y/N]" in buf.getvalue()
     # path markup from the file-tool prompt stays literal, not interpreted

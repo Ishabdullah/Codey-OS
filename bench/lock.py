@@ -21,6 +21,13 @@ data (suite.lock itself, scorecard_manual.json, scorecard_history.jsonl, *.md)
 because they do not influence pass/fail. Residual: an unchecked-hash .pyc could
 shadow a source file; not defended here.
 
+Symlinks (fail closed, VC2-N01): ANY symlink anywhere under bench/ (file, directory
+or dangling; including bench/tasks/** and __pycache__) is a lock violation.
+rglob does not descend into symlinked directories and is_file() follows symlinked
+files, so a link could hide a .py from the evaluator hash (importable but unhashed)
+or let the hashed bytes change without the link changing. verify_lock() returns
+False while one exists and write_lock() refuses (RuntimeError) to attest it.
+
 Framing: evaluator_hash length-prefixes each path and content (unambiguous).
 suite_hash keeps its original path\0bytes\0 framing UNCHANGED, which is
 ambiguous ({f: b"X\0g\0Y"} collides with {f: b"X", g: b"Y"}); accepted residual,
@@ -28,6 +35,7 @@ kept so existing ledger suite_hash values stay comparable (Ish has not decided
 to change it; tests/test_bench_integrity_lock.py pins the collision).
 """
 import hashlib
+import os
 import struct
 from pathlib import Path
 
@@ -72,8 +80,30 @@ def evaluator_hash(bench_dir: Path = ROOT) -> str:
     return h.hexdigest()
 
 
+def find_symlinks(*roots) -> list:
+    """Every symlink (file, directory or dangling) at any depth under the given roots.
+
+    Walks without following links; a directory symlink is reported, never entered.
+    """
+    out = []
+    for root in roots:
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+            for n in dirnames + filenames:
+                p = Path(dirpath) / n
+                if p.is_symlink():
+                    out.append(p)
+    return sorted(set(out))
+
+
 def write_lock(tasks_dir: Path = ROOT / "tasks", lock: Path = LOCK, bench_dir=None) -> str:
-    """Write the v2 lock; returns the tasks hash (as the v1 version did)."""
+    """Write the v2 lock; returns the tasks hash (as the v1 version did).
+
+    Raises RuntimeError (writing nothing) if any symlink exists under bench/.
+    """
+    links = find_symlinks(ROOT if bench_dir is None else bench_dir, tasks_dir)
+    if links:
+        raise RuntimeError("refusing to lock: symlink(s) under bench/: "
+                           + ", ".join(str(p) for p in links))
     d = suite_hash(tasks_dir)
     e = evaluator_hash(ROOT if bench_dir is None else bench_dir)
     lock.write_text(f"tasks:{d}\nevaluator:{e}\n")
@@ -103,6 +133,8 @@ def read_lock(lock: Path = LOCK):
 def verify_lock(tasks_dir: Path = ROOT / "tasks", lock: Path = LOCK, bench_dir=None) -> bool:
     got = read_lock(lock)
     if got is None:
+        return False
+    if find_symlinks(ROOT if bench_dir is None else bench_dir, tasks_dir):
         return False
     return (got["tasks"] == suite_hash(tasks_dir)
             and got["evaluator"] == evaluator_hash(ROOT if bench_dir is None else bench_dir))

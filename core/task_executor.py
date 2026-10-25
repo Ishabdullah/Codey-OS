@@ -411,7 +411,7 @@ class TaskExecutor:
             # the try block — see the comment there.
             def _run_capability():
                 _worker_thread_id.append(threading.get_ident())
-                return pm.call_capability(
+                return pm.call_capability_trusted(
                     "coding.run_agent",
                     prompt=prompt,
                     history=[],

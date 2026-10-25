@@ -529,3 +529,132 @@ def test_audit_list_command_joined_then_masked(tmp_path):
     assert "Canary12345abc" not in raw and B64 not in raw
     row = _rows(audit)[0]
     assert row["command"].startswith("sh ") and row["command"].count("[REDACTED:") == 1
+
+
+# --- S2 unit A, fix 2 (G15z V-C3 GW-10b): mid-line NAME=secret masking ----------------
+HEX_CANARY = "0123456789abcdef0123456789abcdef0123456789abcdef"  # fabricated
+
+
+@pytest.mark.parametrize("text,keep_before,keep_after", [
+    (f"env AIGENTIK_INTERNAL_TOKEN={HEX_CANARY} python3 x", "env AIGENTIK_INTERNAL_TOKEN=", " python3 x"),
+    (f"FOO=1 CCOS_CRM_READ_TOKEN={HEX_CANARY} cmd", "FOO=1 CCOS_CRM_READ_TOKEN=", " cmd"),
+    (f"a && DB_PASSWORD={HEX_CANARY} && echo done", "a && DB_PASSWORD=", " && echo done"),
+    (f"curl 'https://h/p?API_KEY={HEX_CANARY}'", "curl 'https://h/p?API_KEY=", "'"),
+    (f"x\n  export MY_SECRET={HEX_CANARY}\ny", None, None),
+])
+def test_midline_env_secret_masks_value_keeps_name_and_context(text, keep_before, keep_after):
+    out = mask_secrets(text)
+    assert HEX_CANARY not in out and "[REDACTED:" in out
+    if keep_before is not None:
+        assert out.startswith(keep_before) and out.endswith(keep_after)
+        assert "[REDACTED:env_secret_assignment_inline]" in out
+    assert mask_secrets(out) == out
+
+
+def test_midline_env_secret_audit_ledger_end_to_end(tmp_path):
+    from core.action_gateway import ACT, ActionGateway
+    audit = tmp_path / "a.jsonl"
+    gw = ActionGateway(audit_file=audit)
+    gw.gate_exec(authority=ACT, action="t.exec",
+                 command=f"env AIGENTIK_INTERNAL_TOKEN={HEX_CANARY} python3 x",
+                 confirm_available=False, execute=lambda: "ok")
+    raw = audit.read_text()
+    assert HEX_CANARY not in raw
+    assert "AIGENTIK_INTERNAL_TOKEN=[REDACTED:env_secret_assignment_inline] python3 x" in raw
+
+
+@pytest.mark.parametrize("text", [
+    "git show 0123456789abcdef0123456789abcdef01234567",
+    "sha256sum x  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "id=123e4567-e89b-12d3-a456-426614174000 ok",
+    "cat /data/data/com.termux/files/home/token_file.txt",
+    "tool --token-file=/path/to/the_token_file --token-count=123456789",
+    "the password is stored elsewhere; password=short",
+    "echo $TOKEN ${TOKEN} \"$SECRET_TOKEN\" X_TOKEN=$VALUE_FROM_ENV Y_TOKEN=${LONG_VALUE_REF}",
+    "MY_TOKEN=short TOKEN_COUNT=5 PASSWORD=/etc/secret/file KEY_TOKEN=~/tokfile",
+    "lower_token=abcdefghijklmnop1234 mytoken=abcdefghijklmnop1234",
+    "run FOO_TOKEN = abcdefghijklmnop1234 mid TOKEN = x",  # spaced mid-line: prose-shaped, untouched
+    "x-TOKEN=abcdefghijklmnop1234 a_TOKEN=abcdefghijklmnop1234x(",  # '-' lookbehind; trailing paren
+])
+def test_midline_env_secret_no_new_false_positives(text):
+    out = mask_secrets(text)
+    assert "env_secret_assignment_inline" not in out
+    assert out == text
+
+
+def test_midline_env_secret_residuals_documented():
+    # Same name/value rule as the line-start pattern: an all-digit long value for a
+    # TOKEN-named variable IS masked (accepted false positive). Quoted values are
+    # not this pattern's job: the quoted_*_assignment patterns already mask them.
+    assert "[REDACTED:env_secret_assignment_inline]" in mask_secrets("run MAX_TOKENS=1000000000 now")
+    assert HEX_CANARY not in mask_secrets(f'env X_TOKEN="{HEX_CANARY}" y')
+
+
+def test_midline_env_secret_line_start_behaviour_unchanged():
+    out = mask_secrets(f"AIGENTIK_INTERNAL_TOKEN={HEX_CANARY}")
+    assert out == "[REDACTED:env_secret_assignment]"
+    out = mask_secrets(f"-e X_TOKEN={HEX_CANARY}")
+    assert out == "[REDACTED:inline_env_secret]"
+    assert find_secret(f"env X_TOKEN={HEX_CANARY} y") is None  # find_secret/export unchanged
+
+
+@pytest.mark.parametrize("payload", [
+    "A" * 1_000_000, "TOKEN=" * 170_000, "_TOKEN" * 170_000, " TOKEN=aaaaaaaa" * 66_000,
+    "TOKEN=" + "a" * 1_000_000, " X_TOKEN=" * 110_000, "=SECRET" * 140_000,
+    "PASSWORD " * 110_000, "A_" * 500_000, ("SECRET" + "A" * 31 + "=") * 27_000,
+    ("A" * 32 + "TOKEN" + "A" * 32 + "=") * 13_000,
+])
+def test_midline_env_secret_linear_at_default_cap(payload):
+    # CPU time, not wall: the device stalls processes for seconds under load (observed 28 s wall / 0.7 s CPU).
+    t0 = time.process_time()
+    mask_secrets(payload)  # default 256 KB cap
+    assert time.process_time() - t0 < 2
+    t0 = time.process_time()
+    mask_secrets(payload, max_chars=2_000_000)  # whole payload (~1 MB)
+    assert time.process_time() - t0 < 20
+
+
+def test_midline_env_secret_fuzz_idempotent():
+    # `--token --token` style atoms are left out on purpose: secret_flag (not this fix) is
+    # non-idempotent on a doubled flag; see the S2-A report.
+    import random
+    rng = random.Random(20241024)
+    atoms = ["env ", "A_TOKEN=", "X_SECRET=", "PASSWORD=", "API_KEY=", "TOKEN", "=", "'", '"', "\\", ",",
+             " ", "\n", "abcdefgh12345678", "0123456789abcdef", "[REDACTED:x]", "$", "${", "}", "-", "_",
+             "-e ", "export ", "(", ")", "/", ".", "~", "\\\"", "ZZ"]
+    for _ in range(20000):
+        t = "".join(rng.choice(atoms) for _ in range(rng.randint(1, 14)))
+        once = mask_secrets(t)
+        assert mask_secrets(once) == once, repr(t)
+
+
+# --- S2-A review W1/W2: prefix cap and lookbehind boundary -----------------------------
+_V = "abcdefghij1234"  # fabricated 14-char value
+
+
+@pytest.mark.parametrize("prefix,masked", [
+    ("a_", False),   # lower-case char is not a name char; mid-run start is blocked: unmasked (documented)
+    ("x", False),
+    ("9", True),     # digit is a name char: whole name 9TOKEN
+    (".", True), ("/", True), (":", True), ('"', True), ("(", True), ("?", True),
+    ("-", False),    # option-like, excluded on purpose
+])
+def test_midline_lookbehind_boundary_outcomes(prefix, masked):
+    out = mask_secrets(f"run {prefix}TOKEN={_V} z")
+    if masked:
+        assert _V not in out and f"{prefix}TOKEN=[REDACTED:env_secret_assignment_inline] z" in out
+    else:
+        assert out == f"run {prefix}TOKEN={_V} z"
+
+
+def test_midline_name_prefix_allowance_128_and_residual():
+    ok = "A" * 120 + "TOKEN"
+    assert _V not in mask_secrets(f"env {ok}={_V} x")
+    assert mask_secrets(f"env {ok}={_V} x").startswith(f"env {ok}=[REDACTED:")
+    too_long = "A" * 140 + "TOKEN"  # documented residual: > 128 chars before the keyword
+    assert mask_secrets(f"env {too_long}={_V} x") == f"env {too_long}={_V} x"
+
+
+def test_midline_mixed_case_names_unmasked_documented():
+    # Pre-existing limitation shared with the line-start rule (names are upper-case only).
+    assert mask_secrets(f"env Api_Token={_V} x") == f"env Api_Token={_V} x"

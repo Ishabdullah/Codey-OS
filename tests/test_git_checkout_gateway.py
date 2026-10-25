@@ -343,7 +343,7 @@ def private_main(monkeypatch):
 
 @pytest.mark.parametrize(
     ("answer", "exception", "yolo", "allowed"),
-    [("y", None, False, True), ("y", None, True, True), ("n", None, False, False), ("yes", None, False, False), ("", None, False, False), ("n", None, True, False), (None, EOFError(), False, False), (None, KeyboardInterrupt(), False, False)],
+    [("y", None, False, True), ("y", None, True, True), ("n", None, False, False), ("yes", None, False, True), ("", None, False, False), ("n", None, True, False), (None, EOFError(), False, False), (None, KeyboardInterrupt(), False, False)],
 )
 def test_main_existing_prompt_and_history(repository, private_main, monkeypatch, answer, exception, yolo, allowed):
     r = repository
@@ -353,14 +353,21 @@ def test_main_existing_prompt_and_history(repository, private_main, monkeypatch,
     before = snapshot(r)
     index = (r.repo / ".git/index").read_bytes()
     prompt = Mock(return_value=answer, side_effect=exception)
-    monkeypatch.setattr("builtins.input", prompt)
+    # NEW-1074 declared flip: /git checkout now uses the fail-closed
+    # utils.logger.confirm (console.input behind the tty seam); "yes" now
+    # approves like every other REPL prompt.
+    import utils.logger as _lg
+
+    monkeypatch.setattr(_lg, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(_lg, "_flush_stdin_typeahead", lambda: None)
+    monkeypatch.setattr(_lg.console, "input", prompt)
     gate = Mock(wraps=r.gateway.gate_exec)
     monkeypatch.setattr(r.gateway, "gate_exec", gate)
     history = [{"role": "user", "content": "existing"}]
     handled, returned = main.handle_command("/git checkout target", history, yolo=yolo)
     assert handled is True and returned is history
     assert history == [{"role": "user", "content": "existing"}]
-    prompt.assert_called_once_with("Confirm? [y/N] ")
+    prompt.assert_called_once_with("\n\u26a0  Confirm? \\[y/N]: ")
     main.error.assert_not_called()
     if allowed:
         assert gate.call_count == 3
@@ -525,3 +532,82 @@ def test_active_merge_state_rejected(repository):
     result = githelper.git_checkout("target", str(r.repo))
     assert result == "[ERROR] Active Git operations are unsupported"
     assert snapshot(r) == before
+
+
+class _PipedStdin:
+    """Non-tty stdin carrying a 'y'; any read is a test failure."""
+
+    def __init__(self):
+        self.reads = 0
+
+    def isatty(self):
+        return False
+
+    def readline(self, *a):
+        self.reads += 1
+        return "y\n"
+
+    read = readline
+
+
+def _piped_y(monkeypatch):
+    import utils.logger as _lg
+
+    fake = _PipedStdin()
+    monkeypatch.setattr(sys, "stdin", fake)
+    monkeypatch.setattr("builtins.input", Mock(side_effect=AssertionError("bare input() used")))
+    monkeypatch.setattr(_lg.console, "input", Mock(side_effect=AssertionError("prompt reached off-tty")))
+    return fake
+
+
+def test_main_checkout_piped_y_non_tty_declined(repository, private_main, monkeypatch):
+    """NEW-1074: a piped 'y' cannot approve /git checkout (no tty => decline,
+    stdin unread, git_checkout never runs)."""
+    r = repository
+    r.git("branch", "target")
+    monkeypatch.chdir(r.repo)
+    fake = _piped_y(monkeypatch)
+    checkout = Mock(side_effect=AssertionError("git_checkout must not run"))
+    monkeypatch.setattr(githelper, "git_checkout", checkout)
+    handled, _ = private_main.handle_command("/git checkout target", [], yolo=False)
+    assert handled is True and fake.reads == 0
+    checkout.assert_not_called()
+    private_main.info.assert_called_once_with("Checkout cancelled.")
+    assert r.git("symbolic-ref", "HEAD").stdout.strip() != "refs/heads/target"
+
+
+def _review_main(private_main, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import core.linter
+
+    issue = SimpleNamespace(severity="error", line=1, code="E1", message="bad")
+    monkeypatch.setattr(core.linter, "get_available_linters", lambda: ["x"], raising=False)
+    monkeypatch.setattr(core.linter, "run_all_linters", lambda f: [("x", [issue])], raising=False)
+    target = tmp_path / "t.py"
+    target.write_text("x=1\n")
+    agent = Mock(return_value=("[done]", []))
+    monkeypatch.setattr(private_main, "_execute_agent_capability", agent)
+    return target, agent
+
+
+def test_main_review_piped_y_non_tty_declined(private_main, monkeypatch, tmp_path):
+    target, agent = _review_main(private_main, monkeypatch, tmp_path)
+    fake = _piped_y(monkeypatch)
+    private_main.handle_command(f"/review {target}", [], yolo=False)
+    agent.assert_not_called()
+    assert fake.reads == 0
+
+
+def test_main_review_tty_y_proceeds(private_main, monkeypatch, tmp_path):
+    import utils.logger as _lg
+
+    target, agent = _review_main(private_main, monkeypatch, tmp_path)
+    monkeypatch.setattr(_lg, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(_lg, "_flush_stdin_typeahead", lambda: None)
+    monkeypatch.setattr(_lg.console, "input", lambda q: "y")
+    import core.sessions
+
+    monkeypatch.setattr(core.sessions, "save_session", lambda h: None)
+    private_main.handle_command(f"/review {target}", [], yolo=False)
+    agent.assert_called_once()

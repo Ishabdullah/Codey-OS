@@ -24,7 +24,10 @@ class _Console:
         return self.answer
 
 
-def _confirm(answer, monkeypatch):
+def _confirm(answer, monkeypatch, tty=True):
+    # NEW-1074 declared flip: confirm() fails closed off-tty; these tests
+    # exercise the interactive prompt, so the (logger) tty seam is True.
+    monkeypatch.setattr("utils.logger._stdin_is_tty", lambda: tty)
     qwen = next(c for c in PEER_REGISTRY if c.name == "qwen")
     agy = next(c for c in PEER_REGISTRY if c.name == "antigravity")
     con = _Console(answer)
@@ -78,3 +81,43 @@ def test_is_interactive_environment_fails_closed(monkeypatch):
     monkeypatch.delenv("CODEY_NON_INTERACTIVE", raising=False)
     with patch("sys.stdin.isatty", side_effect=ValueError("closed")):
         assert is_interactive_environment() is False
+
+
+def test_confirm_non_tty_piped_y_cannot_approve(monkeypatch):
+    """NEW-1074: no tty => (False, None) and console.input is never reached."""
+    res, con = _confirm("y", monkeypatch, tty=False)
+    assert res == (False, None)
+    assert con.lines == []
+
+
+def test_escalate_piped_y_non_tty_never_dispatches(monkeypatch):
+    """Full chain escalate_or_park -> escalate -> mgr.confirm with a non-tty
+    stdin carrying 'y': no peer call, no gateway call."""
+    import sys
+
+    qwen = next(c for c in PEER_REGISTRY if c.name == "qwen")
+
+    class Piped:
+        reads = 0
+
+        def isatty(self):
+            return False
+
+        def readline(self, *a):
+            Piped.reads += 1
+            return "y\n"
+
+    monkeypatch.delenv("CODEY_DAEMON_MODE", raising=False)
+    monkeypatch.delenv("CODEY_NON_INTERACTIVE", raising=False)
+    monkeypatch.setattr(sys, "stdin", Piped())
+    con = _Console("y")  # would approve if the prompt were reached
+    monkeypatch.setattr("utils.logger.console", con)
+    with patch.object(PeerCLIManager, "available", return_value=[qwen]), \
+         patch.object(PeerCLIManager, "select_cli", return_value=qwen), \
+         patch.object(PeerCLIManager, "call") as mock_call, \
+         patch("core.action_gateway.get_action_gateway") as mock_gw:
+        res = peer_cli.escalate_or_park("t1", "do a thing", ["err"], [])
+    assert res is None
+    mock_call.assert_not_called()
+    mock_gw.assert_not_called()
+    assert Piped.reads == 0 and not any("Your options" in l for l in con.lines)

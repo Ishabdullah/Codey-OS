@@ -38,6 +38,9 @@ def manager(tmp_path, monkeypatch):
         "capabilities": [{"name": "system.info"}, {"name": "system.processes"}],
     }
     (directory / "manifest.json").write_text(json.dumps(manifest))
+    # S2-B: this fixture's tmp tree stands in for the canonical plugin tree
+    # (it declares CAPABILITY_AUTHORITY names such as system.info).
+    monkeypatch.setattr(pm, "_CANONICAL_PLUGIN_ROOT", pm.os.path.realpath(root))
     obj = pm.PluginManager([str(root)], registry)
     obj.supervisor = supervisor
     gateway = SimpleNamespace(refuse_exec=Mock(return_value=SimpleNamespace(reason="activation incomplete")))

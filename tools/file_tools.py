@@ -158,15 +158,12 @@ def classify_write_action(path: str, *, workspace=None) -> str:
 
 
 def _stdin_is_tty() -> bool:
-    """True only when stdin is a terminal. Any failure (closed stream, no
-    isatty) is "no human here": the G15j prompt must fail closed."""
-    import sys
+    """True only when stdin is a terminal. Thin wrapper over the single
+    source utils.logger._stdin_is_tty (NEW-1074), looked up at call time so a
+    test patching EITHER this name or the logger seam is effective here."""
+    from utils import logger
 
-    try:
-        return bool(sys.stdin.isatty())
-    except Exception:
-        # Fail closed: an unusable stdin cannot carry human consent.
-        return False
+    return logger._stdin_is_tty()
 
 
 def _high_write_confirm(kind: str, path: str, content):

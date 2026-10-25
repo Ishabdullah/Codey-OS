@@ -358,7 +358,7 @@ def test_main_clean_merge_no_new_prompt(repository, private_main, monkeypatch):
 
 @pytest.mark.parametrize(
     ("answer", "exception", "yolo", "accepted"),
-    [("n", None, False, False), ("", None, False, False), ("yes", None, False, False), (None, EOFError(), False, False), (None, KeyboardInterrupt(), False, False), ("y", None, False, True), ("y", None, True, True)],
+    [("n", None, False, False), ("", None, False, False), ("yes", None, False, True), (None, EOFError(), False, False), (None, KeyboardInterrupt(), False, False), ("y", None, False, True), ("y", None, True, True)],
 )
 def test_main_real_conflict_resolution_flow(repository, private_main, monkeypatch, answer, exception, yolo, accepted):
     r = repository
@@ -366,7 +366,13 @@ def test_main_real_conflict_resolution_flow(repository, private_main, monkeypatc
     target = setup_target(r, conflict=True)
     monkeypatch.chdir(r.repo)
     prompt = Mock(return_value=answer, side_effect=exception)
-    monkeypatch.setattr("builtins.input", prompt)
+    # NEW-1074 declared flip: conflict prompt uses fail-closed utils.logger.confirm
+    # (console.input behind the tty seam); "yes" now approves.
+    import utils.logger as _lg
+
+    monkeypatch.setattr(_lg, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(_lg, "_flush_stdin_typeahead", lambda: None)
+    monkeypatch.setattr(_lg.console, "input", prompt)
     history = [{"role": "user", "content": "existing"}]
     resolved_history = [*history, {"role": "assistant", "content": "mock resolution"}]
     agent = Mock(return_value=(True, resolved_history), side_effect=None if accepted else AssertionError("no agent on decline"))
@@ -374,7 +380,7 @@ def test_main_real_conflict_resolution_flow(repository, private_main, monkeypatc
     handled, returned = main.handle_command("/git merge target", history, yolo=yolo)
     assert handled is True
     assert history == [{"role": "user", "content": "existing"}]
-    prompt.assert_called_once_with("\nAsk Codey to resolve conflicts? [y/N] ")
+    prompt.assert_called_once_with("\n\u26a0  Ask Codey to resolve conflicts? \\[y/N]: ")
     main.warning.assert_called_once()
     result = main.warning.call_args.args[0]
     assert result.startswith("[CONFLICT]")
@@ -397,6 +403,37 @@ def test_main_real_conflict_resolution_flow(repository, private_main, monkeypatc
     else:
         agent.assert_not_called()
         assert returned is history
+
+
+def test_main_conflict_prompt_piped_y_non_tty_declined(repository, private_main, monkeypatch):
+    """NEW-1074: a piped 'y' cannot approve the conflict-resolution agent run."""
+    import io
+
+    import utils.logger as _lg
+
+    r = repository
+    main = private_main
+    setup_target(r, conflict=True)
+    monkeypatch.chdir(r.repo)
+
+    class Piped(io.StringIO):
+        reads = 0
+
+        def isatty(self):
+            return False
+
+        def readline(self, *a):
+            Piped.reads += 1
+            return super().readline(*a)
+
+    monkeypatch.setattr(sys, "stdin", Piped("y\ny\n"))
+    monkeypatch.setattr("builtins.input", Mock(side_effect=AssertionError("bare input() used")))
+    monkeypatch.setattr(_lg.console, "input", Mock(side_effect=AssertionError("prompt reached off-tty")))
+    agent = Mock(side_effect=AssertionError("no agent on decline"))
+    monkeypatch.setattr(main, "_execute_agent_capability", agent)
+    handled, _ = main.handle_command("/git merge target", [], yolo=False)
+    assert handled is True and Piped.reads == 0
+    agent.assert_not_called()
 
 
 def test_post_merge_hook_does_not_fire(repository):

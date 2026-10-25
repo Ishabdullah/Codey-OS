@@ -164,7 +164,7 @@ def test_call_capabilities_via_plugin_manager():
     mock_history = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "agent finished"}]
 
     with patch("core.agent.run_agent", return_value=(mock_response, mock_history)) as mock_ra:
-        result = pm.call_capability(
+        result = pm.call_capability_trusted(
             "coding.run_agent",
             prompt="write code",
             history=[],

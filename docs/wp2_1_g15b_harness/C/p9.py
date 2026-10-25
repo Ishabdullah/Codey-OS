@@ -1,0 +1,10 @@
+exec(open(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.realpath(__file__)),"h.py")).read())
+install_fakes(); os.chdir(B+"/work")
+from tools.shell_tools import classify_shell_command as c
+S=B+"/state"; H=B+"/home"
+cmds=[f"rm {S}/audit.jsonl",f"rm -f {S}/audit.jsonl",f"truncate -s 0 {S}/audit.jsonl",f"tee {S}/audit.jsonl",f"sed -i s/a/b/ {S}/audit.jsonl",f"mv {S}/audit.jsonl /dev/null",f"cp /dev/null {S}/audit.jsonl",f"shred -u {S}/audit.jsonl",
+ f"sqlite3 {S}/state.db 'delete from actions'",f"rm {H}/.codeyOS/age.key",f"rm {S}/state.db",f"chmod 777 {S}",f"ln -sf /dev/null {S}/audit.jsonl",
+ f"sed -i s/127.0.0.1/0.0.0.0/ {SNAP}/config.json", f"tee {SNAP}/config.json", f"cp x {SNAP}/ccos/plugins/voice/aigentik/manifest.json",f"sed -i s/python3/bash/ {SNAP}/ccos/plugins/voice/aigentik/manifest.json",
+ f"sed -i s/1/2/ {SNAP}/bench/suite.lock", f"sed -i s/a/b/ {SNAP}/bench/verify.py", f"sed -i s/a/b/ {SNAP}/main.py", f"tee {SNAP}/codeyOS", f"sed -i s/a/b/ {SNAP}/core/action_gateway.py", f"sed -i s/a/b/ {SNAP}/tools/shell_tools.py",
+ "git -C /x push", "rm -rf /data/data/com.termux/files/home/restoricon", "pip uninstall -y x", "termux-job-scheduler --script x", "am broadcast -a x","pm list packages","dumpsys","getprop","settings put global x 1","svc wifi disable","input keyevent 4","screencap -p /x","logcat -d","cmd package list","sleep 100","nohup sleep 1 &","setsid sleep 1","python3 -m http.server 8000","python3 -m pip install x","node -e 1","bash script.sh","sh script.sh","./script.sh","/bin/sh -c id","busybox sh -c id","timeout 5 sh -c id","env sh -c id","xargs sh -c id","awk 'BEGIN{system(\"id\")}'","find . -exec id ;","perl -e 1","ruby -e 1","php -r 1","lua -e 1","tclsh","gdb -batch -ex id","strace id","ltrace id","nc -l 1","socat - TCP:x:1","telnet x","tmux new -d id","screen -dm id","at now","batch","crontab -l","atd","service x start","systemctl start x","sv up x","termux-wake-lock","termux-battery-status"]
+for x in cmds: print(c(x),"|",x.replace(SNAP,"$SNAP").replace(S,"$STATE").replace(H,"$HOME"))

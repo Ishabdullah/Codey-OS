@@ -98,7 +98,7 @@ def test_daemon_permission_profile():
         return "daemon response", [{"role": "user", "content": user_message}, {"role": "assistant", "content": "daemon response"}]
 
     with patch("core.agent.run_agent", side_effect=fake_run_agent):
-        result = pm.call_capability(
+        result = pm.call_capability_trusted(
             "coding.run_agent",
             prompt="daemon step 1",
             history=[],
@@ -142,7 +142,7 @@ def test_daemon_permission_profile_restores_on_exception():
         raise RuntimeError("simulated inference crash")
 
     with patch("core.agent.run_agent", side_effect=crashing_run_agent):
-        result = pm.call_capability(
+        result = pm.call_capability_trusted(
             "coding.run_agent",
             prompt="doomed task",
             history=[],
