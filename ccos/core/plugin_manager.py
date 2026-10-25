@@ -466,6 +466,16 @@ def _authority_relaxing_args(args: tuple, kwargs: Dict[str, Any]) -> List[str]:
     return found
 
 
+def _manifest_enabled_refusal(manifest: Dict[str, Any]) -> Optional[str]:
+    """Static fail-closed enabled policy, including legacy/direct callers."""
+    enabled = manifest.get("enabled", True)
+    if type(enabled) is not bool:
+        return "Invalid manifest enabled field: expected boolean"
+    if not enabled:
+        return "Plugin disabled by manifest (enabled=false)"
+    return None
+
+
 class PluginContainmentError(ValueError):
     """A manifest path escapes the plugin's own directory (or is malformed)."""
 
@@ -585,6 +595,12 @@ class ProcessSupervisor:
     ) -> bool:
         """Start one owned child and observe early exit / configured health."""
         with self._lock:
+            reason = _manifest_enabled_refusal(plugin.manifest)
+            if reason:
+                # Do not inspect/stop an existing owner or touch PID files.
+                _audit_plugin_refusal(
+                    f"ccos.plugin_spawn:{plugin.name}", plugin.name, reason)
+                return False
             process_spec = plugin.manifest.get("process_spec", {})
             cmd = process_spec.get("start_command") or process_spec.get("command")
             cwd = str(process_spec.get("working_dir") or plugin.path)
@@ -785,6 +801,7 @@ class PluginManager:
         self._lifecycle_lock = RLock()
         self._external_health_failures = set()
         self._activation_attempts = {}
+        self._disabled_capabilities: Dict[str, str] = {}
         self._discover()
 
     def register_capability_handler(self, cap_name: str, handler: Callable, *, authority: str):
@@ -879,6 +896,11 @@ class PluginManager:
         return _max_authority(candidates)
 
     def _discover(self):
+        """Observe policy changes without racing activation or dispatch."""
+        with self._lifecycle_lock:
+            return self._discover_locked()
+
+    def _discover_locked(self):
         """Scan plugin directories and register plugins, refusing ambiguity.
 
         Walk is sorted (deterministic). Symlinked category dirs, plugin dirs
@@ -889,6 +911,7 @@ class PluginManager:
         A placeholder never replaces an ACTIVE or mid-activation plugin.
         """
         self._discovery_refusals = []
+        self._disabled_capabilities = {}
 
         def refuse(rel, reason, action_name):
             self._discovery_refusals.append({"path": rel, "reason": reason})
@@ -1012,6 +1035,21 @@ class PluginManager:
 
         logged = set()
         for idx, (name, path, rel, manifest) in enumerate(claims):
+            policy_reason = _manifest_enabled_refusal(manifest)
+            existing = self._plugins.get(name)
+            live = existing is not None and (
+                existing.status == PluginStatus.ACTIVE or name in self._activation_attempts)
+            if policy_reason:
+                # Keep reservations even for collision placeholders and stale
+                # registry entries. Disabled declarations still participate in
+                # all name/capability conflict checks above.
+                for cap_name in _declared_capability_names(manifest, name):
+                    self._disabled_capabilities[cap_name] = policy_reason
+                if live:
+                    # Preserve ownership/process_spec and the exact Plugin
+                    # object. Block new work; explicit unload still owns cleanup.
+                    existing.manifest["enabled"] = manifest["enabled"]
+                    existing.error = policy_reason
             if idx in refused:
                 if (name, refused[idx]) not in logged:
                     logged.add((name, refused[idx]))
@@ -1026,10 +1064,21 @@ class PluginManager:
                     status=PluginStatus.DISABLED, error=refused[idx],
                 )
                 continue
+            if live and _manifest_enabled_refusal(existing.manifest):
+                # Re-enabling an observed-disabled live owner requires explicit
+                # unload/restart, never replacement of its lifecycle record.
+                continue
+            if policy_reason and type(manifest["enabled"]) is not bool:
+                refuse(rel, policy_reason, name)
+            # enabled:false is an installed policy, not an attempted action.
+            # Explicit load/start/dispatch refusals are audited at those gates.
             self._plugins[name] = Plugin(
                 name=name,
                 path=path,
                 manifest=manifest,
+                status=PluginStatus.DISABLED if policy_reason else PluginStatus.INSTALLED,
+                error=policy_reason or "",
+                capabilities=_declared_capability_names(manifest, name) if policy_reason else [],
                 version=manifest.get("version", "1.0.0"),
                 domain=manifest.get("domain", "general"),
                 execution_mode=manifest.get("execution_mode", "in_process"),
@@ -1044,10 +1093,11 @@ class PluginManager:
                 "name": p.name,
                 "path": p.path,
                 "status": p.status.value,
+                "enabled": p.manifest.get("enabled", True),
                 "version": p.version,
                 "execution_mode": p.execution_mode,
                 "capabilities": p.capabilities,
-                "error": p.error,
+                "error": _manifest_enabled_refusal(p.manifest) or p.error,
                 "pid": p.pid,
             }
             for p in self._plugins.values()
@@ -1067,6 +1117,10 @@ class PluginManager:
         if not plugin:
             return False
 
+        reason = _manifest_enabled_refusal(plugin.manifest)
+        if reason:
+            _audit_plugin_refusal(f"ccos.plugin_activate:{name}", name, reason)
+            return False
         if plugin.status == PluginStatus.DISABLED:
             return False  # refused plugins are never retried in-process
 
@@ -1201,6 +1255,8 @@ class PluginManager:
         manifest = plugin.manifest
         if not isinstance(manifest, dict):
             raise ValueError("manifest")
+        if _manifest_enabled_refusal(manifest):
+            raise ValueError("manifest enabled policy refuses activation")
         for key in ("entry_point", "domain", "category"):
             if key in manifest and not isinstance(manifest[key], str):
                 raise ValueError(key)
@@ -1376,6 +1432,13 @@ class PluginManager:
 
     def _execute(self, name: str, function: str, *args, **kwargs) -> Any:
         """Caller holds lifecycle lock through guard, lookup and callback."""
+        plugin = self._plugins.get(name)
+        reason = _manifest_enabled_refusal(plugin.manifest) if plugin is not None else None
+        if reason:
+            decision = get_action_gateway().refuse_exec(
+                authority=HIGH_IMPACT, action=f"ccos.plugin_execute:{name}",
+                command=name, reason=reason)
+            raise CapabilityRefused(decision.reason)
         if name in self._activation_attempts:
             raise RuntimeError("Plugin activation incomplete; execution unavailable")
         module = self._modules.get(name)
@@ -1465,11 +1528,21 @@ class PluginManager:
         dispatch (confirm_available=False unconditionally below).
         """
         cap = self._registry.get(cap_name)
-        if not cap and cap_name not in self._handlers:
-            raise RuntimeError(f"Capability '{cap_name}' not found")
-
         gateway = get_action_gateway()
         action_label = f"ccos.call_capability:{cap_name}"
+        reason = self._disabled_capabilities.get(cap_name)
+        for plugin in self._plugins.values():
+            policy_reason = _manifest_enabled_refusal(plugin.manifest)
+            if policy_reason and (cap_name in plugin.capabilities or cap_name in
+                                  _declared_capability_names(plugin.manifest, plugin.name)):
+                reason = policy_reason
+                break
+        if reason:
+            decision = gateway.refuse_exec(
+                authority=HIGH_IMPACT, action=action_label, command=cap_name, reason=reason)
+            raise CapabilityRefused(decision.reason)
+        if not cap and cap_name not in self._handlers:
+            raise RuntimeError(f"Capability '{cap_name}' not found")
         # Only capabilities owned by an unfinished activation are blocked.
         # Restored/preexisting entries and independent direct handlers retain
         # their prior contract. Keep this refusal in the existing audit path.

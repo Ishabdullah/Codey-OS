@@ -364,11 +364,20 @@ def test_real_manifests_all_accepted(tmp_path):
     m = manager(tmp_path, REPO / "ccos" / "plugins")
     plugins = list(m._plugins.values())
     assert len(plugins) == 19
-    assert not [p for p in plugins if p.status == PluginStatus.DISABLED]
+    disabled = [p for p in plugins if p.status == PluginStatus.DISABLED]
+    assert {p.name for p in disabled} == {"private_agent", "aigentik"}
+    assert all(p.manifest["enabled"] is False and
+               p.error == "Plugin disabled by manifest (enabled=false)" for p in disabled)
     assert m._discovery_refusals == []
     names = []
     for p in plugins:
         assert resolve_plugin_file(p.path, p.manifest.get("entry_point", "__init__.py")).is_file()
+        if p.manifest["enabled"] is False:
+            with pytest.raises(ValueError, match="enabled"):
+                m._stage_capabilities(p)
+            # Retain disabled canonical definitions in name/authority coverage.
+            names += pm._declared_capability_names(p.manifest, p.name)
+            continue
         staged = m._stage_capabilities(p)
         assert pm._declared_capability_names(p.manifest, p.name) == [c.name for c in staged]
         names += [c.name for c in staged]

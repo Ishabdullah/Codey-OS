@@ -163,32 +163,44 @@ def test_sandbox():
 
 def test_plugin_manager():
     print("Testing PluginManager...")
-    pm = get_plugin_manager()
+    from ccos.core.capability_registry import CapabilityRegistry
+    from ccos.core.plugin_manager import PluginManager, PluginStatus
 
-    plugins = pm.list_plugins()
-    assert isinstance(plugins, list), "Plugins should be a list"
-    assert len(plugins) >= 2, f"Expected at least 2 plugins, got {len(plugins)}"
+    # Do not write the canonical registry/stats while testing discovery.
+    with tempfile.TemporaryDirectory() as state:
+        reg = CapabilityRegistry(str(Path(state) / "registry.json"))
+        pm = PluginManager(registry=reg)
+        plugins = pm.list_plugins()
+        assert isinstance(plugins, list), "Plugins should be a list"
+        assert len(plugins) >= 2, f"Expected at least 2 plugins, got {len(plugins)}"
+        disabled = {p["name"] for p in plugins if p["enabled"] is False}
+        assert disabled == {"private_agent", "aigentik"}
+        for name in disabled:
+            plugin = pm.get_plugin(name)
+            assert plugin.manifest["enabled"] is False
+            assert plugin.status == PluginStatus.DISABLED
+            assert plugin.error == "Plugin disabled by manifest (enabled=false)"
 
-    # Load all
-    results = pm.load_all()
-    loaded = sum(1 for v in results.values() if v)
-    failed = {
-        name: pm.get_plugin(name).error
-        for name, v in results.items()
-        if not v
-    }
-    assert loaded == len(plugins), (
-        f"Expected all {len(plugins)} discovered plugins to load, got {loaded}. "
-        f"Failed: {failed}"
-    )
+        # Every enabled plugin must load, and neither disabled adapter may
+        # import/spawn/probe a real external service during this contract test.
+        with patch("ccos.core.plugin_manager.subprocess.Popen",
+                   side_effect=AssertionError("canonical external spawn")) as spawn, \
+             patch("ccos.core.plugin_manager.urllib.request.urlopen",
+                   side_effect=AssertionError("canonical external HTTP")) as http:
+            results = pm.load_all()
+        spawn.assert_not_called()
+        http.assert_not_called()
+        enabled = {p["name"] for p in plugins} - disabled
+        failed = {name: pm.get_plugin(name).error for name in enabled if not results[name]}
+        assert not failed, f"Every enabled plugin must load: {failed}"
+        assert all(results[name] is True for name in enabled)
+        assert all(results[name] is False for name in disabled)
+        assert set(results) == enabled | disabled
 
-    # Check capabilities were registered
-    from ccos.core.capability_registry import get_capability_registry
-    reg = get_capability_registry()
-    active = reg.get_active()
-    assert len(active) >= 1, "Should have at least 1 active capability"
-
-    print(f"  [PASS] Discovered {len(plugins)} plugins, loaded {loaded}, {len(active)} capabilities")
+        active = reg.get_active()
+        assert len(active) >= 1, "Should have at least 1 active capability"
+        print(f"  [PASS] Discovered {len(plugins)} plugins, loaded {len(enabled)}, "
+              f"disabled {len(disabled)}, {len(active)} capabilities")
     return True
 
 

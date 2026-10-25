@@ -25,10 +25,12 @@
    section in blueprint §14. Phase B8 (Sales Rep Portal) and the rest of
    Track B have no blueprint equivalent yet — an open reconciliation
    question for Ish, not resolved.
-   *Two things not to get wrong:* (a) **do not enable `CODEY_TRAJECTORY=1`
-   and run the bench** until WP0.5 lands — that documented step is what
-   triggers `NEW-761`'s evaluation leak, and the symptom is scores going
-   *up*; (b) Restoricon is **manually started and not yet in full use**, so
+   *Two things not to get wrong:* (a) **WP0.5 landed on 2026-10-07;
+   its NEW-761 evaluation-leakage guard must remain covered by
+   `tests/test_trajectory.py`.** A real benchmark/model run for WP2.1
+   remains an Ish-attended verification step using disposable state, the
+   current evaluator lock and rule-2 RAM discipline; agents do not run it
+   as part of WP2.1 closure; (b) Restoricon is **manually started and not yet in full use**, so
    data integrity (not uptime) is the binding constraint — services may be
    restarted during development after checking `ps`/`ss`, but **never write
    to the live store** (`RESTORICON_DB_PATH` points at a copy in every

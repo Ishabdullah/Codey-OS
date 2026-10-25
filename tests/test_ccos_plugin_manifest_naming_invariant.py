@@ -32,7 +32,8 @@ def _discovered_manifests():
     """Ask a real PluginManager what _discover() accepts (G15g Unit A added
     symlink/duplicate refusals a hand-written directory walk would miss), so
     this scan can never silently diverge from what is actually loaded.
-    DISABLED placeholders (refused) are excluded; they carry no manifest.
+    Empty refusal placeholders are excluded; intentionally disabled full
+    definitions remain covered so opt-out cannot erase naming invariants.
     """
     import tempfile
 
@@ -43,7 +44,7 @@ def _discovered_manifests():
         manager = PluginManager([str(_PLUGINS_ROOT)], CapabilityRegistry(str(Path(tmp) / "reg.json")))
         return sorted(
             Path(p.path) / "manifest.json"
-            for p in manager._plugins.values() if p.status != PluginStatus.DISABLED
+            for p in manager._plugins.values() if p.manifest
         )
 
 

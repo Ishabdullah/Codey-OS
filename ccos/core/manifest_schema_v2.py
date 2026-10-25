@@ -30,6 +30,7 @@ MANIFEST_V2_JSON_SCHEMA: Dict[str, Any] = {
             "default": "2.0.0",
             "pattern": r"^2\.\d+\.\d+$",
         },
+        "enabled": {"type": "boolean", "default": True},
         "name": {"type": "string", "minLength": 1},
         "version": {"type": "string", "minLength": 1},
         "description": {"type": "string"},
@@ -134,6 +135,10 @@ def validate_manifest_v2(manifest_dict: Dict[str, Any]) -> Tuple[bool, List[str]
         val = manifest_dict.get(req_field)
         if val is None or not isinstance(val, str) or not val.strip():
             errors.append(f"Missing or invalid required field '{req_field}' (must be non-empty string)")
+
+    # Enabled is strictly a JSON boolean; numbers and null are invalid.
+    if "enabled" in manifest_dict and type(manifest_dict["enabled"]) is not bool:
+        errors.append("Field 'enabled' must be a boolean")
 
     # Schema version
     schema_ver = manifest_dict.get("schema_version")
@@ -304,6 +309,9 @@ def normalize_manifest(manifest_dict: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
     normalized: Dict[str, Any] = dict(manifest_dict)
+
+    # Preserve False and malformed values: validation must never coerce them.
+    normalized["enabled"] = manifest_dict.get("enabled", True)
 
     # Default schema version
     normalized["schema_version"] = manifest_dict.get("schema_version", "2.0.0")

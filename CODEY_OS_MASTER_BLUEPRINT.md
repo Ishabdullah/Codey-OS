@@ -3833,6 +3833,34 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > (`84c7bfdc06225ed775c03984d21074540b18e26c`), not yet pushed. S3-S8, historical S1/S1b replay and all pending
 > handoff §4 decisions remain open; no gate/DoD/closure decision inferred.
 > Details and evidence paths: the takeover report and NEW-1093/NEW-1094.
+> **Status update (2026-10-25, closure continuation) — decisions approved;
+> prefreeze implementation reviewed, WP2.1 OPEN.** Supersedes the earlier
+> pending-decision wording only for the choices explicitly approved: interactive
+> readline; thermal-only dashboard activation; retained explicitly disabled
+> private_agent/aigentik adapters; D-6/D-7 existing HIGH protections; remaining
+> D-8 HIGH ratings 07/31/35 (37 already approved); Z-1 coverage blocking by
+> default after classification, strict at closure, business boundaries covered;
+> and the specific authorized CLAUDE.md WP0.5 correction. Final residual/DoD
+> signatures, live-check scheduling/deferrals, group-14 tiers and next package
+> remain pending. `84c7bfd` and hash follow-up `7fe60cc` are pushed; local and
+> origin/main were verified equal. Micro-slice A (readline at actual REPL entry)
+> is code complete + independently reviewer APPROVED: 16+34 implementer tests,
+> independent 50 passed including disposable PTY immediate Ctrl-C and stale-y
+> controls. No persistent history handling/new signal handler or attended-terminal
+> claim. The specific CLAUDE correction is applied/reviewed; trajectory guard
+> 19 passed. Slice B dashboard is code complete + independently reviewer APPROVED
+> (7 dashboard +2 TUI/SIGTERM tests passed); slice C enabled policy is code complete
+> + independently reviewer APPROVED (implementer 343 passed; reviewer 342 passed
+> /1 known timing-sensitive NEW-1090 failure, isolated rerun passed). Fresh bounded
+> recursive verification completed: 9,294 passed /10 recorded baseline failures
+> /2 skipped /19 subtests passed; all 14 reviewed hashes unchanged. Guarded
+> CCOS completed 183 passed /2 known NEW-805/NEW-1090 failures, zero guard refusals
+> and no exclusions; timing case isolated rerun 1 passed. Final 21-path commit
+> review is APPROVED.
+> Source is NOT frozen. Diagnostic census at committed `7fe60cc`: 1,467 rows,
+> 1,433 UNKNOWN, 28 NO_DISPOSITION, 38 coverage failures, exit 1; register unchanged.
+> Final classification/replay/gate/closure not yet run. Details and literal
+> evidence: `docs/wp2_1_g15z_closure_progress_2026-10-25.md`. No new dependency.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,

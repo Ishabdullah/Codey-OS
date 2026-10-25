@@ -34,8 +34,12 @@ def _plugin_manager():
     if _plugins is None:
         from ccos.core.plugin_manager import get_plugin_manager
 
-        _plugins = get_plugin_manager()
-        _plugins.load_all()
+        plugins = get_plugin_manager()
+        # The dashboard only needs this read-only adapter. Eager activation
+        # would also start unrelated external plugins merely to render stats.
+        if not plugins.load("thermal_monitor"):
+            raise RuntimeError("Dashboard thermal_monitor plugin unavailable")
+        _plugins = plugins
     return _plugins
 
 

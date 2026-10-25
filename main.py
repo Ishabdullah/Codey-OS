@@ -1935,6 +1935,34 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
     return False, history
 
 
+def _enable_interactive_readline(*, one_shot=False):
+    """Enable stdlib line editing for attended REPL input, when available.
+
+    Importing readline also lets input() observe Ctrl-C immediately on
+    supported terminals. This only enables its ordinary in-memory editing
+    and history; no key bindings or persistent history are configured.
+    Return False to retain ordinary input() when unavailable or unattended.
+    CLI daemon mode returns before repl(); the environment guards also
+    cover direct repl() callers in daemon/non-interactive contexts.
+    """
+    if (one_shot or os.getenv("CODEY_DAEMON_MODE") == "1"
+            or os.getenv("CODEY_NON_INTERACTIVE") == "1"):
+        return False
+    try:
+        if not sys.stdin.isatty():
+            return False
+    except (AttributeError, OSError, ValueError):
+        # Missing/closed stdin is unattended; preserve the existing input path.
+        return False
+    try:
+        import readline  # noqa: F401 -- import enables Python input() editing
+    except ImportError:
+        # Optional on Python builds without readline: ordinary input() remains
+        # available, but immediate Ctrl-C cancellation is not guaranteed.
+        return False
+    return True
+
+
 def repl(
     initial_prompt=None,
     yolo=False,
@@ -1945,6 +1973,7 @@ def repl(
     session_path=None,
     no_resume=False,
 ):
+    _enable_interactive_readline(one_shot=one_shot)
     console.print(BANNER)
     separator()
 

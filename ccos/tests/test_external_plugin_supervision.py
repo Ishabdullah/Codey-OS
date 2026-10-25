@@ -587,8 +587,8 @@ def test_dispatch_timeout_clamped_to_core_ceiling(tmp_path, monkeypatch):
 
 
 def test_load_real_private_agent_manifest_folds_per_capability_timeout(tmp_path, monkeypatch):
-    """End-to-end regression for trap 1 using the real deployed manifest
-    (ccos/plugins/device/private_agent/manifest.json, not a hand-built
+    """End-to-end regression using a disposable enabled copy of the real
+    disabled manifest (ccos/plugins/device/private_agent/manifest.json, not a hand-built
     Capability): device.local_action declares its own timeout_seconds:15,
     tighter than the plugin-level resource_limits.timeout_seconds:20;
     device.secure_relay declares timeout_seconds:20, matching the plugin
@@ -597,8 +597,8 @@ def test_load_real_private_agent_manifest_folds_per_capability_timeout(tmp_path,
     would actually use -- after going through the real
     PluginManager.load() path, not just an isolated helper-function check.
 
-    This also proves the branch's current dormancy is unaffected by this
-    fix: dispatching device.local_action through the real, unmodified
+    On this deliberately enabled fixture, dispatching device.local_action
+    through the real, unmodified
     call_capability() (no gating bypassed) still raises CapabilityRefused
     without ever calling urlopen(), because "device:control"/"fs:private"
     force HIGH_IMPACT and no confirmation path exists for CCOS dispatch
@@ -621,7 +621,20 @@ def test_load_real_private_agent_manifest_folds_per_capability_timeout(tmp_path,
     monkeypatch.setattr(pm_module, "PLUGIN_PID_DIR", tmp_path / "plugins")
 
     registry = CapabilityRegistry(store_path=str(tmp_path / "caps.json"))
-    pm = PluginManager(registry=registry)  # default discovery: real ccos/plugins/
+    # The canonical definition is intentionally disabled until repaired.
+    # Test its timeout data in a disposable, deliberately enabled copy only.
+    from pathlib import Path
+    canonical = Path(__file__).resolve().parents[1] / "plugins/device/private_agent/manifest.json"
+    manifest = json.loads(canonical.read_text())
+    assert manifest["enabled"] is False
+    manifest["enabled"] = True
+    root = tmp_path / "fixture-plugins"
+    directory = root / "device/private_agent"
+    directory.mkdir(parents=True)
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    (directory / "__init__.py").write_text("")
+    monkeypatch.setattr(pm_module, "_CANONICAL_PLUGIN_ROOT", os.path.realpath(root))
+    pm = PluginManager([str(root)], registry=registry)
 
     plugin = pm.get_plugin("private_agent")
     assert plugin is not None

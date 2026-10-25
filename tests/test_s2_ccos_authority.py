@@ -282,7 +282,10 @@ def test_default_manager_loads_all_real_manifests(tmp_path):
     m = manager(tmp_path, REPO / "ccos" / "plugins")
     names = [p["name"] for p in m.list_plugins()]
     assert len(names) == 19, names
-    assert not [p for p in m.list_plugins() if p["status"] == "disabled"]
+    disabled = [p for p in m.list_plugins() if p["status"] == "disabled"]
+    assert {p["name"] for p in disabled} == {"private_agent", "aigentik"}
+    assert all(p["enabled"] is False and
+               p["error"] == "Plugin disabled by manifest (enabled=false)" for p in disabled)
 
 
 # ---- review W1/W3 -----------------------------------------------------------
