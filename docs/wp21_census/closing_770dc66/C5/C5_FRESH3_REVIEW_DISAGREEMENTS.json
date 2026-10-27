@@ -1,0 +1,20 @@
+{
+ "round": 4,
+ "random_denominator": 45,
+ "random_sample_disagreements": 0,
+ "random_sample_disagreement_rate_percent": 0.0,
+ "mandatory_disagreements": 0,
+ "prior_rounds": {
+  "round1": "C5_FRESH3_REVIEW_DISAGREEMENTS_ROUND1.json (3/45 random reach; 6 mandatory)",
+  "round2": "C5_FRESH3_REVIEW_DISAGREEMENTS_ROUND2.json (0/45 random; 2 out-of-sample: search class, NEW-814 severity)"
+ },
+ "round3_differences": [],
+ "round3_ledger_findings": [
+  {
+   "key": "core/state.py::StateStore.delete_model_adoption::*.execute::1",
+   "issue": "NEW-814 ledger entry (line 20533) lacks the LOW severity line; the update text is filed under NEW-1098. Move it into the NEW-814 entry."
+  }
+ ],
+ "round4_ledger_findings": [],
+ "round4_verdict": "APPROVED; prior ledger finding resolved"
+}

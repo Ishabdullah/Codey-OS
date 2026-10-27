@@ -1,0 +1,14 @@
+{
+  "adapter_review": "APPROVED",
+  "source_frozen": true,
+  "product_replay_authorized": true,
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "adapter_files": {
+    "replay_va.py": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+    "replay_va_cases.json": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583",
+    "replay_guard.py": "f68aa877fa92d0fc979c807d3fe7ce0e0d85d9d02075fce2c6bd61ecf0c36995"
+  },
+  "coordinator": "/root",
+  "review_report": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/REVIEW_BOOTSTRAP_VA.md",
+  "scope": "exact reviewed V-A adapter only; harmless canaries first; recorded primitive attempts always refused"
+}

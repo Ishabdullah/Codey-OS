@@ -1,0 +1,27 @@
+{
+  "revision": "770dc6639e4100ea3215fca07d923769a8290078",
+  "rows": 304,
+  "files": 21,
+  "exact_key_sha256": "542db5ab46fbeab75fd8dc73a0d670e0e0d0e98e69474483d7329a54ecb2297e",
+  "missing": 0,
+  "extra": 0,
+  "duplicate": 0,
+  "unknown": 0,
+  "hash_records": 77,
+  "qualgroups": 181,
+  "matched_table_groups": 82,
+  "unmatched_table_groups": 99,
+  "classes": {
+    "NATIVE_AUTHORITY": 199,
+    "FALSE_POSITIVE": 2,
+    "OPERATOR_BOOTSTRAP": 85,
+    "BOOKKEEPING": 10,
+    "UNMEDIATED": 7,
+    "READ_NOEFFECT": 1
+  },
+  "unmediated": {
+    "NEW-792": 7
+  },
+  "reviewed_by": "blank, independent review pending",
+  "execution": "Pure CSV/JSON/AST/hash source processing only, no product import/test/probe/DB/network/model"
+}

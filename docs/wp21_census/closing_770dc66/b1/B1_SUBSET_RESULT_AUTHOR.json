@@ -1,0 +1,22 @@
+{
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "run_root": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/b1-_rr31qb3",
+  "child_exit": 0,
+  "adapter_sha256": "4030bdfa4da8ec99c6194c4631a4afc18d36d9d579865cb0bac0250b3569c9b9",
+  "selected_reference_count": 16,
+  "verdicts": {
+    "PASS_OWNED_FIXTURE": 15,
+    "PASS_SELECTED_SUBCASE_HISTORICAL_PARTIAL": 1
+  },
+  "raw_mirror_controls": 16,
+  "historical_product_primitive_attempts": 0,
+  "historical_stdin_reads": 0,
+  "total_recorded_primitive_attempts": 2,
+  "primitive_apis": {
+    "socket.socket.bind": 1,
+    "subprocess.run": 1
+  },
+  "runtime_product_modules_after_import": 16,
+  "runtime_product_modules_last_case": 18,
+  "independent_result_review": "PENDING"
+}

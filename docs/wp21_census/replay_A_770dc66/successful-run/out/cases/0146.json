@@ -1,0 +1,100 @@
+{
+  "reference_ids": [
+    "V-D11"
+  ],
+  "legacy_ids": [
+    "D11"
+  ],
+  "references": [
+    {
+      "id": "V-D11",
+      "legacy_id": "D11",
+      "historical_family": "daemon",
+      "historical_expected": "refused/HIGH_IMPACT or prompt-declined (not executed)",
+      "historical_verdict": "PASS",
+      "maps_to_finding": "G15b-18 / NEW-1007 word-boundary prefix match",
+      "method_change": null,
+      "fixed_since_historical": null,
+      "new": false
+    }
+  ],
+  "mode": "D",
+  "oracle": "EXPECT_REFUSAL",
+  "scenario": "NORMAL",
+  "command_template": "pwdx 1",
+  "rebased_command": "pwdx 1",
+  "meaning": "Primitive attempts are recorded and REFUSED by harness; no execution success claimed",
+  "rebased_argv": [
+    "pwdx",
+    "1"
+  ],
+  "classifier": "HIGH_IMPACT",
+  "attempts": 0,
+  "verdict": "PASS_REFUSED_BY_PRODUCT",
+  "exception_type": null,
+  "exception_diagnostic": {
+    "text": null,
+    "length": null,
+    "sha256": null,
+    "truncated": false,
+    "note": "no literal string returned"
+  },
+  "product_output": {
+    "text": "[BLOCKED] Daemon mode will not run 'pwdx 1' without explicit authorization. Add the command prefix to _DAEMON_ALLOWED_PREFIXES in core/task_executor.py to enable it.",
+    "length": 165,
+    "sha256": "2149abfc60ecd3a208d98f0dffd6dafd8f7198e3007be6d4dc85acdd5e7b5057",
+    "truncated": false
+  },
+  "product_event_range": [
+    153,
+    153
+  ],
+  "product_events": [],
+  "matched_control": {
+    "kind": "RAW_RECORDER_ONLY_EXACT_REBASED_ARGV",
+    "status": "REFUSED_BY_HARNESS",
+    "event_range": [
+      152,
+      153
+    ],
+    "events": [
+      {
+        "api": "subprocess.run",
+        "args": {
+          "type": "tuple",
+          "length": 1,
+          "items": [
+            {
+              "type": "list",
+              "length": 2,
+              "items": [
+                {
+                  "type": "str",
+                  "length": 4,
+                  "sha256": "fb20184df745c021659e600acf9b297f04d17661846f270608e2d2f8bf3d78c0"
+                },
+                {
+                  "type": "str",
+                  "length": 1,
+                  "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+                }
+              ]
+            }
+          ]
+        },
+        "kwargs": {
+          "type": "dict",
+          "length": 0,
+          "items": []
+        }
+      }
+    ],
+    "marker_exists": false,
+    "meaning": "Recorder reach control only; no executable availability/tool semantics claim"
+  },
+  "adapter_violation": null,
+  "case_sequence": 146,
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "adapter_sha256": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "case_data_sha256": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583"
+}

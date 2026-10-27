@@ -1,0 +1,22 @@
+{
+  "revision": "770dc6639e4100ea3215fca07d923769a8290078",
+  "rows": 355,
+  "files": 19,
+  "exact_key_sha256": "236964f74db9546e35fad412fa2205501ce20de9f1dfd8299089a8b84b9ac03e",
+  "missing": 0,
+  "extra": 0,
+  "duplicate": 0,
+  "unknown": 0,
+  "hash_records": 97,
+  "read_capabilities": 35,
+  "read_paired_rows": 70,
+  "classes": {
+    "OPERATOR_BOOTSTRAP": 17,
+    "NATIVE_AUTHORITY": 332,
+    "UNMEDIATED": 6
+  },
+  "unmediated": {
+    "NEW-1034": 6
+  },
+  "reviewed_by": "blank, independent review pending"
+}

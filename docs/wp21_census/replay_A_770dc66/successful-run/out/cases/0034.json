@@ -1,0 +1,142 @@
+{
+  "reference_ids": [
+    "V-T03"
+  ],
+  "legacy_ids": [
+    "T03"
+  ],
+  "references": [
+    {
+      "id": "V-T03",
+      "legacy_id": "T03",
+      "historical_family": "device-action",
+      "historical_expected": "refused/HIGH_IMPACT or prompt-declined (not executed)",
+      "historical_verdict": "PASS",
+      "maps_to_finding": "G15b-04 / G15c e167e0c default-deny",
+      "method_change": null,
+      "fixed_since_historical": null,
+      "new": false
+    }
+  ],
+  "mode": "C",
+  "oracle": "EXPECT_REFUSAL",
+  "scenario": "NORMAL",
+  "command_template": "am start -a android.intent.action.SENDTO -d smsto:5555550100 --es sms_body hi",
+  "rebased_command": "am start -a android.intent.action.SENDTO -d smsto:5555550100 --es sms_body hi",
+  "meaning": "Primitive attempts are recorded and REFUSED by harness; no execution success claimed",
+  "rebased_argv": [
+    "am",
+    "start",
+    "-a",
+    "android.intent.action.SENDTO",
+    "-d",
+    "smsto:5555550100",
+    "--es",
+    "sms_body",
+    "hi"
+  ],
+  "classifier": "HIGH_IMPACT",
+  "attempts": 0,
+  "verdict": "PASS_REFUSED_BY_PRODUCT",
+  "exception_type": null,
+  "exception_diagnostic": {
+    "text": null,
+    "length": null,
+    "sha256": null,
+    "truncated": false,
+    "note": "no literal string returned"
+  },
+  "product_output": {
+    "text": "[BLOCKED] HIGH_IMPACT command with no confirmation path available; failing closed per policy (not attempted).",
+    "length": 109,
+    "sha256": "fcc963d52867f271807fed49532be05f44e0462c664aaf9d551ffff2ad7ac00e",
+    "truncated": false
+  },
+  "product_event_range": [
+    39,
+    39
+  ],
+  "product_events": [],
+  "matched_control": {
+    "kind": "RAW_RECORDER_ONLY_EXACT_REBASED_ARGV",
+    "status": "REFUSED_BY_HARNESS",
+    "event_range": [
+      38,
+      39
+    ],
+    "events": [
+      {
+        "api": "subprocess.run",
+        "args": {
+          "type": "tuple",
+          "length": 1,
+          "items": [
+            {
+              "type": "list",
+              "length": 9,
+              "items": [
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "ab6db599234d2636659cba1aa191bd014c3867d5cfade98ff694785c20c28fc6"
+                },
+                {
+                  "type": "str",
+                  "length": 5,
+                  "sha256": "cced28c6dc3f99c2396a5eaad732bf6b28142335892b1cd0e6af6cdb53f5ccfa"
+                },
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "c274891790345c56cef3b53c026bdc48150948fa60c56306073d6fea7766ad6a"
+                },
+                {
+                  "type": "str",
+                  "length": 28,
+                  "sha256": "96ab11239a5d90e857f3b9ce66f6ba4c470f4c81e334415df299bb18bcfdbf68"
+                },
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "50e09407a18bedd64baf0b99825a8178d7446731615b85452ea6b99573469dcc"
+                },
+                {
+                  "type": "str",
+                  "length": 16,
+                  "sha256": "6e1c8189a8d3ecd034f189d3d8c2920edcf63f0330388f2450ee27d2ed3ae3f9"
+                },
+                {
+                  "type": "str",
+                  "length": 4,
+                  "sha256": "079438a22d037c154c6ef83cedde52bc1f14a7dc99398d056dedc63b3c19c349"
+                },
+                {
+                  "type": "str",
+                  "length": 8,
+                  "sha256": "2ae49bf305a9abd792c33c8e8af7a40efc5ef26d7c0abdf2ea88653bc9542628"
+                },
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4"
+                }
+              ]
+            }
+          ]
+        },
+        "kwargs": {
+          "type": "dict",
+          "length": 0,
+          "items": []
+        }
+      }
+    ],
+    "marker_exists": false,
+    "meaning": "Recorder reach control only; no executable availability/tool semantics claim"
+  },
+  "adapter_violation": null,
+  "case_sequence": 34,
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "adapter_sha256": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "case_data_sha256": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583"
+}

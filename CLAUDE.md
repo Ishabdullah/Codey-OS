@@ -214,11 +214,28 @@ Codey-OS/
    `CODEY_MASTER_PLAN.md` (§4 and Appendix A) and `PROJECT_LOG.md`. Never
    mark something fully done on code-complete/mock-tested evidence alone.
 
-8. **Anything found outside a task's scope** — even something small —
-   gets logged to `NEW_ISSUES.md` (rated Confirmed or Suspected based on
-   actual certainty) and is not silently fixed or silently dropped. If
-   it's queue-level work, it also gets a line in `CODEY_MASTER_PLAN.md`
-   Appendix A.
+8. **Findings are fixed when related, logged with a trigger when not
+   (Ish, 2026-10-27; consistent with the 2026-09-23 "fix related findings
+   immediately" decision).** Anything found while working is never
+   silently fixed or silently dropped. Triage each one:
+   - **Related to the current task** (small, in code the task already
+     touches): fix it in the same round, through the normal pipeline.
+   - **Outside the task but in code a known future work package will
+     touch:** log it to `NEW_ISSUES.md` with a `trigger:` tag naming that
+     work package or event (e.g. `trigger: WP2.2`, `trigger: before
+     activating self-improve`), and add a one-line pointer to the NEW-ID
+     in that work package's blueprint entry so it is picked up when that
+     work starts.
+   - **Outside the task and in code nothing planned will touch:** log it
+     as parked (`trigger: none`); it does not block anything.
+   - **Frozen-source exception:** while a census/freeze is in force (e.g.
+     WP2.1 at `770dc66`), source cannot be changed, so every finding is
+     logged with a trigger tag and no fix is made.
+   Every entry needs a rating (Confirmed or Suspected, based on actual
+   certainty) and a severity. A finding that restates an existing NEW-ID's
+   mechanism is appended to that entry rather than given a new ID. If
+   it's queue-level work, it also gets a line in the blueprint §21 (Track
+   A) or `CODEY_MASTER_PLAN.md` Appendix A (Track B).
 
 9. **Update `CODEY_MASTER_PLAN.md` (§4 current state + Appendix A) and
    `PROJECT_LOG.md`** after every completed round, with specifics — not

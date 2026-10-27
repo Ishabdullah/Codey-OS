@@ -1,0 +1,117 @@
+{
+  "reviewer": "code-reviewer (independent re-review, read-only on repo; no repo edits, no git index ops, no model/service/network)",
+  "date": "2026-10-27",
+  "subject": "G15B_49_RECONCILIATION_FINAL.tsv/.md/.json and Z5_DEFERRAL_SCHEDULE.md (corrected) versus *.pre_review (first-round state)",
+  "verdict": "CHANGES_REQUESTED",
+  "verdict_reason": "R-1, R-2 and R-6 are applied correctly, and no category or severity was upgraded. Three text-only defects remain. (RF-1, RF-2) Two rows carry a second literal 'trigger:' tag, which breaks the reconciliation's own stated rule (exactly one trigger tag per non-closed row; caveats go in trigger_note/notes). The author added the claim this round, and the count is false for these rows. (RF-3) The G15b-08 tests cell cites test_f3_entries_classify_high as gitconfig coverage, but that node's parametrize list (F3_ROWS) does not contain .gitconfig or .config/git/config. None of these needs new evidence, only text edits.",
+  "file_checks": {
+    "final_tsv_sha256": "149f101a4f754da2c5dcfd941977c6d9d5f0cc233102a07241c3d2eaba87ef32",
+    "final_tsv_sha256_matches_expected": true,
+    "final_tsv_columns": "23; *.pre_review has 22. The only added column is severity_note.",
+    "final_json_vs_tsv": "49 items; 0 field differences (csv.DictReader, delimiter tab)",
+    "final_json_meta_counts": "meta.categories = CLOSED 28 / PARTIAL 12 / ACCEPTED_RESIDUAL 3 / OPEN 6; meta.severities = HIGH 32 / MEDIUM 10 / LOW 7. Both match the TSV. meta.candidate_categories are the candidate's own counts (29/4/10/6), which is expected."
+  },
+  "verified_counts": {
+    "rows": 49,
+    "final_category": {"CLOSED_CODE_REVIEW": 28, "ACCEPTED_RESIDUAL": 3, "PARTIAL": 12, "OPEN": 6},
+    "pre_review_final_category": {"CLOSED_CODE_REVIEW": 29, "ACCEPTED_RESIDUAL": 3, "PARTIAL": 11, "OPEN": 6},
+    "severity_final": {"HIGH": 32, "MEDIUM": 10, "LOW": 7},
+    "severity_changes_vs_pre_review": 0,
+    "non_closed_rows": 21,
+    "non_closed_trigger_class": {"trigger": 12, "parked": 9},
+    "claimed_counts_match": true,
+    "trigger_exactly_one_check": "FAILS for 2 rows. G15b-21: trigger_note '(trigger: none)' sits beside the trigger column 'trigger: L2-d first real setup_dr_key.py run'. G15b-42: notes 'retag as trigger: WP2.2' sits beside the trigger column 'trigger: none'. The other 19 non-closed rows each have exactly one 'trigger:' literal across the whole row."
+  },
+  "row_diff_summary": {
+    "method": "row-by-row csv.DictReader comparison of final TSV vs *.pre_review, all 22 shared columns",
+    "rows_with_any_change": 33,
+    "final_category_changes": ["G15b-34 CLOSED_CODE_REVIEW -> PARTIAL (downgrade only)"],
+    "severity_final_changes": [],
+    "changed_columns_total": {"evidence_tier": 25, "tier_replay_770dc66": 25, "trigger_note": 6, "notes": 6, "tests": 4, "residual": 4, "tier_code_review": 3, "severity_note": 2, "trigger_class": 2, "trigger": 2, "changed_vs_candidate": 1, "replay_deferred": 1, "final_category": 1},
+    "upgrades_found": "none. The only category movement is a downgrade (G15b-34). No severity changed. No tier_live cell changed. The 25 evidence_tier and tier_replay changes are the V-A citation swap to REVIEW_VA_RESULT.md FINAL R1 RE-REVIEW (W-11/S-4) plus the B1 corrections on 33/34/37/38. tier_code_review changed on 04 and 32 (R-2), and on 25 (S-1 D-6 cite, the only new decision citation)."
+  },
+  "md_narrative_diff": {
+    "method": "difflib of G15B_49_RECONCILIATION_FINAL.md vs .md.pre_review, non-table added lines reviewed, plus a targeted grep of the final .md",
+    "result": "CONSISTENT. Stale 29/11 counts appear only as labelled history: the candidate-vs-final table (CLOSED_CODE_REVIEW 29 -> 28) and 'Counts at this point 29 / 3 / 11 / 6 (28 / 3 / 12 / 6 after G15b-34, section 4b)'. G15b-34 is described as CLOSED only as the before-state (candidate column and the 'CLOSED -> PARTIAL' changelog). New wording is limited to 'Nothing here is verified' disclaimers and 'live-verified on a disposable fixture' tier labels. The totals paragraph states the 32/10/7 split and 'G15b-04 and G15b-32' as the unconfirmed-D-8 HIGH rows."
+  },
+  "per_correction_results": [
+    {"id": "R-1", "finding": "G15b-34", "result": "APPLIED", "evidence": "final_category PARTIAL, severity HIGH, changed_vs_candidate YES. Notes record the CLOSED -> PARTIAL change under R-1 and rule 6. The residual names the two unfixed title sub-claims (sink OSError, hash chain). tests states that no test covers the sink OSError behaviour. trigger 'none' (parked), trigger_note 'NEW-1026 append needed'."},
+    {"id": "R-2", "finding": "G15b-04 and G15b-32", "result": "APPLIED", "evidence": "Both severity_note = 'HIGH (amb; D-8 unconfirmed)'. G15b-04 quotes the 770dc66 text ('remaining D-8 HIGH ratings (07/31/35;37 already approved)'), says 04 is not named, and cites consolidated 516-517 ('04 is CLOSED regardless'). G15b-32 says D-8 is not confirmed ('32 is cheap' only). The .md totals paragraph names 04 and 32. Z5 L2-b annotates G15b-32. Verified in consolidated lines 516-517 at 770dc66: 04 is listed, and 04 is 'CLOSED regardless'."},
+    {"id": "R-6", "finding": "G15b-33, G15b-34, G15b-37, G15b-38", "result": "APPLIED", "evidence": "grep of the TSV, .md and .json for 'audit pending', 'audit PENDING', 'independent audit pending' and 'author-reported' returns 0 hits. All four evidence_tier cells cite B1_SUBSET_RESULT_AUDIT.json (CHANGES_REQUESTED on wording only; raw evidence consistent; no escape), 'not live', and 'not full coverage'. 33 and 34 disclaim HM-01/03/08/11 protected-path coverage. 38 disclaims 'refused before read' for FT12 and N17 as the no-existence-oracle claim."},
+    {"id": "W-0", "finding": "G15b-36 AS-02", "result": "APPLIED", "evidence": "notes: 'AS-02 ... is NOT an Ish decision: D-1 covers AS-01 only. Hedge kept.' Category stays ACCEPTED_RESIDUAL."},
+    {"id": "W-1", "finding": "Z5 spawn_failed attribution", "result": "APPLIED", "evidence": "Z5 attributes the first-attempt False/spawn_failed symptom to the NEW-754 body; NEW-756 is cited only for the /slots 405 proxy symptom."},
+    {"id": "W-3", "finding": "G15b-37 failing live-STYLE rows", "result": "APPLIED", "evidence": "residual names 5.escalate.typeahead_y (NEW-1084, under G15b-46), 6.commit.typeahead (NEW-1084) and 7.ctrlc_delay_note (NEW-996). Notes say the S2-D flush was not re-run at the attended terminal."},
+    {"id": "W-4", "finding": "G15b-25 NEW-1102; G15b-35 NEW-1087", "result": "APPLIED", "evidence": "G15b-25 marks NEW-1102 PROVISIONAL. Verified: 'NEW-1102' is absent from git show 770dc66:NEW_ISSUES.md. G15b-35 marks NEW-1087 as a measured, undecided residual, not an Ish decision."},
+    {"id": "W-6", "finding": "NEW-1069 unscheduled candidate", "result": "APPLIED on rows 09, 19, 22, 36", "evidence": "trigger_note states NEW-1069 is an unscheduled candidate WP and the row is effectively parked. Rows 11 and 25 cite D-2(c) and L2-c, not NEW-1069, so no change was needed."},
+    {"id": "W-8", "finding": "G15b-40 R14 vs NEW-1032", "result": "APPLIED", "evidence": "notes split the NEW-846 ratification (R14, ratified) from NEW-1032 (write-ability, not ratified). Stays OPEN."},
+    {"id": "W-9", "finding": "G15b-42 unsigned WP2.2", "result": "APPLIED in substance, but FAILS the one-tag rule (RF-1)", "evidence": "Re-tagged 'trigger: none' (parked). trigger_note says WP2.2 is recommended but unsigned and NEW-1011 has no blueprint pointer. The notes cell adds a second literal 'trigger:' (RF-1)."},
+    {"id": "W-11", "finding": "V-A approval basis", "result": "APPLIED", "evidence": "All 25 V-A evidence_tier cells cite 'approved per REVIEW_VA_RESULT.md final review', and tier_replay cells cite 'FINAL R1 RE-REVIEW'. Verified: REVIEW_VA_RESULT.md contains 'FINAL R1 RE-REVIEW' (python membership check, True)."},
+    {"id": "W-12", "finding": "Test citation completeness (08, 14, 34, 35)", "result": "APPLIED for 14, 34, 35; PARTIALLY CORRECT for 08 (RF-3)", "evidence": "G15b-35 added test_filesystem_protected_paths.py::test_deny_tier_refused_with_rule_and_no_side_effect, which is parametrized over DENY_TARGETS (line 56-72, line 93-94 at 770dc66). DENY_TARGETS includes 'proj/.GIT/config' (line 71). G15b-14 leads with test_python_dash_m_pip_args_any_spelling (carries the -qf form). G15b-34 notes that shell sed -i and ln -sf are not covered (ln -sf at test_shell_g15e_protected_scan.py:283 is an allow-case). G15b-08: see RF-3."},
+    {"id": "W-7", "finding": "G15b-20 Q7(c) ledger contradiction", "result": "NOT RECONCILED (flagged only)", "evidence": "notes: 'whether Q7(c) is ratified is contradictory in the ledger. Carried under R18 until the coordinator reconciles.' Acceptable only if no closing packet cites G15b-20 as ratified."},
+    {"id": "W-2 / W-R5", "finding": "G15b-48 and literal NEW_ISSUES.md trigger tags", "result": "OUT OF SCOPE of the three deliverables", "evidence": "The TSV carries a trigger for every non-closed row. Literal tags in NEW_ISSUES.md (incl. NEW-1060) were not checked."},
+    {"id": "W-10", "finding": "NEW-1068 header", "result": "OUT OF SCOPE", "evidence": "Header refresh belongs to NEW_ISSUES.md. Not checked in the working tree."},
+    {"id": "W-13 / W-14 / S-0 / S-3", "finding": "G15b-49 frozen-list premise; G15b-13 pnpm/yarn; R-4 rule text", "result": "NOT APPLIED (advisory)", "evidence": "G15b-49 notes unchanged (OPEN is correct). G15b-13 unchanged. The ACCEPTED_RESIDUAL vs PARTIAL rule (R-4) was not checked against the .md tier vocabulary."},
+    {"id": "S-1", "finding": "G15b-25 D-6 citation", "result": "APPLIED", "evidence": "tier_code_review now cites D-6 (manifest.json HIGH, fork-3 reversal) approved by Ish 2026-10-25."},
+    {"id": "S-2", "finding": "Z5 device-time estimate", "result": "APPLIED", "evidence": "Z5 reads 'roughly 14 hours for a full 32-pair run (32 pairs x 2 x ~800 s ...)'."},
+    {"id": "S-4", "finding": "V-A tier wording", "result": "APPLIED", "evidence": "See W-11."}
+  ],
+  "node_checks": {
+    "method": "Parsed the tests column of all 49 rows (regex for file.py::name, ::name shorthand and file.py:line). Read each file with git -C /data/data/com.termux/files/home/Codey-OS show 770dc66:<path> and checked for a def line.",
+    "counts": {
+      "named_test_nodes_parsed": 126,
+      "named_nodes_with_def_line_at_770dc66": 126,
+      "named_nodes_failing": 0,
+      "file_level_or_file_line_citations": 17,
+      "of_which_test_files_present": 15,
+      "of_which_source_path_citations_verified": 2
+    },
+    "source_path_citations_verified": [
+      {"finding": "G15b-18", "cite": "core/task_executor.py:563", "exists_at_770dc66": true, "line_563": "        elif not any(_daemon_prefix_matches(cmd, p) for p in _DAEMON_ALLOWED_PREFIXES):", "consistent_with_row": true},
+      {"finding": "G15b-44", "cite": "core/daemon.py:739-741", "exists_at_770dc66": true, "lines_739_741": "peer_uid = writer.get_extra_info(\"peer_uid\") / if peer_uid is not None and peer_uid != os.getuid(): / error(...Rejected connection from different UID...)", "consistent_with_row": "row says the dead peer_uid check is still present; lines match"}
+    ],
+    "newly_cited_nodes": [
+      {"finding": "G15b-08", "node": "tests/test_filesystem_protected_paths.py::test_deny_tier_refused_with_rule_and_no_side_effect", "exists": true, "covers_gitconfig_node_level": true, "evidence": "DENY_TARGETS lines 61-62 include .gitconfig and .config/git/config; the node is parametrized over DENY_TARGETS (line 93-94)."},
+      {"finding": "G15b-08", "node": "tests/test_file_tools_protected_classification.py::test_f3_entries_classify_high", "exists": true, "covers_gitconfig_node_level": false, "evidence": "Parametrized over F3_ROWS (line 78-79), which does not list .gitconfig or .config/git/config. The gitconfig rows are in DENY_ROWS (line 71-72), which feed test_deny_entries_classify_high_defense_in_depth (line 83-84), not cited. See RF-3."},
+      {"finding": "G15b-08", "node": "tests/test_shell_g15e_protected_scan.py::test_mutators_hit_every_rule_class", "exists": true, "covers_gitconfig_node_level": "likely (file mentions gitconfig; the node iterates targets(world)). Not separately read; treat as file-level.", "evidence": "body loops over targets(world)"},
+      {"finding": "G15b-35", "node": "tests/test_filesystem_protected_paths.py::test_deny_tier_refused_with_rule_and_no_side_effect (proj/.GIT/config row)", "exists": true, "covers_case_variant_node_level": true, "evidence": "DENY_TARGETS line 71"},
+      {"finding": "G15b-34", "node": "tests/test_shell_g15e_protected_scan.py (file-level cite)", "exists": true, "note": "file-level, not a node"}
+    ],
+    "unverified": "test_mutators_hit_every_rule_class gitconfig coverage was checked only at file level."
+  },
+  "b1_wording_check": {
+    "source": "B1_CITABLE_WORDING.md (MAY CITE / MAY NOT CITE) and B1_SUBSET_RESULT_AUDIT.json (CHANGES_REQUESTED, wording only, raw evidence consistent, no escape)",
+    "result": "CONSISTENT",
+    "details": "Rows 33, 34, 37 and 38 say 'owned-fixture replay on fabricated fixtures', 'not live', 'not full coverage', and disclaim HM-01/03/08/11 protected-path coverage and FT12 'refused before read'. None claims 16/16 PASS, all of B1/B2, or the 272-row ledger. The case IDs cited (IA-01b, IA-02b, FT12-ssh, FT12-age, N17, HM-01/03/08/11, N01/N03/N23) all occur in B1_SUBSET_RESULT_AUDIT.json. Rows 33, 34 and 37 do not restate the '15 operations passed, N17 partial' count. That is weaker than the MAY CITE text but does not overclaim."
+  },
+  "required_fixes": [
+    {
+      "id": "RF-1",
+      "finding": "G15b-42",
+      "problem": "The notes cell (TSV, .md and .json) has a second literal 'trigger:' ('If Ish signs WP2.2, retag as trigger: WP2.2 ...'). The .md rule says each non-closed row carries exactly one tag and that caveats go in trigger_note/notes.",
+      "fix": "Reword the sentence without the literal, for example: 'If Ish signs WP2.2, change this row's trigger to WP2.2 and add the blueprint pointer line.' Mirror in all three files. Text-only, pre-existing evidence unchanged.",
+      "origin": "introduced by this round's W-9 correction"
+    },
+    {
+      "id": "RF-2",
+      "finding": "G15b-21",
+      "problem": "trigger_note has '(trigger: none)' beside the trigger column value 'trigger: L2-d first real setup_dr_key.py run'. This literal is a second tag.",
+      "fix": "Replace '(trigger: none)' with '(parked)' in trigger_note and mirror in .md and .json. Text-only.",
+      "origin": "PRE-EXISTING in *.pre_review (count was also 2). It is not a regression from the correction pass. It only violates the exactly-one claim the author added this round."
+    },
+    {
+      "id": "RF-3",
+      "finding": "G15b-08",
+      "problem": "The tests cell cites tests/test_file_tools_protected_classification.py::test_f3_entries_classify_high as gitconfig coverage. That node is parametrized over F3_ROWS, which has no .gitconfig or .config/git/config. The gitconfig rows are in DENY_ROWS, consumed by test_deny_entries_classify_high_defense_in_depth.",
+      "fix": "Either replace test_f3_entries_classify_high with tests/test_file_tools_protected_classification.py::test_deny_entries_classify_high_defense_in_depth (it covers .gitconfig and .config/git/config through DENY_ROWS), or drop that citation and keep the other two new nodes. Text-only. Re-verify the node name exists at 770dc66 (it does, line 84).",
+      "origin": "introduced by this round's W-12 correction"
+    }
+  ],
+  "warnings": [
+    {"id": "W-A", "finding": "G15b-20", "note": "Q7(c) ledger contradiction is flagged 'until the coordinator reconciles' and is not reconciled. Do not cite G15b-20 as ratified in any closing packet."},
+    {"id": "W-B", "finding": "G15b-48 and NEW-1060 trigger tag", "note": "Scope-limited CLOSED is acceptable only if NEW-1060 carries a literal trigger tag in NEW_ISSUES.md. That ledger was not checked here."},
+    {"id": "W-C", "finding": "NEW-1102 provisional", "note": "Absent from the 770dc66 NEW_ISSUES.md (checked). Any packet citing G15b-25's residual must keep the PROVISIONAL marker."},
+    {"id": "W-D", "finding": "G15b-34 open sub-claims", "note": "PARTIAL, parked. The NEW-1026 append the row requests must actually land before the packet cites it."},
+    {"id": "W-E", "finding": "B1 quoting", "note": "If the closing packet quotes B1 results, quote B1_CITABLE_WORDING.md MAY CITE verbatim, not the row summary."}
+  ],
+  "closing_packet_wording": "The G15b 49-item reconciliation (G15B_49_RECONCILIATION_FINAL.tsv, sha256 149f101a4f754da2c5dcfd941977c6d9d5f0cc233102a07241c3d2eaba87ef32, against frozen HEAD 770dc66) records, at the stated evidence tiers only: 28 items CLOSED at code-complete plus reviewer-approved status, with V-A recorder-only replay or disposable-fixture live checks where the row says so; 3 ACCEPTED_RESIDUAL items resting on Ish decision D-1 (G15b-19, 22, and 36 for AS-01 only); 12 PARTIAL items; 6 OPEN items; severities 32 HIGH / 10 MEDIUM / 7 LOW, of which G15b-04 and G15b-32 are HIGH by ambiguity with D-8 not confirmed. The first-round corrections were applied and checked against the pre-review file: G15b-34 CLOSED -> PARTIAL; D-8 wording for 04 and 32; B1 wording for 33, 34, 37, 38. No category or severity was upgraded. The 126 named test nodes cited in the tests column all have a def line at 770dc66. The 17 file-level citations include 2 source-path citations, both verified. The B1 wording matches B1_CITABLE_WORDING.md. The reconciliation does NOT establish: that WP2.1 is closed; that any item is live-verified beyond disposable fixtures or the recorder-only V-A replay; that V-A involved product execution (it was recorder-only); that the B1 bridge covers HM-01/03/08/11 protected-path behaviour, full B1/B2 history, or the final HEAD (it ran against 770dc66 on fabricated owned fixtures); that G15b-20's Q7(c) contradiction is resolved; that NEW-1102 is committed (it is provisional); that the literal trigger tags in NEW_ISSUES.md exist (not checked); or that the trigger-tag rule holds literally until RF-1, RF-2 and RF-3 are applied. The packet should not describe this as independent live verification or as frozen-suite coverage."
+}

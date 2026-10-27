@@ -1,6 +1,8 @@
 # Architecture
 
-## Three-Model Design
+This page retains historical model/layout descriptions. Use [the master blueprint](../CODEY_OS_MASTER_BLUEPRINT.md) for the current Track A architecture and roadmap; the three-model layout below is superseded. Current WP2.1 authority boundaries and verification limits are in [Security](security.md).
+
+## Historical Three-Model Design (superseded)
 
 Codey-OS runs three purpose-built models simultaneously, each on its own port:
 
@@ -116,7 +118,7 @@ This table covers exactly what Codey saves, where it lives, and how long it last
 ### What Codey does NOT do
 
 - **Does not learn from your conversations.** The RAG index only contains what you explicitly load with `/load`, `/read`, or the knowledge base pipeline — not anything you've said or typed.
-- **Does not send data anywhere.** All state is local. The only exception is peer CLI escalation (Claude Code, Gemini CLI, Qwen CLI), which requires explicit confirmation before any files are shared.
+- **Network behavior depends on configuration.** Local inference is the default. Selecting a remote inference backend sends its prompt/messages to that service without a per-request gateway prompt; peer retry escalation separately asks for approval. Configured backup, retrieval and business integrations also have network effects. See Security and NEW-936; this page does not certify a network sandbox.
 - **Does not auto-recover deep context on large projects.** The session window is 6 turns (expires in 2 hours). For long-running projects, `CODEY.md` is the primary source of persistent context — if it is sparse or missing, Codey starts each session with limited knowledge of your project.
 
 ### Practical advice for larger projects
@@ -160,7 +162,7 @@ This table covers exactly what Codey saves, where it lives, and how long it last
 │   ├── learning.py          # Learning system coordinator
 │   ├── preferences.py       # User preference learning
 │   ├── voice.py             # TTS + STT via Termux:API
-│   ├── linter.py            # Static analysis: ruff / flake8 / mypy / ast
+│   ├── linter.py            # Gated Ruff + AST; flake8/mypy intentionally skipped
 │   └── githelper.py         # Git: branches, merge, conflict detection
 ├── tools/
 │   ├── file_tools.py        # File operations

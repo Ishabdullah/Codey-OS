@@ -1,0 +1,84 @@
+{
+ "seed": 20261027,
+ "random_denominator": 45,
+ "random_sample_disagreements": 3,
+ "random_sample_disagreement_rate_percent": 6.6667,
+ "differences": [
+  {
+   "key": "core/checkpoint.py::_copy_backup_files::*.mkdir::1",
+   "author_class": "GATED",
+   "reviewer_class": "GATED",
+   "author_reach": "operator-only",
+   "reviewer_reach": "dormant",
+   "in_random_sample": false,
+   "note": "Only caller is checkpoint.rollback(); grep of frozen repo (non-test, non-doc) finds no caller of rollback(); test-only. Author operator-only unsupported."
+  },
+  {
+   "key": "core/checkpoint.py::_copy_backup_files::shutil.copy2::1",
+   "author_class": "GATED",
+   "reviewer_class": "GATED",
+   "author_reach": "operator-only",
+   "reviewer_reach": "dormant",
+   "in_random_sample": true,
+   "note": "Same as mkdir row: sole caller rollback() has zero product callers."
+  },
+  {
+   "key": "core/checkpoint.py::prune_checkpoints.<locals>.execute::shutil.rmtree::1",
+   "author_class": "GATED",
+   "reviewer_class": "GATED",
+   "author_reach": "operator-only",
+   "reviewer_reach": "dormant",
+   "in_random_sample": false,
+   "note": "prune_checkpoints() has zero non-test callers (grep); reach operator-only unsupported. Gate HIGH gate_exec verified in source (checkpoint.py:503-ish execute thunk) so class GATED stands."
+  },
+  {
+   "key": "core/setup_dr_key.py::<module>::sys.path.insert::1",
+   "author_class": "OPERATOR_SCRIPT_RUNNABLE",
+   "reviewer_class": "OPERATOR_BOOTSTRAP",
+   "author_reach": "operator-only",
+   "reviewer_reach": "operator-only",
+   "in_random_sample": false,
+   "note": "Definitions (docs/wp2_1_group15_scope.md:293 vs :297): OPERATOR_SCRIPT_RUNNABLE is for tools/*.py, plugin test.py, demo_*.py; setup_dr_key.py is an install.sh-invoked credential-key setup CLI = OPERATOR_BOOTSTRAP. Architect fresh also chose BOOTSTRAP."
+  },
+  {
+   "key": "core/state.py::StateStore.clear_old_actions.<locals>.reset::*.execute::1",
+   "author_class": "GATED",
+   "reviewer_class": "GATED",
+   "author_reach": "operator-only",
+   "reviewer_reach": "dormant",
+   "in_random_sample": true,
+   "note": "clear_old_actions() has no caller anywhere outside its definition (grep). Reach dormant."
+  },
+  {
+   "key": "core/state.py::StateStore.delete_checkpoint::*.execute::1",
+   "author_class": "GATED",
+   "reviewer_class": "GATED",
+   "author_reach": "operator-only",
+   "reviewer_reach": "dormant",
+   "in_random_sample": true,
+   "note": "Sole caller prune_checkpoints (checkpoint.py:494), itself zero product callers. Reach dormant."
+  }
+ ],
+ "taxonomy_decisions": {
+  "core/memory_v2.py::Memory.touch_file::*.touch::1": "agree author BOOKKEEPING",
+  "core/trajectory.py::_query_episodes::*.execute::1": "agree author BOOKKEEPING",
+  "core/setup_dr_key.py::<module>::sys.path.insert::1": "disagree; reviewer OPERATOR_BOOTSTRAP"
+ },
+ "unflagged_but_out_of_sample_observations": [
+  {
+   "key": "core/setup_dr_key.py::_generate_keypair::subprocess.run::1 (and 3 sibling setup_dr_key rows)",
+   "author_class": "OPERATOR_SCRIPT_RUNNABLE",
+   "note": "same definition conflict as sys.path row; not individually signed, needs same adjudication"
+  },
+  {
+   "key": "core/search.py::search_in_project::subprocess.run::1",
+   "author_class": "OPERATOR_SCRIPT_RUNNABLE",
+   "note": "not tools/demo/plugin-test; reach is REPL /search (main.py:995-1013). Class not supported by definition. Evidence itself concedes no -- barrier before pattern (option-like pattern reaches grep as option). Not individually signed (outside sample); needs author class decision."
+  },
+  {
+   "key": "core/cli_client.py::_direct::importlib.import_module::1",
+   "author_class": "OPERATOR_BOOTSTRAP",
+   "note": "literal module name 'main'; not an installer/credential script. Not individually signed; minor taxonomy question."
+  }
+ ]
+}

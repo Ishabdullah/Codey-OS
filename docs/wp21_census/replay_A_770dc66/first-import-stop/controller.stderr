@@ -1,0 +1,33 @@
+Traceback (most recent call last):
+  File "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_va.py", line 493, in <module>
+    main()
+    ~~~~^^
+  File "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_va.py", line 482, in main
+    target(args.child_execute)
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_va.py", line 204, in target
+    from tools import shell_tools as st
+  File "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-d29x8ot6/home/Codey-OS/tools/shell_tools.py", line 15, in <module>
+    from core.action_gateway import (
+    ...<6 lines>...
+    )
+  File "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-d29x8ot6/home/Codey-OS/core/action_gateway.py", line 55, in <module>
+    from core.filesystem import Filesystem, FilesystemAccessError
+  File "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-d29x8ot6/home/Codey-OS/core/filesystem.py", line 20, in <module>
+    from core.checkpoint import create_checkpoint
+  File "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-d29x8ot6/home/Codey-OS/core/checkpoint.py", line 17, in <module>
+    import uuid
+  File "/data/data/com.termux/files/usr/lib/python3.14/uuid.py", line 76, in <module>
+    _platform_system = platform.system()
+  File "/data/data/com.termux/files/usr/lib/python3.14/platform.py", line 1090, in system
+    return uname().system
+           ~~~~~^^
+  File "/data/data/com.termux/files/usr/lib/python3.14/platform.py", line 1070, in uname
+    release = android_ver().release
+              ~~~~~~~~~~~^^
+  File "/data/data/com.termux/files/usr/lib/python3.14/platform.py", line 603, in android_ver
+    system_property_get = getattr(CDLL("libc.so"), "__system_property_get")
+                                  ~~~~^^^^^^^^^^^
+  File "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard.py", line 108, in denied
+    raise ReplayBlocked(label)
+wp21_replay_guard.ReplayBlocked: ctypes.CDLL

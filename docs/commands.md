@@ -34,12 +34,12 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 
 | Flag | Description |
 |------|-------------|
-| `--yolo` | Skip all confirmations |
+| `--yolo` | Disable routine shell/file confirmations; HIGH shell actions refuse, and planning/privileged approval checks remain |
 | `--allow-self-mod` | Enable self-modification with checkpoint enforcement |
 | `--threads N` | Override CPU thread count |
 | `--ctx N` | Override context window size |
 | `--read <file>` | Pre-load a file into context before starting |
-| `--init` | Generate `CODEY.md` for the current project and exit |
+| `--init` | Generate `CODEY.md` after per-attempt interactive HIGH approval; headless/YOLO use refuses |
 | `--fix <file>` | Run a file and auto-fix any errors |
 | `--tdd <file>` | TDD mode — run tests and iterate until they pass |
 | `--tests <file>` | Test file for --tdd mode |
@@ -62,6 +62,8 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 | `--lora-quant <q>` | Quantization format for LoRA output |
 
 ---
+
+Routine confirmation flags do not provide isolation. `--allow-self-mod` can permit HIGH file writes in confirm-less modes, but file-tool DENY paths remain blocked. Interactive HIGH new-file and append prompts require a real stdin terminal; piped `y` cannot approve. Planning prompts remain under `--yolo`; use `--no-plan` to disable planning. Retry-triggered peer escalation has its own explicit confirmation flow. See [Security](security.md#9-action-gateway-and-the-wp21-hardening-status-as-of-2026-10-26) for the authority and script-execution limits.
 
 ## In-Session Slash Commands
 
@@ -86,7 +88,7 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 | Command | Description |
 |---------|-------------|
 | `/project` | Show current project status and active workspace |
-| `/init` | Initialize CODEY.md project memory |
+| `/init` | Generate CODEY.md after per-attempt interactive HIGH approval |
 | `/memory` | Show current CODEY.md contents |
 | `/memory-status` | Show semantic memory system status |
 | `/memory-v2` | Show RAG/Knowledge Base status |
@@ -113,7 +115,7 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 
 | Command | Description |
 |---------|-------------|
-| `/review <file.py>` | Lint with all available tools and offer agent fix |
+| `/review <file.py>` | Run enabled Ruff and AST syntax checks, then offer an agent fix; flake8/mypy are skipped |
 
 ### Knowledge Base
 
@@ -137,8 +139,8 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 | Command | Description |
 |---------|-------------|
 | `/peer` | List available peer CLIs and their status |
-| `/peer <name> <task>` | Call a specific peer CLI directly |
-| `/peer <task>` | Auto-pick the best peer CLI for the task |
+| `/peer <name> <task>` | Currently refuses dispatch: this command has no HIGH confirmation callback |
+| `/peer <task>` | Selects a peer, then currently refuses dispatch without a HIGH confirmation callback |
 
 ### System
 
@@ -158,7 +160,7 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 | `CODEY_7B_MMAP=0` | Disable memory-mapped weights (use if RAM is tight) |
 | `CODEY_7B_MLOCK=1` | Lock weights in RAM (prevents paging under pressure) |
 | `CODEY_THREADS` | Override CPU thread count |
-| `CODEY_LINTER` | Override linter: `ruff`, `flake8`, or `mypy` |
+| `CODEY_LINTER` | Single-file linter preference: `ruff` when installed; flake8/mypy are skipped and fall back to syntax checking |
 | `CODEY_PLANND_PORT` | Override the planner/summarizer model port (default 8081) |
 | `CODEY_EMBED_PORT` | Override the embedding model port (default 8082) |
 | `ALLOW_SELF_MOD=1` | Enable self-modification (alternative to `--allow-self-mod`) |

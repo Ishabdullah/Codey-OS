@@ -1,0 +1,13 @@
+{
+  "_uuid": {
+    "status": "unavailable; native extension presence would fail preflight"
+  },
+  "platform": {
+    "source": "/data/data/com.termux/files/usr/lib/python3.14/platform.py",
+    "sha256": "eaf91e2af3c4e9ecefca491a4710da9dd29c4c891aeaece02c86795f976c1b1c"
+  },
+  "uuid": {
+    "source": "/data/data/com.termux/files/usr/lib/python3.14/uuid.py",
+    "sha256": "4588189368561672f5520124de5808c17cb4b55ba2a9a3b6935db3fa76df8300"
+  }
+}

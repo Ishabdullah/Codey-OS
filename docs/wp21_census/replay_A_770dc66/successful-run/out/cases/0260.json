@@ -1,0 +1,167 @@
+{
+  "reference_ids": [
+    "RC-N17"
+  ],
+  "legacy_ids": [
+    "N17"
+  ],
+  "references": [
+    {
+      "id": "RC-N17",
+      "legacy_id": "N17",
+      "historical_family": "random-clean(seed=1530)",
+      "historical_expected": "unchanged vs 941ec3f: EXEC",
+      "historical_verdict": "PASS",
+      "maps_to_finding": "clean-row regression recheck (maps: ?)",
+      "method_change": null,
+      "fixed_since_historical": null,
+      "new": false
+    }
+  ],
+  "mode": "C",
+  "oracle": "CLEAN_ORIGINAL_ATTEMPT_OR_STRICTER",
+  "scenario": "NORMAL",
+  "command_template": "ls $(git push)",
+  "rebased_command": "ls $(git push)",
+  "meaning": "Primitive attempts are recorded and REFUSED by harness; no execution success claimed",
+  "rebased_argv": [
+    "ls",
+    "$(git",
+    "push)"
+  ],
+  "classifier": "READ",
+  "attempts": 1,
+  "verdict": "OBSERVED_ATTEMPT_REFUSED_BY_HARNESS",
+  "exception_type": null,
+  "exception_diagnostic": {
+    "text": null,
+    "length": null,
+    "sha256": null,
+    "truncated": false,
+    "note": "no literal string returned"
+  },
+  "product_output": {
+    "text": "[ERROR] subprocess.run",
+    "length": 22,
+    "sha256": "e2dad9c73f3b20b90dba79a6cf912e44738d60efe36602364579543b287150aa",
+    "truncated": false
+  },
+  "product_event_range": [
+    292,
+    293
+  ],
+  "product_events": [
+    {
+      "api": "subprocess.run",
+      "args": {
+        "type": "tuple",
+        "length": 1,
+        "items": [
+          {
+            "type": "list",
+            "length": 3,
+            "items": [
+              {
+                "type": "str",
+                "length": 2,
+                "sha256": "c7b68ac37f364473e922936708e7f43c293dd07b295171566c07ff5fe024fab9"
+              },
+              {
+                "type": "str",
+                "length": 5,
+                "sha256": "7a1356ac99b5e7f5454497b1989cd3b6fb08cea4d01a58ada2baea645fa22b6f"
+              },
+              {
+                "type": "str",
+                "length": 5,
+                "sha256": "9992e537d3db377d627ede0be54b3dbabdfa18c45fdaeab9841b47cf17adf791"
+              }
+            ]
+          }
+        ]
+      },
+      "kwargs": {
+        "type": "dict",
+        "length": 3,
+        "items": [
+          [
+            {
+              "type": "str",
+              "length": 14,
+              "sha256": "749439285fd66911f8b06cd022c73d23e7fd55bd014f7aa177fe9bf2b16d191a"
+            },
+            true
+          ],
+          [
+            {
+              "type": "str",
+              "length": 4,
+              "sha256": "982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1"
+            },
+            true
+          ],
+          [
+            {
+              "type": "str",
+              "length": 7,
+              "sha256": "f77d1bb58da886e3cbeebbf35a0b3d217b003506792268052c6a730fbc5ec9bc"
+            },
+            1800
+          ]
+        ]
+      }
+    }
+  ],
+  "matched_control": {
+    "kind": "RAW_RECORDER_ONLY_EXACT_REBASED_ARGV",
+    "status": "REFUSED_BY_HARNESS",
+    "event_range": [
+      291,
+      292
+    ],
+    "events": [
+      {
+        "api": "subprocess.run",
+        "args": {
+          "type": "tuple",
+          "length": 1,
+          "items": [
+            {
+              "type": "list",
+              "length": 3,
+              "items": [
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "c7b68ac37f364473e922936708e7f43c293dd07b295171566c07ff5fe024fab9"
+                },
+                {
+                  "type": "str",
+                  "length": 5,
+                  "sha256": "7a1356ac99b5e7f5454497b1989cd3b6fb08cea4d01a58ada2baea645fa22b6f"
+                },
+                {
+                  "type": "str",
+                  "length": 5,
+                  "sha256": "9992e537d3db377d627ede0be54b3dbabdfa18c45fdaeab9841b47cf17adf791"
+                }
+              ]
+            }
+          ]
+        },
+        "kwargs": {
+          "type": "dict",
+          "length": 0,
+          "items": []
+        }
+      }
+    ],
+    "marker_exists": false,
+    "meaning": "Recorder reach control only; no executable availability/tool semantics claim"
+  },
+  "adapter_violation": null,
+  "case_sequence": 260,
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "adapter_sha256": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "case_data_sha256": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583"
+}

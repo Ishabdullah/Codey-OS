@@ -29,11 +29,12 @@ Tools can execute shell commands based on agent decisions.
 **Risk:** Prompt injection or hallucinated output could lead to unintended commands (`rm -rf`, data exfiltration, etc.).
 
 **Mitigations:**
-- All shell commands (including compound commands with `&&`, `|`, `;`, etc.) require explicit user confirmation before running. Dangerous commands (`rm`, `curl`, `wget`, `chmod`, etc.) receive an additional warning before the prompt.
-- YOLO mode (`--yolo`) disables confirmation prompts — use only in trusted, non-interactive contexts.
+- Shell requests are classified READ, ACT or HIGH_IMPACT, then audited. Routine prompts depend on `confirm_shell` and YOLO; HIGH requests refuse when no confirmation path is available. With prompts enabled, stdin must be a terminal and approval must be explicit.
+- The primitive uses `shlex.split` and argv execution, not `shell=True`; compound shell syntax is not generally expanded. Opaque interpreter/script execution retains the accepted same-user ceiling described in section 9.
+- YOLO mode (`--yolo`) disables routine prompts; it does not approve HIGH shell actions or bypass planning/operator-script approval checks.
 - Commands run in user context only — no privilege escalation.
 - Shell timeout defaults to **30 minutes (1800 s)** to support long builds; configurable per-call.
-- Daemon mode blocks commands not in an explicit allowlist (`core/task_executor.py`).
+- Daemon shell requests use the shared classifier and protected/credential scans; unknown executable forms default to HIGH and refuse without confirmation.
 
 **Recommendation:** Review `--plan` output before execution. Use `--no-execute` for dry runs.
 
@@ -47,9 +48,9 @@ Opt-in feature that allows the agent to patch its own code and files.
 
 **Mitigations:**
 - Requires explicit `--allow-self-mod` flag **or** `ALLOW_SELF_MOD=1` env var.
-- Auto-creates checkpoints and full backups before any core file change.
+- Mediated core Python writes create checkpoints before mutation. Backup scope is narrower than HIGH classification; checkpoint failure/partial-copy and restore limits remain explicit (NEW-862/870/871/951).
 - Git integration for versioning and rollback.
-- Workspace boundary enforcement: files outside the workspace are blocked unless self-mod is active.
+- File tools enforce workspace boundaries; self-modification permits the configured Codey source tree, rather than arbitrary outside paths. DENY paths remain blocked even when self-modification is enabled.
 
 **Recommendation:** Keep disabled by default. Enable only for intentional experimentation. Review diffs and checkpoints immediately after any modification.
 
@@ -63,7 +64,7 @@ Hierarchical memory stored in SQLite (`~/.codeyOS/`).
 
 **Mitigations:**
 - Data stored in Termux app-private directories.
-- No unsolicited network calls. Exception: peer CLI escalation (Claude Code, Gemini CLI, Qwen CLI) can send local file contents to external LLMs when triggered — requires explicit user confirmation before any files are shared (see [Peer CLI Escalation](../README.md#peer-cli-escalation)).
+- Local inference is the default. Operator-selected remote inference sends prompt/messages without a per-request gateway prompt; configured backup, retrieval and business integrations also have network effects. Retry-triggered peer escalation separately requires explicit confirmation. These are not network-isolation guarantees (NEW-936).
 - Encryption is not yet implemented (planned).
 
 **Recommendation:** Avoid feeding sensitive information (API keys, passwords) to the agent. Periodically review or clear state:
@@ -152,22 +153,13 @@ GUI relied on as its primary protection.
 **Mitigations (verified in code, not assumed):**
 - Binds `127.0.0.1:8770` by default (`server.py:31-32`), overridable via
   `RESTORICON_API_HOST` / `RESTORICON_API_PORT` or `--host`/`--port`.
-- Bearer-token authentication on every endpoint except the deliberately
-  public intake routes; the token is resolved to an `AuthContext` by
-  `authenticate_token()` (`routes.py:226`).
-- **RBAC is enforced in the service layer, not the router** — the router's
-  only auth job is resolving the token (`routes.py:68`). This is
-  deliberate: it means a new route cannot accidentally skip the permission
-  check, because the check lives with the data access.
+- Token-protected routes resolve Bearer credentials to a persisted `AuthContext`. Public health/auth/assets/intake and scoped share-link routes have separate policies; do not assume every route uses the Bearer gate.
+- Permission and ownership checks generally live in services. Some actor-less helpers rely on explicit route checks: estimate decisions, for example, require the staff route's permission/ownership checks or the public route's valid, unrevoked, unexpired scoped share token. A new route must preserve that caller contract.
 - Customer isolation is enforced service-side (e.g. `sign_contract()`
   rejects signing another customer's contract and fails closed).
-- The public intake endpoints (`/api/v1/public/*`) are intentionally
-  unauthenticated and are protected instead by a sliding-window rate
-  limiter (20 requests / 60s per client IP, `api/rate_limiter.py:16`) plus
-  honeypot spam mitigation.
+- Public intake is intentionally unauthenticated, with rate limits and honeypot checks. Public estimate viewing/decision routes instead validate scoped share tokens and their expiry/revocation, plus their own rate limits. A rate limiter is not authorization.
 
-**Known open items on this surface** (tracked in `NEW_ISSUES.md`, not yet
-fixed): `NEW-264` / `NEW-266` (`update_user` accepts a suspension path
+**Historical business audit references** (use `NEW_ISSUES.md` for each finding's current status): `NEW-264` / `NEW-266` (`update_user` accepts a suspension path
 that never revokes tokens, and a role/customer_id shape `create_user`
 refuses), `NEW-276` (audit `details=` payloads capture new state only at
 59 of 63 call sites, so most changes are visible but not reconstructible),
@@ -182,7 +174,7 @@ explicitly not the bar.
 
 ---
 
-### 9. Action Gateway and the WP2.1 hardening (status as of 2026-10-25)
+### 9. Action Gateway and the WP2.1 hardening (status as of 2026-10-26)
 
 The agent's shell, file, plugin and approval paths now sit behind one classifier-and-audit layer (`core/action_gateway.py`, CCOS `CAPABILITY_AUTHORITY`, Restoricon `BUSINESS_MUTATION_AUTHORITY`). Work is tracked in `CODEY_OS_MASTER_BLUEPRINT.md` (WP2.1) and the findings ledger `NEW_ISSUES.md`; the umbrella is `NEW-1018`, the per-finding status is `docs/wp2_1_g15b_consolidated.md` sections 10 to 10f. **WP2.1 is not closed.**
 
@@ -190,21 +182,21 @@ The agent's shell, file, plugin and approval paths now sit behind one classifier
 
 **Defences in place** (each is code complete and code-reviewer approved; see the tier note below):
 - **Default-deny shell classifier** (`tools/shell_tools.py::classify_shell_command`): an executable not on the READ / ALLOWED / build-tool lists is `HIGH_IMPACT` and is refused where there is no human to confirm (for example `tar`, `id`, `ps`, `tee`, `npx`, a direct `./script.sh`, `kill`, `su`, `crontab`). Option tables (sed, sort, pip, npm, node, python `-m`) close the dangerous forms, and a bare name is checked against PATH shadowing. Credential reads (`cat ~/.ssh/...`, `.netrc`, `/proc/*/environ`) are refused; the scan casefolds from S2-A (committed in `84c7bfd`).
-- **Protected-path tiers** (`core/protected_paths.py`, shared by the file tools and the shell argv scan): a DENY tier that nothing unlocks, not even `--allow-self-mod` (rule names seen in verification: `home-startup`, `state-dir`, `audit-sink`, `peer-agent-config`, `path-dedicated`), and a HIGH tier (launchers, `main.py`, `lib/*.sh`, `install.sh`, `setup*.sh`, `config.json`, `manifest.json`, `bench/**`, `ccos/core/**`, any `.git` component) that is refused in confirm-less modes and asks in the REPL. New-file and append writes to HIGH paths now ask too (needs a real tty; no tty means refusal).
+- **Protected-path tiers** (`core/protected_paths.py`): file-tool DENY targets include startup/state/audit/credential/peer configuration, dedicated PATH directories and any `.git` component; `--allow-self-mod` does not unlock them. HIGH targets include repo launchers, scripts, root config, plugin data/manifests, `bench/**`, `ccos/core/**` and `restoricon_core/authority*.py`. HIGH file writes refuse without an available approval path, with the accepted `--allow-self-mod --yolo` exception below. REPL new-file and append approval requires a real stdin terminal. The shell scans the same protected set to promote named mutators to HIGH; it does not impose the file tools' unconditional DENY behavior on every approved shell command.
 - **Audited plugin spawn and manifest authority** (`ccos/core/plugin_manager.py`): `entry_point` containment, duplicate-name refusal, an audit row per spawn (`ccos.plugin_spawn:<name>`, argv, env-var NAMES only, never values). From S2-B (committed in `84c7bfd`): zero-width/format characters are folded out of plugin names, `call_capability` refuses caller-supplied `yolo` / `confirm*` / `shell_fn`, and a plugin loaded from outside `ccos/plugins` cannot claim a canonical capability name.
 - **Secret masking** (`core/export_hygiene.py::mask_secrets`) in the audit ledger, the daemon file logger, saved sessions, `codey config` output and CCOS `system.processes`; the cloudflared tunnel token is delivered by environment, not argv. From S2-A (committed in `84c7bfd`) a mid-line `NAME=secret` is masked. **Not covered:** the trajectory database, checkpoints, telemetry, recovery history, `episodic_log`, the memory tiers and the console (NEW-1060, NEW-1066).
-- **Fail-closed confirmations:** a REPL confirmation (`utils.logger.confirm`), the peer-escalation confirmation and the default-Yes plan prompts refuse without reading stdin when stdin is not a tty, and flush typeahead on a tty (S2-D, S2-E; committed in `84c7bfd`), so a piped or pre-typed `y` does not approve. `--yolo` does not skip the plan prompt; use `--no-plan`.
-- **Operator-script human gates** (`core/tty_confirm.py`): `tools/provision_ai_agent_auth.py` and `core/setup_dr_key.py` ask on `/dev/tty` before any side effect and refuse without a controlling terminal. Other operator entry points are not guarded (NEW-1070).
-- **Bench evaluator lock** (`bench/lock.py`, `bench/suite.lock` v2): any edit to a bench module, task file or (from S2-C, committed in `84c7bfd`) any symlink under `bench/` makes the lock fail; grading runs from a snapshot with a hardened pytest argv and a scrubbed child environment. Any edit to a covered `bench/*.py` needs a relock, and every old baseline must be re-run before comparison.
-- **Census** (`tools/wp21_census.py`, register `docs/wp21_census/dispositions.tsv`): lists every effectful call site. UNKNOWN means "nobody has classified this", **not** "safe"; at `50f9aa2` 1,437 rows were UNKNOWN and the classification pass is not done. The coverage test is warn-only unless `WP21_CENSUS_GATE=1`; `WP21_CENSUS_STRICT=1` fails on any UNKNOWN row; `WP21_CENSUS_SKIP_REPO=1` skips both. A commit that adds, removes or reorders a boundary call must update the register in the same commit.
+- **Fail-closed confirmations:** a REPL confirmation (`utils.logger.confirm`), the peer-escalation confirmation and the default-Yes plan prompts refuse without reading stdin when stdin is not a tty, and attempt a best-effort typeahead flush on a tty (S2-D, S2-E; committed in `84c7bfd`). A piped `y` cannot approve; flush failure/stale interactive input remains a documented limit. `--yolo` does not skip the plan prompt; use `--no-plan`.
+- **Operator-script human gates** (`core/tty_confirm.py`): `tools/provision_ai_agent_auth.py` and `core/setup_dr_key.py` ask on `/dev/tty` before provisioning/key generation and persistent changes, and refuse without a controlling terminal. Imports/inspection can have owned bootstrap effects; this does not certify mutation-free imports. Other operator entry points are not guarded (NEW-1070).
+- **Bench evaluator lock** (`bench/lock.py`, `bench/suite.lock` v2): edits to covered evaluator/task bytes invalidate the lock; from S2-C (`84c7bfd`), detected symlinks under `bench/` also make verification refuse; unreadable-subtree, root-symlink and same-user limits remain documented (NEW-1091). Grading runs from a snapshot with a hardened pytest argv and a scrubbed child environment. Any edit to a covered `bench/*.py` needs a relock, and every old baseline must be re-run before comparison.
+- **Census** (`tools/wp21_census.py`, register `docs/wp21_census/dispositions.tsv`): statically inventories its recognized call forms, with documented receiver/dynamic/regex blind spots (NEW-1009). UNKNOWN means "nobody has classified this", **not** "safe"; at `50f9aa2` 1,437 rows were UNKNOWN and the classification pass is not done. The coverage test is **blocking by default** (since 2026-10-27; the former `WP21_CENSUS_GATE` opt-in and warn-only branch were removed); `WP21_CENSUS_STRICT=1` additionally fails on any UNKNOWN row; `WP21_CENSUS_SKIP_REPO=1` skips both repo-level tests; `WP21_CENSUS_SOURCE=worktree` is a diagnostic mode. A commit that adds, removes or reorders a boundary call must update the register in the same commit. Known limitation (NEW-1103): stale register rows for files absent from the scan only warn rather than fail, so a file renamed to a `test_*` name drops out of the scan without failing the gate.
 
 **What this is not (the ceiling).** The shell tool remains an audited `ACT` surface for opaque execution: a script file, `python3 -m ...` or an interpreter that the model writes and runs reaches anything your user can. The classifier closes named dangerous forms and makes the audit ledger truthful; it is not a sandbox. Accepted residuals (decided by Ish) include script-file execution, self-launch of a more-privileged agent child, `--allow-self-mod --yolo` writing HIGH paths unprompted, `--fix` re-running model-rewritten code unattended, and the service stop-script forms. Only an OS-level boundary (a separate uid, or proot with read-only repo and state mounts; a candidate work package, NEW-1069) removes the ceiling.
 
 **Public capability argument contract (2026-10-25, NEW-1093).** Pass capability payload data by keyword: `pm.call_capability("coding.run_agent", prompt="...")`. Every positional argument after the capability name is refused and audited as HIGH_IMPACT before handler, module-function or external HTTP dispatch. This closes a positional `yolo`/confirmation override that the first S2-B keyword scan missed. Keyword authority-relaxing arguments and callable values remain refused. The internal `call_capability_trusted` path retains positional support and existing authority gating; it is a public Python method available to same-process code, so this contract does not provide process isolation. Correction is code complete and reviewer approved, committed in `84c7bfd`. The historical takeover run had 10 recorded baseline failures and one CCOS safety exclusion; current candidate results appear below. Live verification remains pending (takeover report).
 
-**Approved prefreeze changes (2026-10-25; not yet committed).** Interactive REPL entry optionally imports standard-library readline; it adds no persistent history handling, key rebinding or signal handler. The dashboard activates only `thermal_monitor`. Plugin manifests accept a strict boolean `enabled` field (omitted means True); canonical `private_agent` and `aigentik` adapters are retained with `enabled: false`. Disabled definitions remain visible and reserve their canonical names/capabilities, but cannot load, start, execute or dispatch new work. An observed disable preserves an existing live/in-flight owner without automatically stopping or cleaning its PID; explicit unload/restart remains necessary. These integrations are unavailable, not repaired or live verified. All three changes have independent reviewer approval; final recursive checks completed with 9,294 passed /10 recorded baseline failures /2 skipped /19 subtests passed; guarded CCOS completed with 183 passed /2 known failures, zero guard refusals and no exclusions. The timing-sensitive failure passed its isolated control. Final documentation review is APPROVED for the exact 21-path commit. See the [closure progress report](wp2_1_g15z_closure_progress_2026-10-25.md).
+**Committed prefreeze changes (`770dc66`, 2026-10-25).** Interactive REPL entry optionally imports standard-library readline; it adds no persistent history handling, key rebinding or signal handler. The dashboard activates only `thermal_monitor`. Plugin manifests accept a strict boolean `enabled` field (omitted means True); canonical `private_agent` and `aigentik` adapters are retained with `enabled: false`. Disabled definitions remain visible and reserve their canonical names/capabilities, but cannot load, start, execute or dispatch new work. An observed disable preserves an existing live/in-flight owner without automatically stopping or cleaning its PID; explicit unload/restart remains necessary. These integrations are unavailable, not repaired or live verified. All three changes have independent reviewer approval; final recursive checks completed with 9,294 passed /10 recorded baseline failures /2 skipped /19 subtests passed; guarded CCOS completed with 183 passed /2 known failures, zero guard refusals and no exclusions. The timing-sensitive failure passed its isolated control. The exact 21-path tranche was independently approved, committed and pushed; production source remains frozen there while closure evidence is completed. See the [closure progress report](wp2_1_g15z_closure_progress_2026-10-25.md).
 
-**Verification tier, stated plainly.** The defences above were re-probed by independent verifiers on snapshots with recording fakes (1,014 probes, no regression of a closed finding) and a 62-row pseudo-terminal run on a disposable environment. That is **not** live verification on the attended Termux terminal, with the real tunnel token, the real DR key, real peers or a real bench run; those remain open (`NEW-1092`, `LIVE_TEST_QUEUE.md`). The S2 fixes marked "committed in `84c7bfd`" are code complete and reviewer approved but not live verified. The pending prefreeze readline change addresses delayed Ctrl-C (NEW-996) with disposable PTY evidence; an attended Termux check remains outstanding.
+**Verification tier.** Historical reports retain 1,014 probes and a 62-row disposable pseudo-terminal run; they predate later fixes and do not verify all final-source paths. The adapted V-A replay on frozen `770dc66` has an independently approved result: 266 data groups, including two explicitly unrun invalid/superseded cases; process/network attempts were recorded and refused. Its allowed own-root SQLite/bootstrap writes are real filesystem effects. Remaining replay units and the attended terminal, real tunnel token, DR key, peers and real bench checks remain open (`NEW-1092`, `LIVE_TEST_QUEUE.md`). The committed readline change addresses delayed Ctrl-C (NEW-996) with disposable PTY evidence; the attended Termux check is outstanding. WP2.1 is still open.
 
 **Recommendation:** keep confirmations on; treat `--yolo` and the daemon as trusted-context only; do not rely on the classifier as an isolation boundary; keep secrets out of commands you type (masking is best effort, and the audit ledger `~/.codeyOS/action_gateway_audit.jsonl` is readable by your user).
 
@@ -212,7 +204,7 @@ The agent's shell, file, plugin and approval paths now sit behind one classifier
 
 ## Current Hardening Summary
 
-- User confirmation required for all shell commands; dangerous commands receive an explicit warning
+- Classified/audited shell requests; HIGH refuses without confirmation, with routine prompts controlled by mode
 - Opt-in self-modification with mandatory checkpoints
 - Workspace and file boundary enforcement
 - Socket permissions locked to owner-only (`0600`)
@@ -220,9 +212,9 @@ The agent's shell, file, plugin and approval paths now sit behind one classifier
   non-public endpoint with a Bearer token, and enforces RBAC in the service
   layer rather than the router (the browser GUI that previously held this
   line was removed 2026-09-02 — see section 6)
-- Fully local — no network calls by default
+- Default local inference; operator-selected remote backends and configured integrations can send data
 - Thermal throttling prevents sustained CPU abuse
-- Daemon mode shell allowlist (explicit prefix-based)
+- Daemon shell uses the shared default-deny classifier and operand scans
 
 ---
 

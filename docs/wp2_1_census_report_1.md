@@ -198,6 +198,10 @@ reproducibility: rerun at the same HEAD and compare `scan.tsv` hashes.
   bookkeeping. Flip it to blocking when classification completes. The STRICT
   closure test (`WP21_CENSUS_STRICT=1`) stays opt-in. Skip entirely with
   `WP21_CENSUS_SKIP_REPO=1`.
+  **Superseded 2026-10-27:** the gate is now blocking by default;
+  `WP21_CENSUS_GATE` and the warn-only branch were removed from
+  `tests/test_wp21_census.py`. STRICT stays opt-in and `WP21_CENSUS_SKIP_REPO=1`
+  still skips. The paragraph above is kept as the round-2 history.
 - The repo-level coverage test scans the HEAD snapshot, not the working tree
   (spec 2.3 asked for the working tree; the brief forbids reading foreign
   edits) and takes about 4 s. It cannot see a committer's own

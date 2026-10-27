@@ -1,0 +1,168 @@
+{
+  "frozen_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "nonce": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf",
+  "adapter_sha256": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "closure_kind": "source-reconciled selected runtime closure18, NOT captured sys.modules or global dynamic receiver proof",
+  "files": [
+    {
+      "path": "core/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/action_gateway.py",
+      "sha256": "92328bd453e6ce7a20ee49525cd24be6efa639357e97caabb746db34ee7ecdc4",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/checkpoint.py",
+      "sha256": "6b913028634c3e0cce5338efec3cec6d60e8fc3c5a473329b320c87398637d6a",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/daemon_config.py",
+      "sha256": "3620ed482323ccaf70777a666517d452c6615d1a08175953ce3170b55645e325",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/export_hygiene.py",
+      "sha256": "43dc696421086f853e0e2d5f3345a5db5d9465f1660db9feea2287b0161bf58f",
+      "equals_frozen_manifest": true,
+      "basis": "source-reconciled lazy audit redaction import"
+    },
+    {
+      "path": "core/filehistory.py",
+      "sha256": "084c7d9e00194d0bdb255d56227151224d581d9853f82afad8511b9dbe343256",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/filesystem.py",
+      "sha256": "e2351d09a71371da845e1e65f308b0d6bd61f9adcb61be1acf3e06c91660555b",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/git_commit_context.py",
+      "sha256": "6f271a2f545d7601eea71257d00a04ce58490ffafc193db4ee03377dd6c6ed42",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/git_execution.py",
+      "sha256": "f4087e56f8709589d9f87aee0cfa3ae16eef4abc0c64e21885f394e04795137b",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/git_mutation_context.py",
+      "sha256": "c6e8488d085e5cc07b95145096c55cd8c0fd52241e0bd7e1edfa96013ce65947",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/protected_paths.py",
+      "sha256": "69e7cec94c67cc31c5faff0e5e65c8c3bdde366ab8b2d632103f24d303b64dc9",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/state.py",
+      "sha256": "3a665f72c62c84f24c1322d863e08efced38190ab5d4eb1ca11c861794d31517",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/task_executor.py",
+      "sha256": "84112b3f31f713dce04a8cc3168249b612d12c489cf9b8d3de98be60e0283c66",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/thermal.py",
+      "sha256": "e16259ae3306ec9f0afe384e05017300e927aeeb7fd743e29b54d9bf35989b58",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "core/trajectory.py",
+      "sha256": "2fa10048ad32c148b0a4058d9f33ba5f5f9659af92c972c3fafad76a07ff70a5",
+      "equals_frozen_manifest": true,
+      "basis": "source-reconciled lazy audit redaction import"
+    },
+    {
+      "path": "tools/shell_tools.py",
+      "sha256": "52b1f65c659810f640f5ec1d6c91abd0fe0cd6f893e7005bcd22e4fed51a3a5b",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "utils/config.py",
+      "sha256": "361cd73f362dfc541d86c95dd8ead508bc54d6de3748c8c2871099dbf464d3c7",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    },
+    {
+      "path": "utils/logger.py",
+      "sha256": "aafed2a167d904508a85b842171c992a410e8b626d99882b0ae6692121504cb6",
+      "equals_frozen_manifest": true,
+      "basis": "original diagnostic selected closure"
+    }
+  ],
+  "preserved_diagnostic": "va_module_import_graph.json unchanged16-file7fe60cc diagnostic",
+  "added_edges": [
+    {
+      "from": "core/action_gateway.py:127 and utils/logger.py:65",
+      "to": "core/export_hygiene.py",
+      "kind": "lazy mask_secrets audit redaction"
+    },
+    {
+      "from": "core/export_hygiene.py:33",
+      "to": "core/trajectory.py",
+      "kind": "OVERSIZE_MARKER_PREFIX constant import; _connect not called by masking"
+    }
+  ],
+  "sqlite_import_path": [
+    "tools/shell_tools.py imports core.action_gateway",
+    "core/action_gateway.py:55 imports core.filesystem",
+    "core/filesystem.py:20 imports core.checkpoint",
+    "core/checkpoint.py:536 calls _extend_state_schema",
+    "core/checkpoint.py:523 calls get_state_store",
+    "core/state.py:544 constructs StateStore()",
+    "core/state.py:41 sqlite3.connect default STATE_DB",
+    "core/state.py:48 WAL and _init_schema; checkpoint adds fixed schema"
+  ],
+  "environment_path_closure": {
+    "before_import": "minimal_env passes nonce paths; guard.install validates ENV_PATHS absolute/resolved under nonce BEFORE product imports; target writes state/config.json={} before imports",
+    "CODEY_STATE_DIR": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/state",
+    "CODEY_CONFIG_PATH": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/state/config.json",
+    "config_json_current": {},
+    "STATE_DB_FILE": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/state/state.db",
+    "config_source": "utils/config.py325-335 honors explicit env; state.py19-23 copies STATE_DB_FILE into STATE_DB; StateStore default binds on import",
+    "after_import": "adapter runtime_paths loop validates config.CODEY_STATE_DIR and core.state.STATE_DIR under nonce after imports; it does not separately test STATE_DB_FILE at runtime; source constant derivation proves reviewed default here",
+    "RESTORICON_DB_PATH": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/state/restoricon.db",
+    "restriction": "fresh owned nonce, no seeded/copied user DB; selected constant schema only; no foreign SQLite database, ATTACH, load_extension or SQLite plugin permitted by reviewed scope; SQLite is not generically monkeypatched"
+  },
+  "effects": {
+    "real_nonce_sqlite_initialization": true,
+    "tables_source": [
+      "state",
+      "task_queue",
+      "episodic_log",
+      "model_state",
+      "project_files",
+      "working_memory",
+      "checkpoints"
+    ],
+    "implicit_sqlite_table": "sqlite_sequence for AUTOINCREMENT; reviewer reports8-table schema",
+    "state_db_bytes": 53248,
+    "state_db_minus_completion_mtime_ns": 24000000,
+    "timing_limit": "delta consistent with WAL/checkpoint/finalization, not proof of timing/cause or postrun creator"
+  },
+  "global_receiver_limits": "104 inventory: state connect actual nonce-local bootstrap; trajectory connect selected module but lazy uncalled by mask;102 remaining outside selected closure not globally certified",
+  "execution_for_this_correction": "NONE; JSON/source/hash/stat reads only; no DB open, product import or rerun"
+}

@@ -1,0 +1,63 @@
+{
+  "rows": 304,
+  "distinct_scan_keys": 304,
+  "exact_key_sets": true,
+  "groups": 181,
+  "matched": 82,
+  "unmatched": 99,
+  "group_metadata_errors": [],
+  "hashes": 77,
+  "hash_drift": [],
+  "classes": {
+    "NATIVE_AUTHORITY": 199,
+    "FALSE_POSITIVE": 2,
+    "OPERATOR_BOOTSTRAP": 85,
+    "BOOKKEEPING": 10,
+    "UNMEDIATED": 7,
+    "READ_NOEFFECT": 1
+  },
+  "unmediated": [
+    {
+      "key": "restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.append::*.execute::1",
+      "severity": "LOW",
+      "reach": "dormant",
+      "finding": "NEW-792"
+    },
+    {
+      "key": "restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.append::*.execute::2",
+      "severity": "LOW",
+      "reach": "dormant",
+      "finding": "NEW-792"
+    },
+    {
+      "key": "restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.update_refresh_state::*.execute::1",
+      "severity": "LOW",
+      "reach": "dormant",
+      "finding": "NEW-792"
+    },
+    {
+      "key": "restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.upsert::*.execute::1",
+      "severity": "LOW",
+      "reach": "dormant",
+      "finding": "NEW-792"
+    },
+    {
+      "key": "restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.upsert::*.execute::2",
+      "severity": "LOW",
+      "reach": "dormant",
+      "finding": "NEW-792"
+    },
+    {
+      "key": "restoricon_core/services/pricing_repo.py::SearchCacheRepoImpl.put::*.execute::1",
+      "severity": "LOW",
+      "reach": "dormant",
+      "finding": "NEW-792"
+    },
+    {
+      "key": "restoricon_core/services/pricing_repo.py::SearchCacheRepoImpl.put::*.execute::2",
+      "severity": "LOW",
+      "reach": "dormant",
+      "finding": "NEW-792"
+    }
+  ]
+}

@@ -1,0 +1,1650 @@
+{
+ "restoricon_core/api/routes.py::APIRouter.handle_request.<locals>.on_headers_finished::fs_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/api/routes.py::APIRouter.handle_request.<locals>.on_headers_finished::open::1",
+   "restoricon_core/api/routes.py::APIRouter.handle_request.<locals>.on_headers_finished::os.makedirs::1"
+  ]
+ },
+ "restoricon_core/api/routes.py::APIRouter.handle_request::fs_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/api/routes.py::APIRouter.handle_request::os.remove::1",
+   "restoricon_core/api/routes.py::APIRouter.handle_request::os.remove::2"
+  ]
+ },
+ "restoricon_core/api/routes.py::_call_budget_gated_completion::network": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/api/routes.py::_call_budget_gated_completion::urllib.request.Request::1",
+   "restoricon_core/api/routes.py::_call_budget_gated_completion::urllib.request.urlopen::1"
+  ]
+ },
+ "restoricon_core/api/server.py::RestoriconAPIServer.__init__::network": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/api/server.py::RestoriconAPIServer.__init__::http.server.ThreadingHTTPServer::1"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.change_password::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.change_password::*.execute::1",
+   "restoricon_core/auth.py::AuthService.change_password::*.execute::2"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.create_token::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.create_token::*.execute::1"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.create_user::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.create_user::*.execute::1"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.delete_user::sqlite_write": {
+  "old_count_field": "5",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 5,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.delete_user::*.execute::1",
+   "restoricon_core/auth.py::AuthService.delete_user::*.execute::2",
+   "restoricon_core/auth.py::AuthService.delete_user::*.execute::3",
+   "restoricon_core/auth.py::AuthService.delete_user::*.execute::4",
+   "restoricon_core/auth.py::AuthService.delete_user::*.execute::5"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.list_salesperson_roster::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.list_salesperson_roster::*.execute::1"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.list_users::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.list_users::*.execute::1"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.revoke_token::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.revoke_token::*.execute::1"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.set_user_active::sqlite_write": {
+  "old_count_field": "4",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 4,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.set_user_active::*.execute::1",
+   "restoricon_core/auth.py::AuthService.set_user_active::*.execute::2",
+   "restoricon_core/auth.py::AuthService.set_user_active::*.execute::3",
+   "restoricon_core/auth.py::AuthService.set_user_active::*.execute::4"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.set_user_permissions::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.set_user_permissions::*.execute::1"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.update_user::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.update_user::*.execute::1"
+  ]
+ },
+ "restoricon_core/auth.py::AuthService.update_user::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/auth.py::AuthService.update_user::*.execute::2"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._backfill_customer_numbers::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._backfill_customer_numbers::*.execute::1"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._ensure_db_dir::fs_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._ensure_db_dir::*.mkdir::1"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::sql_dynamic": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::3",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::4"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::sqlite_write": {
+  "old_count_field": "11",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 11,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::1",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::10",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::11",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::12",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::13",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::2",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::5",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::6",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::7",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::8",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimate_line_items_pricing_fks::*.execute::9"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::sql_dynamic": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::3",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::4"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::sqlite_write": {
+  "old_count_field": "14",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 14,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::1",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::10",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::11",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::12",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::13",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::14",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::15",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::16",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::2",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::5",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::6",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::7",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::8",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_property_id_fk::*.execute::9"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::sql_dynamic": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::3",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::4"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::sqlite_write": {
+  "old_count_field": "14",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 14,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::1",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::10",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::11",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::12",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::13",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::14",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::15",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::16",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::2",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::5",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::6",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::7",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::8",
+   "restoricon_core/database.py::DatabaseManager._migrate_estimates_table_v2::*.execute::9"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_schema::sql_dynamic": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::1",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::2"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_schema::sqlite_write": {
+  "old_count_field": "11",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 11,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::10",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::11",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::12",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::13",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::3",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::4",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::5",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::6",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::7",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::8",
+   "restoricon_core/database.py::DatabaseManager._migrate_schema::*.execute::9"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::sql_dynamic": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::3",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::4"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::sqlite_write": {
+  "old_count_field": "9",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 9,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::1",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::10",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::11",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::2",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::5",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::6",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::7",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::8",
+   "restoricon_core/database.py::DatabaseManager._migrate_users_role_constraint::*.execute::9"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::sql_dynamic": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::3",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::4"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::sqlite_write": {
+  "old_count_field": "11",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 11,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::1",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::10",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::11",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::12",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::13",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::2",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::5",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::6",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::7",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::8",
+   "restoricon_core/database.py::DatabaseManager._migrate_work_orders_status_constraint::*.execute::9"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager.get_connection::sqlite_conn": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager.get_connection::sqlite3.connect::1"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager.get_connection::sqlite_write": {
+  "old_count_field": "3",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 3,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager.get_connection::*.execute::1",
+   "restoricon_core/database.py::DatabaseManager.get_connection::*.execute::2",
+   "restoricon_core/database.py::DatabaseManager.get_connection::*.execute::3"
+  ]
+ },
+ "restoricon_core/database.py::DatabaseManager.init_schema::sqlite_exec": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/database.py::DatabaseManager.init_schema::*.executescript::1"
+  ]
+ },
+ "restoricon_core/services/analytics_search_service.py::AnalyticsSearchService.global_search::sql_dynamic": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/analytics_search_service.py::AnalyticsSearchService.global_search::*.execute::1",
+   "restoricon_core/services/analytics_search_service.py::AnalyticsSearchService.global_search::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/assessment_service.py::AssessmentService.create_assessment_record::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/assessment_service.py::AssessmentService.create_assessment_record::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/assessment_service.py::AssessmentService.list_assessment_records::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/assessment_service.py::AssessmentService.list_assessment_records::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/audit_service.py::AuditService.log::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/audit_service.py::AuditService.log::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/audit_service.py::AuditService.query_logs::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/audit_service.py::AuditService.query_logs::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/automation_service.py::AutomationService.add_to_do_not_contact::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/automation_service.py::AutomationService.add_to_do_not_contact::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/automation_service.py::AutomationService.create_rule::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/automation_service.py::AutomationService.create_rule::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/automation_service.py::AutomationService.delete_rule::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/automation_service.py::AutomationService.delete_rule::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/automation_service.py::AutomationService.list_rules::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/automation_service.py::AutomationService.list_rules::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/automation_service.py::AutomationService.record_rule_match::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/automation_service.py::AutomationService.record_rule_match::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/automation_service.py::AutomationService.remove_from_do_not_contact::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/automation_service.py::AutomationService.remove_from_do_not_contact::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/automation_service.py::AutomationService.upsert_business_profile::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/automation_service.py::AutomationService.upsert_business_profile::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.approve_timesheet::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.approve_timesheet::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_campaign::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_campaign::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_compliance_item::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_compliance_item::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_employee::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_employee::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_purchase_order::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_purchase_order::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_review_request::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_review_request::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_vendor::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.create_vendor::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.list_compliance_items::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.list_compliance_items::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.list_employees::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.list_employees::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.list_purchase_orders::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.list_purchase_orders::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.list_timesheets::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.list_timesheets::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.receive_purchase_order::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.receive_purchase_order::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.scan_compliance_expirations::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.scan_compliance_expirations::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.submit_review::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.submit_review::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/business_ops_service.py::BusinessOpsService.submit_timesheet::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/business_ops_service.py::BusinessOpsService.submit_timesheet::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/commission_service.py::CommissionService.get_team_commission_summary::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/commission_service.py::CommissionService.get_team_commission_summary::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/commission_service.py::CommissionService.list_commissions::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/commission_service.py::CommissionService.list_commissions::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/commission_service.py::CommissionService.record_commission::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/commission_service.py::CommissionService.record_commission::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/commission_service.py::CommissionService.reverse_commission::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/commission_service.py::CommissionService.reverse_commission::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/communication_service.py::CommunicationService.query_communications::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/communication_service.py::CommunicationService.query_communications::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/communication_service.py::CommunicationService.record_communication::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/communication_service.py::CommunicationService.record_communication::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.add_contract_signers::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.add_contract_signers::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.cancel_homecare_subscription::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.cancel_homecare_subscription::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.claim_lead::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.claim_lead::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.claim_opportunity::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.claim_opportunity::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.claim_task::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.claim_task::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.complete_handoff_checklist::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.complete_handoff_checklist::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.complete_task::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.complete_task::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_contact::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_contact::*.execute::1",
+   "restoricon_core/services/crm_service.py::CRMService.create_contact::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_contract::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_contract::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_customer::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_customer::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_document::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_document::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_estimate::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_estimate::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_handoff_checklist::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_handoff_checklist::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_invoice::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_invoice::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_lead::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_lead::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_opportunity::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_opportunity::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_package_option::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_package_option::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_project::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_project::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_project::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_project::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_property::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_property::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_subcontractor::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_subcontractor::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.create_task::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.create_task::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.delete_contact::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.delete_contact::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.delete_subcontractor::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.delete_subcontractor::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.get_stage_duration_analytics::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.get_stage_duration_analytics::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_contacts::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_contacts::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_contracts::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_contracts::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_customers::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_customers::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_documents::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_documents::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_estimates::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_estimates::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_invoices::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_invoices::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_leads::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_leads::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_opportunities::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_opportunities::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_package_options::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_package_options::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_projects::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_projects::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_properties::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_properties::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_subcontractors::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_subcontractors::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.list_tasks::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.list_tasks::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.record_payment::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.record_payment::*.execute::1",
+   "restoricon_core/services/crm_service.py::CRMService.record_payment::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.send_contract::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.send_contract::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.send_estimate::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.send_estimate::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.sign_contract::fs_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.sign_contract::open::1",
+   "restoricon_core/services/crm_service.py::CRMService.sign_contract::os.makedirs::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.sign_contract::sqlite_write": {
+  "old_count_field": "4",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 4,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.sign_contract::*.execute::1",
+   "restoricon_core/services/crm_service.py::CRMService.sign_contract::*.execute::2",
+   "restoricon_core/services/crm_service.py::CRMService.sign_contract::*.execute::3",
+   "restoricon_core/services/crm_service.py::CRMService.sign_contract::*.execute::4"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.submit_public_booking::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.submit_public_booking::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.submit_public_lead::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.submit_public_lead::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.sync_contacts_batch::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.sync_contacts_batch::*.execute::1",
+   "restoricon_core/services/crm_service.py::CRMService.sync_contacts_batch::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.transition_opportunity_stage::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.transition_opportunity_stage::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_contact::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_contact::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_contract::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_contract::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_customer::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_customer::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_estimate::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_estimate::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_handoff_checklist_item::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_handoff_checklist_item::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_lead::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_lead::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_opportunity::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_opportunity::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_project::sql_dynamic": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_project::*.execute::1",
+   "restoricon_core/services/crm_service.py::CRMService.update_project::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_property::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_property::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_subcontractor::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_subcontractor::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_subcontractor_qualification::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_subcontractor_qualification::*.execute::1",
+   "restoricon_core/services/crm_service.py::CRMService.update_subcontractor_qualification::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/crm_service.py::CRMService.update_task::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/crm_service.py::CRMService.update_task::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService._create_share_link::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService._create_share_link::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService._deliver_share_link::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService._deliver_share_link::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService._lock_version_write::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService._lock_version_write::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService._next_estimate_number::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService._next_estimate_number::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService._recalculate_version::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService._recalculate_version::*.execute::1",
+   "restoricon_core/services/estimate_service.py::EstimateService._recalculate_version::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.add_line::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.add_line::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.claim::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.claim::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.convert::sqlite_write": {
+  "old_count_field": "3",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 3,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.convert::*.execute::1",
+   "restoricon_core/services/estimate_service.py::EstimateService.convert::*.execute::2",
+   "restoricon_core/services/estimate_service.py::EstimateService.convert::*.execute::3"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.create::sqlite_write": {
+  "old_count_field": "3",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 3,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.create::*.execute::1",
+   "restoricon_core/services/estimate_service.py::EstimateService.create::*.execute::2",
+   "restoricon_core/services/estimate_service.py::EstimateService.create::*.execute::3"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.list::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.list::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.reassign::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.reassign::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.record_decision::sqlite_write": {
+  "old_count_field": "5",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 5,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::1",
+   "restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::2",
+   "restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::3",
+   "restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::4",
+   "restoricon_core/services/estimate_service.py::EstimateService.record_decision::*.execute::5"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.record_share_link_view::sqlite_write": {
+  "old_count_field": "3",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 3,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.record_share_link_view::*.execute::1",
+   "restoricon_core/services/estimate_service.py::EstimateService.record_share_link_view::*.execute::2",
+   "restoricon_core/services/estimate_service.py::EstimateService.record_share_link_view::*.execute::3"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.remove_line::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.remove_line::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.reorder_lines::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.reorder_lines::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.revise::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.revise::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.revise::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.revise::*.execute::1",
+   "restoricon_core/services/estimate_service.py::EstimateService.revise::*.execute::3"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.sweep_expired::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.sweep_expired::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.transition::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.transition::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.unclaim::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.unclaim::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.update_header::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.update_header::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/estimate_service.py::EstimateService.update_line::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/estimate_service.py::EstimateService.update_line::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/finance_service.py::FinanceService._financing_offset_for_invoices::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/finance_service.py::FinanceService._financing_offset_for_invoices::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/finance_service.py::FinanceService.list_transactions::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/finance_service.py::FinanceService.list_transactions::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/finance_service.py::FinanceService.record_transaction::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/finance_service.py::FinanceService.record_transaction::*.execute::1",
+   "restoricon_core/services/finance_service.py::FinanceService.record_transaction::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/financing_service.py::FinancingService.create_financing_record::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/financing_service.py::FinancingService.create_financing_record::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/financing_service.py::FinancingService.update_financing_record::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/financing_service.py::FinancingService.update_financing_record::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/notification_service.py::NotificationService._post_request::network": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/notification_service.py::NotificationService._post_request::urllib.request.Request::1",
+   "restoricon_core/services/notification_service.py::NotificationService._post_request::urllib.request.urlopen::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.accept_work_order::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.accept_work_order::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.create_equipment::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.create_equipment::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.create_milestone::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.create_milestone::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.create_work_order::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.create_work_order::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.deploy_equipment::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.deploy_equipment::*.execute::1",
+   "restoricon_core/services/operations_service.py::OperationsService.deploy_equipment::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.dispatch_work_order::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.dispatch_work_order::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.list_equipment::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.list_equipment::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.list_project_deployments::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.list_project_deployments::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.list_work_orders::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.list_work_orders::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.return_equipment::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.return_equipment::*.execute::1",
+   "restoricon_core/services/operations_service.py::OperationsService.return_equipment::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.split_work_order::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.split_work_order::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.transition_project_stage::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.transition_project_stage::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.update_milestone_status::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.update_milestone_status::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.update_work_order::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.update_work_order::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/operations_service.py::OperationsService.update_work_order_execution_status::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/operations_service.py::OperationsService.update_work_order_execution_status::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/pricing_job_service.py::PricingJobService._finish::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/pricing_job_service.py::PricingJobService._finish::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/pricing_job_service.py::PricingJobService.record_progress::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/pricing_job_service.py::PricingJobService.record_progress::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/pricing_job_service.py::PricingJobService.start::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/pricing_job_service.py::PricingJobService.start::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.append::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.append::*.execute::1",
+   "restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.append::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.get_history::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/pricing_repo.py::PriceObservationRepoImpl.get_history::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.update_refresh_state::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.update_refresh_state::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.upsert::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.upsert::*.execute::1",
+   "restoricon_core/services/pricing_repo.py::RetailerProductRepoImpl.upsert::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/pricing_repo.py::SearchCacheRepoImpl.put::sqlite_write": {
+  "old_count_field": "2",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 2,
+  "keys": [
+   "restoricon_core/services/pricing_repo.py::SearchCacheRepoImpl.put::*.execute::1",
+   "restoricon_core/services/pricing_repo.py::SearchCacheRepoImpl.put::*.execute::2"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService._assert_within_concurrency_cap::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService._assert_within_concurrency_cap::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.create_appointment::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.create_appointment::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.create_appointment_type::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.create_appointment_type::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.create_staff_schedule::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.create_staff_schedule::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.delete_appointment_type::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.delete_appointment_type::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.delete_staff_schedule::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.delete_staff_schedule::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.list_appointment_types::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.list_appointment_types::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.list_appointments::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.list_appointments::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.list_staff_schedules::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.list_staff_schedules::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.list_staff_schedules_archive::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.list_staff_schedules_archive::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment_status::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment_status::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment_type::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.update_appointment_type::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.update_staff_schedule::sql_dynamic": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.update_staff_schedule::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/scheduling_service.py::SchedulingService.upsert_schedule_config::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/scheduling_service.py::SchedulingService.upsert_schedule_config::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/territory_service.py::TerritoryService.create_territory::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/territory_service.py::TerritoryService.create_territory::*.execute::1"
+  ]
+ },
+ "restoricon_core/services/territory_service.py::TerritoryService.update_territory::sqlite_write": {
+  "old_count_field": "1",
+  "old_first_seen_rev": "941ec3fb",
+  "mapped_exact_keys": 1,
+  "keys": [
+   "restoricon_core/services/territory_service.py::TerritoryService.update_territory::*.execute::1"
+  ]
+ }
+}

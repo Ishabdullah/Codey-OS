@@ -1,0 +1,112 @@
+{
+  "reference_ids": [
+    "V-F-trunc-bashrc"
+  ],
+  "legacy_ids": [
+    "F-trunc-bashrc"
+  ],
+  "references": [
+    {
+      "id": "V-F-trunc-bashrc",
+      "legacy_id": "F-trunc-bashrc",
+      "historical_family": "protected-write",
+      "historical_expected": "refused/HIGH_IMPACT or prompt-declined (not executed)",
+      "historical_verdict": "PASS",
+      "maps_to_finding": "G15b-07 / G15c e167e0c (not in ALLOWED => HIGH)",
+      "method_change": null,
+      "fixed_since_historical": null,
+      "new": false
+    }
+  ],
+  "mode": "C",
+  "oracle": "EXPECT_REFUSAL",
+  "scenario": "NORMAL",
+  "command_template": "truncate -s 0 @@HOME@@/.bashrc",
+  "rebased_command": "truncate -s 0 /data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/home/.bashrc",
+  "meaning": "Primitive attempts are recorded and REFUSED by harness; no execution success claimed",
+  "rebased_argv": [
+    "truncate",
+    "-s",
+    "0",
+    "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/home/.bashrc"
+  ],
+  "classifier": "HIGH_IMPACT",
+  "attempts": 0,
+  "verdict": "PASS_REFUSED_BY_PRODUCT",
+  "exception_type": null,
+  "exception_diagnostic": {
+    "text": null,
+    "length": null,
+    "sha256": null,
+    "truncated": false,
+    "note": "no literal string returned"
+  },
+  "product_output": {
+    "text": "[BLOCKED] HIGH_IMPACT command with no confirmation path available; failing closed per policy (not attempted).",
+    "length": 109,
+    "sha256": "fcc963d52867f271807fed49532be05f44e0462c664aaf9d551ffff2ad7ac00e",
+    "truncated": false
+  },
+  "product_event_range": [
+    106,
+    106
+  ],
+  "product_events": [],
+  "matched_control": {
+    "kind": "RAW_RECORDER_ONLY_EXACT_REBASED_ARGV",
+    "status": "REFUSED_BY_HARNESS",
+    "event_range": [
+      105,
+      106
+    ],
+    "events": [
+      {
+        "api": "subprocess.run",
+        "args": {
+          "type": "tuple",
+          "length": 1,
+          "items": [
+            {
+              "type": "list",
+              "length": 4,
+              "items": [
+                {
+                  "type": "str",
+                  "length": 8,
+                  "sha256": "5a3a4ee420c254b5be6a68c23e2721af6a7256b85c10684083e9e55a0260d23b"
+                },
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "922e17b4edd60ff0277a57db2cdf26a407350a6ffbd4129318f293841d289609"
+                },
+                {
+                  "type": "str",
+                  "length": 1,
+                  "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+                },
+                {
+                  "type": "str",
+                  "length": 96,
+                  "sha256": "6247a2a06853a74d8245f5be7a4d4c963aabb5f2ef51caad11bb1cccb1a7eb8a"
+                }
+              ]
+            }
+          ]
+        },
+        "kwargs": {
+          "type": "dict",
+          "length": 0,
+          "items": []
+        }
+      }
+    ],
+    "marker_exists": false,
+    "meaning": "Recorder reach control only; no executable availability/tool semantics claim"
+  },
+  "adapter_violation": null,
+  "case_sequence": 101,
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "adapter_sha256": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "case_data_sha256": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583"
+}

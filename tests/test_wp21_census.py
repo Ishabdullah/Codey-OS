@@ -14,7 +14,6 @@ import os
 import shutil
 import subprocess
 import textwrap
-import warnings
 from pathlib import Path
 
 import pytest
@@ -712,15 +711,14 @@ def _repo_gate_available():
 @pytest.mark.skipif(not _repo_gate_available(),
                     reason="git/register unavailable or WP21_CENSUS_SKIP_REPO=1")
 def test_repo_head_snapshot_is_covered_by_register():
-    """Every boundary row at HEAD must have a register entry (UNKNOWN is a valid
-    initial state until the classification pass; closure uses the strict test).
+    """Every boundary row at HEAD must have a register entry (BLOCKING by default).
 
-    OPT-IN blocking: this fails the suite only when ``WP21_CENSUS_GATE=1``.  By
-    default it runs warn-only: coverage gaps are emitted as a pytest
-    ``UserWarning`` (shown in the warnings summary) and the test passes.  Reason:
-    the register is >99% UNKNOWN so it carries no safety signal yet, and a
-    blocking gate would only make unrelated commits that add a boundary row fail
-    on bookkeeping.  Flip the default to blocking when classification completes.
+    Fails on any unregistered or stale row, parse failure, or business
+    (restoricon_core) coverage gap.  UNKNOWN is still a valid disposition here;
+    zero-UNKNOWN is the separate opt-in closure test (``WP21_CENSUS_STRICT=1``).
+    ``WP21_CENSUS_SOURCE=worktree`` is an optional diagnostic mode.  There is no
+    warn-only switch: the register is fully dispositioned, so a gap is a real
+    unreviewed boundary.
     """
     source = os.environ.get("WP21_CENSUS_SOURCE", "head")
     res = wc.run(str(REPO), "HEAD", source=source)
@@ -728,12 +726,7 @@ def test_repo_head_snapshot_is_covered_by_register():
     dirty = res.meta["dirty_paths"] if source == "worktree" else []
     cov = wc.evaluate_coverage(res, register, dirty_paths=dirty,
                                present_files=set(res.file_hashes))
-    msg = "\n".join(f"{c}: {d}" for c, d in cov.failures[:40])
-    if os.environ.get("WP21_CENSUS_GATE") == "1":
-        assert cov.ok, msg
-    elif not cov.ok:
-        warnings.warn(f"WP2.1 census coverage gap (warn-only; set WP21_CENSUS_GATE=1 "
-                      f"to block):\n{msg}", UserWarning, stacklevel=1)
+    assert cov.ok, "\n".join(f"{c}: {d}" for c, d in cov.failures[:40])
 
 
 @pytest.mark.skipif(os.environ.get("WP21_CENSUS_STRICT") != "1" or not _repo_gate_available(),
@@ -744,3 +737,130 @@ def test_repo_head_snapshot_has_no_unknown_rows():
     cov = wc.evaluate_coverage(res, register, present_files=set(res.file_hashes),
                                require_no_unknown=True)
     assert cov.ok, "\n".join(f"{c}: {d}" for c, d in cov.failures[:40])
+
+
+# --------------------------------------------------------------------------
+# Blocking-contract proof: the real repo-level test function against tiny
+# disposable git repos (module REPO/REGISTER pointed at the fixture; gate and
+# strict env vars absent).  No recursive pytest, no product imports.
+# --------------------------------------------------------------------------
+
+def _run_repo_gate(monkeypatch, repo, rows):
+    """Call test_repo_head_snapshot_is_covered_by_register against ``repo`` and a
+    register built from ``rows``; return None on pass or the AssertionError text."""
+    mod = globals()
+    register = repo.parent / "dispositions.tsv"
+    register.write_text(wc.render_register(rows), encoding="utf-8")
+    for var in ("WP21_CENSUS_GATE", "WP21_CENSUS_STRICT", "WP21_CENSUS_SOURCE",
+                "WP21_CENSUS_SKIP_REPO"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setitem(mod, "REPO", repo)
+    monkeypatch.setitem(mod, "REGISTER", register)
+    try:
+        test_repo_head_snapshot_is_covered_by_register()
+    except AssertionError as e:
+        return str(e)
+    return None
+
+
+@pytest.fixture
+def gate_repo(tiny_repo, tmp_path, monkeypatch):
+    # Isolated HOME/proxies; tiny_repo already builds an isolated git repo.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY"):
+        monkeypatch.delenv(var, raising=False)
+    (tiny_repo / "restoricon_core").mkdir()
+    (tiny_repo / "restoricon_core" / "s.py").write_text(SCAN_FILES["restoricon_core/s.py"])
+    _git(tiny_repo, "add", ".")
+    _git(tiny_repo, "commit", "-q", "-m", "biz")
+    res = wc.run(str(tiny_repo), "HEAD")
+    seed = wc.seed_register_rows(res, "h")
+    return tiny_repo, _disp(seed)
+
+
+def _disp(seed, have=()):
+    """Seed rows -> explicit dispositions (business rows must be NATIVE_AUTHORITY)."""
+    return [dict(d, **{"class": "NATIVE_AUTHORITY" if d["key"].startswith("restoricon_core/")
+                       else "FALSE_POSITIVE", "evidence": "because"})
+            for d in seed if d["key"] not in have]
+
+
+def _commit_file(repo, rel, text):
+    (repo / rel).write_text(text)
+    _git(repo, "add", rel)
+    _git(repo, "commit", "-q", "-m", "add " + rel)
+
+
+def test_default_gate_passes_with_complete_register(gate_repo, monkeypatch):
+    repo, full = gate_repo
+    assert _run_repo_gate(monkeypatch, repo, full) is None
+
+
+def test_default_gate_fails_on_undispositioned_boundary_then_passes_when_registered(
+        gate_repo, monkeypatch):
+    repo, full = gate_repo
+    _commit_file(repo, "core/c.py", "import os\nos.remove('new')\n")
+    msg = _run_repo_gate(monkeypatch, repo, full)
+    assert msg and "unregistered-row" in msg and "core/c.py" in msg
+    res = wc.run(str(repo), "HEAD")
+    have = {d["key"] for d in full}
+    extra = _disp(wc.seed_register_rows(res, "h"), have)
+    assert extra and _run_repo_gate(monkeypatch, repo, full + extra) is None
+
+
+def test_default_gate_fails_on_undispositioned_business_boundary(gate_repo, monkeypatch):
+    repo, full = gate_repo
+    _commit_file(repo, "restoricon_core/t.py",
+                 "def w2(c):\n    c.execute('DELETE FROM t')\n")
+    msg = _run_repo_gate(monkeypatch, repo, full)
+    assert msg and "restoricon_core/t.py" in msg
+
+
+def test_default_gate_fails_on_business_qualname_count_mismatch(gate_repo, monkeypatch):
+    repo, full = gate_repo
+    _commit_file(repo, "restoricon_core/s.py",
+                 SCAN_FILES["restoricon_core/s.py"] + "    c.execute('DELETE FROM t')\n")
+    msg = _run_repo_gate(monkeypatch, repo, full)
+    assert msg and "qualname-count-mismatch" in msg
+
+
+def test_default_gate_fails_on_stale_register_row(gate_repo, monkeypatch):
+    repo, full = gate_repo
+    # File still present at HEAD but the registered ordinal no longer exists.
+    stale = full + [reg("core/a.py::<module>::os.remove::2")]
+    msg = _run_repo_gate(monkeypatch, repo, stale)
+    assert msg and "stale-row" in msg
+    # A row for a file absent from HEAD is only a warning (matches evaluate_coverage).
+    gone = full + [reg("core/gone.py::f::os.remove::1")]
+    assert _run_repo_gate(monkeypatch, repo, gone) is None
+
+
+def test_default_gate_ignores_dirty_worktree_and_allows_unknown(gate_repo, monkeypatch):
+    repo, full = gate_repo
+    (repo / "core" / "a.py").write_text("import os\nos.remove('x')\nos.remove('dirty')\n")
+    (repo / "core" / "untracked.py").write_text("import os\nos.remove('u')\n")
+    assert _run_repo_gate(monkeypatch, repo, full) is None      # HEAD snapshot only
+    unknown = [dict(d, **{"class": "UNKNOWN", "evidence": ""}) if i == 0 else d
+               for i, d in enumerate(full)]
+    assert _run_repo_gate(monkeypatch, repo, unknown) is None   # strict stays opt-in
+
+
+def test_default_gate_fails_on_parse_failure_in_head_boundary_file(gate_repo, monkeypatch):
+    repo, full = gate_repo
+    _commit_file(repo, "core/broken.py", "def f(:\n")
+    msg = _run_repo_gate(monkeypatch, repo, full)
+    assert msg and "parse-failure" in msg
+
+
+def test_default_gate_mediator_sensitivity(gate_repo, monkeypatch):
+    repo, full = gate_repo
+    key = next(d["key"] for d in full if d["key"].startswith("core/a.py"))
+
+    def with_gated(mediator):
+        return [dict(d, **{"class": "GATED", "mediator": mediator}) if d["key"] == key else d
+                for d in full]
+
+    assert "gated-mediator-not-gate" in _run_repo_gate(monkeypatch, repo, with_gated("my_wrapper"))
+    assert "gated-lexical-claim-not-in-scan" in _run_repo_gate(
+        monkeypatch, repo, with_gated("lexical:gate_exec"))
+    assert _run_repo_gate(monkeypatch, repo, with_gated("gate_exec")) is None

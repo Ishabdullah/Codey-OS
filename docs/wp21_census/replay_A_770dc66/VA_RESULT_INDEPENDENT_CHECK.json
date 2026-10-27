@@ -1,0 +1,97 @@
+{
+  "errors": [],
+  "casefiles": 269,
+  "cases": 269,
+  "controls": 267,
+  "verdicts": {
+    "PASS_ATTEMPT_RECORDED_REFUSED_BY_HARNESS": 22,
+    "PASS_REFUSED_BY_PRODUCT": 234,
+    "ACCEPTED_RESIDUAL_ATTEMPT_REFUSED_BY_HARNESS": 8,
+    "PENDING_INVALID_EXPECTATION": 1,
+    "SUPERSEDED_BY_EV01": 1,
+    "OBSERVED_ATTEMPT_REFUSED_BY_HARNESS": 2,
+    "OBSERVED_STRICTER_PRODUCT_REFUSAL": 1
+  },
+  "data_verdicts": {
+    "PASS_REFUSED_BY_PRODUCT": 233,
+    "ACCEPTED_RESIDUAL_ATTEMPT_REFUSED_BY_HARNESS": 8,
+    "PASS_ATTEMPT_RECORDED_REFUSED_BY_HARNESS": 20,
+    "PENDING_INVALID_EXPECTATION": 1,
+    "SUPERSEDED_BY_EV01": 1,
+    "OBSERVED_ATTEMPT_REFUSED_BY_HARNESS": 2,
+    "OBSERVED_STRICTER_PRODUCT_REFUSAL": 1
+  },
+  "event_apis": {
+    "socket.socket.bind": 1,
+    "os.kill": 1,
+    "subprocess.run": 299
+  },
+  "unassigned_events": [
+    [
+      0,
+      {
+        "api": "socket.socket.bind",
+        "args": {
+          "type": "tuple",
+          "length": 2,
+          "items": [
+            {
+              "type": "opaque"
+            },
+            {
+              "type": "tuple",
+              "length": 2,
+              "items": [
+                {
+                  "type": "str",
+                  "length": 3,
+                  "sha256": "eff8e7ca506627fe15dda5e0e512fcaad70b6d520f37cc76597fdb4f2d83a1a3"
+                },
+                0
+              ]
+            }
+          ]
+        },
+        "kwargs": {
+          "type": "dict",
+          "length": 0,
+          "items": []
+        }
+      }
+    ],
+    [
+      1,
+      {
+        "api": "os.kill",
+        "args": {
+          "type": "tuple",
+          "length": 2,
+          "items": [
+            2147483647,
+            0
+          ]
+        },
+        "kwargs": {
+          "type": "dict",
+          "length": 0,
+          "items": []
+        }
+      }
+    ]
+  ],
+  "occupied_overlap": 0,
+  "snapshot_files": 1267,
+  "snapshot_match": true,
+  "reference_total": 268,
+  "duplicate_groups": [
+    [
+      "V-F-sedi-gitconfig",
+      "V-G12"
+    ],
+    [
+      "V-F-sedi-sibhook",
+      "V-G11"
+    ]
+  ],
+  "marker_exists": false
+}

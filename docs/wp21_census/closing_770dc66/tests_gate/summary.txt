@@ -1,0 +1,37 @@
+chunks_in_files_txt=32
+chunk 1 rc=1 :: 4 failed, 138 passed in 5.12s
+chunk 2 rc=0 :: 32 passed in 14.63s
+chunk 3 rc=0 :: 15 passed in 41.10s
+chunk 4 rc=0 :: 201 passed, 5 warnings in 75.55s (0:01:15)
+chunk 5 rc=0 :: 333 passed in 36.25s
+chunk 6 rc=1 :: 1 failed, 225 passed in 11.10s
+chunk 7 rc=0 :: 469 passed in 13.40s
+chunk 8 rc=0 :: 534 passed in 42.63s
+chunk 9 rc=0 :: 85 passed in 50.09s
+chunk 10 rc=0 :: 38 passed in 10.91s
+chunk 11 rc=0 :: 98 passed in 42.72s
+chunk 12 rc=0 :: 331 passed in 87.95s (0:01:27)
+chunk 13 rc=0 :: 158 passed in 2.66s
+chunk 14 rc=0 :: 9 passed in 90.55s (0:01:30)
+chunk 15 rc=0 :: 187 passed in 38.18s
+chunk 16 rc=0 :: 138 passed in 2.87s
+chunk 17 rc=1 :: 4 failed, 56 passed, 1 skipped in 1.48s
+chunk 18 rc=0 :: 369 passed in 5.83s
+chunk 19 rc=0 :: 331 passed in 5.38s
+chunk 20 rc=0 :: 484 passed in 17.52s
+chunk 21 rc=0 :: 342 passed in 66.77s (0:01:06)
+chunk 22 rc=0 :: 111 passed in 4.96s
+chunk 23 rc=0 :: 193 passed in 19.29s
+chunk 24 rc=0 :: 147 passed in 9.20s
+chunk 25 rc=0 :: 217 passed in 17.18s
+chunk 26 rc=0 :: 219 passed in 30.54s
+chunk 27 rc=0 :: 204 passed in 14.12s
+chunk 28 rc=0 :: 256 passed in 10.98s
+chunk 29 rc=1 :: 4 failed, 260 passed in 66.24s (0:01:06)
+chunk 30 rc=0 :: 2155 passed in 24.22s
+chunk 31 rc=0 :: 628 passed, 19 subtests passed in 10.56s
+chunk 32 rc=0 :: 336 passed, 1 skipped in 56.18s
+CHUNKS_DONE
+ccos_guarded rc=1 :: 1 failed, 184 passed, 1 warning in 13.25s
+census_strict rc=0 :: 124 passed in 10.97s
+ALL_DONE

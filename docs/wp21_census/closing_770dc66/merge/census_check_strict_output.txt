@@ -1,0 +1,126 @@
+{
+ "by_category": {
+  "credential": 25,
+  "dyn_code": 31,
+  "env_mut": 32,
+  "exec_spawn": 50,
+  "fs_write": 303,
+  "kill": 19,
+  "manifest": 355,
+  "network": 58,
+  "shell": 159,
+  "sql_dynamic": 78,
+  "sqlite_conn": 14,
+  "sqlite_exec": 9,
+  "sqlite_write": 334
+ },
+ "by_class": {
+  "BOOKKEEPING": 242,
+  "DORMANT": 33,
+  "FALSE_POSITIVE": 88,
+  "GATED": 122,
+  "LOOPBACK_IPC": 23,
+  "NATIVE_AUTHORITY": 537,
+  "OPERATOR_BOOTSTRAP": 223,
+  "OPERATOR_SCRIPT_RUNNABLE": 149,
+  "READ_NOEFFECT": 22,
+  "UNMEDIATED": 28
+ },
+ "by_dir": {
+  ".github": 2,
+  "bench": 23,
+  "ccos": 536,
+  "core": 332,
+  "lib": 37,
+  "pipeline": 25,
+  "restoricon_core": 304,
+  "root": 113,
+  "telemetry": 29,
+  "tools": 55,
+  "utils": 11
+ },
+ "by_dir_class": {
+  ".github": {
+   "OPERATOR_BOOTSTRAP": 2
+  },
+  "bench": {
+   "BOOKKEEPING": 14,
+   "OPERATOR_SCRIPT_RUNNABLE": 8,
+   "UNMEDIATED": 1
+  },
+  "ccos": {
+   "BOOKKEEPING": 57,
+   "DORMANT": 16,
+   "FALSE_POSITIVE": 3,
+   "GATED": 12,
+   "NATIVE_AUTHORITY": 338,
+   "OPERATOR_BOOTSTRAP": 23,
+   "OPERATOR_SCRIPT_RUNNABLE": 76,
+   "READ_NOEFFECT": 1,
+   "UNMEDIATED": 10
+  },
+  "core": {
+   "BOOKKEEPING": 116,
+   "DORMANT": 14,
+   "FALSE_POSITIVE": 16,
+   "GATED": 108,
+   "LOOPBACK_IPC": 21,
+   "OPERATOR_BOOTSTRAP": 42,
+   "READ_NOEFFECT": 9,
+   "UNMEDIATED": 6
+  },
+  "lib": {
+   "BOOKKEEPING": 13,
+   "FALSE_POSITIVE": 6,
+   "OPERATOR_SCRIPT_RUNNABLE": 18
+  },
+  "pipeline": {
+   "FALSE_POSITIVE": 2,
+   "OPERATOR_BOOTSTRAP": 2,
+   "OPERATOR_SCRIPT_RUNNABLE": 20,
+   "READ_NOEFFECT": 1
+  },
+  "restoricon_core": {
+   "BOOKKEEPING": 10,
+   "FALSE_POSITIVE": 2,
+   "NATIVE_AUTHORITY": 199,
+   "OPERATOR_BOOTSTRAP": 85,
+   "READ_NOEFFECT": 1,
+   "UNMEDIATED": 7
+  },
+  "root": {
+   "BOOKKEEPING": 4,
+   "FALSE_POSITIVE": 41,
+   "OPERATOR_BOOTSTRAP": 59,
+   "OPERATOR_SCRIPT_RUNNABLE": 9
+  },
+  "telemetry": {
+   "BOOKKEEPING": 27,
+   "READ_NOEFFECT": 2
+  },
+  "tools": {
+   "FALSE_POSITIVE": 18,
+   "GATED": 2,
+   "LOOPBACK_IPC": 2,
+   "OPERATOR_BOOTSTRAP": 10,
+   "OPERATOR_SCRIPT_RUNNABLE": 18,
+   "READ_NOEFFECT": 1,
+   "UNMEDIATED": 4
+  },
+  "utils": {
+   "BOOKKEEPING": 1,
+   "DORMANT": 3,
+   "READ_NOEFFECT": 7
+  }
+ },
+ "by_kind": {
+  "manifest": 355,
+  "py": 953,
+  "shell": 159
+ },
+ "no_disposition": 0,
+ "total_rows": 1467
+}
+outputs: /data/data/com.termux/files/usr/tmp/wp21_closure_next/merged_candidate/census_check_out
+{"failures": 0, "register_entries": 1467, "scan_rows": 1467, "unknown_rows": 0, "warnings": 0}
+EXIT=0

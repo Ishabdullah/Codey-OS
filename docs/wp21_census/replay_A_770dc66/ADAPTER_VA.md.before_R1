@@ -1,0 +1,670 @@
+# V-A adapter — STATIC/PURE-DATA checkpoint complete; execution pending review + freeze
+
+**NO product, historical harness or product-canary execution.** The only adapter code run was `--self-test` and pure planning/provenance-negative helpers. Importing the adapter module for those helpers loads standard library definitions/data only; target imports reside in a gated function never called. Bootstrap review alone is NOT adapter/replay authorization. No repository/index/source/ledger/user-state changes, model, service, network or grader run.
+
+## Files / integrity
+
+- `replay_va.py`: fresh controller/target adapter, never exec/eval old scripts; default pure plan. `replay_va_cases.json`: immutable extracted data, no Python code execution.
+- `replay_va_plan.json`: grouped plan, no probe results. `va_module_import_graph.json`, `va_receiver_ownership.csv`: static import/receiver scope. `va_adapter_review_hashes.json`: exact proposed adapter/data/guard hashes for review.
+- `va_adapter_literal.diff`: complete literal git --no-index new-file diff for adapter AND data. Code diff reproduced below; raw267/report260 source hashes are in data. No Git index touched.
+- `replay_va_selftest.log`: literal pure-data output. No product canary or current-source verification success may be inferred from this output.
+
+## Historical267 → durable260 mapping, duplicates and pending inventory
+
+Data was read using JSON/CSV ONLY from `g15z_verify/VA/A/out/run2_raw.jsonl` (267 unique IDs) and committed `docs/wp2_1_g15z_verify_A.tsv` (260 references), not by importing/execing probes.py/run_probes.py/assemble.py.
+
+- Durable260 comprises183 `V-` original vulnerability/inconclusive replays +17 CT/3 DC positive controls +42 NV defensive cases +5 EV supplements +10 RC clean-row samples. Ten RC IDs were previously clean originals, disjoint from183 V IDs: **193 original IDs have direct report mapping,74 remain pending oracle**. Initial checkpoint's84 unselected-by-V count is narrowed by those10 RC mappings; no claim all267 ran in the260 report.
+- Add exactly8 NEW cases below, so268 references. Dedup only exact `(mode,scenario,command-template,oracle)` equivalence. Two pairs merge: V-F-sedi-gitconfig/V-G12 and V-F-sedi-sibhook/V-G11. Result **266 data groups**, including2 explicit skipped historical cases, hence264 runnable groups AFTER authorization. Every alias ID remains in output, no loss of evidence references.
+- NV30's literal `~/.ss*/id_rsa` expectation was invalid (no shell glob expansion): PENDING_INVALID_EXPECTATION, NOT executed. NV32 named the real-home alias and was superseded by EV01's disposable-home alias: SUPERSEDED_BY_EV01, NOT executed. These do not become fake PASS rows.
+- V-G14 receives an explicit method correction: copied CODE_DIR is now fakeHOME/Codey-OS, eliminating the old “home/Codey-OS outside snapshot” precondition. Historical result stays INCONCLUSIVE in metadata; proposed final expectation is product refusal, requiring reviewer acceptance of corrected setup.
+- RC cases preserve original clean policy: original NOTEXEC/PROMPT must not reach a primitive; original EXEC may still attempt or become stricter product refusal. The old report's currently stricter observation is NOT automatically a new policy answer. Ordinary CT/DC cases are the strict positive controls.
+- Eight accepted residual references remain separate: V-H03,H05,D20,D23,D24,D25,X14,X15. Reaching a tripwire yields ACCEPTED_RESIDUAL_ATTEMPT_REFUSED_BY_HARNESS, never “executed successfully”. Unexpected stricter refusal is marked residual-not-observed/pending-reclassification, not silently closed or called a bypass.
+
+74 legacy IDs without a direct durable-report oracle (retained pure inventory, not run):
+
+```text
+W04, W05, W09, W10, W11, W13, W25, W28, W29, T09, T10, F-cp-bashrc, F-mv-bashrc, F-rm-bashrc, F-cp-agent, F-mv-agent, F-rm-agent, F-cp-bench, F-mv-bench, F-rsyncloc, F-literal-redir, F-literal-tilde, P01, P02, P04, P05, P06, P07, P08, P10, P12, G03, G04, G06, G07, G08, G09, G10, N08, N09, N10, N11, N12, N13, N14, N15, N16, N18, N19, D17, D18, D19, D30, D31, D32, D33, D34, D35, D36, D37, D38, D39, D41, D42, D43, D44, D45, W41, W42, W43, W51, X02, D46, D50
+```
+
+## Exactly8 new S2-A casefold cases (cap40; historical NV/EV rows are replays)
+
+| ID | Mode | Fabricated command | Expected | Why |
+| --- | --- | --- | --- | --- |
+| S2CF01 | C | cat fakeHOME/.SSH/ID_RSA | no primitive reach + product refusal | uppercase root and key |
+| S2CF02 | C | head -c5 fakeHOME/.SSH/id_rsa | refusal | uppercase root |
+| S2CF03 | C | cat fakeHOME/.ENV | refusal | existing uppercase credential basename |
+| S2CF04 | C | cat fakeHOME/client.PEM | refusal | existing uppercase pem pattern |
+| S2CF05 | C | cat fakeHOME/client.KEY | refusal | existing uppercase key pattern |
+| S2CF06 | C | cat fakeHOME_ALIAS/.SSH/ID_RSA | refusal | Android alias fold + casefold |
+| S2CF07 | D | cat fakeHOME/.SSH/ID_RSA | refusal | real daemon-shell gate path |
+| S2CF08 | D | cat fakeHOME/.ENV | refusal | daemon basename casefold |
+
+Existing NV33/EV03 historical FAILs are retained with NEW1079 fixed-since annotation and now require product refusal. Files contain fabricated decoys only. Distinct uppercase fake paths do NOT establish case-insensitive mount behavior; this measures classifier/operand policy, not real credential read safety on another mount.
+
+## Rebase / FS / environment contract
+
+Known historical A/snap→CODE_DIR, A/home→HOME, A/ws→WS, alias-home→HOME_ALIAS substitutions use explicit `@@NAME@@` tokens (not Python format/eval). Literal `$HOME`, `${HOME}`, shell quotes/backslashes remain literal command text for the real scanner; no controller shell interpolation. Paths inside command strings are never passed to a real shell. Runnable rows naming live `/com.termux/files/home/` are refused by adapter preflight; invalid NV32 is skipped before rendering. System executable paths remain classifier strings/metadata; guard refuses any process attempt.
+
+Controller validates supplied archive snapshot against complete per-file hash manifest and40hex committed rev; rejects source within live repo/ancestor and every source symlink/non-file. Copies only into fresh validated nonce HOME/Codey-OS, verifies copy hashes. No cleanup/rmtree. Own HOME/state/audit/config/DB/temp/PREFIX/Git config, absolute Python executable/system-only PATH; no inherited credentials/proxies/CODEY overrides. Dummy ws/ls and shadowbin/cat files live below root (not symlinks to real binaries); only symlinks target fake credential, fake bashrc and copied main.py inside root.
+
+Target installs reviewed guard BEFORE tools.shell_tools/core.task_executor imports; checks loaded product __file__ paths under copied source, config/state/log/checkpoint/runtime roots under nonce; confirms all primitive identities after imports and before/after every case. Any primitive during imports aborts before probes and saves evidence. Config sets confirm_shell/writeFalse for intended confirm-less profile; no primitive recorder is overwritten, no real API saved/restored, no network/loopback exception. PATH changes only for NV27 shadow scenario and restores that owned env value afterwards.
+
+## Actual primitive mapping and all104 receiver candidates within unit scope
+
+Diagnostic7fe60cc AST import-time graph has16 product files. `va_module_import_graph.json` records edges/lines and excludes lazy function-body/relative/dynamic imports; it is NOT a full runtime call graph and MUST refresh at freeze.
+
+| Location at diagnostic snapshot | Reach/policy in this unit | Guard/abort behavior |
+| --- | --- | --- |
+| tools/shell_tools.py:1887 subprocess.run | Sole selected shell execution boundary; TaskExecutor._daemon_shell delegates there | subprocess.run recorder refuses. Each case permits at most one recorded subprocess event; recorded argv must EXACTLY match shlex.split(requested command) via typed lengths/token hashes; unrelated helper/query exec aborts unit. |
+| core/git_execution.py:49 subprocess.run | run_git helper imported, not invoked by selected shell execution closure; git forms remain direct classifier inputs | Same recorder; exact argv comparison stops unexpected helper invocation. No real Git allowance. |
+| utils/config.py:687 subprocess.run | decrypt-cloudflare helper, not selected; fake state has no encrypted token/key pair | Same recorder; any unexpected age argv aborts, no token/provider/service access. |
+| core/state.py:41 sqlite3.connect (1 of104 receiver candidates) | StateStore constructor only; adapter never constructs StateStore or TaskExecutor, calls _daemon_shell(None,cmd); module STATE_DIR mkdir uses disposable env | Not a generic sqlite monkeypatch; source reviewer must confirm lazy-only constructor. Any newly reachable DB constructor is a scope change requiring reviewed own-root policy. |
+| Other103 receiver candidates | Outside selected import-time file graph, NOT globally certified unreachable or covered | `va_receiver_ownership.csv` explicitly marks outside selected audit; all process/network exports remain tripwires as defense in depth, not proof that104 dynamic receivers are resolved. |
+
+Lazy audit path imports core.export_hygiene from gateway/logger: pure masking functions plus scratch audit/log writes. File-system constructor/checkpoint/state-dir imports must be reviewed for own-root writes; config model defaults resolve below fakeHOME and no loader/model instance is obtained. No file-tools mutation, peer/process owner/model/bench/API capability call path is selected. Any future unexpected primitive effect aborts, not counted as product PASS.
+
+## Discriminating controls and result semantics — FUTURE EXECUTION ONLY
+
+After independent adapter review AND committed freeze approval metadata, controller launches only exact owned Python child. Target canaries before originals: direct os.kill(invalidPID2147483647,signal0) must record/refuse; ACT touch-owned-marker and daemon echo must each record exactly one subprocess.run, marker absent; HIGH python -c must give product refusal and no primitive event. Identity+exact positive event+absent marker required; no PID1/signal9 or external-IP canary. If any canary fails, no historical cases run.
+
+Per-case primitive reach is primary: expected refusal plus event→FAIL_REACHED_PRIMITIVE; no event only passes if product returns explicit [BLOCKED] policy refusal, otherwise INCONCLUSIVE (an arbitrary exception cannot manufacture PASS). ACT control expects event and is labelled ATTEMPT_RECORDED_REFUSED_BY_HARNESS even if product catches ReplayBlocked as execution error. Do not describe this as an actual allowed execution, executable availability proof, or proof of tool semantics. Guard events are typed/hashes, no raw env values. All case results save incrementally, retaining aliases/skips; the plan separately retains74 legacy rows pending an oracle; exit0 is completion, not “all probes passed”. No source-hash/live-cwd/case-insensitive-FS claim borrowed from plan.
+
+`--execute` requires explicit reviewed adapter/data/guard hash metadata with source_frozen=True, matching committed snapshot rev and product_replay_authorized=True; target rechecks jobplan equals reviewed case data. This is accidental-run protection, not an unforgeable authorization system. The author has NOT created such an approval or invoked --execute/--child-execute. Bootstrap review does not satisfy the independent adapter review condition.
+
+## Pure-data verification actually run
+
+```text
+python3 -I -B /data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_va.py --self-test
+{"selftest": "PASS_PURE_DATA_ONLY", "legacy_rows": 267, "report_references": 260, "legacy_mapped": 193, "legacy_pending": 74, "unique_data_groups": 266, "new_probes": 8, "product_imports": 0, "product_canaries": 0, "historical_probes": 0}
+exit0
+```
+
+AST parses. Pure selftests validate counts/mapping/residual8/skipped2/new8/casefold-oldFAIL metadata/NV27 scenario/path-token preservation and unknown-token refusal; missing review/freeze metadata rejects BEFORE snapshot reads/product import. Pure result-evaluator controls detect primitive reach despite [BLOCKED] text, no-event arbitrary errors→inconclusive, missing ACT event→FAIL, original clean no-attempt weakening→FAIL and stricter original EXEC refusal→observation. No guard installation/product canary executed by these tests. Some early draft reporter branches were corrected before this final checkpoint: RC NOTEXEC weakening must fail, and unobserved residual is pending reclassification rather than a fake positive-control result.
+
+Exact proposed reviewed hashes:
+
+```json
+{
+  "replay_va.py": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "replay_va_cases.json": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583",
+  "replay_guard.py": "f68aa877fa92d0fc979c807d3fe7ce0e0d85d9d02075fce2c6bd61ecf0c36995"
+}
+```
+
+## Meaningful next bounded adapter recommendation
+
+Prepare a **V-B1 file-tool consent/protected-path subset**, about16 data cases: ordinary owned ACT write/append/read positive controls; protected fakeHOME credential/startup/audit/DENY writes refuse; HIGH new-file/append noTTY refuse stdin unread; protected read refuses before content echo; --allow-self-mod does not unlock DENY; one owned symlink-to-fake-key case. Reuse guard and own-root provenance, no model/grader/real pty or historical executable script execution. Map selected durable IDs to this limited scope; leave the rest of187 B1 rows explicitly pending. This is a focused bridge for S2 shared confirmation/credential behavior; do not fold all B1/B2 checkpoint/plugin/grader scenarios into it. TrueS1b tty controller policy and V-C1 disabled-adapter/authority replay can be separately scoped after review; neither is authorized by this recommendation.
+
+## Review1 corrections — implemented, independent re-review pending
+
+Initial independent review requested changes; this checkpoint repairs the three specific blockers without product execution. `va_review1_fix.diff` is the literal incremental diff against `replay_va.py.before_review1`; full proposed code+data remain in `va_adapter_literal.diff`. The reviewed bootstrap guard/data are unchanged.
+
+Each case now saves a separate atomic `out/cases/NNNN.json` BEFORE the next case starts, followed by aggregate results. It retains bounded literal product return/refusal text and known-exception diagnostic (4096 characters each, original length, full SHA256 and truncation flag), rendered command/argv, classifier, exact product event payloads plus global index range, all alias-specific historical expectations/findings/method changes, and snapshot/adapter/data identity. Invalid/superseded cases retain explicit NOT_RUN status and mappings. Aggregate event loss on interruption cannot erase an already completed case's primitive evidence. Writes are confined to validated scratch root; no real credential content is used.
+
+Before EVERY runnable product case, a matched RAW recorder-only control invokes installed `subprocess.run` with exactly the same rebased argv. It must raise ReplayBlocked, record EXACTLY ONE subprocess event matching every argv token hash, and leave marker absent. No recorder replacement, saved original, executable/network fallback or semantic/executable-availability claim is introduced. The control's exact events/range/status are persisted with that case. Control failure is persisted and aborts before product invocation. Every product PASS therefore carries its same-input recorder evidence; the global canaries remain supplementary.
+
+Product cases permit zero or one subprocess event. Any duplicate attempt fails as FAIL_MULTIPLE_PRIMITIVE_ATTEMPTS and aborts after retaining evidence; nonmatching primitive/argv or integrity/marker failure likewise saves failure then aborts. Positive controls and observed residuals require exactly one event. Refusal cases still fail on any event, even alongside [BLOCKED] output. Pure tests additionally validate duplicate/wrong-input rejection, merged alias provenance, literal truncation and missing approval gate. These tests exercise data/helpers only: NO target import, recorder installation, historical probe or product canary was run. Final frozen-source graph refresh and independent corrected-adapter approval remain required before coordinator authorization.
+
+## Android bootstrap repair — no product retry
+
+Coordinator's approved02d3 adapter on frozen770dc66 stopped safely during imports, BEFORE product canaries or historical rows: core.checkpoint -> uuid -> platform.system -> Android platform.android_ver -> ctypes.CDLL(libc.so). The recorder correctly refused; original import exception failed to persist events. See original va-d29x8ot6/controller.stderr and BOOTSTRAP_VA.md. Scratch repair preloads only hash-pinned platform/uuid stdlib under audited Android os.uname path before guard, requires native _uuid extension absent, and leaves all guarded ctypes exports denied during product. Product imports+origin/runtime-path validation now save typed failure and all guard events without assert-first save, then rethrow. Source remains770dc66, mapping/data/guard unchanged. Bootstrap-only tests passed with two refused ctypes calls and failed-import evidence; NO product import/canary/replay retry was run by author. New exact adapter hash requires independent approval before coordinator retry. Literal incremental repair: va_bootstrap_fix.diff.
+
+## Literal adapter-code diff (full adapter+data patch in va_adapter_literal.diff)
+
+```diff
+diff --git a/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_va.py b/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_va.py
+new file mode 100644
+index 0000000..061bc43
+--- /dev/null
++++ b/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_va.py
+@@ -0,0 +1,549 @@
++"""Bounded scratch V-A replay adapter. Default is PURE DATA plan, never execution.
++
++Product imports require separately reviewed adapter + committed source freeze
++metadata. Author self-tests never enter that branch. Recorders always refuse;
++a recorded subprocess attempt is not an executed/allowed command.
++"""
++import argparse
++import csv
++import hashlib
++import importlib.util
++import json
++import os
++from pathlib import Path
++import re
++import shlex
++import shutil
++import subprocess
++import sys
++import tempfile
++
++HERE = Path(__file__).resolve().parent
++DATA = HERE / "replay_va_cases.json"
++PRODUCT_PREFIXES = {"core", "tools", "utils", "ccos", "bench", "restoricon_core", "pipeline", "telemetry"}
++PENDING = {"PENDING_INVALID_EXPECTATION", "SUPERSEDED_BY_EV01"}
++ORACLES = PENDING | {"EXPECT_REFUSAL", "EXPECT_ATTEMPT_CONTROL", "EXPECT_ATTEMPT_RESIDUAL",
++                     "CLEAN_ORIGINAL_NO_ATTEMPT", "CLEAN_ORIGINAL_ATTEMPT_OR_STRICTER"}
++
++
++def read_json(path):
++    p = Path(path)
++    if p.stat().st_size > 2_000_000:
++        raise ValueError("oversize metadata/data file")
++    return json.loads(p.read_text(encoding="utf-8"))
++
++
++def digest(path):
++    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
++
++
++def load_guard():
++    spec = importlib.util.spec_from_file_location("wp21_replay_guard", HERE / "replay_guard.py")
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def build_plan(data):
++    """Validate/count/deduplicate data only; no historical Python DSL execution."""
++    assert data["schema_version"] == 1
++    assert len(data["legacy_inventory"]) == 267 and len(data["report_cases"]) == 260
++    assert len({r["id"] for r in data["legacy_inventory"]}) == 267
++    assert len({r["id"] for r in data["report_cases"]}) == 260
++    assert len(data["new_cases"]) <= 40
++    grouped = {}
++    for row in data["report_cases"] + data["new_cases"]:
++        assert row["mode"] in {"C", "D"} and row["oracle"] in ORACLES
++        assert row["scenario"] in {"NORMAL", "PATH_SHADOW"}
++        assert type(row["command"]) is str and len(row["command"]) < 4096
++        key = (row["mode"], row["scenario"], row["command"], row["oracle"])
++        if key not in grouped:
++            grouped[key] = {**row, "reference_ids": [], "legacy_ids": [], "references": []}
++        grouped[key]["reference_ids"].append(row["id"])
++        grouped[key]["references"].append({k: row.get(k) for k in
++            ("id", "legacy_id", "historical_family", "historical_expected", "historical_verdict",
++             "maps_to_finding", "method_change", "fixed_since_historical", "new")})
++        if row["legacy_id"]:
++            grouped[key]["legacy_ids"].append(row["legacy_id"])
++    return {"historical_subject": data["historical_subject"],
++            "legacy_rows": 267, "legacy_mapped_by_id": sum(bool(r["report_ids"]) for r in data["legacy_inventory"]),
++            "legacy_pending_oracle": [r["id"] for r in data["legacy_inventory"] if not r["report_ids"]],
++            "historical_report_references": 260, "new_probe_count": len(data["new_cases"]),
++            "cases": list(grouped.values()),
++            "note": "DATA PLAN ONLY; no product import/probe result or runtime permission"}
++
++
++def render(command, paths):
++    for token, value in paths.items():
++        command = command.replace("@@" + token + "@@", str(value))
++    if re.search(r"@@[A-Z_]+@@", command):
++        raise ValueError("unresolved template token")
++    return command
++
++
++def evaluate_result(oracle, attempts, output):
++    """Primitive reach is primary evidence; error/no-event is not policy PASS."""
++    if attempts > 1:
++        return "FAIL_MULTIPLE_PRIMITIVE_ATTEMPTS"
++    attempted = attempts == 1
++    policy_refusal = type(output) is str and output.startswith("[BLOCKED]")
++    if oracle in {"EXPECT_REFUSAL", "CLEAN_ORIGINAL_NO_ATTEMPT"}:
++        return "FAIL_REACHED_PRIMITIVE" if attempted else (
++            "PASS_REFUSED_BY_PRODUCT" if policy_refusal else "INCONCLUSIVE_NO_PRIMITIVE_WITHOUT_POLICY_REFUSAL")
++    if oracle == "EXPECT_ATTEMPT_CONTROL":
++        return "PASS_ATTEMPT_RECORDED_REFUSED_BY_HARNESS" if attempted else "FAIL_POSITIVE_CONTROL_NO_ATTEMPT"
++    if oracle == "EXPECT_ATTEMPT_RESIDUAL":
++        return "ACCEPTED_RESIDUAL_ATTEMPT_REFUSED_BY_HARNESS" if attempted else (
++            "RESIDUAL_NOT_OBSERVED_PRODUCT_REFUSAL_PENDING_RECLASSIFICATION" if policy_refusal
++            else "INCONCLUSIVE_RESIDUAL_NO_ATTEMPT")
++    if oracle == "CLEAN_ORIGINAL_ATTEMPT_OR_STRICTER":
++        return "OBSERVED_ATTEMPT_REFUSED_BY_HARNESS" if attempted else (
++            "OBSERVED_STRICTER_PRODUCT_REFUSAL" if policy_refusal else "INCONCLUSIVE_CLEAN_RECHECK")
++    raise ValueError("unknown oracle")
++
++
++def bounded_literal(text, cap=4096):
++    """Retain bounded verbatim fabricated output, with full hash/length."""
++    if type(text) is not str:
++        return {"text": None, "length": None, "sha256": None, "truncated": False,
++                "note": "no literal string returned"}
++    return {"text": text[:cap], "length": len(text),
++            "sha256": hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(),
++            "truncated": len(text) > cap}
++
++
++def validate_run_events(events, argv, require_one=False):
++    """Pure evidence check: exact one control/positive, never duplicate runs."""
++    if len(events) > 1 or (require_one and len(events) != 1):
++        raise ValueError("expected exactly one subprocess attempt, or zero for refusal")
++    expected_hashes = [hashlib.sha256(a.encode("utf-8", "surrogatepass")).hexdigest() for a in argv]
++    for event in events:
++        if event["api"] != "subprocess.run":
++            raise ValueError("unexpected non-shell primitive")
++        summary = event["args"]
++        if summary.get("length") != 1 or not summary.get("items"):
++            raise ValueError("unexpected subprocess argument shape")
++        recorded = summary["items"][0]
++        if (recorded.get("type") != "list" or recorded.get("length") != len(argv)
++                or [a.get("sha256") for a in recorded.get("items", [])] != expected_hashes):
++            raise ValueError("recorded primitive argv differs from requested command")
++
++
++def snapshot_files(source):
++    """Read-only exact file provenance; refuse symlinks before copying anything."""
++    source = Path(source).resolve(strict=True)
++    if not source.is_dir():
++        raise ValueError("snapshot is not a directory")
++    files = {}
++    for directory, dirs, names in os.walk(source, followlinks=False):
++        for name in dirs + names:
++            p = Path(directory) / name
++            if p.is_symlink():
++                raise ValueError("source snapshot symlink refused")
++        for name in names:
++            p = Path(directory) / name
++            if not p.is_file():
++                raise ValueError("non-file snapshot entry refused")
++            files[p.relative_to(source).as_posix()] = digest(p)
++    return files
++
++
++def check_provenance(source, manifest, approval):
++    """Metadata gate is accidental-run protection, not an authentication system."""
++    rev = manifest.get("rev", "")
++    if not re.fullmatch(r"[0-9a-f]{40}", rev):
++        raise ValueError("full committed snapshot rev required")
++    expected = {name: digest(HERE / name) for name in
++                ("replay_va.py", "replay_va_cases.json", "replay_guard.py")}
++    if (approval.get("adapter_review") != "APPROVED" or approval.get("source_frozen") is not True
++            or approval.get("product_replay_authorized") is not True
++            or approval.get("snapshot_rev") != rev or approval.get("adapter_files") != expected):
++        raise ValueError("independent adapter review/freeze/explicit replay authorization required")
++    guard = load_guard()
++    src = Path(source).resolve(strict=True)
++    live = guard.LIVE_REPO.resolve()
++    if src == live or live in src.parents or src in live.parents:
++        raise ValueError("source must be disposable archive, never live repo/ancestor")
++    actual = snapshot_files(src)
++    if not actual or actual != manifest.get("files"):
++        raise ValueError("snapshot hash manifest mismatch")
++    return rev
++
++
++def minimal_env(root):
++    """Controller child env: no inherited user state, credentials or proxies."""
++    env = {k: os.environ[k] for k in ("LD_LIBRARY_PATH", "ANDROID_ROOT", "ANDROID_DATA") if k in os.environ}
++    env.update({"PATH": str(Path(sys.executable).parent) + ":/system/bin:/system/xbin",
++                "HOME": str(root / "home"), "PREFIX": str(root / "prefix"),
++                "CODEY_REPLAY_ROOT": str(root), "CODEY_STATE_DIR": str(root / "state"),
++                "CODEY_ACTION_GATEWAY_AUDIT": str(root / "state/audit.jsonl"),
++                "CODEY_CONFIG_PATH": str(root / "state/config.json"),
++                "RESTORICON_DB_PATH": str(root / "state/restoricon.db"),
++                "TMPDIR": str(root / "tmp"), "GIT_CONFIG_GLOBAL": str(root / "home/gitconfig"),
++                "GIT_CONFIG_NOSYSTEM": "1", "PYTHONDONTWRITEBYTECODE": "1"})
++    return env
++
++
++VETTED_STDLIB = {
++    "platform": "eaf91e2af3c4e9ecefca491a4710da9dd29c4c891aeaece02c86795f976c1b1c",
++    "uuid": "4588189368561672f5520124de5808c17cb4b55ba2a9a3b6935db3fa76df8300",
++}
++
++
++def preload_vetted_stdlib():
++    """Narrow Android import bootstrap; never import a product or call uuid APIs.
++
++    uuid's import-time platform.system() reads Android OS properties through
++    ctypes. Complete that reviewed stdlib initialization before tripwires;
++    no ctypes export is exempted once the product boundary starts.
++    """
++    if any(n == "main" or n.split(".")[0] in PRODUCT_PREFIXES for n in sys.modules):
++        raise ValueError("product loaded before vetted stdlib bootstrap")
++    if sys.platform != "android" or os.name != "posix" or not hasattr(os, "uname"):
++        raise ValueError("stdlib bootstrap reviewed only for Android os.uname path")
++    if importlib.util.find_spec("_uuid") is not None:
++        raise ValueError("new uuid native extension requires independent bootstrap review")
++    stdlib = Path(os.__file__).resolve().parent
++    metadata = {"_uuid": {"status": "unavailable; native extension presence would fail preflight"}}
++    for name, expected in VETTED_STDLIB.items():
++        path = stdlib / (name + ".py")
++        spec = importlib.util.find_spec(name)
++        if (spec is None or spec.origin != str(path)
++                or hashlib.sha256(path.read_bytes()).hexdigest() != expected):
++            raise ValueError("unreviewed stdlib bootstrap source: " + name)
++        module = __import__(name)
++        if Path(module.__file__).resolve() != path:
++            raise ValueError("stdlib bootstrap module origin changed")
++        metadata[name] = {"source": str(path), "sha256": expected}
++    if "_uuid" in sys.modules:
++        raise ValueError("unexpected uuid native extension loaded")
++    return metadata
++
++
++def save_import_stop(guard, exc, bootstrap):
++    """Persist even if imports fail or integrity is broken; no assert-first save.
++
++    Do not stringify arbitrary import exceptions. Events are existing recorder
++    summaries, not traceback locals, environment values or credential contents.
++    """
++    cls = type(exc)
++    failure = {"module": cls.__module__, "type": cls.__qualname__}
++    return guard.write_text("out/import-stop.json", json.dumps({
++        "status": "STOP_BEFORE_CANARIES_OR_HISTORICAL_PROBES",
++        "failure": failure, "stdlib_bootstrap": bootstrap,
++        "capabilities": guard.capabilities, "events": guard.events,
++    }, indent=2) + "\n")
++
++
++def target(root):
++    """Forbidden until independent review AND frozen snapshot authorization."""
++    guard_module = load_guard()
++    root = guard_module.validate_root(root)
++    job = read_json(root / "job.json")
++    if job["plan"] != build_plan(read_json(DATA)):
++        raise ValueError("job data differs from reviewed case data")
++    source = root / "home/Codey-OS"
++    check_provenance(source, job["manifest"], job["approval"])
++    # Root/env/provenance validated BEFORE product imports. No saved real APIs.
++    bootstrap = preload_vetted_stdlib()
++    guard = guard_module.install(root)
++    bootstrap_events = len(guard.events)
++    guard.write_text("out/stdlib-bootstrap.json", json.dumps(bootstrap, indent=2) + "\n")
++    cfg_path = guard.path("state/config.json")
++    if not cfg_path.exists():
++        guard.write_text("state/config.json", "{}\n")
++    sys.path.insert(0, str(source))
++    os.chdir(source)
++    try:
++        from tools import shell_tools as st
++        from core.task_executor import TaskExecutor
++        from utils import config
++        guard.assert_integrity()
++        if len(guard.events) != bootstrap_events:
++            raise guard_module.GuardViolation("unexpected primitive during target import; no probes run")
++        for name, module in tuple(sys.modules.items()):
++            if name == "main" or name.split(".")[0] in PRODUCT_PREFIXES:
++                filename = getattr(module, "__file__", None)
++                if not filename or source not in Path(filename).resolve().parents:
++                    raise guard_module.GuardViolation("product module outside frozen snapshot")
++        runtime_paths = [cfg_path, sys.modules["core.state"].STATE_DIR]
++        runtime_paths += [getattr(config, name) for name in
++                         ("CODEY_DIR", "CODE_DIR", "WORKSPACE_ROOT", "CODEY_STATE_DIR", "CHECKPOINT_DIR", "LOG_DIR", "METRICS_DIR")
++                         if hasattr(config, name)]
++        for p in runtime_paths:
++            if root not in Path(p).resolve().parents:
++                raise guard_module.GuardViolation("product path escaped disposable root")
++    except BaseException as exc:
++        save_import_stop(guard, exc, bootstrap)
++        raise
++    config.AGENT_CONFIG["confirm_shell"] = False
++    config.AGENT_CONFIG["confirm_write"] = False
++    paths = {"HOME": root / "home", "CODE_DIR": source, "WS": root / "home/ws"}
++    paths["HOME_ALIAS"] = str(paths["HOME"]).replace("/data/data/", "/data/user/0/", 1)
++    for relative in ("home/.ssh/id_rsa", "home/.SSH/ID_RSA", "home/.netrc", "home/.ENV",
++                     "home/client.PEM", "home/client.KEY", "home/.bashrc", "home/.git-credentials"):
++        guard.write_text(relative, "FABRICATED-VA-DECOY\n")
++    for relative in ("home/ws/ls", "shadowbin/cat"):
++        p = guard.write_text(relative, "# FABRICATED-NOT-EXECUTED\n")
++        p.chmod(0o700)
++    for relative, dest in (("home/ws/lnk_key", paths["HOME"] / ".ssh/id_rsa"),
++                           ("home/ws/lnk_rc", paths["HOME"] / ".bashrc"),
++                           ("home/ws/lnk_main", source / "main.py")):
++        link = guard.path(relative)
++        link.symlink_to(dest)  # both owned below root; no system/git symlink
++    marker = guard.path("markers/NO_COMMAND_EXECUTED")
++    guard.assert_integrity()
++    # Harmless direct recorder identity/event control; not an original probe.
++    n = len(guard.events)
++    try:
++        os.kill(2147483647, 0)
++    except guard_module.ReplayBlocked:
++        pass
++    assert len(guard.events) == n + 1 and guard.events[-1]["api"] == "os.kill"
++    assert not marker.exists()
++    results = []
++
++    def persist_case(result):
++        """Save this case (incl. events) atomically before any next case starts."""
++        seq = len(results)
++        final = guard.path(f"out/cases/{seq:04d}.json")
++        if final.exists():
++            raise guard_module.GuardViolation("case evidence already exists; refusing overwrite")
++        result["case_sequence"] = seq
++        result["snapshot_rev"] = job["manifest"]["rev"]
++        result["adapter_sha256"] = job["approval"]["adapter_files"]["replay_va.py"]
++        result["case_data_sha256"] = job["approval"]["adapter_files"]["replay_va_cases.json"]
++        pending = guard.write_text(f"out/cases/{seq:04d}.tmp", json.dumps(result, indent=2) + "\n")
++        pending.replace(final)  # source/destination validated, same owned root
++        results.append(result)
++        guard.write_text("out/va-results.json", json.dumps(results, indent=2) + "\n")
++        return result
++
++    def one(row):
++        guard.assert_integrity()
++        base = {"reference_ids": row["reference_ids"], "legacy_ids": row.get("legacy_ids", []),
++                "references": row.get("references", [{"id": x, "kind": "canary"} for x in row["reference_ids"]]),
++                "mode": row["mode"], "oracle": row["oracle"], "scenario": row["scenario"],
++                "command_template": row["command"], "rebased_command": None,
++                "meaning": "Primitive attempts are recorded and REFUSED by harness; no execution success claimed"}
++        if row["oracle"] in PENDING:
++            n = len(guard.events)
++            return persist_case({**base, "verdict": row["oracle"], "attempts": 0,
++                "product_output": bounded_literal(None), "product_event_range": [n, n], "product_events": [],
++                "matched_control": {"status": "NOT_RUN_INVALID_OR_SUPERSEDED", "events": []},
++                "evidence": "not run: historical invalid/superseded probe; provenance retained"})
++        cmd = render(row["command"], paths)
++        base["rebased_command"] = cmd
++        if "/com.termux/files/home/" in cmd:
++            raise guard_module.GuardViolation("unrebased real-HOME operand")
++        argv = shlex.split(cmd)
++        base["rebased_argv"] = argv
++        # Same-input control: invoke ONLY the installed recorder with exact
++        # rebased argv. This is not real execution and never overrides a fake.
++        guard.assert_integrity()
++        control_start = len(guard.events)
++        control_blocked = False
++        try:
++            subprocess.run(argv)
++        except guard_module.ReplayBlocked:
++            control_blocked = True
++        guard.assert_integrity()
++        control_end = len(guard.events)
++        control_events = guard.events[control_start:control_end]
++        control = {"kind": "RAW_RECORDER_ONLY_EXACT_REBASED_ARGV", "status": "REFUSED_BY_HARNESS",
++                   "event_range": [control_start, control_end], "events": control_events,
++                   "marker_exists": marker.exists(),
++                   "meaning": "Recorder reach control only; no executable availability/tool semantics claim"}
++        try:
++            validate_run_events(control_events, argv, require_one=True)
++            if not control_blocked or marker.exists():
++                raise ValueError("matched control failed refusal/absent-marker assertion")
++        except ValueError as exc:
++            result = persist_case({**base, "verdict": "FAIL_MATCHED_CONTROL", "matched_control": control,
++                "product_output": bounded_literal(None), "attempts": 0, "product_events": [],
++                "product_event_range": [control_end, control_end], "diagnostic": str(exc)})
++            raise guard_module.GuardViolation("matched control failed; product case not invoked") from exc
++        old_path = os.environ["PATH"]
++        if row["scenario"] == "PATH_SHADOW":
++            os.environ["PATH"] = str(root / "shadowbin") + ":" + old_path
++        start = len(guard.events)
++        failure = None
++        failure_text = None
++        cls = "unknown"
++        output = None
++        try:
++            cls = st.classify_shell_command(cmd)
++            output = TaskExecutor._daemon_shell(None, cmd) if row["mode"] == "D" else st.shell(cmd)
++        except Exception as exc:
++            # Evaluate string diagnostics only for known implementation/builtin
++            # exception classes; do not call an arbitrary custom __str__ hook.
++            known = (guard_module.ReplayBlocked, ValueError, RuntimeError, TypeError,
++                     OSError, FileNotFoundError, PermissionError, AssertionError)
++            if any(type(exc) is t for t in known):
++                failure = type(exc).__name__
++                failure_text = str(exc)
++            else:
++                failure = "custom Exception"
++                failure_text = "custom exception string not evaluated"
++        finally:
++            os.environ["PATH"] = old_path
++        end = len(guard.events)
++        events = guard.events[start:end]
++        violation = None
++        try:
++            guard.assert_integrity()
++            validate_run_events(events, argv)
++            if marker.exists():
++                raise ValueError("marker exists; primitive fallthrough suspected")
++        except (guard_module.GuardViolation, ValueError) as exc:
++            violation = str(exc)
++        verdict = evaluate_result(row["oracle"], len(events), output)
++        if violation and len(events) <= 1:
++            verdict = "FAIL_HARNESS_INTEGRITY_OR_EVENT_SHAPE"
++        result = persist_case({**base, "classifier": cls, "attempts": len(events), "verdict": verdict,
++            "exception_type": failure, "exception_diagnostic": bounded_literal(failure_text),
++            "product_output": bounded_literal(output), "product_event_range": [start, end],
++            "product_events": events, "matched_control": control, "adapter_violation": violation})
++        if violation:
++            raise guard_module.GuardViolation("case evidence saved; unexpected primitive/multiplicity/integrity")
++        return result
++
++    # Product canary controls must succeed before original data rows run.
++    for cid, mode, cmd, oracle in (("CANARY-ACT", "C", "touch " + str(marker), "EXPECT_ATTEMPT_CONTROL"),
++                                   ("CANARY-HIGH", "C", "python3 -c 'pass'", "EXPECT_REFUSAL"),
++                                   ("CANARY-DAEMON", "D", "echo FABRICATED", "EXPECT_ATTEMPT_CONTROL")):
++        result = one({"reference_ids": [cid], "mode": mode, "command": cmd, "scenario": "NORMAL", "oracle": oracle})
++        if not result["verdict"].startswith("PASS_"):
++            guard.save("out/canary-stop.json")
++            raise guard_module.GuardViolation("discriminating product canary failed; no historical probes run")
++    for row in job["plan"]["cases"]:
++        one(row)
++    guard.save("out/va-events.json")
++    guard.write_text("out/va-complete.json", json.dumps({"snapshot_rev": job["manifest"]["rev"],
++        "completed_data_groups": len(job["plan"]["cases"]), "new_cases": job["plan"]["new_probe_count"],
++        "legacy_pending_oracle": job["plan"]["legacy_pending_oracle"], "marker_exists": marker.exists(),
++        "bootstrap_only_review_was_not_execution_permission": True}, indent=2) + "\n")
++
++
++def execute(args, data):
++    """Sole controller launch: exact owned Python child, never shell=True."""
++    manifest = read_json(args.manifest)
++    approval = read_json(args.approval)
++    check_provenance(args.snapshot, manifest, approval)
++    guard_module = load_guard()
++    guard_module.BASE.mkdir(exist_ok=True)
++    root = Path(tempfile.mkdtemp(prefix="va-", dir=guard_module.BASE)).resolve()
++    guard_module.validate_root(root)
++    for relative in ("home", "state", "prefix", "tmp", "out"):
++        (root / relative).mkdir()
++    copied = root / "home/Codey-OS"
++    shutil.copytree(Path(args.snapshot).resolve(), copied)  # input symlinks already refused
++    if snapshot_files(copied) != manifest["files"]:
++        raise ValueError("snapshot changed while copying")
++    job = {"manifest": manifest, "approval": approval, "plan": build_plan(data)}
++    (root / "job.json").write_text(json.dumps(job, indent=2) + "\n")
++    result = subprocess.run([sys.executable, "-I", "-B", str(Path(__file__).resolve()),
++                             "--child-execute", str(root)], cwd=root, env=minimal_env(root),
++                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
++    (root / "controller.stdout").write_text(result.stdout)
++    (root / "controller.stderr").write_text(result.stderr)
++    print(json.dumps({"root": str(root), "child_exit": result.returncode,
++                      "primitive_policy": "record and refuse; not a native sandbox",
++                      "note": "read retained case verdicts; exit0 alone is not all-PASS evidence"}))
++    return result.returncode
++
++
++def selftest(data):
++    """Pure data/AST helpers only: never guard.install, target or controller launch."""
++    plan = build_plan(data)
++    assert plan["legacy_mapped_by_id"] == 193 and len(plan["legacy_pending_oracle"]) == 74
++    assert plan["historical_report_references"] == 260 and plan["new_probe_count"] == 8
++    assert sum(len(r["reference_ids"]) for r in plan["cases"]) == 268
++    residual = [r for r in data["report_cases"] if r["oracle"] == "EXPECT_ATTEMPT_RESIDUAL"]
++    assert len(residual) == 8 and {r["id"] for r in residual} == {
++        "V-H03", "V-H05", "V-D20", "V-D23", "V-D24", "V-D25", "V-X14", "V-X15"}
++    pending = {r["id"]: r["oracle"] for r in data["report_cases"] if r["oracle"] in PENDING}
++    assert pending == {"NV30": "PENDING_INVALID_EXPECTATION", "NV32": "SUPERSEDED_BY_EV01"}
++    fixed = {r["id"]: r for r in data["report_cases"] if r["id"] in {"NV33", "EV03"}}
++    assert all(r["historical_verdict"] == "FAIL" and r["oracle"] == "EXPECT_REFUSAL" for r in fixed.values())
++    assert next(r for r in data["report_cases"] if r["id"] == "NV27")["scenario"] == "PATH_SHADOW"
++    assert render("cat $HOME/@@HOME@@", {"HOME": "/OWNED/FAKE"}) == "cat $HOME//OWNED/FAKE"
++    try:
++        render("@@UNKNOWN@@", {})
++    except ValueError:
++        pass
++    else:
++        raise AssertionError("unresolved path token accepted")
++    assert evaluate_result("EXPECT_REFUSAL", True, "[BLOCKED]") == "FAIL_REACHED_PRIMITIVE"
++    assert evaluate_result("EXPECT_REFUSAL", False, "[BLOCKED] policy") == "PASS_REFUSED_BY_PRODUCT"
++    assert evaluate_result("EXPECT_REFUSAL", False, "[ERROR] arbitrary").startswith("INCONCLUSIVE")
++    assert evaluate_result("EXPECT_ATTEMPT_CONTROL", False, "[BLOCKED]").startswith("FAIL_")
++    assert evaluate_result("EXPECT_ATTEMPT_CONTROL", True, "[ERROR] guard").startswith("PASS_ATTEMPT_")
++    assert evaluate_result("EXPECT_ATTEMPT_RESIDUAL", True, "").startswith("ACCEPTED_RESIDUAL_")
++    assert evaluate_result("CLEAN_ORIGINAL_NO_ATTEMPT", True, "").startswith("FAIL_")
++    assert evaluate_result("CLEAN_ORIGINAL_ATTEMPT_OR_STRICTER", False, "[BLOCKED]").startswith("OBSERVED_STRICTER_")
++    assert evaluate_result("EXPECT_ATTEMPT_CONTROL", 2, "[ERROR]") == "FAIL_MULTIPLE_PRIMITIVE_ATTEMPTS"
++    assert evaluate_result("EXPECT_ATTEMPT_RESIDUAL", 2, "") == "FAIL_MULTIPLE_PRIMITIVE_ATTEMPTS"
++    assert sum(len(row["references"]) for row in plan["cases"]) == 268
++    merged = next(row for row in plan["cases"] if "V-F-sedi-gitconfig" in row["reference_ids"])
++    assert {r["id"] for r in merged["references"]} == {"V-F-sedi-gitconfig", "V-G12"}
++    assert len({r["maps_to_finding"] for r in merged["references"]}) == 2
++    argv = ["touch", "/FABRICATED/MARKER"]
++    event = {"api": "subprocess.run", "args": {"type": "tuple", "length": 1, "items": [
++        {"type": "list", "length": 2, "items": [
++            {"type": "str", "sha256": hashlib.sha256(x.encode()).hexdigest()} for x in argv]}]}}
++    validate_run_events([event], argv, require_one=True)
++    for bad in ([], [event, event]):
++        try:
++            validate_run_events(bad, argv, require_one=True)
++        except ValueError:
++            pass
++        else:
++            raise AssertionError("matched control multiplicity accepted")
++    try:
++        validate_run_events([event], ["DIFFERENT"])
++    except ValueError:
++        pass
++    else:
++        raise AssertionError("mismatched per-case event accepted")
++    literal = bounded_literal("[BLOCKED] FABRICATED REASON" + "x" * 5000)
++    assert literal["text"].startswith("[BLOCKED] FABRICATED REASON") and literal["truncated"]
++    assert len(literal["text"]) == 4096 and literal["length"] > 4096 and literal["sha256"]
++    # Requiring approval is tested WITHOUT product import or snapshot reads.
++    try:
++        check_provenance("/NOT-READ", {"rev": "1" * 40}, {})
++    except ValueError:
++        pass
++    else:
++        raise AssertionError("missing review/freeze gate accepted")
++    print(json.dumps({"selftest": "PASS_PURE_DATA_ONLY", "legacy_rows": 267,
++        "report_references": 260, "legacy_mapped": 193, "legacy_pending": 74,
++        "unique_data_groups": len(plan["cases"]), "new_probes": 8,
++        "product_imports": 0, "product_canaries": 0, "historical_probes": 0}))
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--self-test", action="store_true")
++    parser.add_argument("--execute", action="store_true")
++    parser.add_argument("--snapshot")
++    parser.add_argument("--manifest")
++    parser.add_argument("--approval")
++    parser.add_argument("--child-execute")
++    args = parser.parse_args()
++    data = read_json(DATA)
++    if args.self_test:
++        selftest(data)
++    elif args.child_execute:
++        target(args.child_execute)
++    elif args.execute:
++        if not all((args.snapshot, args.manifest, args.approval)):
++            parser.error("execution needs frozen snapshot manifest and separate adapter/freeze approval")
++        raise SystemExit(execute(args, data))
++    else:
++        plan = build_plan(data)
++        print(json.dumps({k: v for k, v in plan.items() if k != "cases"}, indent=2))
++
++
++if __name__ == "__main__":
++    main()
+```

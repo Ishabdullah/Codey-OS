@@ -1,0 +1,118 @@
+{
+  "reference_ids": [
+    "V-F-tar-home"
+  ],
+  "legacy_ids": [
+    "F-tar-home"
+  ],
+  "references": [
+    {
+      "id": "V-F-tar-home",
+      "legacy_id": "F-tar-home",
+      "historical_family": "protected-write",
+      "historical_expected": "refused/HIGH_IMPACT or prompt-declined (not executed)",
+      "historical_verdict": "PASS",
+      "maps_to_finding": "G15b-07 / G15c e167e0c (not in ALLOWED => HIGH)",
+      "method_change": null,
+      "fixed_since_historical": null,
+      "new": false
+    }
+  ],
+  "mode": "C",
+  "oracle": "EXPECT_REFUSAL",
+  "scenario": "NORMAL",
+  "command_template": "tar xf @@CODE_DIR@@/evil.tar -C @@HOME@@",
+  "rebased_command": "tar xf /data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/home/Codey-OS/evil.tar -C /data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/home",
+  "meaning": "Primitive attempts are recorded and REFUSED by harness; no execution success claimed",
+  "rebased_argv": [
+    "tar",
+    "xf",
+    "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/home/Codey-OS/evil.tar",
+    "-C",
+    "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/va-ybv196pf/home"
+  ],
+  "classifier": "HIGH_IMPACT",
+  "attempts": 0,
+  "verdict": "PASS_REFUSED_BY_PRODUCT",
+  "exception_type": null,
+  "exception_diagnostic": {
+    "text": null,
+    "length": null,
+    "sha256": null,
+    "truncated": false,
+    "note": "no literal string returned"
+  },
+  "product_output": {
+    "text": "[BLOCKED] HIGH_IMPACT command with no confirmation path available; failing closed per policy (not attempted).",
+    "length": 109,
+    "sha256": "fcc963d52867f271807fed49532be05f44e0462c664aaf9d551ffff2ad7ac00e",
+    "truncated": false
+  },
+  "product_event_range": [
+    114,
+    114
+  ],
+  "product_events": [],
+  "matched_control": {
+    "kind": "RAW_RECORDER_ONLY_EXACT_REBASED_ARGV",
+    "status": "REFUSED_BY_HARNESS",
+    "event_range": [
+      113,
+      114
+    ],
+    "events": [
+      {
+        "api": "subprocess.run",
+        "args": {
+          "type": "tuple",
+          "length": 1,
+          "items": [
+            {
+              "type": "list",
+              "length": 5,
+              "items": [
+                {
+                  "type": "str",
+                  "length": 3,
+                  "sha256": "90aebae315675cbf04612de4f7d5874850f48e0b8dd82becbeaa47ca93f5ebfb"
+                },
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "450a76b3d2fdb24bca7cec592a748a5cf4ab4bac28f4c43a28d40c8435ef4e83"
+                },
+                {
+                  "type": "str",
+                  "length": 106,
+                  "sha256": "54a75d85824f9e8e4a83d476146fad82ab5d3cf21e78853ead88a378324f00a6"
+                },
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "de75ad58228bf5f0ffb99b04dced17644f4cfda7acb7b64e3ade4f52ca496e73"
+                },
+                {
+                  "type": "str",
+                  "length": 88,
+                  "sha256": "2aa2dff5b431958a5e1d2e4efc79779bd35228cedf8e7c4b93a5f24fea987221"
+                }
+              ]
+            }
+          ]
+        },
+        "kwargs": {
+          "type": "dict",
+          "length": 0,
+          "items": []
+        }
+      }
+    ],
+    "marker_exists": false,
+    "meaning": "Recorder reach control only; no executable availability/tool semantics claim"
+  },
+  "adapter_violation": null,
+  "case_sequence": 109,
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "adapter_sha256": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "case_data_sha256": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583"
+}

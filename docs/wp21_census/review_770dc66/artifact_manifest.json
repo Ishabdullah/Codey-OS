@@ -1,0 +1,271 @@
+{
+  "source_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "publication_status": "UNCOMMITTED review candidate",
+  "files": {
+    "C1_REPORT.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C1_REPORT.md",
+      "sha256": "3824d5cf20ee22a897097cab3a7c82cdb93495ffcb0dbdc023bfbbdfff1c0257",
+      "bytes": 660450
+    },
+    "C1_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C1_dispositions.tsv",
+      "sha256": "31ca24ddd799a9e923f0ddfe968e1c1dbab47a43dc598c4ecc7ab20be9aa13e8",
+      "bytes": 686990
+    },
+    "C1_reviewed_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C1_reviewed_dispositions.tsv",
+      "sha256": "82d69cffc9b2ab99ba584e3e26ab7d2321b7cceaded0f5c55a3cbcfa8ea76ecb",
+      "bytes": 694800
+    },
+    "C1_hashes.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C1_hashes.json",
+      "sha256": "77c183dfe099c1fa3d1b83c0e47fa96eb461517e0f24280c3b45800aea165366",
+      "bytes": 10561
+    },
+    "C1_validation.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C1_validation.json",
+      "sha256": "629bb152db56d0a784eee8fc1172723a036fa0e29f6c0a356a388fb1e31721b5",
+      "bytes": 514
+    },
+    "REVIEW_C1.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/REVIEW_C1.md",
+      "sha256": "644d9549c70f537b54578537a0ade4918e8a20f12ec62c8e4ea233b792e88399",
+      "bytes": 8580
+    },
+    "C1_REVIEW_DISAGREEMENTS.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C1_REVIEW_DISAGREEMENTS.json",
+      "sha256": "31b68ac2f32c82f2be7d4e333f6c66f6c223950704f1830c407176f39dda8614",
+      "bytes": 384
+    },
+    "C1_REVIEW_SAMPLE.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C1_REVIEW_SAMPLE.json",
+      "sha256": "01106513ba0a45b5484226f9779e6441902b281ba906f510f8534ed395a3b908",
+      "bytes": 10495
+    },
+    "C2_REPORT.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C2_REPORT.md",
+      "sha256": "86315ab9d2f07e8a59c785d12195b14751502e9d30fe4a0fdefaabb076ab4bad",
+      "bytes": 697526
+    },
+    "C2_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C2_dispositions.tsv",
+      "sha256": "55bef23fd572f5582d105aa7c2bd6d617d67aa6e8cd9609c3a67fd6f383b5e6b",
+      "bytes": 719563
+    },
+    "C2_reviewed_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C2_reviewed_dispositions.tsv",
+      "sha256": "869f8fb9e2a1581c973e9d6e40d1b09479835f475ba51f6e3695969ca518eec9",
+      "bytes": 726251
+    },
+    "C2_hashes.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C2_hashes.json",
+      "sha256": "a032ede58d6ff424fb41cb63e05d6ddff0a9cc7883461b5b8bff6698c769da91",
+      "bytes": 9256
+    },
+    "C2_validation.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C2_validation.json",
+      "sha256": "f1dd1d180f49d05f6991a11cda07bf0ab449a6879affda1a2624a3b7894ced89",
+      "bytes": 726
+    },
+    "REVIEW_C2.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/REVIEW_C2.md",
+      "sha256": "c512b168b8cf6c46d84d0e231b2ab73236665a931b3755b49149cef48557af20",
+      "bytes": 9895
+    },
+    "C2_REVIEW_VALIDATION.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C2_REVIEW_VALIDATION.json",
+      "sha256": "8061ea368deb80f21ed86503a14d376c9db598ce3d262a88964ab16f378b5000",
+      "bytes": 1746
+    },
+    "C2_REVIEW_DISAGREEMENTS.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C2_REVIEW_DISAGREEMENTS.json",
+      "sha256": "76f9ff445584f09529b8bdcc48e89662accea8e6d8ba28049fdb098e6cdd55fe",
+      "bytes": 6289
+    },
+    "C2_REVIEW_SAMPLE.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C2_REVIEW_SAMPLE.json",
+      "sha256": "dd31a06eb3a47dbf07b7c71664836cf4d822c9dff3082cbdddda6758cc493145",
+      "bytes": 7522
+    },
+    "C3_REPORT.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C3_REPORT.md",
+      "sha256": "179c82c6e6543cdd474a81dc37c64435679253a19129419e287ce3b91428f618",
+      "bytes": 7623
+    },
+    "C3_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C3_dispositions.tsv",
+      "sha256": "425c0c2b5508e57207901ec3457e91795ca7913c8d72b8b5dedaa2bab232b584",
+      "bytes": 159355
+    },
+    "C3_reviewed_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C3_reviewed_dispositions.tsv",
+      "sha256": "6aa4c6a43a39b4a9a4a5708764e6aa793c79212a322b28db37cd3b645ba03706",
+      "bytes": 162853
+    },
+    "REVIEW_C3.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/REVIEW_C3.md",
+      "sha256": "58f17b0f9dbc273fd3511f05b0632832bcefc58b3489cebd43cd4a0785cf3abe",
+      "bytes": 5102
+    },
+    "C3_REVIEW_DISAGREEMENTS.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C3_REVIEW_DISAGREEMENTS.json",
+      "sha256": "d5c2ca4c5fcc37fbeadc943a6da275b8954b065cf027c5b16724a3efef93d3bc",
+      "bytes": 4723
+    },
+    "C3_REVIEW_SAMPLE.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C3_REVIEW_SAMPLE.json",
+      "sha256": "4bbd057c8469dcae08a616835fbcfa9297b49c3eb33b3c06b5009ee9d6bbb32d",
+      "bytes": 2415
+    },
+    "C7_REPORT.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C7_REPORT.md",
+      "sha256": "bc74d0967f3bcc68128e87e68004e743a815f3d3fcdec11030fabed107a4ba68",
+      "bytes": 117997
+    },
+    "C7_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C7_dispositions.tsv",
+      "sha256": "0da93956b78f403ec427effcc00f3a10a165d579ce0cccde4ef5ed6aa4608492",
+      "bytes": 122654
+    },
+    "C7_reviewed_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C7_reviewed_dispositions.tsv",
+      "sha256": "1b1d15982fdf1c0a8b7955de57da4c2a00f976ead85b39db3ad71f7887826909",
+      "bytes": 123930
+    },
+    "C7_validation.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C7_validation.json",
+      "sha256": "44a033c2c2fa99e5ad65baea174319433819a85ca90ef0123434f805c979278d",
+      "bytes": 1178
+    },
+    "REVIEW_C7.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/REVIEW_C7.md",
+      "sha256": "6598ea7ea9a7f1bc39a2d9d26bfd2f5d59538eee7abe4ef3e094b1d58c5a1c95",
+      "bytes": 5392
+    },
+    "C7_REVIEW_DISAGREEMENTS.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C7_REVIEW_DISAGREEMENTS.json",
+      "sha256": "f166004859b7583613e77a1252357369be1b6e22c9a2a2472abeae721c70fafe",
+      "bytes": 4811
+    },
+    "C7_REVIEW_SAMPLE.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C7_REVIEW_SAMPLE.json",
+      "sha256": "404f45c68f3c9760aadae744afa411e3978c72be7bc5042ea8be4c1f9680ebdb",
+      "bytes": 2245
+    },
+    "C2_qualgroup_evidence.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C2_qualgroup_evidence.json",
+      "sha256": "7b21edb2b42bdcb44b3c31bbe581349538fb268d6cec74ec0112df6cfc8f6780",
+      "bytes": 474490
+    },
+    "C7_hash_reconciliation.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C7_hash_reconciliation.json",
+      "sha256": "75eecf35dc1f67d334638f7acd956a9d5c5de179aa98a3defb10298146328838",
+      "bytes": 29245
+    },
+    "ownership.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/ownership.json",
+      "sha256": "3bc3d40808e63bff57a144dd03a07e8e328b521c4146616ead7479ce8bb4fa5c",
+      "bytes": 1146
+    },
+    "stale_register_inventory.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/stale_register_inventory.json",
+      "sha256": "b4630b02797c00d5a2d4a7f04f31651320ca07a386a26c705efb5646d207903a",
+      "bytes": 3069
+    },
+    "stale_register_adjudication.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/stale_register_adjudication.json",
+      "sha256": "f4143ee832586aa2b70f753dfa44004c5a457337552d8193e20bd59cef645ca0",
+      "bytes": 5501
+    },
+    "C4_FRESH_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_FRESH_dispositions.tsv",
+      "sha256": "db37816ad8db959cd66fbe96e8112435ebe5b7423be2c4a1dee31e94eb2a938c",
+      "bytes": 111093
+    },
+    "C4_FRESH_REPORT.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_FRESH_REPORT.md",
+      "sha256": "7465dda2c95d5e9b19f662a3a602064d1869f886e6ac7841cfef3259a6ff1b26",
+      "bytes": 19002
+    },
+    "C4_FRESH_hashes.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_FRESH_hashes.json",
+      "sha256": "123839a339be232d84fe126c447773d78aac375120b72d35229e4fdc50ed6b25",
+      "bytes": 8469
+    },
+    "C4_FRESH_validation.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_FRESH_validation.json",
+      "sha256": "8da142905b4628e4995144dc4c5d0aba6f277742c4c8850fdd88b750522cff32",
+      "bytes": 692
+    },
+    "C4_FRESH_comparison.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_FRESH_comparison.json",
+      "sha256": "65b932ee0f486e8d748eeec1eddee62cfd7a0750bcece492d39342b921b4432f",
+      "bytes": 303675
+    },
+    "C4_FRESH_progress.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_FRESH_progress.json",
+      "sha256": "2259e8cca7fc68d48556e14c2ba3342879e8aea7a8d5d07751981b5fd61050dd",
+      "bytes": 179749
+    },
+    "C4_R2_CHECKPOINT.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_R2_CHECKPOINT.md",
+      "sha256": "4b3f340d6314eea9e8c42a36ce4f42fcd743be7a5025ad456d77acffc345b9bf",
+      "bytes": 2043
+    },
+    "C4_R2_CHANGES.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_R2_CHANGES.json",
+      "sha256": "c527667ffb48b38e17b26b3df5ce2d83bdaf92480f941a755df79df3c823b8d3",
+      "bytes": 17976
+    },
+    "C4_dispositions.tsv.before_R2": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_dispositions.tsv.before_R2",
+      "sha256": "3408add65cc31b9fc0e72d579c6758363cd5f588030b5baa6848ef32882eb1f3",
+      "bytes": 145826
+    },
+    "C4_REPORT.md.before_R2": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_REPORT.md.before_R2",
+      "sha256": "2f49a9b991561d3756a454add49d637ebbc14f30225f0dc9404556f63bc1a67a",
+      "bytes": 13659
+    },
+    "REVIEW_C4.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/REVIEW_C4.md",
+      "sha256": "90c59c133013c4b7e14d0c7ffa9fba77aaeaf1c9d6f504f94dbbfd296bcf466d",
+      "bytes": 6368
+    },
+    "REVIEW_C4_FRESH.md": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/REVIEW_C4_FRESH.md",
+      "sha256": "2773a65890e5f544f296c1018d8f64b240afe5678fdfc4ad90d524b67d959c9a",
+      "bytes": 6529
+    },
+    "C4_REVIEW_DISAGREEMENTS.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C4_REVIEW_DISAGREEMENTS.json",
+      "sha256": "84bf5493a430508656ae3f4784209f81dac40b0775aeeae448ed8b462a8c896a",
+      "bytes": 10354
+    },
+    "C4_REVIEW_SAMPLE.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C4_REVIEW_SAMPLE.json",
+      "sha256": "f045b7f7f414e3d9173bf4984bfaaee5af97e1efe9c63b1d48f24ea5eca0a664",
+      "bytes": 2659
+    },
+    "C4_FRESH_REVIEW_VALIDATION.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C4_FRESH_REVIEW_VALIDATION.json",
+      "sha256": "127b8a2fa3fbca91356574973ad1ea64da3c933d3e4271697e9c75ae9a96503c",
+      "bytes": 6772
+    },
+    "C4_FRESH_REVIEW_FINAL_CHECK.json": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/C4_FRESH_REVIEW_FINAL_CHECK.json",
+      "sha256": "759e6ac63fd89000ecf7d6c490e96fcc39bc3e673420d9f9a871d78cff2fa005",
+      "bytes": 291
+    },
+    "C4_FRESH_reviewed_dispositions.tsv": {
+      "source": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/classification_units/C4_FRESH_reviewed_dispositions.tsv",
+      "sha256": "456cadbfe0ca6b67f19edbc46a160a4549e6d4e6538e648ba421683a237f4a21",
+      "bytes": 113513
+    },
+    "register_before_770dc66.tsv": {
+      "source": "docs/wp21_census/dispositions.tsv (unchanged canonical register)",
+      "sha256": "f405a6715247c0781abb3232b836d9417fb15d1c46a18b741a7820672a6dcf3f",
+      "bytes": 165430
+    }
+  }
+}

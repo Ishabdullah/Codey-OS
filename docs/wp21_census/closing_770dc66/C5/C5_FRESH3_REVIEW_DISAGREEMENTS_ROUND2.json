@@ -1,0 +1,27 @@
+{
+ "round": 2,
+ "random_denominator": 45,
+ "random_sample_disagreements": 0,
+ "random_sample_disagreement_rate_percent": 0.0,
+ "round1_record": "C5_FRESH3_REVIEW_DISAGREEMENTS_ROUND1.json (6 mandatory disagreements, 3/45 random reach)",
+ "differences": [
+  {
+   "key": "core/search.py::search_in_project::subprocess.run::1",
+   "author_class": "READ_NOEFFECT",
+   "reviewer_class": "UNMEDIATED-or-READ_NOEFFECT-with-credential-exclusion-evidence (reviewer will not accept bare READ_NOEFFECT)",
+   "author_severity": "",
+   "reviewer_severity": "",
+   "in_random_sample": false,
+   "reason": "READ_NOEFFECT excludes reads that carry credentials (group15 scope line 295). search.py grep reads any *.json/*.yaml/*.txt/*.md under an operator-chosen path (DEFAULT_EXTENSIONS; no protected_paths filter) and prints to console. Evidence does not address credential-bearing files. Also: no -- barrier residual is correct but is not logged in NEW_ISSUES.md (rule 8); coordinator must log it with an ID before approval."
+  },
+  {
+   "key": "core/state.py::StateStore.delete_model_adoption::*.execute::1",
+   "author_class": "UNMEDIATED",
+   "reviewer_class": "UNMEDIATED",
+   "author_severity": "HIGH",
+   "reviewer_severity": "LOW",
+   "in_random_sample": false,
+   "reason": "HIGH kept as placeholder is inconsistent with scope 2.6: reach dormant is not confirm-less production reach, so rubric gives LOW. Ambiguity clause does not apply because reach is established. Keeping HIGH makes the row a must-fix under rule 4 with no production path."
+  }
+ ]
+}

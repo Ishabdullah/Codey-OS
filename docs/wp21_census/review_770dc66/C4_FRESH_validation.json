@@ -1,0 +1,26 @@
+{
+  "revision": "770dc6639e4100ea3215fca07d923769a8290078",
+  "rows": 153,
+  "expected_rows": 153,
+  "files": 23,
+  "duplicates": 0,
+  "unexpected_keys": [],
+  "missing_keys": [],
+  "unknown": 0,
+  "reviewer_blank": true,
+  "author": "/root/implementer",
+  "key_sha256": "d2292505a86e837b41592ded50124cf7a026e76582fed92d5bc7e67fa98aa4c9",
+  "hashes_reconciled": 82,
+  "classes": {
+    "DORMANT": 7,
+    "BOOKKEEPING": 66,
+    "READ_NOEFFECT": 10,
+    "LOOPBACK_IPC": 19,
+    "OPERATOR_BOOTSTRAP": 15,
+    "FALSE_POSITIVE": 8,
+    "GATED": 24,
+    "UNMEDIATED": 4
+  },
+  "product_execution": false,
+  "fresh_review_status": "PENDING; initial original sample10/39=25.6410% remains preserved"
+}

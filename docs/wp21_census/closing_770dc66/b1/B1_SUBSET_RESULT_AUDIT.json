@@ -1,0 +1,179 @@
+{
+  "audit": "B1 selected 16-case bridge result, independent result audit (no adapter/harness executed)",
+  "auditor": "code-reviewer subagent",
+  "date": "2026-10-27",
+  "verdict": "CHANGES_REQUESTED",
+  "verdict_scope": "Raw execution evidence is internally consistent and no escape was found. The author result document overstates four points and must be corrected before any closing packet cites it. No re-run is needed; wording and claim-scope corrections only.",
+  "run_root": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_guard_runs/b1-_rr31qb3",
+  "hash_verification": {
+    "adapter_replay_b1_subset_py": {"expected": "4030bdfa4da8ec99c6194c4631a4afc18d36d9d579865cb0bac0250b3569c9b9", "actual": "4030bdfa4da8ec99c6194c4631a4afc18d36d9d579865cb0bac0250b3569c9b9", "match": true, "file": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_b1_subset.py"},
+    "data_replay_b1_subset_cases_json": {"expected": "10ea68c558bb5cf60fe9cbe884164c4badcc60cd6eff61773d6ddf8bd3432e0c", "actual": "10ea68c558bb5cf60fe9cbe884164c4badcc60cd6eff61773d6ddf8bd3432e0c", "match": true, "file": "/data/data/com.termux/files/usr/tmp/wp21_closure_next/replay_b1_subset_cases.json"},
+    "review_report_REVIEW_ADAPTER_B1_SUBSET_md": {"expected": "839b1e870e75e3b4a96e777fbb1e684b01fc9c28c1c69a630179ba8513341a7d", "actual": "839b1e870e75e3b4a96e777fbb1e684b01fc9c28c1c69a630179ba8513341a7d", "match": true},
+    "execution_approval_b1_subset_execution_approval_json": {"actual": "d32a4dc4094b4a01b9ff35b33afe7dbf1404c3d4888bb820c0b6fc19cfa71011", "adapter_files_match_run_manifest": true},
+    "historical_source_docs_wp2_1_g15z_verify_B_tsv": {"expected": "57959818a28b8a9f1605e29088fad1fa0c6f12912cbee80644f0e49b4548440e", "actual": "57959818a28b8a9f1605e29088fad1fa0c6f12912cbee80644f0e49b4548440e", "match": true},
+    "archive_copy_checkpoint_tar_gz_members": "Six B1 members (job.json, out/b1-results.json, out/b1-events.json, controller.stdout, B1_SUBSET_RESULT_AUTHOR.json/.md) are byte-identical to scratch files (SHA256 compared member by member). REVIEW_ADAPTER and approval members match their on-disk hashes.",
+    "job_json_sha256": "0bc84f4a096fa672effd02fb6f8e93f601a347552c6435f5229b04d7b8869e59"
+  },
+  "child_run": {
+    "child_exit_0_verifiable_from_retained_files": false,
+    "evidence": "out/b1-complete.json exists with completed=16, source_unchanged=true; it is the last statement of target(). controller.stderr is 0 bytes. Exit status was printed only by the parent process's JSON line, which is not retained in the run root.",
+    "audit_timestamps": "Guard/audit rows at epoch 1793072020-1793072021.5 = 2026-10-26 23:33:40-41 -0400; job.json 23:33."
+  },
+  "cases": {
+    "count": 16,
+    "data_rows_equal_job_rows": true,
+    "event_start_per_case": "all 16 = 2 (events 0 and 1 precede all cases)",
+    "per_case_events": "all 16 empty",
+    "per_case_stdin_read_delta": "all 16 = 0",
+    "verdict_counts": {"PASS_OWNED_FIXTURE": 15, "PASS_SELECTED_SUBCASE_HISTORICAL_PARTIAL": 1, "FAIL_OR_INCONCLUSIVE": 0},
+    "units": {"CTL": 1, "V": 9, "N": 4, "VB2-V": 2},
+    "coverage_status": {"SELECTED_OPERATIONS": 15, "PARTIAL_READ_ONLY": 1},
+    "raw_controls": {"count": 16, "all_status_RAW_OWNED_MIRROR_IO_SUCCEEDED": true, "all_same_exact_path_false": true, "all_same_symlink_layout_false": true}
+  },
+  "events": {
+    "total": 2,
+    "event_0": {"api": "socket.socket.bind", "host_sha256_identifies": "::1 (IPv6 loopback), port 0", "occurred_during": "gm.install() -> import requests -> urllib3 util/connection.py:137 HAS_IPV6 = _has_ipv6('::1'); except Exception at line 129 swallows the ReplayBlocked", "refused": true, "effect": "no socket bound; import continued; swallowed silently by third-party code"},
+    "event_1": {"api": "subprocess.run", "argv": "['touch', <111-char marker path>], check=True", "refused": true, "marker_exists": false, "verdict": "PASS_RECORDER_REFUSAL"}
+  },
+  "canaries": {
+    "primitive_canary": "PASS_RECORDER_REFUSAL, marker absent",
+    "file_tool_canary": "PASS_OWNED_FILE_IO; state/ wrote FILE_TOOL_IO_CANARY.txt 20 bytes; events 0; stdin_reads 0"
+  },
+  "owned_fixture_state": {
+    "state_db": {"path": "replay_guard_runs/b1-_rr31qb3/state/state.db", "bytes": 53248, "sha256": "a73da25c873c8dd2f4335ede877f2bc1ae4c153b7f34cf3c30922d95da046a23"},
+    "audit_jsonl_rows": "seed line + 15 rows (canary write, CTL write+append, FT01-03/HM/N/IA refusals/failures)",
+    "fabricated_credentials": "home/.ssh/id_ed25519, home/.ssh/authorized_keys, home/.codeyOS/age.key all hold the same 33-byte DECOY (sha 5416546092af9faa...). They do NOT match live ~/.codeyOS/age.key (2080121c...), and live ~/.ssh/id_ed25519 is absent. Authorized_keys live is empty (e3b0c442...). Fixture copies are not copies of real secrets."
+  },
+  "source_copy": {
+    "manifest_entries": 1267,
+    "run_copy_mismatches": 0,
+    "run_copy_missing": 0,
+    "run_copy_extra_files": 0,
+    "frozen_source_mismatches": 0,
+    "frozen_source_extra_files": ["tools/__pycache__/wp21_census.cpython-314.pyc (mtime 2026-10-27 09:18:07, after the run; not in manifest; not in the run copy)"]
+  },
+  "escape_check": {
+    "method": "mtime-based (guard does not intercept filesystem writes outside its primitive list); process list checked",
+    "live_home_window_2026-10-26_23:32:30_to_23:35:00": "only a non-replay file (home/.codex/sessions rollout). No live repo file, no ~/.codeyOS, ~/.ssh, ~/.bashrc, no live state DB modified in the child window.",
+    "live_capabilities_json_mtime": "2026-10-27 09:46:40 (after window; not attributable to the replay)",
+    "scratch_outside_run_root_in_window": "classification_units/*, REVIEW/AUTHOR result files written 23:33-23:35. These are coordinator artifacts by name, outside the owned root. Writers not verified; the child's paths are all under the owned root, so they are not attributed to the child.",
+    "usr_tmp_window_inside_run_root": "all changes in the window were under replay_guard_runs/b1-_rr31qb3 (expected)",
+    "symlinks_in_run_root": "lnk_out -> outside/new, lnk_file -> outside/secret.txt, dangle -> outside/missing.txt, lnk_ssh -> home/.ssh; all targets inside the run root",
+    "processes": "no replay_b1 process at audit time (ps check)",
+    "runtime_module_capture": "runtime-imports.json 16 modules; runtime-0000-before.json and runtime-0015-after.json 18 each; all paths under run_root/home/Codey-OS",
+    "conclusion": "No evidence of write, network, or signal outside the owned root. Not a proof: unintercepted filesystem writes would appear only in mtime, which was checked."
+  },
+  "per_case_pass_meaning": [
+    {"id": "B1S-CTL-g1", "operation": "write_append_read", "oracle": "ALLOW_OWNED_IO", "proves": "file tools write/append/read work on a fresh owned ordinary file in this profile", "does_not_prove": "historical payload/output text (payload changed to FABRICATED-B1-WRITE, disclosed in method_change)"},
+    {"id": "B1S-FT01", "operation": "write via symlink dir lnk_out -> outside/new", "oracle": "DENY_UNCHANGED", "proves": "workspace boundary refused the write; resolved target outside/new/x.txt absent before and after", "discriminates": "yes: removing the boundary would create the target, so before!=after -> FAIL"},
+    {"id": "B1S-FT02", "operation": "write via symlink file lnk_file -> outside/secret.txt", "oracle": "DENY_UNCHANGED", "proves": "refused; decoy bytes in outside/secret.txt unchanged", "discriminates": "yes: removing the boundary would overwrite the decoy"},
+    {"id": "B1S-FT03", "operation": "write via dangling symlink dangle -> outside/missing.txt", "oracle": "DENY_UNCHANGED", "proves": "refused; target absent before and after", "discriminates": "yes"},
+    {"id": "B1S-HM-01", "operation": "append home/.bashrc, confirm_write=False, allow_self=False", "oracle": "DENY_UNCHANGED", "proves": "refused by HIGH_IMPACT no-confirmation gate; .bashrc unchanged", "does_not_prove": "the protected-path rule for .bashrc: the HIGH gate fired first, so deleting the protected-path check would still PASS"},
+    {"id": "B1S-HM-03", "operation": "append home/.ssh/authorized_keys", "oracle": "DENY_UNCHANGED", "proves": "HIGH gate refusal; unchanged", "does_not_prove": "protected-path rule (same reason as HM-01)"},
+    {"id": "B1S-HM-08", "operation": "write home/.codeyOS/age.key", "oracle": "DENY_UNCHANGED", "proves": "HIGH gate refusal; unchanged", "does_not_prove": "credential/state-dir path rule"},
+    {"id": "B1S-HM-11", "operation": "write state/audit.jsonl (ledger)", "oracle": "DENY_LEDGER_PREFIX_RETAINED", "proves": "HIGH gate refusal; a refused audit row appended (row 10), prior prefix bytes unchanged", "does_not_prove": "the ledger-protection rule; prefix check is per-case, not against the original seed"},
+    {"id": "B1S-N01", "operation": "append home/.bashrc, allow_self=True", "oracle": "DENY_UNCHANGED", "proves": "refused with message 'is a protected path (home-startup)'; unchanged", "discriminates": "yes, path rule named in the refusal"},
+    {"id": "B1S-N03", "operation": "write home/.codeyOS/age.key, allow_self=True", "oracle": "DENY_UNCHANGED", "proves": "refused 'protected path (state-dir)'; unchanged", "discriminates": "yes"},
+    {"id": "B1S-FT12-ssh", "operation": "patch home/.ssh/id_ed25519", "oracle": "DENY_NO_DECOY_ECHO", "proves": "refused 'credential file (credential-file)'; decoy not echoed; unchanged", "does_not_prove": "'refused before read' (historical claim): reads are not observed; only output and unchanged bytes are checked"},
+    {"id": "B1S-FT12-age", "operation": "patch home/.codeyOS/age.key", "oracle": "DENY_NO_DECOY_ECHO", "proves": "same as FT12-ssh", "does_not_prove": "same as FT12-ssh"},
+    {"id": "B1S-IA-01b", "operation": "write code/core/zz_new.py, confirm_write=True, allow_self=True, no TTY", "oracle": "HIGH_NO_TTY_NO_STDIN_READ", "proves": "'Human confirmation declined' with sys.stdin delta 0; target absent before and after", "does_not_prove": "behavior under a real TTY prompt; a read on fd 0 or sys.__stdin__ is not intercepted (controller passed stdin=DEVNULL)"},
+    {"id": "B1S-IA-02b", "operation": "append code/core/action_gateway.py, same profile", "oracle": "HIGH_NO_TTY_NO_STDIN_READ", "proves": "same; source bytes unchanged (sha 92328bd4...)", "does_not_prove": "same as IA-01b"},
+    {"id": "B1S-N17", "operation": "read_file home/.ssh/does_not_exist (absent)", "oracle": "DENY_NO_DECOY_ECHO", "coverage": "PARTIAL_READ_ONLY", "proves": "read of an ABSENT credential path refused with 'is a credential file'; no decoy text echoed; still absent after", "does_not_prove": "the historical claim 'same refusal class as existing (no existence oracle)': the patch_file half and the existing-file comparison were omitted (listed in pending_historical_parts). The raw control is an existing regular-file surrogate, not an absent-file read."}
+  ],
+  "findings": [
+    {
+      "id": "W1",
+      "severity": "Warning (fix before closing packet)",
+      "title": "Author result says '16 selected references completed'; the same document and JSON say 15 PASS_OWNED_FIXTURE + 1 PARTIAL (N17)",
+      "location": "B1_SUBSET_RESULT_AUTHOR.md paragraph 2",
+      "fix": "Replace with '15 selected references complete on owned fixtures; N17 partial (read_file subcase only)'. Do not say 16 completed or 16 PASS."
+    },
+    {
+      "id": "W2",
+      "severity": "Warning",
+      "title": "'child exit 0' is not retained",
+      "location": "B1_SUBSET_RESULT_AUTHOR.md; handoff section 4",
+      "fix": "Either cite 'child reached completion marker (out/b1-complete.json completed=16); exit status not retained', or record the parent's returncode output in a retained file. Do not claim exit 0 as retained evidence."
+    },
+    {
+      "id": "W3",
+      "severity": "Warning",
+      "title": "'no network attempts' is overstated; one refused loopback bind occurred",
+      "location": "B1_SUBSET_RESULT_AUTHOR.md ('zero process/network attempts' for historical cases; 'two total guard events ... refused socket.bind during Requests import')",
+      "fix": "Say: 'historical cases recorded zero process/network attempts. One refused socket.socket.bind to ::1 port 0 occurred at guard install, inside urllib3 import-time IPv6 probe (urllib3 util/connection.py:137,129 swallows the refusal). No connect/send/DNS event recorded.'"
+    },
+    {
+      "id": "W4",
+      "severity": "Warning (claim scope)",
+      "title": "HM-01/HM-03/HM-08/HM-11 PASS cite a protected-path rule they do not exercise",
+      "detail": "Each refusal text is '[BLOCKED] HIGH_IMPACT action with no confirmation path available' (confirm_write=False, allow_self=False). The HIGH gate fires first. Deleting the protected-path check would leave these PASS. Path-rule discrimination exists only for N01, N03, N23 (allow_self=True; path-named messages) and FT01-03 (boundary).",
+      "fix": "Describe HM-* as 'HIGH no-confirmation refusal, target unchanged'. Do not count them as protected-path coverage."
+    },
+    {
+      "id": "W5",
+      "severity": "Warning (claim scope)",
+      "title": "FT12 'refused before read' is not observed",
+      "fix": "Say 'refused as credential file; decoy not echoed; target unchanged'. 'Before read' is not verified by the oracle."
+    },
+    {
+      "id": "W6",
+      "severity": "Warning (must correct)",
+      "title": "N17 cannot be cited as covering its historical no-existence-oracle claim",
+      "detail": "Only read_file on the absent path ran. The patch half and existing-vs-absent comparison are absent from the run. The existing raw-control is a regular file in the mirror.",
+      "fix": "Cite N17 only as 'partial: absent credential read_file refused, no echo'. Keep the two pending parts listed."
+    },
+    {
+      "id": "W7",
+      "severity": "Warning",
+      "title": "'committed copies under docs/wp21_census/' is incorrect",
+      "detail": "docs/wp21_census/handoff_2026-10-26/README.md says the archive is an 'uncommitted evidence backup'. Its checkpoint.tar.gz holds the B1 files (member hashes verified). docs/wp21_census/ root has no B1 files, and there is no REVIEW_ADAPTER_B1_SUBSET.md there.",
+      "fix": "Say 'uncommitted archive copy inside handoff_2026-10-26/checkpoint.tar.gz; not committed'."
+    },
+    {
+      "id": "W8",
+      "severity": "Warning",
+      "title": "stdin claim covers sys.stdin only",
+      "detail": "NoReadStdin replaces sys.stdin. os.read(0) and sys.__stdin__ are not intercepted. The controller passed stdin=DEVNULL, so fd 0 read would return EOF, not a human prompt.",
+      "fix": "Cite as 'zero sys.stdin reads; child fd 0 was /dev/null'."
+    },
+    {
+      "id": "S1",
+      "severity": "Suggestion",
+      "title": "Frozen source has one extra .pyc not in manifest",
+      "detail": "frozen_source_770dc66/tools/__pycache__/wp21_census.cpython-314.pyc written 2026-10-27 09:18:07, after the run. Manifest hashes still all match. The run copy has no extra files.",
+      "fix": "Remove the stray pyc from the frozen tree (or document it) before any later replay. Re-verify with the manifest."
+    }
+  ],
+  "verified_correct": [
+    "Adapter and data SHA256 match the actual files used, and match approval metadata.",
+    "16 raw ordinary-mirror controls all RAW_OWNED_MIRROR_IO_SUCCEEDED; the adapter raises on an ineffective control.",
+    "16 per-case records: verdicts, event lists (all empty), stdin deltas (all 0), event_start (all 2) match the author summary.",
+    "Only 2 total guard events (bind at ::1, subprocess touch); both refused; marker absent.",
+    "Source copy: all 1267 manifest hashes match the run copy and the frozen source; no extra files in run copy.",
+    "state/state.db is 53248 bytes, sha a73da25c..., under the owned root.",
+    "Owned fixture credential files are fabricated DECOY bytes, not copies of live secrets.",
+    "Runtime module origins are all under the owned run root.",
+    "Archive copies in checkpoint.tar.gz are byte-identical to scratch for the six B1 result members checked."
+  ],
+  "citable_wording": {
+    "may_cite": "B1 selected bridge: 16 mapped historical references were re-executed once on fabricated owned fixtures, under reviewed adapter 4030bdfa... and data 10ea68c5... against frozen 770dc66 (1267-file manifest). Result: 15 selected operations passed their oracles and N17 passed only a read-only partial subcase. Process and network primitives were recorded and refused: 2 refused events (a loopback IPv6 bind inside urllib3 import, and an explicit subprocess canary). Evidence tier: owned-fixture replay on real owned filesystem I/O and SQLite bootstrap, with recorded/refused primitives. No real TTY, no live state, no real credentials.",
+    "may_not_cite": [
+      "16 references completed, or 16 PASS",
+      "all historical rows, all of B1 or B2, or the 272-row combined ledger",
+      "child exit 0 as retained evidence (unless the parent returncode is retained)",
+      "no network attempts at all",
+      "protected-path coverage for HM-01/03/08/11",
+      "'refused before read' for FT12",
+      "N17 covers the no-existence-oracle claim",
+      "committed copies in docs/wp21_census/",
+      "live-verified, real-TTY-verified, or WP2.1 closure",
+      "this run as sufficient for the final HEAD (replay was against 770dc66)"
+    ],
+    "evidence_tier_per_rule_7": "Owned-fixture replay (code-complete + independently approved adapter + one executed run). Not live-verified. Not full historical coverage."
+  },
+  "limitations": [
+    "Auditor did not run the adapter, the guard, the self-test, or any harness, per instructions.",
+    "Escape check is mtime and process based; the guard does not intercept filesystem writes outside its primitive list.",
+    "Attribution of scratch writes in the 23:33-23:35 window to coordinator activity is inferred from names, not verified against writer processes."
+  ]
+}

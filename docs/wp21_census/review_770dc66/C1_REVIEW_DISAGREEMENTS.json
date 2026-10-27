@@ -1,0 +1,16 @@
+{
+  "seed": 77020261027,
+  "random_denominator": 89,
+  "raw_disagreement_count": 0,
+  "raw_rate": 0.0,
+  "all_audited_denominator": 355,
+  "all_disagreement_count": 0,
+  "disagreements": [],
+  "helper_native_count": 332,
+  "canonical_read_count": 35,
+  "read_paired_rows": 70,
+  "unmediated_count": 6,
+  "disabled_entries": 2,
+  "source_hash_records": 97,
+  "source_hash_drift": []
+}

@@ -1,0 +1,222 @@
+[
+  {
+    "key": "core/daemon.py::Daemon.__init__::*.mkdir::1",
+    "file": "core/daemon.py",
+    "line": 955,
+    "source_line": "        DAEMON_DIR.mkdir(parents=True, exist_ok=True)",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read all9effects: three startup directory mkdir, socket unlink before bind/chmod0600 and stop close/wait/unlink are fixed daemon endpoint/log metadata, narrow BOOKKEEPING not whole process-launch classification. signal0 marker probe stays READ; actual AF_UNIX allocation/connect/send paths stay LOOPBACK_IPC and mutation-capable cmd data/server authority limits retained."
+  },
+  {
+    "key": "core/daemon.py::Daemon.__init__::*.mkdir::2",
+    "file": "core/daemon.py",
+    "line": 956,
+    "source_line": "        self.paths.socket_file.parent.mkdir(parents=True, exist_ok=True)",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read all9effects: three startup directory mkdir, socket unlink before bind/chmod0600 and stop close/wait/unlink are fixed daemon endpoint/log metadata, narrow BOOKKEEPING not whole process-launch classification. signal0 marker probe stays READ; actual AF_UNIX allocation/connect/send paths stay LOOPBACK_IPC and mutation-capable cmd data/server authority limits retained."
+  },
+  {
+    "key": "core/daemon.py::Daemon.__init__::*.mkdir::3",
+    "file": "core/daemon.py",
+    "line": 957,
+    "source_line": "        self.paths.log_file.parent.mkdir(parents=True, exist_ok=True)",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read all9effects: three startup directory mkdir, socket unlink before bind/chmod0600 and stop close/wait/unlink are fixed daemon endpoint/log metadata, narrow BOOKKEEPING not whole process-launch classification. signal0 marker probe stays READ; actual AF_UNIX allocation/connect/send paths stay LOOPBACK_IPC and mutation-capable cmd data/server authority limits retained."
+  },
+  {
+    "key": "core/daemon.py::DaemonServer.start::*.unlink::1",
+    "file": "core/daemon.py",
+    "line": 792,
+    "source_line": "        self.paths.socket_file.unlink(missing_ok=True)",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read all9effects: three startup directory mkdir, socket unlink before bind/chmod0600 and stop close/wait/unlink are fixed daemon endpoint/log metadata, narrow BOOKKEEPING not whole process-launch classification. signal0 marker probe stays READ; actual AF_UNIX allocation/connect/send paths stay LOOPBACK_IPC and mutation-capable cmd data/server authority limits retained."
+  },
+  {
+    "key": "core/daemon.py::DaemonServer.start::os.chmod::1",
+    "file": "core/daemon.py",
+    "line": 797,
+    "source_line": "        os.chmod(self.paths.socket_file, 0o600)",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read all9effects: three startup directory mkdir, socket unlink before bind/chmod0600 and stop close/wait/unlink are fixed daemon endpoint/log metadata, narrow BOOKKEEPING not whole process-launch classification. signal0 marker probe stays READ; actual AF_UNIX allocation/connect/send paths stay LOOPBACK_IPC and mutation-capable cmd data/server authority limits retained."
+  },
+  {
+    "key": "core/daemon.py::DaemonServer.stop::*.unlink::1",
+    "file": "core/daemon.py",
+    "line": 811,
+    "source_line": "        self.paths.socket_file.unlink(missing_ok=True)",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read all9effects: three startup directory mkdir, socket unlink before bind/chmod0600 and stop close/wait/unlink are fixed daemon endpoint/log metadata, narrow BOOKKEEPING not whole process-launch classification. signal0 marker probe stays READ; actual AF_UNIX allocation/connect/send paths stay LOOPBACK_IPC and mutation-capable cmd data/server authority limits retained."
+  },
+  {
+    "key": "core/embed_server.py::EmbedServer._start::*.mkdir::1",
+    "file": "core/embed_server.py",
+    "line": 235,
+    "source_line": "        log_file.parent.mkdir(parents=True, exist_ok=True)",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read10effects and start/stop/owned/foreign call chains. Split log parent mkdir and append open into BOOKKEEPING; model Popen OPERATOR_BOOTSTRAP admission-exempt remains. Health/socket connect loopback and signal0 diagnostic retained. Three owned signal rows stay narrow BOOKKEEPING with actual retained Popen and original pgid anchor, not NATIVE_AUTHORITY; root taxonomy adjudication explicitly agrees target safety is not authorization. Foreign replacement remains separate NEW983 helper."
+  },
+  {
+    "key": "core/embed_server.py::EmbedServer._start::open::1",
+    "file": "core/embed_server.py",
+    "line": 239,
+    "source_line": "        with open(log_file, \"a\") as log_fd:",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read10effects and start/stop/owned/foreign call chains. Split log parent mkdir and append open into BOOKKEEPING; model Popen OPERATOR_BOOTSTRAP admission-exempt remains. Health/socket connect loopback and signal0 diagnostic retained. Three owned signal rows stay narrow BOOKKEEPING with actual retained Popen and original pgid anchor, not NATIVE_AUTHORITY; root taxonomy adjudication explicitly agrees target safety is not authorization. Foreign replacement remains separate NEW983 helper."
+  },
+  {
+    "key": "core/embeddings.py::EmbeddingModel._embed_via_server::urllib.request.Request::1",
+    "file": "core/embeddings.py",
+    "line": 142,
+    "source_line": "            req = urllib.request.Request(",
+    "old_class": "DORMANT",
+    "new_class": "FALSE_POSITIVE",
+    "changed": true,
+    "row_adjudication": "Author exact-granularity error corrected: pure Request construction separated from actual network send.",
+    "file_call_chain_adjudication": "Re-read10effects plus model constructor/embed/embed_batch and complete memory_v2 reverse chain. Request constructor alone FP with dormant reach; two actual urlopen effects DORMANT because no production Memory.store_in_longterm/search callers, not because effects harmless. embed_batch has no callers; status/count only SQLite. Fixed EmbeddingStore schema/connect constructor actually live via singleton, four rows BOOKKEEPING; three mutators DORMANT. No native SentenceTransformer/download permission inferred."
+  },
+  {
+    "key": "core/inference.py::infer::urllib.request.Request::1",
+    "file": "core/inference.py",
+    "line": 129,
+    "source_line": "    req = urllib.request.Request(",
+    "old_class": "LOOPBACK_IPC",
+    "new_class": "FALSE_POSITIVE",
+    "changed": true,
+    "row_adjudication": "Author exact-granularity error corrected: pure Request construction separated from actual network send.",
+    "file_call_chain_adjudication": "Re-read health GET20, Request129 and send140 plus inference_v2 fallback/startup. Request is FP (object only), urlopen actual LOOPBACK_IPC. Full-prompt send/native proxy/no endpoint auth and missing legacy perrequest budget remain explicit, no global READ claim."
+  },
+  {
+    "key": "core/inference_hybrid.py::ChatCompletionBackend.infer::urllib.request.Request::1",
+    "file": "core/inference_hybrid.py",
+    "line": 504,
+    "source_line": "            req = urllib.request.Request(",
+    "old_class": "LOOPBACK_IPC",
+    "new_class": "FALSE_POSITIVE",
+    "changed": true,
+    "row_adjudication": "Author exact-granularity error corrected: pure Request construction separated from actual network send.",
+    "file_call_chain_adjudication": "Re-read5effects and infer context-admission-before-send/finally release, constructor host/default, blocking/stream paths. Request504 FP, sends598/673 and health/socket actual LOOPBACK_IPC. Caller-custom host/proxy/redirect trust retained; admission is not authorization."
+  },
+  {
+    "key": "core/inference_openrouter.py::OpenRouterBackend.infer::urllib.request.Request::1",
+    "file": "core/inference_openrouter.py",
+    "line": 104,
+    "source_line": "            req = urllib.request.Request(",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "FALSE_POSITIVE",
+    "changed": true,
+    "row_adjudication": "Author exact-granularity error corrected: pure Request construction separated from actual network send.",
+    "file_call_chain_adjudication": "Re-read3effects plus configured backend constructor/get_remote_backend and inference_v2 callers. Request104 FP including bearer held in memory only; actual urllib sends129/156 OPERATOR_BOOTSTRAP prod-confirmless per coordinator, full prompt/key egress no perrequest audit/filter/endpoint scheme validation. NEW936 privacy question still deferred."
+  },
+  {
+    "key": "core/loader_v2.py::LlamaServer._spawn_locked::*.mkdir::1",
+    "file": "core/loader_v2.py",
+    "line": 826,
+    "source_line": "                log_file.parent.mkdir(parents=True, exist_ok=True)",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read18effects and ModelLoader entry/reserve/on_spawn/bind/lock/spawn/stop/foreign capture. Three log mkdir/truncate/append rows now narrow BOOKKEEPING; fixed --version subprocess and model Popen stay OPERATOR_BOOTSTRAP. Request1090 FP; send1097 and health probes LOOPBACK_IPC. Owned3signals BK with original session/retained child; exact foreign TERM/KILL helper remains UNMEDIATED HIGH queuedNEW983 despite boot/start/UID safety. Per-port lock3rows BK; resource admission not action authority."
+  },
+  {
+    "key": "core/loader_v2.py::LlamaServer._spawn_locked::open::1",
+    "file": "core/loader_v2.py",
+    "line": 828,
+    "source_line": "                with open(log_file, \"w\") as f:",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read18effects and ModelLoader entry/reserve/on_spawn/bind/lock/spawn/stop/foreign capture. Three log mkdir/truncate/append rows now narrow BOOKKEEPING; fixed --version subprocess and model Popen stay OPERATOR_BOOTSTRAP. Request1090 FP; send1097 and health probes LOOPBACK_IPC. Owned3signals BK with original session/retained child; exact foreign TERM/KILL helper remains UNMEDIATED HIGH queuedNEW983 despite boot/start/UID safety. Per-port lock3rows BK; resource admission not action authority."
+  },
+  {
+    "key": "core/loader_v2.py::LlamaServer._spawn_locked::open::2",
+    "file": "core/loader_v2.py",
+    "line": 863,
+    "source_line": "                log_fd = open(log_file, \"a\")",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read18effects and ModelLoader entry/reserve/on_spawn/bind/lock/spawn/stop/foreign capture. Three log mkdir/truncate/append rows now narrow BOOKKEEPING; fixed --version subprocess and model Popen stay OPERATOR_BOOTSTRAP. Request1090 FP; send1097 and health probes LOOPBACK_IPC. Owned3signals BK with original session/retained child; exact foreign TERM/KILL helper remains UNMEDIATED HIGH queuedNEW983 despite boot/start/UID safety. Per-port lock3rows BK; resource admission not action authority."
+  },
+  {
+    "key": "core/loader_v2.py::LlamaServer.infer::urllib.request.Request::1",
+    "file": "core/loader_v2.py",
+    "line": 1090,
+    "source_line": "                req = urllib.request.Request(",
+    "old_class": "LOOPBACK_IPC",
+    "new_class": "FALSE_POSITIVE",
+    "changed": true,
+    "row_adjudication": "Author exact-granularity error corrected: pure Request construction separated from actual network send.",
+    "file_call_chain_adjudication": "Re-read18effects and ModelLoader entry/reserve/on_spawn/bind/lock/spawn/stop/foreign capture. Three log mkdir/truncate/append rows now narrow BOOKKEEPING; fixed --version subprocess and model Popen stay OPERATOR_BOOTSTRAP. Request1090 FP; send1097 and health probes LOOPBACK_IPC. Owned3signals BK with original session/retained child; exact foreign TERM/KILL helper remains UNMEDIATED HIGH queuedNEW983 despite boot/start/UID safety. Per-port lock3rows BK; resource admission not action authority."
+  },
+  {
+    "key": "core/plannd.py::_get_plan_remote::urllib.request.Request::1",
+    "file": "core/plannd.py",
+    "line": 671,
+    "source_line": "        request = _req.Request(",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "FALSE_POSITIVE",
+    "changed": true,
+    "row_adjudication": "Author exact-granularity error corrected: pure Request construction separated from actual network send.",
+    "file_call_chain_adjudication": "Re-read4effects and daemon/planner_client entry, operator remote selector and local context lease ordering. Both Request constructors FP; local send947 LOOPBACK_IPC, remote send698 OPERATOR_BOOTSTRAP with full prompt/bearer/provider/proxy and NEW936 deferred privacy limits. No HTTP before local admission; direct remote configured API not human confirmation."
+  },
+  {
+    "key": "core/plannd.py::get_plan::urllib.request.Request::1",
+    "file": "core/plannd.py",
+    "line": 837,
+    "source_line": "    req = urllib.request.Request(",
+    "old_class": "LOOPBACK_IPC",
+    "new_class": "FALSE_POSITIVE",
+    "changed": true,
+    "row_adjudication": "Author exact-granularity error corrected: pure Request construction separated from actual network send.",
+    "file_call_chain_adjudication": "Re-read4effects and daemon/planner_client entry, operator remote selector and local context lease ordering. Both Request constructors FP; local send947 LOOPBACK_IPC, remote send698 OPERATOR_BOOTSTRAP with full prompt/bearer/provider/proxy and NEW936 deferred privacy limits. No HTTP before local admission; direct remote configured API not human confirmation."
+  },
+  {
+    "key": "core/process_identity.py::OwnedLaunch.run::open::1",
+    "file": "core/process_identity.py",
+    "line": 596,
+    "source_line": "                with open(self.log_file, \"ab\", buffering=0) as log:",
+    "old_class": "OPERATOR_BOOTSTRAP",
+    "new_class": "BOOKKEEPING",
+    "changed": true,
+    "row_adjudication": "Author scope/taxonomy refinement: separate fixed metadata/log effect from surrounding bootstrap/process effect, after actual target/caller read.",
+    "file_call_chain_adjudication": "Re-read16effects, lifecycle locked bounded snapshots/process_info identity generation, OwnedLaunch startup/readiness/failure guardian, secret env table/ready pipe. Change exact run log open596 to BOOKKEEPING while Popen597 remains OPERATOR_BOOTSTRAP. Remaining state metadata BK, O_RDONLY _read READ, path insert bootstrap. Durable signal BK narrow target-safe service mechanics not NATIVE auth; inspect generation/snapshots twice, kernel no-pidfd race remains. Reap only retained exact Popen; no generic os.kill claim."
+  },
+  {
+    "key": "core/resource_gate.py::_tokenize_via_server::urllib.request.Request::1",
+    "file": "core/resource_gate.py",
+    "line": 4537,
+    "source_line": "        req = urllib.request.Request(",
+    "old_class": "LOOPBACK_IPC",
+    "new_class": "FALSE_POSITIVE",
+    "changed": true,
+    "row_adjudication": "Author exact-granularity error corrected: pure Request construction separated from actual network send.",
+    "file_call_chain_adjudication": "Re-read13effects: fixed paths/lock/temp JSON/fsync/replace/cleanup, signal0 precheck, stale ephemeral session marker unlink, /slots GET and /tokenize Request/send. Request4537 FP; send4540 and GET4488 LOOPBACK_IPC, host argument/proxy trust explicit. Remaining fixed records BK, two signal0 READ. No blanket nonbusiness exemption or inferred HIGH process permission."
+  }
+]

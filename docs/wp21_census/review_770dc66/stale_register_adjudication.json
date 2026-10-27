@@ -1,0 +1,97 @@
+{
+  "frozen_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "canonical_register_sha256": "f405a6715247c0781abb3232b836d9417fb15d1c46a18b741a7820672a6dcf3f",
+  "stale_entries": [
+    {
+      "old_key": "bench/runner.py::run_suite::*.mkdir::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "bench/runner.py::_run_snapshotted::*.mkdir::1",
+      "reason": "Effects moved into _run_snapshotted after run_suite owns the suite snapshot and verifies evaluator lock; no disappearance of effect.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "bench/runner.py::run_suite::open::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "bench/runner.py::_run_snapshotted::open::1",
+      "reason": "Effects moved into _run_snapshotted after run_suite owns the suite snapshot and verifies evaluator lock; no disappearance of effect.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "bench/runner.py::run_suite::shutil.copytree::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "bench/runner.py::_run_snapshotted::shutil.copytree::1",
+      "reason": "Effects moved into _run_snapshotted after run_suite owns the suite snapshot and verifies evaluator lock; no disappearance of effect.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "bench/runner.py::run_suite::tempfile.TemporaryDirectory::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "bench/runner.py::_run_snapshotted::tempfile.TemporaryDirectory::1",
+      "reason": "Effects moved into _run_snapshotted after run_suite owns the suite snapshot and verifies evaluator lock; no disappearance of effect.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "bench/verify.py::grade::subprocess.run::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "bench/verify.py::_run_hardened::subprocess.run::1",
+      "reason": "Shared hardened pytest launcher now owns subprocess call, invoked by grade/reference collection. Existing test records do not prove native isolation.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "ccos/core/plugin_manager.py::ProcessSupervisor.start_external_plugin::subprocess.Popen::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "ccos/core/plugin_manager.py::ProcessSupervisor.start_external_plugin.<locals>._spawn::subprocess.Popen::1",
+      "reason": "Popen moved into actual gateway execute closure; spawn was not deleted. C6 mandatory review must verify order and residual process_spec authority.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "core/lora_import.py::_confirm_on_tty::os.write::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "core/tty_confirm.py::confirm_on_tty::os.write::1",
+      "reason": "Prompt os.write moved into shared tty_confirm.confirm_on_tty; lora wrapper delegates with open_tty seam. HIGH action still owns actual callback; tty write itself is not deployment.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "core/setup_dr_key.py::main::*.mkdir::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "core/setup_dr_key.py::main.<locals>._generate_and_store::*.mkdir::1",
+      "reason": "Key generation/storage moved inside post-confirmation callback; operator /dev/tty gate not generic gate_exec. No actual key generation in closure.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "core/setup_dr_key.py::main::open::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "core/setup_dr_key.py::main.<locals>._generate_and_store::open::1",
+      "reason": "Key generation/storage moved inside post-confirmation callback; operator /dev/tty gate not generic gate_exec. No actual key generation in closure.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    },
+    {
+      "old_key": "tools/provision_ai_agent_auth.py::provision::*.execute::1",
+      "old_class": "UNKNOWN",
+      "action": "replace stale key with separately authored and reviewed current exact key",
+      "current_key": "tools/provision_ai_agent_auth.py::provision.<locals>._run::*.execute::1",
+      "reason": "SQL effect moved into _run after shared prompt path; explicit operator provisioning authority and partial-state limits remain.",
+      "adjudicated_by": "/root",
+      "reviewed_by": ""
+    }
+  ],
+  "note": "Proposed manual reconciliation only; canonical register NOT edited. No authority inference from moving a key. Current keys independently classified in C units; retain original inventory/history."
+}

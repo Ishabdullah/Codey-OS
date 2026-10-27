@@ -1,0 +1,78 @@
+{
+ "rows": 1467,
+ "candidate_sha256": "5279004783c2c3dc37208f061d76c97fdb1ec558d5eabbcd27dc61f1a8d0de7d",
+ "frozen_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+ "class_counts": {
+  "OPERATOR_BOOTSTRAP": 223,
+  "OPERATOR_SCRIPT_RUNNABLE": 149,
+  "UNMEDIATED": 28,
+  "BOOKKEEPING": 242,
+  "GATED": 122,
+  "DORMANT": 33,
+  "FALSE_POSITIVE": 88,
+  "READ_NOEFFECT": 22,
+  "NATIVE_AUTHORITY": 537,
+  "LOOPBACK_IPC": 23
+ },
+ "unknown": 0,
+ "packets": [
+  {
+   "unit": "C1",
+   "file": "C1_reviewed_dispositions.tsv",
+   "sha256": "82d69cffc9b2ab99ba584e3e26ab7d2321b7cceaded0f5c55a3cbcfa8ea76ecb",
+   "rows": 355,
+   "rows_with_reviewed_by": 355
+  },
+  {
+   "unit": "C2",
+   "file": "C2_reviewed_dispositions.tsv",
+   "sha256": "869f8fb9e2a1581c973e9d6e40d1b09479835f475ba51f6e3695969ca518eec9",
+   "rows": 304,
+   "rows_with_reviewed_by": 304
+  },
+  {
+   "unit": "C3",
+   "file": "C3_reviewed_dispositions.tsv",
+   "sha256": "6aa4c6a43a39b4a9a4a5708764e6aa793c79212a322b28db37cd3b645ba03706",
+   "rows": 159,
+   "rows_with_reviewed_by": 159
+  },
+  {
+   "unit": "C4",
+   "file": "C4_FRESH_reviewed_dispositions.tsv",
+   "sha256": "456cadbfe0ca6b67f19edbc46a160a4549e6d4e6538e648ba421683a237f4a21",
+   "rows": 153,
+   "rows_with_reviewed_by": 85
+  },
+  {
+   "unit": "C5",
+   "file": "C5_FRESH3_dispositions.tsv",
+   "sha256": "7bbfdaf657ce0b823c523890b83e982c483a6db58d3462f780b3c80915e3cfd8",
+   "rows": 179,
+   "rows_with_reviewed_by": 0
+  },
+  {
+   "unit": "C6",
+   "file": "C6_FRESH_dispositions.tsv",
+   "sha256": "d61a5afb88cec10c6462f25670d228648981b361e1d4cb7abeac7f55395857ff",
+   "rows": 181,
+   "rows_with_reviewed_by": 0
+  },
+  {
+   "unit": "C7",
+   "file": "C7_reviewed_dispositions.tsv",
+   "sha256": "1b1d15982fdf1c0a8b7955de57da4c2a00f976ead85b39db3ad71f7887826909",
+   "rows": 136,
+   "rows_with_reviewed_by": 58
+  }
+ ],
+ "old_register_rows": 1337,
+ "old_keys_not_carried_into_candidate": [],
+ "old_aggregates_expanded": 192,
+ "old_exact_keys_matched": 1135,
+ "stale_mappings_applied": 10,
+ "aggregate_expanded_rows": 304,
+ "rows_without_ancestor": 18,
+ "rows_first_seen_changed_by_inheritance": 1439,
+ "canonical_register_edited": false
+}

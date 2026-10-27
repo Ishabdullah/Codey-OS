@@ -1,0 +1,330 @@
+{
+  "seed": 77020261103,
+  "unit": "C6_FRESH",
+  "random_denominator": 46,
+  "initial_disagreements": 0,
+  "initial_rate_percent": 0.0,
+  "non_blind": true,
+  "non_blind_note": "Literal count from a non-blind review: the author's labels were open. Zero class disagreements on the 46 random keys and on the 87 unique reviewed keys. This is not an independent-agreement rate.",
+  "differences": [],
+  "class_diff_adjudication_vs_old_c6": {
+    "count": 24,
+    "accepted": 24,
+    "changed_by_reviewer": 0,
+    "entries": [
+      {
+        "key": "ccos/core/device_manager.py::_run_cmd::subprocess.run::1",
+        "old_c6_class": "READ_NOEFFECT",
+        "fresh_author_class": "DORMANT",
+        "reviewer_decision": "accept DORMANT (not READ_NOEFFECT)",
+        "reviewer_class": "DORMANT",
+        "basis": "Effect is read-only fixed-argv probes (lspci, nvidia-smi query, pactl list, df -h, hostname -I, lsusb, bluetoothctl devices); READ_NOEFFECT would overclaim because pactl can autospawn a daemon. Reach verified: get_device_manager importers are planner.py, reflection_engine.py, tool_router.py, reached only via ccos orchestration (agent_orchestrator, lifecycle_manager) and demos; bench/scorecard.py is an AST analyzer, not a caller."
+      },
+      {
+        "key": "ccos/core/memory/ccos_memory.py::StructuredDB.record_skill_use::*.execute::1",
+        "old_c6_class": "BOOKKEEPING",
+        "fresh_author_class": "DORMANT",
+        "reviewer_decision": "accept DORMANT (not BOOKKEEPING)",
+        "reviewer_class": "DORMANT",
+        "basis": "grep of non-test frozen tree: zero call sites for .set_config( .set_preference( .store_skill( .record_skill_use( ; StructuredDB is only instantiated at ccos_memory.py:348 as self.structured."
+      },
+      {
+        "key": "ccos/core/memory/ccos_memory.py::StructuredDB.set_config::*.execute::1",
+        "old_c6_class": "BOOKKEEPING",
+        "fresh_author_class": "DORMANT",
+        "reviewer_decision": "accept DORMANT (not BOOKKEEPING)",
+        "reviewer_class": "DORMANT",
+        "basis": "grep of non-test frozen tree: zero call sites for .set_config( .set_preference( .store_skill( .record_skill_use( ; StructuredDB is only instantiated at ccos_memory.py:348 as self.structured."
+      },
+      {
+        "key": "ccos/core/memory/ccos_memory.py::StructuredDB.set_preference::*.execute::1",
+        "old_c6_class": "BOOKKEEPING",
+        "fresh_author_class": "DORMANT",
+        "reviewer_decision": "accept DORMANT (not BOOKKEEPING)",
+        "reviewer_class": "DORMANT",
+        "basis": "grep of non-test frozen tree: zero call sites for .set_config( .set_preference( .store_skill( .record_skill_use( ; StructuredDB is only instantiated at ccos_memory.py:348 as self.structured."
+      },
+      {
+        "key": "ccos/core/memory/ccos_memory.py::StructuredDB.store_skill::*.execute::1",
+        "old_c6_class": "BOOKKEEPING",
+        "fresh_author_class": "DORMANT",
+        "reviewer_decision": "accept DORMANT (not BOOKKEEPING)",
+        "reviewer_class": "DORMANT",
+        "basis": "grep of non-test frozen tree: zero call sites for .set_config( .set_preference( .store_skill( .record_skill_use( ; StructuredDB is only instantiated at ccos_memory.py:348 as self.structured."
+      },
+      {
+        "key": "ccos/core/plugin_manager.py::PluginManager._call_capability.<locals>._execute::urllib.request.urlopen::1",
+        "old_c6_class": "NATIVE_AUTHORITY",
+        "fresh_author_class": "GATED",
+        "reviewer_decision": "accept GATED (not NATIVE_AUTHORITY)",
+        "reviewer_class": "GATED",
+        "basis": "_execute() defined at plugin_manager.py:1638, urlopen at :1661, passed as execute= to gateway.gate_exec at :1673; decision.allowed is required before the POST."
+      },
+      {
+        "key": "ccos/core/plugin_manager.py::ProcessSupervisor._remove_owned_record::os.open::1",
+        "old_c6_class": "BOOKKEEPING",
+        "fresh_author_class": "READ_NOEFFECT",
+        "reviewer_decision": "accept READ_NOEFFECT for the os.open row only",
+        "reviewer_class": "READ_NOEFFECT",
+        "basis": "plugin_manager.py:578 is os.open(path, O_RDONLY|O_NOFOLLOW|O_NONBLOCK). The companion path.unlink row (586) keeps BOOKKEEPING; it is not reclassified."
+      },
+      {
+        "key": "ccos/core/sandbox.py::Sandbox.__init__::tempfile.mkdtemp::1",
+        "old_c6_class": "BOOKKEEPING",
+        "fresh_author_class": "DORMANT",
+        "reviewer_decision": "accept DORMANT over BOOKKEEPING",
+        "reviewer_class": "DORMANT",
+        "basis": "Sandbox.__init__ mkdtemp (sandbox.py:191) and cleanup rmtree (348) act on the scratch root that also holds the executable sandbox_exec.py. That is not group-12 persistent state, so BOOKKEEPING would borrow the wrong recording contract. Reach: get_sandbox() consumers are only the CapabilityOptimizer and SkillRecombiner singletons, reached only through lifecycle/loop/demos; cleanup() has no non-test caller."
+      },
+      {
+        "key": "ccos/core/sandbox.py::Sandbox.cleanup::shutil.rmtree::1",
+        "old_c6_class": "BOOKKEEPING",
+        "fresh_author_class": "DORMANT",
+        "reviewer_decision": "accept DORMANT over BOOKKEEPING",
+        "reviewer_class": "DORMANT",
+        "basis": "Sandbox.__init__ mkdtemp (sandbox.py:191) and cleanup rmtree (348) act on the scratch root that also holds the executable sandbox_exec.py. That is not group-12 persistent state, so BOOKKEEPING would borrow the wrong recording contract. Reach: get_sandbox() consumers are only the CapabilityOptimizer and SkillRecombiner singletons, reached only through lifecycle/loop/demos; cleanup() has no non-test caller."
+      },
+      {
+        "key": "ccos/core/sandbox.py::Sandbox.create_workspace::*.mkdir::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "UNMEDIATED",
+        "reviewer_decision": "accept UNMEDIATED LOW (NEW-1097)",
+        "reviewer_class": "UNMEDIATED",
+        "basis": "sandbox.py:339-342 joins self._tmp_dir / name with no single-component or resolved-containment check, then mkdir. No caller (verified). Matches the ledger entry NEW-1097."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::*.write_text::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::2",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::3",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::4",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::subprocess.run::5",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::_make_throwaway_repo::tempfile.mkdtemp::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::test_detect_conflicts_clean_repo::shutil.rmtree::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::test_git_commit_and_branch_on_throwaway_repo::*.write_text::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::test_git_commit_and_branch_on_throwaway_repo::shutil.rmtree::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::test_is_git_repo_on_non_repo::shutil.rmtree::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::test_is_git_repo_on_non_repo::tempfile.mkdtemp::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::test_status_reflects_changes::*.write_text::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      },
+      {
+        "key": "ccos/plugins/coding/git_integration/test.py::test_status_reflects_changes::shutil.rmtree::1",
+        "old_c6_class": "DORMANT",
+        "fresh_author_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "reviewer_decision": "accept OPERATOR_SCRIPT_RUNNABLE (not DORMANT)",
+        "reviewer_class": "OPERATOR_SCRIPT_RUNNABLE",
+        "basis": "Agreed spec convention for demo/plugin-test scripts, including import/bootstrap rows. Evidence states the actual effects (throwaway git repos, fixed _pathutil bootstrap). Accepted under the F2/NEW-1069 script-file ceiling."
+      }
+    ]
+  },
+  "warnings_non_blocking": [
+    {
+      "id": "W1",
+      "blocking": false,
+      "key": "ccos/plugins/device/termux_api/extended_api.py::_run::subprocess.run::1",
+      "issue": "NATIVE_AUTHORITY evidence names only the 41-name termux_api manifest. termux_api_extended/manifest.json declares 19 more unlisted, untagged names (entry extended.py) that route to extended_api functions calling the same _run (extended.py lines 2-21; manifest impl strings termux_api_extended:audio_info etc.).",
+      "outcome": "Same: both manifests have no CAPABILITY_AUTHORITY entry and no raise tags, so _authority_for returns None and call_capability refuses (plugin_manager.py:1565-1577). Class unchanged.",
+      "requested_fix": "Text-only: add termux_api_extended/extended.py -> extended_api._run to the row evidence. Changes the TSV hash; re-seal."
+    },
+    {
+      "id": "W2",
+      "blocking": false,
+      "keys": [
+        "ccos/core/sandbox.py::Sandbox.run_python::*.write_text::1",
+        "ccos/core/sandbox.py::Sandbox.run_command::subprocess.run::1"
+      ],
+      "issue": "Evidence does not record that the optimizer no-test fallback (capability_optimizer.py:355-360) executes the staged candidate through run_python -> run_command (shell=True) before any gate. DORMANT labels stay correct for reach; the row trace is incomplete.",
+      "requested_fix": "Text-only: cite capability_optimizer.py:355-360 in the run_command/run_python evidence, linked to the proposed finding P1."
+    },
+    {
+      "id": "W3",
+      "blocking": false,
+      "keys": [
+        "ccos/core/plugin_manager.py::PluginManager._load::importlib.util.module_from_spec::1",
+        "ccos/core/plugin_manager.py::PluginManager._load::importlib.util.spec_from_file_location::1"
+      ],
+      "issue": "The executing step spec.loader.exec_module(module) at plugin_manager.py:1208 has no row (see P3). Row labels OPERATOR_BOOTSTRAP while reach is prod-confirmless (canonical plugin activation on production startup). Class label vocabulary should be confirmed by the coordinator.",
+      "requested_fix": "Coordinator to confirm label vocabulary; resolve together with P3."
+    },
+    {
+      "id": "W4",
+      "blocking": false,
+      "key": "ccos/plugins/system/system_info/system_info.py::_safe_command::sys.path.append::1",
+      "issue": "Process-global sys.path.append of the fixed repo root inside READ-listed system.processes at call time (only on ImportError fallback). OPERATOR_BOOTSTRAP fits poorly.",
+      "requested_fix": "Suggestion only; no security impact found."
+    },
+    {
+      "id": "W5",
+      "blocking": false,
+      "keys": [
+        "ccos/core/task_blackboard.py::TaskBlackboard.cleanup_task.<locals>.reset::*.execute::1"
+      ],
+      "issue": "Mediator correction helper-of:gate_exec -> gate_exec is checker-compatible (lexgate empty). The true mediator is persistence_reset._gate_reset (persistence_reset.py:10-28, gate_exec at :21, confirm_available=callable(confirm) and not False). Evidence names _gate_reset, so the record is accurate.",
+      "requested_fix": "None required."
+    },
+    {
+      "id": "W6",
+      "blocking": false,
+      "key": "*evidence text*",
+      "issue": "Compacted words in evidence strings (for example canonicaldead x3, ordinarypublicdispatch x2, effectiveREAD, permissionsraise[]). Same house style as approved C5 evidence (for example Onlyproduction).",
+      "requested_fix": "Suggestion only."
+    },
+    {
+      "id": "W7",
+      "blocking": false,
+      "key": "census",
+      "issue": "Stale claim surfaces: sandbox.py:23-25 docstring says staged candidates are refused by the sandbox. NEW-990(7) says the real sandbox rejects staged candidates. Both are true only for the recombiner test.py cwd path, and false for the optimizer no-test fallback (see P1). Rule 6: the record should be corrected by the coordinator.",
+      "requested_fix": "Coordinator/ledger correction; reviewer does not edit NEW_ISSUES.md."
+    }
+  ],
+  "proposed_findings_assessed": {
+    "P1_optimizer_no_test_fallback_executes_candidate": {
+      "author_proposal": "Optimizer no-test.py fallback runs run_python on code that exec_modules the staged candidate (capability_optimizer.py:353-360).",
+      "genuinely_new": true,
+      "ledger_check": "Not in NEW-980, NEW-981, NEW-989, NEW-990, NEW-1096, NEW-1097, NEW-1086 or NEW-954 as a candidate-execution or quoting mechanism. NEW-990(7) states the opposite for the recombiner only.",
+      "mechanism_verified": [
+        "capability_optimizer.py:355-360: run_python(f\"import importlib.util; spec = importlib.util.spec_from_file_location('test', '{new_path}'); ... spec.loader.exec_module(mod) ...\") (exec_module at :357).",
+        "sandbox.py:273-290 run_python writes sandbox_exec.py (write at :284) into self._tmp_dir and runs `python3 <file>` with cwd = tmp root (inside ALLOWED_DIRS via tempfile.gettempdir()).",
+        "sandbox.py:132-180 _find_disallowed_path_token scans only the command string; the staged path is inside the file, so it is never checked.",
+        "optimize(): test_improvement (line 544) runs before compare_and_upgrade's gate (line 550). Gate-after-execution."
+      ],
+      "injection_verified_static": "new_path is interpolated inside single quotes. Capability dots are replaced by _ (line 235), so the payload must be dot-free. Rebuilt line with cap x'+getattr(__import__('os'),'system')('id')+'y: ast.parse ok, Call names ['__import__','getattr','print']. Parse only, nothing executed.",
+      "reach": "dormant. Requires CODEY_SELF_IMPROVE != off (optimize() line 523, self_improve.enabled), AutoImprovementLoop.after_task with _auto_optimize, and LifecycleManager.after_task (lifecycle_manager.py:195). Only non-test importers are demo_goal_engine, demo_improvement_loop and demo_skill_recombiner. shadow mode also reaches it.",
+      "proposed_severity": "LOW, dormant. Conditional HIGH only if shadow/on is wired to a production lifecycle caller AND a registry name containing a quote can be written (NEW-1086: capabilities.json is writable without a prompt in non-tty REPL and --yolo).",
+      "stop_unit_rule": "Does not trigger. Dormant, not a confirm-less production HIGH boundary.",
+      "cross_refs": [
+        "NEW-990(7)",
+        "NEW-1086",
+        "NEW-1096",
+        "NEW-981",
+        "NEW-954 (same class, different module)"
+      ],
+      "rule6": "sandbox.py:23-25 docstring and NEW-990(7) overstate sandbox refusal of staged candidates."
+    },
+    "P2_recombiner_generate_plugin_code_unescaped_capability": {
+      "author_proposal": "generate_plugin_code embeds step.capability unescaped in \"...\" literals.",
+      "genuinely_new": true,
+      "ledger_check": "Not in NEW-976, NEW-990 or NEW-1086 as an interpolation/quoting mechanism. The only regex check at skill_recombiner.py:617 validates dir_name from skill.name. Same class as NEW-954 (codeyOS CLI interpolation), different module.",
+      "mechanism_verified": [
+        "skill_recombiner.py:345 `_execute_step(\"{step.capability}\", step_{i}_input)`; :349/:357 repeat the capability inside JSON-like dict literals; :331 embeds ' -> '.join(capabilities) inside a triple-quoted docstring.",
+        "skill_recombiner.py:617 `re.fullmatch(r\"[A-Za-z0-9_]+\", dir_name)` runs on skill.name = 'skill.' + '_'.join(c.split('.')[-1]) (generate_skill lines 261-262). Only the last dot-component of each capability is checked.",
+        "Static check: payload vision.a\")+__import__(\"os\").system(\"id\")+(\"x.b with speech.tts gives name skill.b_tts; regex passes; generated line parses with a __import__ Call (ast.parse, nothing executed)."
+      ],
+      "source_of_capability": "_extract_chains reads workflow `steps` JSON (unvalidated) and detect_patterns builds sequences from them; registry names are also unvalidated (NEW-1086).",
+      "reach": "dormant. analyze_and_generate runs only from demo_skill_recombiner (default gate None -> no_evaluator). Sandbox test.py run is refused because the staging cwd is outside ALLOWED_DIRS (skill_recombiner.py:614-616 comment; NEW-990(7)), so no pre-deploy execution. Impact arrives only after a confirmed HIGH deploy copies pipeline.py into a discovery root.",
+      "proposed_severity": "LOW, dormant. Staging executes nothing in production; deploy requires a confirmation that shows no content (prompt text 'compound skill promotion').",
+      "cross_refs": [
+        "NEW-954 (same class)",
+        "NEW-976",
+        "NEW-990",
+        "NEW-1086"
+      ]
+    },
+    "P3_exec_module_census_scanner_gap": {
+      "author_proposal": "Disclosed in the author's row evidence only (not a proposed finding).",
+      "genuinely_new": true,
+      "ledger_check": "Not logged. Reviewer-found census-tool gap.",
+      "mechanism_verified": [
+        "Frozen tools/wp21_census.py DYN_EXACT (lines 146-150) lists exec, eval, compile, __import__, importlib.import_module, spec_from_file_location, module_from_spec, pickle/marshal/yaml loads, runpy/ctypes prefixes. No exec_module or load_module; attribute sets (ATTR_FS, KILL_ATTR) do not cover it.",
+        "Zero exec_module rows in all seven unit scans: C1..C7_scan.tsv (grep count 0 each).",
+        "Real non-test call sites in the frozen tree: ccos/core/plugin_manager.py:1208 (production plugin activation) and ccos/core/skill_recombiner.py:815 (dormant). String-template sites: skill_recombiner.py:430/441/452 and capability_optimizer.py:357. Tests excluded."
+      ],
+      "reach": "plugin_manager.py:1208 is on the production canonical-plugin load path; the code is in-repo.",
+      "proposed_severity": "Informational/LOW product impact; census-coverage gap that must be disposed before any closure claim of a complete effect inventory.",
+      "blocks_C6": false,
+      "requested_action": "Coordinator decision: extend the scanner (freeze-changing, re-key and re-scan all seven units) or record an explicit accepted limitation. Not a C6 row error."
+    }
+  },
+  "historical_original_disagreements": "C6 original packet (seed 77020261102, classifier root): 13/46 = 28.2609%, preserved in C6_REVIEW_DISAGREEMENTS.json (parent dir). Not replaced by this review.",
+  "verdict": "APPROVED with Warnings. No blocking class errors. Two new findings (P1, P2) are LOW/dormant and do not stop the unit. P3 is routed to the coordinator. Warnings W1-W2 need text-only evidence edits (re-seal); W3-W7 are non-blocking.",
+  "ledger_edits_by_reviewer": "none (NEW_ISSUES.md read-only)"
+}

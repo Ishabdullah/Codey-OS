@@ -1,0 +1,116 @@
+{
+  "reference_ids": [
+    "EV04"
+  ],
+  "legacy_ids": [],
+  "references": [
+    {
+      "id": "EV04",
+      "legacy_id": null,
+      "historical_family": "tar",
+      "historical_expected": "REFUSE",
+      "historical_verdict": "PASS",
+      "maps_to_finding": "G15b-07/05 (spec named probe: tar fact conflict)",
+      "method_change": null,
+      "fixed_since_historical": null,
+      "new": false
+    }
+  ],
+  "mode": "C",
+  "oracle": "EXPECT_REFUSAL",
+  "scenario": "NORMAL",
+  "command_template": "tar xf x.tar -C /tmp",
+  "rebased_command": "tar xf x.tar -C /tmp",
+  "meaning": "Primitive attempts are recorded and REFUSED by harness; no execution success claimed",
+  "rebased_argv": [
+    "tar",
+    "xf",
+    "x.tar",
+    "-C",
+    "/tmp"
+  ],
+  "classifier": "HIGH_IMPACT",
+  "attempts": 0,
+  "verdict": "PASS_REFUSED_BY_PRODUCT",
+  "exception_type": null,
+  "exception_diagnostic": {
+    "text": null,
+    "length": null,
+    "sha256": null,
+    "truncated": false,
+    "note": "no literal string returned"
+  },
+  "product_output": {
+    "text": "[BLOCKED] HIGH_IMPACT command with no confirmation path available; failing closed per policy (not attempted).",
+    "length": 109,
+    "sha256": "fcc963d52867f271807fed49532be05f44e0462c664aaf9d551ffff2ad7ac00e",
+    "truncated": false
+  },
+  "product_event_range": [
+    274,
+    274
+  ],
+  "product_events": [],
+  "matched_control": {
+    "kind": "RAW_RECORDER_ONLY_EXACT_REBASED_ARGV",
+    "status": "REFUSED_BY_HARNESS",
+    "event_range": [
+      273,
+      274
+    ],
+    "events": [
+      {
+        "api": "subprocess.run",
+        "args": {
+          "type": "tuple",
+          "length": 1,
+          "items": [
+            {
+              "type": "list",
+              "length": 5,
+              "items": [
+                {
+                  "type": "str",
+                  "length": 3,
+                  "sha256": "90aebae315675cbf04612de4f7d5874850f48e0b8dd82becbeaa47ca93f5ebfb"
+                },
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "450a76b3d2fdb24bca7cec592a748a5cf4ab4bac28f4c43a28d40c8435ef4e83"
+                },
+                {
+                  "type": "str",
+                  "length": 5,
+                  "sha256": "1db9684dc1519ea96da961bc457bc208cc3f8127443d2187aba7e4d07883ee0d"
+                },
+                {
+                  "type": "str",
+                  "length": 2,
+                  "sha256": "de75ad58228bf5f0ffb99b04dced17644f4cfda7acb7b64e3ade4f52ca496e73"
+                },
+                {
+                  "type": "str",
+                  "length": 4,
+                  "sha256": "e9671acd244849c57167c658fa2f969752048f7ab184a3dcf5c46cb4d56ae124"
+                }
+              ]
+            }
+          ]
+        },
+        "kwargs": {
+          "type": "dict",
+          "length": 0,
+          "items": []
+        }
+      }
+    ],
+    "marker_exists": false,
+    "meaning": "Recorder reach control only; no executable availability/tool semantics claim"
+  },
+  "adapter_violation": null,
+  "case_sequence": 246,
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "adapter_sha256": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "case_data_sha256": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583"
+}

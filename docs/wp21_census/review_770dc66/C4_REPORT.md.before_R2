@@ -1,0 +1,83 @@
+# C4 author classification — ready for independent review, NOT registered
+
+Author /root/project_architect. Frozen770dc6639e4100ea3215fca07d923769a8290078; exact C4_scan.tsv ownership153 rows/23files. C4_dispositions.tsv uses exact standard11columns, all reviewed_by BLANK; no register/ledger/source/index changes. No product import, process/model/network/DB execution or tests run; only stdlib parsing/CSV/hash/source reads and scratch author output. Actual code+reverse callers reviewed, with all23source and71combined source/caller/test/document hashes matched frozen archive job manifest. Test citations identify static fixture scope, not a new execution/pass claim.
+
+## Result and independent review requirement
+
+153 exact keys, no duplicates, no missing/extra, zeroUNKNOWN; counts58BOOKKEEPING,29OPERATOR_BOOTSTRAP,25LOOPBACK_IPC,24GATED,9DORMANT,7READ_NOEFFECT,1UNMEDIATED. TSV SHA256 3408add65cc31b9fc0e72d579c6758363cd5f588030b5baa6848ef32882eb1f3. C4_validation.json and C4_caller_test_hashes.json retain structural/hash checks. build_C4_dispositions.py plus three notes files reproduce TSV; C4_selected_source.txt contains numbered enclosing source and C4_compact_source.txt AST-unparsed function bodies as reading aids (no imports/eval of products).
+
+Independent reviewer must select ceil(153*.25)=39random original keys, then UNION all24 GATED callback/helper cases,17kill rows,1UNMEDIATED HIGH, any native/READ implementation or unmatched business mandatory set. Author selected no review sample and supplied no reviewer signature. Mediator plain gate_exec is intentional: all scan lexgate fields are blank, so no unsupported lexical:/helper-of: seed claim. Actual callback proof is in each evidence field; checker vocabulary alone does not prove it. No NATIVE_AUTHORITY shortcut used here.
+
+## Known queued boundary — no new HIGH finding found
+
+One exact UNMEDIATED HIGH key: core/loader_v2.py::_kill_single_pid_term_then_kill::os.kill::1. Real callers: primary interactive OptionC upgrade and embed stale-occupant replacement. Both prove exact immutable process identity before signals; this is lifecycle safety, NOT action gate/audit. NEW-969 repairs boot/start/UID/replacement accounting for primary OptionC. NEW-983 explicitly leaves embed foreign-stop gate/audit absent. Existing queue HIGH is retained, NOT newly accepted residual or closure-approved; final signoff must show it. No new unledgered irreversible confirm-less HIGH boundary was discovered, so no source fix/ID minting or freeze change was authorized.
+
+Coordinator confirmed taxonomy for actual fixed primary/embed startup and explicit operator-selected remote backend: OPERATOR_BOOTSTRAP with prod-confirmless reach is permitted when exact installed profile, config/data trust and missing action gate are disclosed. Resource gates/locks do not grant action authority; no extension to arbitrary model/task spawn.
+
+## Cross-cutting actual boundaries and limitations
+
+- Process spawning: loader ModelLoader load_primary reserves/binds resource slot then per-port lock before fixed installed llama profile; exact Popen/session stored immediately. Embed fixed profile is ACCOUNTED-BUT-ADMISSION-EXEMPT by design, not mislabeled resource-admitted. daemon startup and service finite profile worker have configured absolute path/lock contracts. Direct imported Python/private mechanics and mutable sameUID installation/env remain NEW-1069 ceiling; never call this arbitrary subprocess safety.
+- Owned signals: retained exact Popen handles and own session group validation differ from durable PID sidecar validation. Owned cleanup waits/reaps before releasing accounting and preserves failed cleanup debt. Foreign helper identity rechecks still have kernel check-to-signal race/no pidfd and sameUID forgery limits. No bare-name kills. Signal0 rows are diagnostic only and confer no subsequent signal authorization.
+- Local HTTP: classes LOOPBACK_IPC describe actual default127.0.0.1 or configured AF_UNIX paths, not authenticated peers. Generation/embedding/tokenize POSTs send prompts and consume compute; they are not side-effect-free READ. ChatCompletionBackend host constructor/resource helper host arguments are trusted and can be remote; urllib ambient proxy/redirect/native server behavior are not constrained here. Resource admission protects RAM/context, not operation authority. Legacy inference HTTP fallback lacks the newer perrequest budget wrapper; canonical model startup remains separate.
+- Remote providers: explicit CODEY_BACKEND/P (defaultlocal), key/model/baseURL operator selection sends FULL prompts/CRM outputs plus bearer credential to provider. No perrequest gate/audit, secret/PII filter or scheme/host validation; proxy/redirect/provider trust retained. C:N01 is MEDIUM/INTENTIONAL per consolidated ledger, adjacent NEW-936 customer privacy question remains deferred, not approved by classification. OPERATOR_BOOTSTRAP does not assert new privacy consent.
+- Persistence: narrow docs/wp2_1_group12_persistence_contract.md covers fixed schema/recording/lease/flock/TTL coordination only. Resource state files are resource_gate_state.json/resource_gate_state.lock and resource_bus.db/resource_bus.lock. Optional explicit state_dir remains caller-relative capable NEW-775/1002. Daemon config.save is dormant unguarded API; create_default_config is operator bootstrap via finite service ACT wrapper, not blanket config exemption.
+- Constructor accuracy: memory_v2 singleton really constructs EmbeddingStore and creates fixed longterm_embeddings schema/index at import; cannot label whole module dormant. Semantic store/remove/model methods have no production Memory.store_in_longterm/search/remove calls (NEW-770), but dynamic/direct Python use remains possible. SentenceTransformer native load/download would need separate review if wired. model_registry fixed schema is genuinely import-time (NEW-812); record_adoption_attempt is parameterized diagnostic append including refused attempts. prune_adoptions remains ungated important-history deletion with no production caller, NEW-814; neither row nor group12 contract grants deletion authority. Root C5 preparation owns any such exact row; no row was invented for C4.
+- LoRA: HIGH callback _gate_lora_action encloses adoption _execute->_adopt_span and rollback _rollback_span BEFORE backup/merge/mkdir/copy/unlink/reload. --lora-force-adopt honestly overrides promotion criterion only, never tty human approval. Direct backup/merge/swap helper access remains NEW-988 queue. CCOS finetune manifest reexports backup/dataset/notebook helpers but has no core table entries, no permission raise-tags and no handler registration; ordinary _authority_for returnsNone/refuses. This actual alternate path was checked, not assumed table membership. Leaf direct-Python callable ceiling remains.
+- Finetune: main --finetune -> prepare_finetune_data ACT actual run callback -> all artifact writes, sanitization and static notebook generation. Generating notebook is not executing/training/uploading it. Direct public helper script calls lack independent gate. NEW-802/804 training/data quality limits preserved; no model/notebook/cloud tests here.
+- Voice/TTY: TTS ACT, microphone HIGH actual callback from main human-confirm factory; stop targets retained TTS handle. NEW-972 overlap/unconfirmed-stop debt accepted previously, not silently fixed. Shared /dev/tty confirmation flush-before-prompt/defaultNo refuses unavailable tty, but sameUID seam patch/self-created pty and flush/write timing/SIGTTIN limits NEW-977/990/1069 persist. No attended/live audio evidence inferred.
+
+## Per-file completion checkpoint
+
+| Frozen file | Rows | Author classes |
+| --- | ---: | --- |
+| core/background.py | 1 | DORMANT:1 |
+| core/daemon.py | 9 | LOOPBACK_IPC:2, OPERATOR_BOOTSTRAP:6, READ_NOEFFECT:1 |
+| core/daemon_bootstrap.py | 1 | OPERATOR_BOOTSTRAP:1 |
+| core/daemon_config.py | 4 | DORMANT:2, OPERATOR_BOOTSTRAP:2 |
+| core/embed_server.py | 10 | BOOKKEEPING:3, LOOPBACK_IPC:3, OPERATOR_BOOTSTRAP:3, READ_NOEFFECT:1 |
+| core/embeddings.py | 10 | BOOKKEEPING:4, DORMANT:6 |
+| core/finetune_prep.py | 8 | GATED:8 |
+| core/inference.py | 3 | LOOPBACK_IPC:3 |
+| core/inference_hybrid.py | 5 | LOOPBACK_IPC:5 |
+| core/inference_openrouter.py | 3 | OPERATOR_BOOTSTRAP:3 |
+| core/loader_v2.py | 18 | BOOKKEEPING:6, LOOPBACK_IPC:6, OPERATOR_BOOTSTRAP:5, UNMEDIATED:1 |
+| core/lora_import.py | 10 | BOOKKEEPING:1, GATED:9 |
+| core/model_registry.py | 2 | BOOKKEEPING:2 |
+| core/plannd.py | 4 | LOOPBACK_IPC:2, OPERATOR_BOOTSTRAP:2 |
+| core/process_boundary.py | 1 | GATED:1 |
+| core/process_identity.py | 16 | BOOKKEEPING:12, OPERATOR_BOOTSTRAP:3, READ_NOEFFECT:1 |
+| core/resource_bus.py | 18 | BOOKKEEPING:17, READ_NOEFFECT:1 |
+| core/resource_gate.py | 13 | BOOKKEEPING:8, LOOPBACK_IPC:3, READ_NOEFFECT:2 |
+| core/service_actions.py | 2 | GATED:1, LOOPBACK_IPC:1 |
+| core/service_lifecycle.py | 5 | BOOKKEEPING:1, OPERATOR_BOOTSTRAP:4 |
+| core/sysmon.py | 1 | READ_NOEFFECT:1 |
+| core/tty_confirm.py | 2 | BOOKKEEPING:2 |
+| core/voice.py | 7 | BOOKKEEPING:2, GATED:5 |
+
+## All17 C4 signal rows — mandatory independent review
+
+Global19 kill rows comprise17below and2C6 ProcessSupervisor.stop_external_plugin terminate/kill rows, whose exact supervisor-Popen provenance C6 reviewer must certify separately. This table is not C6 author approval.
+
+| Exact row | Actual target proof / signal semantics |
+| --- | --- |
+| core/daemon.py::Daemon._list_live_tui_session_pids::os.kill::1 | signal0 diagnostic only; no termination authorization. See row-specific marker/slot/lease source. |
+| core/embed_server.py::EmbedServer._find_pid_via_registered_slot::os.kill::1 | signal0 diagnostic only; no termination authorization. See row-specific marker/slot/lease source. |
+| core/embed_server.py::EmbedServer._signal_owned::*.kill::1 | EmbedServer.process exact retained Popen from setsid spawn; killpg only if original session_pid==proc.pid==getpgid and second poll live, else same-handle terminate/kill; no adopted-PID signaling. |
+| core/embed_server.py::EmbedServer._signal_owned::*.terminate::1 | EmbedServer.process exact retained Popen from setsid spawn; killpg only if original session_pid==proc.pid==getpgid and second poll live, else same-handle terminate/kill; no adopted-PID signaling. |
+| core/embed_server.py::EmbedServer._signal_owned::os.killpg::1 | EmbedServer.process exact retained Popen from setsid spawn; killpg only if original session_pid==proc.pid==getpgid and second poll live, else same-handle terminate/kill; no adopted-PID signaling. |
+| core/loader_v2.py::LlamaServer._signal_owned::*.kill::1 | LlamaServer.process exact retained Popen from setsid spawn; killpg only if original session_pid==proc.pid==getpgid and second poll live, else same-handle terminate/kill; no adopted-PID signaling. |
+| core/loader_v2.py::LlamaServer._signal_owned::*.terminate::1 | LlamaServer.process exact retained Popen from setsid spawn; killpg only if original session_pid==proc.pid==getpgid and second poll live, else same-handle terminate/kill; no adopted-PID signaling. |
+| core/loader_v2.py::LlamaServer._signal_owned::os.killpg::1 | LlamaServer.process exact retained Popen from setsid spawn; killpg only if original session_pid==proc.pid==getpgid and second poll live, else same-handle terminate/kill; no adopted-PID signaling. |
+| core/loader_v2.py::_kill_single_pid_term_then_kill::os.kill::1 | UNMEDIATED HIGH NEW-983; _foreign_state boot/start/UID before each TERM/KILL, capture exe/model/port eligibility; exact identity is not authority. |
+| core/process_identity.py::LifecycleRecord.signal::os.kill::1 | inspect/_inspect_pair + process_info PID,service,boot_id,start_ticks,UID and fresh snapshot comparison immediately before finite signal; no pidfd race elimination. |
+| core/process_identity.py::OwnedLaunch._reap_owned::*.kill::1 | OwnedLaunch.child exact Popen assigned run; poll/terminate/wait then kill same retained child; uncertainty retains guardian. |
+| core/process_identity.py::OwnedLaunch._reap_owned::*.terminate::1 | OwnedLaunch.child exact Popen assigned run; poll/terminate/wait then kill same retained child; uncertainty retains guardian. |
+| core/resource_bus.py::_pid_alive::os.kill::1 | signal0 diagnostic only; no termination authorization. See row-specific marker/slot/lease source. |
+| core/resource_gate.py::_pid_alive::os.kill::1 | signal0 diagnostic only; no termination authorization. See row-specific marker/slot/lease source. |
+| core/resource_gate.py::_precheck_port_liveness::os.kill::1 | signal0 diagnostic only; no termination authorization. See row-specific marker/slot/lease source. |
+| core/voice.py::VoiceManager.stop_speaking::*.kill::1 | VoiceManager._speak_proc exact Popen from ACT-gated speak; poll before terminate, timeout same-handle kill; NEW-972 replacement debt retained. |
+| core/voice.py::VoiceManager.stop_speaking::*.terminate::1 | VoiceManager._speak_proc exact Popen from ACT-gated speak; poll before terminate, timeout same-handle kill; NEW-972 replacement debt retained. |
+
+## Validation and next action
+
+Author structural validation PASS153/153exact/0UNKNOWN/0duplicates/0reviewed; all71referenced source/caller/test/document hashes equal frozen manifest. No claimed strict global census success, no final classification register edits, no runtime probes/model/process/network tests. Independent code reviewer must inspect original frozen sources/callers, classify own selected39random plus mandatory union, record disagreements/denominator before accepting author labels, and then fill reviewed_by in separate reviewed TSV. No code or ledger commit implied.

@@ -1,0 +1,42 @@
+[
+  {
+    "key": "install.sh::install_system_deps::sh:pkg-install::5",
+    "line": "114",
+    "my": "OPERATOR_BOOTSTRAP",
+    "author": "FALSE_POSITIVE",
+    "random": false,
+    "evidence": "770dc663:install.sh:114: pkg install -y espeak termux-api 2>/dev/null \\ | This category is a shell line-regex overmatch: quoted instructional/status text, non-executing variable/case/array definition, dependency name/version, availability check, or Python comparison in heredoc. Inspect literal source below and enclosing construct; this row does not execute the matched category. Distinct real effects on the same line retain their own rows; not a proof of whole-file harmlessness. Operator installer main calls system/pip installs, pinned clone/build, model downloads, chmod/config/state/token/startup/symlink/Litestream setup. Initial default-Yes read and --yes are not shared tty authorization. Token create umask077, existing nonempty preserved; DR helper has its own tty check, whole installer does not. Direct F3 bash install.sh HIGH; copied/imported opaque script ceiling NEW-1028/NEW-1069. Bootstrap effects intentionally not claimed gateway-protected. Tests test_service_manager_config.py/test_protected_paths.py cover setup strings/named restrictions, no installer executed."
+  },
+  {
+    "key": "install.sh::install_system_deps::sh:termux-cmd::1",
+    "line": "114",
+    "my": "OPERATOR_BOOTSTRAP",
+    "author": "FALSE_POSITIVE",
+    "random": false,
+    "evidence": "770dc663:install.sh:114: pkg install -y espeak termux-api 2>/dev/null \\ | This category is a shell line-regex overmatch: quoted instructional/status text, non-executing variable/case/array definition, dependency name/version, availability check, or Python comparison in heredoc. Inspect literal source below and enclosing construct; this row does not execute the matched category. Distinct real effects on the same line retain their own rows; not a proof of whole-file harmlessness. Operator installer main calls system/pip installs, pinned clone/build, model downloads, chmod/config/state/token/startup/symlink/Litestream setup. Initial default-Yes read and --yes are not shared tty authorization. Token create umask077, existing nonempty preserved; DR helper has its own tty check, whole installer does not. Direct F3 bash install.sh HIGH; copied/imported opaque script ceiling NEW-1028/NEW-1069. Bootstrap effects intentionally not claimed gateway-protected. Tests test_service_manager_config.py/test_protected_paths.py cover setup strings/named restrictions, no installer executed."
+  },
+  {
+    "key": "setup_repo.sh::<script>::sh:gh::2",
+    "line": "18",
+    "my": "OPERATOR_SCRIPT_RUNNABLE",
+    "author": "OPERATOR_BOOTSTRAP",
+    "random": false,
+    "evidence": "770dc663:setup_repo.sh:18: gh repo create \"$REPO_NAME\" --public --source=. --remote=origin --push | Operator publishing script initializes Git if needed then gh repo create --public --source=. --push or remote/add/commit/push fallback. No shared tty gate; named setup*.sh HIGH, arbitrary opaque wrapper remains ceiling. Concrete sibling already NEW-1070 and NEW-1028; not newly accepted or silently fixed. Tests test_shell_g15e_protected_scan.py/test_file_tools_protected_classification.py cover named operand protection, not publisher execution."
+  },
+  {
+    "key": "setup_repo.sh::<script>::sh:git-write::3",
+    "line": "30",
+    "my": "OPERATOR_SCRIPT_RUNNABLE",
+    "author": "OPERATOR_BOOTSTRAP",
+    "random": false,
+    "evidence": "770dc663:setup_repo.sh:30: git commit -m \"Initial commit for Codey-OS\" | Operator publishing script initializes Git if needed then gh repo create --public --source=. --push or remote/add/commit/push fallback. No shared tty gate; named setup*.sh HIGH, arbitrary opaque wrapper remains ceiling. Concrete sibling already NEW-1070 and NEW-1028; not newly accepted or silently fixed. Tests test_shell_g15e_protected_scan.py/test_file_tools_protected_classification.py cover named operand protection, not publisher execution."
+  },
+  {
+    "key": "setup_repo.sh::<script>::sh:git-write::4",
+    "line": "31",
+    "my": "OPERATOR_SCRIPT_RUNNABLE",
+    "author": "OPERATOR_BOOTSTRAP",
+    "random": false,
+    "evidence": "770dc663:setup_repo.sh:31: git push -u origin \"$BRANCH\" | Operator publishing script initializes Git if needed then gh repo create --public --source=. --push or remote/add/commit/push fallback. No shared tty gate; named setup*.sh HIGH, arbitrary opaque wrapper remains ceiling. Concrete sibling already NEW-1070 and NEW-1028; not newly accepted or silently fixed. Tests test_shell_g15e_protected_scan.py/test_file_tools_protected_classification.py cover named operand protection, not publisher execution."
+  }
+]

@@ -1,0 +1,408 @@
+{
+  "reviewer": "code-reviewer (independent, read-only; no repo edits, no git index operations, no model/service/network)",
+  "date": "2026-10-27",
+  "subject": "G15B_49_RECONCILIATION_FINAL.tsv/.md/.json (draft) versus candidate TSV",
+  "verdict": "CHANGES REQUESTED",
+  "claimed_counts": {
+    "CLOSED_CODE_REVIEW": 29,
+    "ACCEPTED_RESIDUAL": 3,
+    "PARTIAL": 11,
+    "OPEN": 6,
+    "severity_HIGH": 32,
+    "severity_MEDIUM": 10,
+    "severity_LOW": 7
+  },
+  "verified_counts": {
+    "CLOSED_CODE_REVIEW": 29,
+    "ACCEPTED_RESIDUAL": 3,
+    "PARTIAL": 11,
+    "OPEN": 6,
+    "severity_HIGH": 32,
+    "severity_MEDIUM": 10,
+    "severity_LOW": 7,
+    "note": "counts arithmetic verified from the TSV via csv.DictReader(delimiter tab); counts become 28 CLOSED / 12 PARTIAL if required row R-1 is applied"
+  },
+  "required_row_corrections": [
+    {
+      "id": "R-1",
+      "finding": "G15b-34",
+      "current": "CLOSED_CODE_REVIEW (evidence: reviewer-approved, 'Qualified closure ... borderline PARTIAL, kept CLOSED')",
+      "required": "Change final_category to PARTIAL (preferred), or split the unfixed sub-claims into a new NEW-ID with a rule-8 trigger tag and narrow the title to the fixed forms only. Either way the row must not be CLOSED while its own title names an unfixed sub-claim.",
+      "evidence": "Title says 'sink swallows OSError'. NEW-1026 body at 770dc66: 'the sink swallows OSError by design'; 'Optional hash-chain is queue'. TSV residual: 'the audit sink swallowing OSError by design is unchanged'. The TSV's own notes say 'two sub-claims ... are NOT fixed and have no trigger in the ledger'. CLAUDE.md rule 6 requires the stronger claim to be downgraded, not kept.",
+      "reviewer_check": "Verified tests exist at 770dc66 (test_audit_ledger_guarded_and_gateway_can_still_append etc.), but they do not cover the sink OSError behaviour, which is what keeps this row from being fully closed."
+    },
+    {
+      "id": "R-2",
+      "finding": "G15b-04 and G15b-32 (and the D-8 citation in G15b-04)",
+      "current": "G15b-04 tier_code_review cites 'D-8 HIGH rating CONFIRMED by Ish 2026-10-25 ... remaining D-8 HIGH ratings (07/31/35;37 already approved)'. G15b-32 cites no D-8 decision and keeps severity HIGH (amb).",
+      "required": "G15b-04: quote the 2026-10-25 confirmation as it reads and state that 04 is NOT in the enumerated list (07/31/35;37), or mark 04 severity 'HIGH (amb; D-8 unconfirmed)'. G15b-32: mark 'HIGH (amb; D-8 unconfirmed)'. State in the totals line which of the 32 HIGH rows rest on unconfirmed ambiguity ratings (04, 32).",
+      "evidence": "docs/wp2_1_g15b_consolidated.md line 516-517 lists D-8 items 04, 07, 10, 11, 28, 31, 32, 35, 37; line 517 says '04 is CLOSED regardless' and '32 is cheap' (no ratification). Line 528 (second block, 2026-10-24): 'D-8 for 07, 31 and 35 is still NOT formally confirmed'. NEW_ISSUES.md 'Update 2026-10-25 (closure decisions)' (line 22412 in the 770dc66 copy) reads: 'remaining D-8 HIGH ratings (07/31/35;37 already approved)'. PROJECT_LOG line 3 (2026-10-25) says Ish authorized 'D-8 remaining HIGH ratings'. Neither source names 04 or 32."
+    },
+    {
+      "id": "R-6",
+      "finding": "G15b-33, G15b-34, G15b-37, G15b-38 (B1 evidence_tier text)",
+      "current": "evidence_tier says 'B1 bridge author-reported, independent audit pending'.",
+      "required": "Replace \"independent audit pending\" with the audit outcome: B1_SUBSET_RESULT_AUDIT.json (2026-10-27) verdict CHANGES_REQUESTED on wording only (its findings W1..W4 are wording/claim-scope; raw execution evidence judged consistent, no escape). Cite the citable tier from B1_CITABLE_WORDING.md (owned-fixture replay on fabricated fixtures; not live-verified; not full coverage). Remove any use of B1 as protected-path coverage for HM-01/03/08/11 (MAY-NOT list). The draft (09:44) predates the audit (09:51): stale, not a misread.",
+      "evidence": "B1_SUBSET_RESULT_AUDIT.json top-level verdict CHANGES_REQUESTED; its verdict_scope and citable_wording keys give the tier text. B1_CITABLE_WORDING.md (09:52) MAY-NOT list excludes HM-01/03/08/11 protected-path coverage. G15b-33 HM list includes HM-01, HM-03, HM-08."
+    }
+  ],
+  "closed_sample_checks": [
+    {
+      "finding": "G15b-23",
+      "severity": "LOW",
+      "result": "PARTIAL-QUALITY (warning, not a block)",
+      "evidence": "Commit 890d4b9 added tests/test_shell_g15d_unit_a.py (verified with git log --diff-filter=A). test_d3_slash_argv0_outside_system_dirs_is_high is parametrized with './ls', '../ls', 'bin/ls', '~/ls', '/tmp/x/l...'. Scratch import at 770dc66 (git archive, no repo write): classify_shell_command('./ls push origin main') -> HIGH_IMPACT; 'ls -la' -> READ. The audit-label claim is closed by inference: no test asserts the audit row label itself. Keep CLOSED only if the row states that the label is derived from classify_shell_command; otherwise downgrade to reviewer-approved (inference)."
+    },
+    {
+      "finding": "G15b-34",
+      "severity": "HIGH",
+      "result": "CHANGES REQUESTED (R-1)",
+      "evidence": "Tests exist at 770dc66 (4 node IDs, all with def). Closure contradicted by sink OSError and hash-chain sub-claims in its own title (see R-1)."
+    },
+    {
+      "finding": "G15b-49",
+      "severity": "LOW",
+      "result": "CORRECTLY OPEN",
+      "evidence": "TSV final_category OPEN, trigger parked. The cited test test_orphaned_thread_never_corrupts_concurrent_tasks_stats exists in the tree (regression test from NEW-345 per a 770dc66 code-reviewer memory file) and is listed as failing in NEW-1035, so it is not closed. Reviewer could not confirm the 'frozen failed list' membership: the scan of wp21_closure_next final_tests dirs exceeded the tool timeout and was not completed. Unverified, does not change the verdict."
+    },
+    {
+      "finding": "G15b-12",
+      "severity": "MEDIUM",
+      "result": "APPROVED as stated",
+      "evidence": "Commit f4353cf modifies tests/test_g15h_cloudflared_env_delivery.py (test created there). test_profile_argv_has_no_token at 770dc66 asserts CANARY not in repr(argv) and argv == ['cloudflared','tunnel','run']. Real-token tier is correctly carried as L2-a (Ish-attended) and the row says so. Severity MEDIUM per NEW-1021 Update 2026-10-24 and PROJECT_LOG line 111 ('NEW-1021 MEDIUM accepted')."
+    },
+    {
+      "finding": "G15b-25",
+      "severity": "HIGH",
+      "result": "APPROVED as PARTIAL",
+      "evidence": "Test names test_duplicate_names_refused_for_all, test_symlinked_plugin_dir_category_dir_manifest_refused, test_plugin_spawn_audit.py, test_plugin_manifest_enabled.py, test_s2_ccos_authority.py::test_zero_width_duplicate_refused_both all resolve at 770dc66. Residual R1 correctly kept. Uncommitted NEW-1102 is cited (see W-4)."
+    },
+    {
+      "finding": "G15b-01",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Both node IDs exist at 770dc66 and commit e167e0c added tests/test_shell_g15c_allowlist.py and modified tests/test_shell_wrapper_boundaries.py. Undeclared spacing variant is correctly stated as not located."
+    },
+    {
+      "finding": "G15b-02",
+      "severity": "HIGH",
+      "result": "APPROVED with warning W-5",
+      "evidence": "Scratch classify at 770dc66: 'crontab -l' -> HIGH_IMPACT, 'killall node' -> HIGH_IMPACT, 'at now' -> HIGH_IMPACT (default-deny: tools/shell_tools.py lines 212-213 comment). V-A TSV rows for G15b-02: 17 rows, all verdict PASS (verified by csv parse of docs/wp2_1_g15z_verify_A.tsv at 770dc66). Dedicated tests for crontab/at/killall absent (as stated)."
+    },
+    {
+      "finding": "G15b-03",
+      "severity": "HIGH",
+      "result": "APPROVED with warning W-5",
+      "evidence": "tests named exist; gcloud classify -> HIGH_IMPACT at 770dc66 (scratch). Other forms rely on default-deny; stated."
+    },
+    {
+      "finding": "G15b-04",
+      "severity": "HIGH",
+      "result": "CHANGES REQUESTED (R-2)",
+      "evidence": "Classifier and V-A evidence hold (8 V-A rows PASS). The D-8 citation over-reads the 2026-10-25 decision (see R-2)."
+    },
+    {
+      "finding": "G15b-07",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Four node IDs in tests/test_shell_g15e_protected_scan.py (commit c842d97 touched the file). V-A 61 refs, consistent with the NV33/EV03 history (see V-A note)."
+    },
+    {
+      "finding": "G15b-08",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "test_write_denied_under_git_metadata and test_append_denied_under_git_metadata exist; c842d97 modified tests/test_filesystem_git_metadata.py."
+    },
+    {
+      "finding": "G15b-10",
+      "severity": "HIGH",
+      "result": "APPROVED with warning W-6",
+      "evidence": "Six node IDs exist. V-A at b230ce9 recorded FAIL for NV33/EV03 (committed docs/wp2_1_g15z_verify_A.tsv). The 770dc66 replay (VA_REPLAY_RESULT.md + REVIEW_VA_RESULT.md 'FINAL R1 RE-REVIEW: APPROVED') records 'Prior fail NV33/EV03 uppercase SSH variants product refused 0 events'. Closure supported by the post-fix replay plus S2-A tests."
+    },
+    {
+      "finding": "G15b-11",
+      "severity": "HIGH",
+      "result": "PARTIAL as stated",
+      "evidence": "PARTIAL in TSV; test_bench_child_env_pure and test_provider_builds_env_copy exist."
+    },
+    {
+      "finding": "G15b-13",
+      "severity": "HIGH",
+      "result": "AGREE with category change ACCEPTED_RESIDUAL -> PARTIAL",
+      "evidence": "No Ish decision names R5 or the pip/pnpm/yarn bare-name, local-path, -r remainder. Consolidated line 526 (D-1) names only 19, 22, 36. Spec 3.4 lists nothing for R5. The candidate ACCEPTED label therefore had no decision behind it. TSV V-A: 7 refs (4 PASS, 3 ACCEPTED-RESIDUAL), consistent with 'positive attempt control' plus 3 accepted attempts. The trigger 'Z-6 ratification of R5' is an event tag, acceptable under rule 8. See R-4 for the rule that makes this consistent."
+    },
+    {
+      "finding": "G15b-14",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "test_pip_high_rows, test_python_dash_m_pip_args_any_spelling, test_pip_subcommand_set_and_dangerous_options_absent exist."
+    },
+    {
+      "finding": "G15b-15",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Two node IDs exist (test_shell_g15d_unit_b.py, commit 890d4b9)."
+    },
+    {
+      "finding": "G15b-16",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Three node IDs exist; NEW-1040 ledger entry confirms the classification fix."
+    },
+    {
+      "finding": "G15b-17",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Three node IDs exist (test_shell_g15c_allowlist.py, commit e167e0c)."
+    },
+    {
+      "finding": "G15b-18",
+      "severity": "LOW",
+      "result": "APPROVED",
+      "evidence": "Three node IDs exist; source citation core/task_executor.py:563 is consistent with the row."
+    },
+    {
+      "finding": "G15b-20",
+      "severity": "MEDIUM",
+      "result": "APPROVED with warning W-7",
+      "evidence": "Three node IDs exist. Consolidated 10b states G15d Q1-Q4, Q6, Q7 were implemented on the spec default with Ish answers NOT recorded (docs/wp2_1_g15b_consolidated.md; 10f line 288 lists them under R18). PROJECT_LOG.md line 163 (770dc66) says Ish answered \"Q4/Q5/Q7 accept all\". Ledger contradicts itself (verified by sed-free python read of both lines); row correctly carries R18."
+    },
+    {
+      "finding": "G15b-26",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Three node IDs exist; c842d97 added tests/test_protected_paths.py."
+    },
+    {
+      "finding": "G15b-27",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Two node IDs exist; c842d97 modified the file."
+    },
+    {
+      "finding": "G15b-29",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Three node IDs exist in tests/test_bench_integrity_lock.py (commit 623e4c7 added it)."
+    },
+    {
+      "finding": "G15b-30",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Three node IDs exist (623e4c7). Self-attestation is an accepted residual per consolidated 528 (G15f Q2 RATIFIED)."
+    },
+    {
+      "finding": "G15b-31",
+      "severity": "HIGH",
+      "result": "APPROVED",
+      "evidence": "Three node IDs exist (e9f593f). HIGH rating covered by 2026-10-25 D-8 enumeration (31 listed)."
+    },
+    {
+      "finding": "G15b-32",
+      "severity": "HIGH",
+      "result": "CHANGES REQUESTED (R-2)",
+      "evidence": "Four node IDs exist. Severity HIGH (amb) with D-8 for 32 unconfirmed (32 is in the consolidated D-8 list, not in the 10-25 enumeration)."
+    },
+    {
+      "finding": "G15b-33",
+      "severity": "HIGH",
+      "result": "APPROVED with R-6",
+      "evidence": "Four node IDs exist (c842d97). B1 citation must be corrected (R-6)."
+    },
+    {
+      "finding": "G15b-35",
+      "severity": "HIGH",
+      "result": "APPROVED with warning W-4",
+      "evidence": "test_nested_repository_git_is_blocked at 770dc66 asserts FilesystemAccessError 'is inside a Git metadata directory' and content unchanged. Declared flip is consistent with the body. Measured zero-width .git ACT (NEW-1087, unsigned) is a residual of this closure."
+    },
+    {
+      "finding": "G15b-37",
+      "severity": "HIGH",
+      "result": "APPROVED with warning W-3",
+      "evidence": "Five node IDs exist (781542a/84c7bfd). The live-STYLE S1b run has 3 FAILs (peer typeahead, /git commit typeahead, ^C timing); the TSV tier column names them but the residual does not carry them except through Z-5 T-1/T-2."
+    },
+    {
+      "finding": "G15b-38",
+      "severity": "MEDIUM",
+      "result": "APPROVED with R-6",
+      "evidence": "Three node IDs exist (c842d97, test_g15e_unit_c.py). B1 note as R-6. Re-probe at b230ce9 retained output per consolidated 10f."
+    },
+    {
+      "finding": "G15b-48",
+      "severity": "MEDIUM",
+      "result": "APPROVED with warning W-2",
+      "evidence": "Four node IDs exist (f4353cf/84c7bfd). Sinks NOT covered (NEW-1060) carry no literal trigger tag in the ledger (R-5)."
+    }
+  ],
+  "accepted_residual_checks": [
+    {
+      "finding": "G15b-19",
+      "decision": "D-1 = YES (consolidated line 526, 2026-10-24)",
+      "result": "APPROVED as ACCEPTED_RESIDUAL",
+      "evidence": "Named explicitly in D-1. Trigger 'NEW-1069' is a candidate WP not scheduled (NEW-1069 header: 'candidate work package, not scheduled'); see W-6."
+    },
+    {
+      "finding": "G15b-22",
+      "decision": "D-1 = YES",
+      "result": "APPROVED as ACCEPTED_RESIDUAL",
+      "evidence": "Named explicitly in D-1. Narrowing commit c842d97 exists."
+    },
+    {
+      "finding": "G15b-36",
+      "decision": "D-1 = YES for AS-01 only",
+      "result": "CHANGES REQUESTED (R-3)",
+      "evidence": "AS-02 sub-claim not decided (see R-3)."
+    }
+  ],
+  "open_checks": [
+    {
+      "finding": "G15b-39",
+      "result": "APPROVED as OPEN",
+      "evidence": "Parked, no fix, IG-02 still reproducible by source read. NEW-1032 has no literal trigger tag (R-5)."
+    },
+    {
+      "finding": "G15b-40",
+      "result": "APPROVED as OPEN with warning W-8",
+      "evidence": "Consolidated line 528 ratifies NEW-846 (content-trust deferral) only. Row cites R14 ratification but stays OPEN; explain the split in the row."
+    },
+    {
+      "finding": "G15b-41",
+      "result": "APPROVED as OPEN",
+      "evidence": "Parked. NEW-1031 has no literal trigger tag (R-5)."
+    },
+    {
+      "finding": "G15b-42",
+      "result": "APPROVED as OPEN with warning W-9",
+      "evidence": "trigger WP2.2. Handoff section 7 recommends WP2.2 but it is not signed (spec 4.5, 'Ish has not signed the next work package'). NEW-1011 has zero pointers in CODEY_OS_MASTER_BLUEPRINT.md (rule 8 requires a pointer in the WP entry)."
+    },
+    {
+      "finding": "G15b-44",
+      "result": "APPROVED as OPEN",
+      "evidence": "trigger = next change to daemon IPC auth (rule 4 reviewer). NEW-1029 has no literal trigger tag (R-5)."
+    },
+    {
+      "finding": "G15b-49",
+      "result": "APPROVED as OPEN",
+      "evidence": "See closed_sample_checks entry for G15b-49."
+    }
+  ],
+  "warnings": [
+    {
+      "id": "W-0",
+      "note": "R-3 (G15b-36, AS-02 split) downgraded to warning: consolidated line 379-382 presents AS-02 as LOW and \"on purpose\" per group 14, and the item title is kept under D-1 AS-01. Recommended: keep the draft hedge note and state that AS-02 is not an Ish decision."
+    },
+    {
+      "id": "W-R5",
+      "note": "R-5 (literal trigger tags in NEW_ISSUES.md) downgraded to warning: the TSV trigger_class/trigger columns carry a NEW-ID and trigger value for all 20 non-closed rows (13 trigger, 7 parked; verified by csv parse). Several IDs in the 38-ID list are recorded as FIXED or decided (e.g. NEW-1093, NEW-1081, NEW-1083), so they need no tag. The coordinator should tag only the still-open/partial/accepted IDs, under the rule-8 doc-collision procedure."
+    },
+    {
+      "id": "W-1",
+      "note": "Z5 attributes the load_primary() spawn_failed symptom to NEW-756. The symptom is in the NEW-754 body (the 'already-known wrinkle' paragraph); NEW-756 documents the 405 only. Cite both correctly."
+    },
+    {
+      "id": "W-2",
+      "note": "G15b-48 closed while sinks NOT covered (NEW-1060, NEW-1066) are real. Acceptable as scope-limited CLOSED only if NEW-1060 carries a literal trigger tag (R-5)."
+    },
+    {
+      "id": "W-3",
+      "note": "G15b-37 closed with live-STYLE typeahead/^C FAILs in its tier column. Carry the three failing rows explicitly in the residual column (the typeahead one is NEW-1084 and is tracked only under G15b-46)."
+    },
+    {
+      "id": "W-4",
+      "note": "G15b-25 cites NEW-1102 (MEDIUM, OPEN/QUEUE). NEW-1102 is absent from the 770dc66 NEW_ISSUES.md and present only in the working tree (uncommitted). The row must mark it PROVISIONAL, as the residual text does, and not treat it as committed evidence. G15b-35 measured zero-width .git ACT (NEW-1087; the verifier label ACCEPTED-RESIDUAL is explicitly 'NOT yet an Ish decision'), so the CLOSED row should carry it as an undecided residual."
+    },
+    {
+      "id": "W-5",
+      "note": "G15b-02 and G15b-03 (and G15b-04) rely on default-deny for crontab/at/killall/gcloud/etc. (classifier verified HIGH_IMPACT by scratch import at 770dc66) with no dedicated node ID. Acceptable as CLOSED; state the mechanism in the row (already done for 02/03; add for 04)."
+    },
+    {
+      "id": "W-6",
+      "note": "Trigger 'NEW-1069 OS-boundary candidate WP' is an unscheduled candidate (D-10 log). Rows G15b-09, 11, 19, 22, 36 and 25 that cite it are effectively parked. Say so, or name the trigger as 'Ish decides WP for NEW-1069'."
+    },
+    {
+      "id": "W-7",
+      "note": "G15b-20 is CLOSED while its G15d Q7(c) ratification is contradictory (PROJECT_LOG line 163 'Q4/Q5/Q7 accept all' vs consolidated 10b/10f 'answers not recorded'). The R18 carry is correct; the coordinator should reconcile the two ledgers, not leave the contradiction."
+    },
+    {
+      "id": "W-8",
+      "note": "G15b-40 cites R14 / NEW-846 ratification but stays OPEN. Explain the split (NEW-846 ratified; CODEY.md steering-state write-ability NEW-1032 not ratified)."
+    },
+    {
+      "id": "W-9",
+      "note": "G15b-42 trigger WP2.2 is recommended but unsigned. Either re-tag as 'trigger: WP2.2 (unsigned)' with the blueprint pointer added, or park it (trigger: none) until Ish signs the next WP."
+    },
+    {
+      "id": "W-10",
+      "note": "NEW-1068 header still reads 'OPEN QUESTION' while its Update 2026-10-25 records the CLAUDE.md WP0.5 correction (committed in 770dc66: git show 770dc66:CLAUDE.md line 28 contains 'WP0.5 landed on 2026-10-07'). Z5 relies on the Update; the header should be refreshed."
+    },
+    {
+      "id": "W-11",
+      "note": "V-A approval basis: VA_REPLAY_RESULT.md (10-25 16:09) still says 'pending independent result audit'. The approval is REVIEW_VA_RESULT.md (10-26 02:43) 'FINAL R1 RE-REVIEW: APPROVED' with scope limits (193 mapped / 74 pending; 8 accepted attempts refused by harness; 2 explicit unruns). The register should cite the FINAL re-review, not the superseded result report."
+    },
+    {
+      "id": "W-12",
+      "note": "Test citations incomplete (not overstated): G15b-08: ~/.gitconfig and ~/.config/git/config coverage is in tests/test_filesystem_protected_paths.py and tests/test_file_tools_protected_classification.py (both mention gitconfig), not in the two cited nodes, which cover only workspace .git/config and .git/hooks/pre-push. G15b-35: case-variant .GIT coverage is tests/test_filesystem_protected_paths.py:71 (\"proj/.GIT/config\", \"git-component\"), not the cited nested-.git tests. G15b-34: cited nodes are write_file/patch/append on the audit ledger; shell sed -i and ln -sf against the ledger are not among the cited nodes (tests/test_shell_g15e_protected_scan.py:283 ln -sf is an allow-case). G15b-14: pip install -qf is in test_python_dash_m_pip_args_any_spelling (cited, lines 113-125) and not in test_pip_high_rows (line 190), so the cited node that carries the form is the other one. Add these node IDs to the tests column."
+    },
+    {
+      "id": "W-13",
+      "note": "G15b-49 frozen-list premise checked: docs/wp2_1_g15z_closure_progress_2026-10-25.md lists \"orphaned-thread task telemetry\" among the 10 failed node IDs of the recursive baseline (32 chunks). So the test is frozen-failing, and the row OPEN is correct. The earlier background scan of final_tests dirs produced no output and is abandoned; this single-file read replaces it."
+    },
+    {
+      "id": "W-14",
+      "note": "PROJECT_LOG.md line 163 printed in full (770dc66): \"Implemented on the spec default, Ish answer NOT recorded: Q1 (D-3 lexical rather than realpath) and Q6 (pnpm/yarn residual accepted; recorded as spec default only).\" This supports the G15b-13 PARTIAL call (its pnpm/yarn remainder is undecided). The same line says \"Q4/Q5/Q7 accept all\", which contradicts consolidated 10b for Q4 and Q7 (see W-7)."
+    }
+  ],
+  "z5_schedule_checks": {
+    "NEW-754": "CONFIRMED: NEW_ISSUES.md header 'RESOLVED and LIVE-VERIFIED 2026-10-06 (b5b805a)'; git cat-file: b5b805a exists ('NEW-754: fix launch-blocking llama-server spawn failure (--mmap -> --load-mode)').",
+    "NEW-756": "PARTIALLY CONFIRMED: body documents 405 via ambient HTTP_PROXY on /slots polling. The spawn_failed symptom Z5 attaches to it is in NEW-754 (W-1).",
+    "NEW-757": "CONFIRMED: two llama-server binaries with mutually exclusive flag sets (--load-mode vs --mmap/--no-mmap/--mlock); LLAMA_SERVER_BIN preference is the open question Z5 asks the operator to check first.",
+    "L2-b prerequisites": "CONFIRMED against spec 3.3 L2-b text (env: LD_PRELOAD dropped; SHELL, USER, LOGNAME kept; re-run every baseline; relock last). Z5 says NEW-1068 is resolved; the spec 3.3 text still says 'blocked on NEW-1068' because it is the 770dc66 spec (see W-10). Trajectory guard: scratch run of tests/test_trajectory.py at 770dc66 archive: '19 passed, 1 warning in 1.14s' (literal output, run with CODEY_STATE_DIR and HOME in scratch, no network, no model).",
+    "13-hour figure": "SUPPORTED: LIVE_TEST_QUEUE.md item 2 ('budget roughly 13 hours of device time') and item 3 ('30 x 2 x ~800s = ~13 hours'). Arithmetic for 32 pairs at ~800 s x 2 is ~14.2 h, so 'roughly 13 hours for a 32-pair run' is slightly low (suggestion S-2).",
+    "RAM rule 2": "CONFIRMED against CLAUDE.md rule 2 (free -h before; one model cycle; confirm unload). Z5 extends the free -h habit to non-model items, which is harmless.",
+    "L2 entries in LIVE_TEST_QUEUE.md": "CONFIRMED: G15h-A exists; zero 'L2-a/b/c/d' entries exist (Z5 says so)."
+  },
+  "z8_checks": {
+    "spec_lines": "CONFIRMED: docs/wp2_1_g15z_spec.md at 770dc66: line 284 = L2-e 'five group-14 slices without a live run'; line 449 = Z-8 row; section 6.3 heading at line 443; line 258 = 3.1 row 'Groups 13/14 (earlier)' stating 14a, 14a-ext, 14f, 14g, 14i have no individual live run.",
+    "commits": "CONFIRMED present and message-matched at 770dc66 history: 249b61b (14a-14d, includes 14a), 96ad7f4 (14a-ext, 14e, 14f, 14g), 3981457 (14i).",
+    "scope_doc": "CONFIRMED docs/wp2_1_group14_scope.md exists at 770dc66 and its execution-status text reads 'live verification still missing for 14a, 14a-ext, 14f, 14g, 14i (only 14b, 14c, 14d, 14e have live runs)'.",
+    "unverified": "The '89 existing files ACT->HIGH (53 plugins, 36 bench)' count for 14a-ext was not recounted.",
+    "conclusion": "Five-slice claim and tier statement are supported. Z8 correctly keeps the 'five' meaning separate from the 'five-level' tier vocabulary in consolidated 10f."
+  },
+  "suggestions": [
+    {
+      "id": "S-0",
+      "note": "R-4 (category rule consistency) is a suggestion, not a block: state one rule for ACCEPTED_RESIDUAL vs PARTIAL. Under the proposed rule (ACCEPTED only when every remainder is an Ish decision), G15b-47 stays PARTIAL because of the open NEW-1076, not Z-6, and G15b-36 is PARTIAL-or-ACCEPTED depending on the AS-02 wording (W-0)."
+    },
+    {
+      "id": "S-1",
+      "note": "G15b-25 should cite D-6 (manifest.json HIGH, fork 3 reversal) approved 2026-10-25 ('D-6/D-7 protections'). Currently only the G15g spawn policy is cited."
+    },
+    {
+      "id": "S-2",
+      "note": "Z5 L2-b: '13 hours for a full 32-pair run' should read roughly 14 hours (32 pairs x 2 tasks x ~800 s), or cite the item-2 text verbatim."
+    },
+    {
+      "id": "S-3",
+      "note": "G15b-13 change is correct. Add the rule statement from R-4 to the tier vocabulary so the change is auditable."
+    },
+    {
+      "id": "S-4",
+      "note": "Replace 'V-A replay-recorded' tier wording (about 45 rows) with 'V-A replay-recorded (approved: REVIEW_VA_RESULT.md FINAL R1 RE-REVIEW)' so the basis is traceable. The TSV evidence_tier column is otherwise accurate."
+    },
+    {
+      "id": "S-5",
+      "note": "The G15b-49 frozen-failed-list claim could not be checked within the time budget (scan timeout). If the row is kept as OPEN nothing changes; if it is cited elsewhere as frozen-failing, state the path that was actually checked."
+    }
+  ],
+  "reviewer_limits": [
+    "Read-only. No repo edits, no git index operations, no model, service or network. Test runs were on a git-archive copy of 770dc66 in wp21_closure_next/rev_770 with CODEY_STATE_DIR/HOME in scratch.",
+    "The scan of final_tests dirs for test_orphaned_thread_never_corrupts... timed out (background task bat36o4cf) and is not relied on.",
+    "Did not re-run V-A replay (no product execution) and did not audit every V-A row; relied on REVIEW_VA_RESULT.md FINAL R1 RE-REVIEW for the replay result.",
+    "Working-tree NEW_ISSUES.md / CODEY_OS_MASTER_BLUEPRINT.md differ from 770dc66; checks noted which copy was used."
+  ],
+  "required_summary": [
+    "R-1 G15b-34: CLOSED -> PARTIAL (or split and narrow)",
+    "R-2 G15b-04/G15b-32: D-8 citation and severity status (04 and 32 not in the 2026-10-25 enumeration)",
+    "R-6 B1 evidence_tier text: replace stale pending with audit outcome and citable tier (G15b-33/34/37/38)"
+  ]
+}

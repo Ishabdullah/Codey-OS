@@ -1,0 +1,177 @@
+{
+ "reviewer": "code-reviewer (independent, adversarial)",
+ "date": "2026-10-27",
+ "scope": "NEW-1101 supplementary dispositions (2 rows) against frozen_source_770dc66",
+ "input_sha256": "70f0269c2e918af78b7839b8f64f24c2432bd5b113197f6f175b5ac65fdbc6cd",
+ "verdict": "CHANGES REQUESTED",
+ "row_reviews": [
+  {
+   "key": "ccos/core/plugin_manager.py::PluginManager._load::*.exec_module::1",
+   "author_class": "OPERATOR_BOOTSTRAP",
+   "verdict": "CHANGES REQUESTED",
+   "finding": "Class is not honest. OPERATOR_BOOTSTRAP (scope doc 2.5) is reserved for an operator-run installer/setup/credential script with a written operator act. This line is the in-process execution step of production plugin activation: pm.load(name) is called from main.py:648, core/task_executor.py:396 (daemon/TaskExecutor, which the scope rubric lists as a confirm-less mode), core/agent.py:371, restoricon_core/api/routes.py:584 and core/dashboard_data.py:40 (reached from REPL startup per docs harness rows). No gate_exec on the path. The implementer's own packet states 'NOT gate_exec covered and no confirmation'. Under scope 2.6 the reach is prod-confirmless and the effect is in-process execution of ccos/plugins/** code; ambiguous cases are rated at the higher class and listed for Ish.",
+   "required_fix": "Re-class to UNMEDIATED, reach prod-confirmless, severity MEDIUM (at least; escalate to HIGH if a confirm-less write path into ccos/plugins/** is shown to be ACT). Give it a finding ID: either a new NEW-### or an explicit reopen of NEW-1086/NEW-1069 with the reason. NEW-953 is about partial registration after spawn, not the execution trust boundary, so it is not a correct sole citation. Mediator column should name the structural containment (resolve_plugin_file, _manifest_enabled_refusal, discovery refusals) as partial mitigation, explicitly not a gate.",
+   "verified_pre_checks": [
+    "frozen plugin_manager.py:1208 is spec.loader.exec_module(module); 1202 spec_from_file_location and 1205 module_from_spec match the author's line numbers",
+    "_load gate chain 1120-1123 (_manifest_enabled_refusal), 1124-1125 DISABLED never retried, 1159-1163 _stage_capabilities before effects, 1169-1173 containment check with _refuse_containment, 1197-1201 use-time re-resolution and entry/__init__ selection, 1203-1204 spec None RuntimeError: all present as described",
+    "resolve_plugin_file (483-511): rejects non-str/empty/NUL, absolute paths, realpath+commonpath containment, refuses plugin dir itself; returns the resolved path",
+    "_discover_locked refusals present: underscore-prefixed skip (940, 950), symlinked category/plugin dir refusal (942-955), symlinked manifest.json refusal (963-964), manifest resolving outside refusal (969-971), duplicate root skip (930) and rival-claim refusal (978, 995)",
+    "get_plugin_manager (1758-1762) constructs PluginManager() with default dir ccos/plugins only (792-794)",
+    "19 manifests exist under ccos/plugins/*/*/manifest.json; execution_mode: 2 external_process, 2 in_process, rest default",
+    "reverse callers verified literal names: main.py:648 pm.load('agent'); core/task_executor.py:396 pm.load('agent'); core/agent.py:371 pm.load('crm_core_query'); restoricon_core/api/routes.py:584 pm.load('crm_core_query'); core/dashboard_data.py:40 plugins.load('thermal_monitor')",
+    "load_all() callers are ccos/demo_*.py, ccos/tests, tests/ only, plus string-embedded text in skill_recombiner.py:391/403 (generated code, not executed here)",
+    "no hash/signature check in _load/_discover (only argv sha256 elsewhere) confirmed by reading 1114-1215 and 903-1040"
+   ],
+   "why_not_OPERATOR_BOOTSTRAP_for_siblings": "The sibling rows at dispositions_candidate.tsv lines 66-67 (spec_from_file_location, module_from_spec in the same _load) carry the same OPERATOR_BOOTSTRAP class and were approved in C6_FRESH. The new row must not silently mirror that. Coordinator should decide whether to re-class the siblings too; this review flags the pre-existing inconsistency as a Warning, not a blocker for the new row."
+  },
+  {
+   "key": "ccos/core/skill_recombiner.py::SkillRecombiner._execute_loaded_skill::*.exec_module::1",
+   "author_class": "GATED (mediator gate_exec)",
+   "verdict": "APPROVED",
+   "evidence": [
+    "frozen skill_recombiner.py:776-801 execute_compound_skill calls gate_exec(authority=HIGH_IMPACT, confirm_available=False, execute=_run); _run at 785-786 calls _execute_loaded_skill",
+    "frozen core/action_gateway.py:529-539: if authority == HIGH_IMPACT and not confirm_available -> OUTCOME_REFUSED, comment 'execute is never called on this branch'",
+    "grep of frozen tree: _execute_loaded_skill referenced only at 786 and its def at 803; execute_compound_skill has no non-test caller (only ccos/tests/test_skill_recombiner.py:348 and ccos/tests/test_generated_artifact_boundaries.py:224)",
+    "test ccos/tests/test_generated_artifact_boundaries.py:217-230 asserts out.success False, marker file not created (the skill writes a marker on import), audit outcome 'refused' and action 'skill_recombiner.execute'. Removing the gate would run the skill and create the marker, so the test does discriminate",
+    "row is consistent with sibling rows at lines 87-88 (GATED, same mediator)"
+   ],
+   "not_verified": "Mutation run (removing gate_exec and rerunning the test) was not executed; the reviewer was told no product execution. The DORMANT claim that SkillRecombiner is constructed only by ccos/demo_skill_recombiner.py was not independently re-derived. Neither affects the GATED disposition.",
+   "suggestion": "Optional: note in the row evidence that the mutation discriminator is the marker-file assertion."
+  }
+ ],
+ "key_form_check": {
+  "result": "consistent",
+  "method": "Extracted tools/wp21_census.py _resolve and _collect_aliases from the frozen tree via ast (module not imported; dataclass import fails outside sys.modules) and resolved the callees with python3 -I.",
+  "output_verbatim": [
+   "ccos/core/plugin_manager.py 1208 '*.exec_module'",
+   "ccos/core/skill_recombiner.py 815 '*.exec_module'",
+   "ccos/plugins/coding/agent/test.py 35 '*.exec_module'"
+  ],
+  "notes": "_resolve returns '*.' + attr when the receiver chain root (spec / _spec) is not an import alias, so the form is *.exec_module. Ordinal is a per-(qualname, callee) counter (wp21_census.py ~396), so ::1 is correct for a single site per qualname. DYN_EXACT (146-150) lacks exec_module, so no scan row is emitted, confirmed by reading _classify_call (582-680): no branch matches *.exec_module."
+ },
+ "other_dynamic_sites": [
+  {
+   "site": "ccos/plugins/*/*/test.py exec_module on _pathutil (13 files: coding/agent, error_recovery, finetune, git_integration, peer_escalation, static_analysis, task_queue; crm/core_query; device/bridge; research/rag_retrieval; system/daemon_control, observability, thermal_monitor)",
+   "scanned_tree": true,
+   "scanner_row_status": "sibling module_from_spec/spec_from_file_location rows exist as OPERATOR_SCRIPT_RUNNABLE in dispositions_candidate.tsv; exec_module rows absent",
+   "needs": "ROW (same class as siblings, OPERATOR_SCRIPT_RUNNABLE). These are in a scanned root, so the closing packet's claim that dynamic-module inventory relies on the supplementary rows is incomplete unless these 13 are listed too."
+  },
+  {
+   "site": "ccos/tests/test_ccos.py:19, ccos/tests/test_sandbox_path_validation.py:17 exec_module",
+   "scanned_tree": false,
+   "scanner_row_status": "ccos/tests and tests/ are EXCLUDED_COMPONENTS (spec 2.3)",
+   "needs": "MENTION only (test-only, outside scan)"
+  },
+  {
+   "site": "tests/*.py exec_module (test_g15h_masking_redaction, test_git_* x ~9, test_main_peer_gateway, test_s2_flush_seam, etc.)",
+   "scanned_tree": false,
+   "scanner_row_status": "excluded (tests/)",
+   "needs": "MENTION only (the author's list omitted these; they are test-only)"
+  },
+  {
+   "site": "ccos/core/capability_optimizer.py:356-357 string passed to sandbox.run_python (spec_from_file_location + exec_module of candidate new_path, after a test-file fallback)",
+   "scanned_tree": true,
+   "scanner_row_status": "no AST row: the code is inside a string literal, so the scanner cannot see it; run_python call itself is not a DYN_EXACT name",
+   "needs": "ROW or explicit MENTION with cross-reference. This executes CANDIDATE code (not in-tree trusted code) in a sandbox subprocess; C6_FRESH already logged 'optimizer no-test fallback runs candidate pre-gate'. The packet should cite that finding and state whether the sandbox is the mediator. Recommend a row (UNMEDIATED or GATED per whether the sandbox is a gate) rather than silence."
+  },
+  {
+   "site": "core/cli_client.py:129 importlib.import_module('main')",
+   "scanned_tree": true,
+   "scanner_row_status": "ALREADY COVERED: merged candidate has core/cli_client.py::_direct::importlib.import_module::1 OPERATOR_BOOTSTRAP",
+   "needs": "NONE (the author's list was wrong to call it a gap)"
+  },
+  {
+   "site": "tools/encrypt_cloudflare_token.py:65 importlib.reload(config_module)",
+   "scanned_tree": true,
+   "scanner_row_status": "no row: importlib.reload not in DYN_EXACT",
+   "needs": "MENTION in the packet (same scanner-gap class as NEW-1101). Re-executes in-repo utils/config.py only, no attacker input, operator-run tool: LOW/operator-only."
+  },
+  {
+   "site": "importlib.reload in tests/test_74b_*, test_config_llama_server_bin, test_model_tiers, test_new855, test_u31_*",
+   "scanned_tree": false,
+   "needs": "MENTION (test-only)"
+  },
+  {
+   "site": "skill_recombiner.py:428-452 string-literal exec_module emitted into GENERATED test.py / plugin source",
+   "scanned_tree": true,
+   "scanner_row_status": "not calls (string literals)",
+   "needs": "MENTION with cross-reference to NEW-976 (generated plugin content written into discovery root)"
+  },
+  {
+   "site": "shell scripts: install.sh:397, install.sh:525 python3 -c; tools/setup_skills.sh:221-222 echo only; codeyOS/codey exec python3 cli_client.py (no -c/-m)",
+   "scanned_tree": true,
+   "scanner_row_status": "shell scanner handles install.sh as shell rows (not verified row-by-row)",
+   "needs": "NONE for exec_module/import-style sites (python -c strings are operator-run installers with fixed content). install.sh:525 content not read in full; reviewer did not verify it executes no untrusted file."
+  },
+  {
+   "site": "grep for exec_module, module_from_spec, spec_from_file_location, load_module, run_path, run_module, SourceFileLoader, spec_from_loader, find_spec, importlib.reload, __import__ in non-test .py/.sh/extensionless python scripts",
+   "scanned_tree": true,
+   "result": "No additional product sites beyond the listed ones. docs/wp2_1_g15b_harness/* exec/__import__ are harness scripts under docs/ (scanner scope for docs not verified).",
+   "needs": "MENTION that docs/wp2_1_g15b_harness harness scripts contain exec(open(...)) and __import__ and their scanner status is unverified"
+  }
+ ],
+ "required_before_packet_closure": [
+  "Re-class plugin_manager _load exec_module row from OPERATOR_BOOTSTRAP to UNMEDIATED with a finding ID (new or explicit reopen) and severity per the rubric (MEDIUM minimum, pending coordinator)",
+  "Decide whether sibling rows at candidate lines 66-67 (same OPERATOR_BOOTSTRAP class, spec_from_file_location and module_from_spec in _load) are re-classed for consistency; the author cannot leave the new row's class different from its siblings without a logged reason",
+  "Add 13 OPERATOR_SCRIPT_RUNNABLE exec_module rows for ccos/plugins/**/test.py (scanned root) or explicitly exclude them with reason",
+  "Add a row or cross-referenced MENTION for ccos/core/capability_optimizer.py:356-357 (candidate code exec in sandbox string)",
+  "Correct the author's list: core/cli_client.py:129 is already covered by a register row",
+  "State in the closing packet that the supplementary rows are outside the scan-checked register and are not checked by --check (already stated in README_SUPPLEMENTARY.md item 2)"
+ ],
+ "warnings": [
+  "README_SUPPLEMENTARY.md says NEW-953 is a cited finding for the exec row; NEW-953 is partial registration after spawn, not the execution trust boundary.",
+  "README_SUPPLEMENTARY.md says the rows are 'authored, not yet independently reviewed'. This review is that review for these two rows only; reviewed_by should be set only after the class fix lands."
+ ],
+ "round2": {
+  "date": "2026-10-27",
+  "input_sha256": "66238395242487f888f974774e119b67fc2019d3550a6aa9140a808d33f61f9a",
+  "verdict": "CHANGES REQUESTED",
+  "scope": "revised TSV (15 rows), README rev2, _verify13.py, NEW-1102 ledger entry, install.sh:525",
+  "fix_list_1_to_7": {
+   "1_row1_UNMEDIATED_MEDIUM_NEW-1102": "ACCEPTED. Row fields (UNMEDIATED, prod-confirmless, MEDIUM, NEW-1102;NEW-1101;NEW-1086;NEW-1069) match NEW_ISSUES.md NEW-1102 header and Reach/Mitigations text. Ledger reach list is accurate except see defect A (load_all wording).",
+   "2_siblings_unchanged_README": "ACCEPTED. Frozen plugin_manager.py:1202 spec_from_file_location and :1205 module_from_spec only build spec/module objects; they execute nothing, so OPERATOR_BOOTSTRAP is not the exec class. The execution step is the new row. Explanation holds.",
+   "3_thirteen_test_py_rows": "ACCEPTED on file/line/qualname/callee/ordinal. Independent grep of frozen tree returned exactly one exec_module per file: coding/agent:35, error_recovery:15, finetune:17, git_integration:16, peer_escalation:13, static_analysis:13, task_queue:14, crm/core_query:16, device/bridge:10, research/rag_retrieval:13, system/daemon_control:28, system/observability:13, system/thermal_monitor:14, all '_spec.loader.exec_module(_pathutil)'. Key form *.exec_module::1 matches _resolve. Qualname <module> matches the sibling module_from_spec rows (13 present in merged candidate). See defect B on reach text.",
+   "4_readme_mentions": "ACCEPTED. capability_optimizer 356-357 -> NEW-1099 (exists, OPEN/QUEUE, C6_FRESH); skill_recombiner string literals -> NEW-976; encrypt_cloudflare_token reload -> operator-only LOW; cli_client:129 -> covered by candidate row (line 607). Test-only exclusions correct (tests/ and ccos/tests excluded per EXCLUDED_COMPONENTS).",
+   "5_install_sh_525": "ANSWERED: NOT a dynamic-exec site needing a row. Frozen install.sh:525-529 is an operator installer `python3 -c` that runs `from utils.config import load_user_config` (static import of in-repo module, cwd=CODEY_OS_DIR) and prints yes/no. No exec, import_module, reload, exec_module, or file-path execution of untrusted content, and the scanner would not flag it. Optional single mention in the shell residual as an operator-run installer. Note `2>/dev/null || echo no` swallows failures, which only changes an interactive prompt; not an exec-safety issue.",
+   "6_first_seen_rev": "DEFECT C (Warning, fix before sign-off). The supplementary rows say first_seen_rev 770dc663. The sites already existed at 941ec3fb, which is an ancestor of 770dc66 (git merge-base --is-ancestor: YES). Verbatim: git show 941ec3fb:ccos/core/plugin_manager.py | grep exec_module -> line 711 `spec.loader.exec_module(module)`; skill_recombiner.py -> line 815 `spec.loader.exec_module(module)`; ccos/plugins/coding/agent/test.py -> line 35 `_spec.loader.exec_module(_pathutil)`. So 770dc663 understates provenance and the sibling rows (941ec3fb) are the true first-seen for the same sites. Fix: set first_seen_rev=941ec3fb on the rows whose site existed there (all 15 are at least as early as 941ec3fb; verify the 13 test.py and skill_recombiner rows with git show before writing). The 770dc663 cited evidence line numbers remain correct for that revision and should stay in the evidence column. Matters because the closing packet reports provenance; it does not affect --check (README item 2).",
+   "7_readme_reach_text": "DEFECT B (Warning, fix before sign-off). The 13 OPERATOR_SCRIPT_RUNNABLE rows say reach=operator-only. The scope doc 2.5 definition of OPERATOR_SCRIPT_RUNNABLE is 'runnable by the operator or by the agent's shell tool (ACT); lists which'. An agent shell invocation of `python3 ccos/plugins/<x>/test.py` is an opaque-interpreter run (NEW-904 ceiling per scope doc line 688), so the reach must list agent-shell ACT as well, e.g. reach='operator-only; agent-shell ACT via python script (NEW-904 ceiling)'. Same fix applies to the sibling module_from_spec rows only if the coordinator wants them consistent; they are not the new rows' concern."
+  },
+  "defects_round2": [
+   {
+    "id": "A",
+    "severity": "Warning",
+    "where": "NEW_ISSUES.md NEW-1102 Reach bullet",
+    "issue": "States 'load_all() runs only from ccos/demo_*.py'. Frozen tree also has load_all() literals in ccos/core/skill_recombiner.py:391 and :403 (inside generated plugin source strings) and test-only callers. The 'only' claim is inaccurate; the generated-code case is dormant (NEW-976) but must be stated.",
+    "fix": "Reword: 'load_all() is called from ccos/demo_*.py and tests; also emitted into generated skill source at skill_recombiner.py:391/403 (dormant, NEW-976).'"
+   },
+   {
+    "id": "B",
+    "severity": "Warning",
+    "where": "supplementary_dispositions.tsv 13 OPERATOR_SCRIPT_RUNNABLE rows, reach column",
+    "issue": "reach=operator-only omits agent-shell ACT reach required by the class definition (see fix item 7).",
+    "fix": "Change reach text as in item 7 for all 13 rows."
+   },
+   {
+    "id": "C",
+    "severity": "Warning",
+    "where": "supplementary_dispositions.tsv first_seen_rev (all 15 rows)",
+    "issue": "770dc663 understates provenance; sites existed at 941ec3fb (ancestor). See fix item 6.",
+    "fix": "Set first_seen_rev to 941ec3fb (after verifying each site with git show at that revision)."
+   }
+  ],
+  "row2_status": "Round-1 APPROVED stands. Evidence-note edit only (verified by diff vs .pre_review). reviewed_by may be set for row 2 only after defects A-C are fixed and the TSV SHA is re-verified.",
+  "rows_1_and_3_reviewed_by": "Do NOT set reviewed_by on row 1 or the 13 test.py rows until defects A-C are corrected. Row 1 class is accepted; its review is pending the first_seen_rev and ledger wording only.",
+  "blocking": "None of A-C changes a disposition class or a mitigation claim. They are factual-accuracy defects in signed-off provenance and reach text, so this is CHANGES REQUESTED rather than a silent approval."
+ },
+ "round3": {
+  "date": "2026-10-27",
+  "input_sha256": "5911d423e4150cbc2f92ae9d6d193f0962e030b5189a4403b863ebb74a89d349",
+  "verdict": "APPROVED (content); process condition on _build.py",
+  "defect_B_agent_shell_ACT": "FIXED. 13 test.py evidence cells now state 'Reach is operator-only AND agent-shell ACT via python script (NEW-904 ceiling)'. reach column kept operator-only (closed vocabulary) - accepted.",
+  "defect_C_first_seen": "FIXED. all 15 rows = 941ec3fb076d97e6e0998c0ea98eee086e6b0915. Verified git cat-file -t: commit. git show 941ec3fb: plugin_manager.py:711 exec_module(module); skill_recombiner.py:815 exec_module(module); all 13 test.py: one _spec.loader.exec_module(_pathutil) each at the same lines as 770dc66 (agent:35, error_recovery:15, crm/core_query:16, thermal_monitor:14, device/bridge:10, rag_retrieval:13, daemon_control:28, observability:13, finetune:17, git_integration:16, peer_escalation:13, static_analysis:13, task_queue:14). All 15 verified, not a sample.",
+  "defect_A_NEW-1102_load_all": "FIXED. NEW_ISSUES.md NEW-1102 Reach now reads 'load_all() runs only from ccos/demo_*.py, tests, and inside generated skill source emitted by skill_recombiner.py:391/...'.",
+  "diff_vs_pre_round2": "Non-evidence columns 1,2,3,5,6,7,8,9,11 identical (diff with awk, verbatim IDENTICAL_OTHER_COLS). Changed: col4 evidence on the 13 test.py rows only (rows 1-2 evidence identical) and col10 first_seen on all 15. 15 data rows, 11 fields each.",
+  "_build_py_question": "Not a content blocker, but it must be fixed or its claim retracted before the packet closes. _build.py (51 lines) still hardcodes first_seen_rev=770dc663 (lines 22,25,40) and the round-2 evidence text, so it does NOT reproduce the 5911d... TSV. The README still says the TSV is 'rendered through frozen render_register' and 'validated by parse_register round trip'; I did not verify the round-3 round trip. A hash-pinned register that no checked-in script regenerates cannot be re-derived by the closing packet. Required: either update _build.py to the round-3 content and re-run it to reproduce 5911d..., or stop claiming generation in README.",
+  "reviewed_by": "APPROVED for content: coordinator may set reviewed_by on all 15 rows, against SHA 5911d423e4150cbc2f92ae9d6d193f0962e030b5189a4403b863ebb74a89d349. The _build.py condition must be closed before the packet is finalized."
+ }
+}

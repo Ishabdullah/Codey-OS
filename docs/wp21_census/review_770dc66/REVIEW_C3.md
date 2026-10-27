@@ -1,0 +1,25 @@
+# C3 independent frozen classification review
+
+CHANGES REQUESTED on one author row before unit approval. No source/import/probe/product execution. Frozen770dc6639e4100ea3215fca07d923769a8290078.13sourcehashes independently match frozenmanifest;159exactkeys, no aggregates. Authorreviewed_by initiallyblank. Separate revieweroutput is classification_units/C3_reviewed_dispositions.tsv (158audited/approved rows signed; oneincorrectauthorrow remainsunsigned). Authorfile/register untouched.
+
+## Sampling and independent reclassification
+
+Own deterministic randomseed77020261025 selectedceil25%of159=40 sorted-row keys via random.Random(seed).sample; exactkeys persisted C3_REVIEW_SAMPLE.json. Mandatory UNMEDIATED/helperGATED/NATIVE/kill/READcanonical/unmatchedbusiness sets empty in shellunit. Expanded review covered ALL159rows, including all55authorFALSE_POSITIVE and13FDbookkeeping. Read frozen source contexts and ordinaryentrypoint/caller chains for all13files, including actual service_lifecycle main->service_actions.run_public validate/ACTorREAD gate_exec->privateworker->libmechanics. Independently saved C3_REVIEW_INDEPENDENT.json BEFORE per-row comparison. Comparison preserved C3_REVIEW_DISAGREEMENTS.json. Initial differences5/159(3.14%), randomsample0/40(0%); no>15%randomredo trigger.
+
+Resolution: three setup_repo publishingeffects classified OPERATOR_SCRIPT_RUNNABLE independently versus authorOPERATOR_BOOTSTRAP; accept authorbootstrap convention because initialrepositorypublishing is explicit setupentry and evidence names gh/publicpush without claiming gatewayprotection. One termux-cmd marker atinstall114 independently initiallytreatedwholelinebootstrap; accept authorFALSE_POSITIVE for that particularcategory because termux-api is an installedpackagename, not a termux-executable call. One remainingconcreteauthorerror mustchangebelow. These resolutionsdo noteraseinitialdisagreementcounts.
+
+## Blocking classification correction
+
+install.sh::install_system_deps::sh:pkg-install::5 atfrozenline114 is actual pkg install -y espeak termux-api 2>/dev/null continuation. AuthorFALSE_POSITIVE with genericquoted/dependencyname evidence is wrong for pkg-installcategory: pkg/install execute unconditionally inthisTermuxnonrootbranch. Change classOPERATOR_BOOTSTRAP and specificevidence actual packageinstall calledfrommain->install_system_deps, configureddevicepackagesnetwork/disk effects/no sharedtty authorization, existingnamedF3restriction and acceptedF2opaque-scriptceiling. Adjacent sh:termux-cmd::1 atsameline can stayFALSE_POSITIVE asdependency-nameovermatch. No otherrow covers thisactualpkginvocation; do nothide it behind metadata. This is knowninstallerbootstrap, notnewunledgeredHIGH or newpolicyacceptance.
+
+Nonblocking reportprecision: tools/setup_skills.sh currentlylists11clone_repo invocations (4original+7extended); authorreport says sevenfixedremote repos. Correct to11. Its shellscannerqualname clone_repo persistsacrossfunctionclose; rowcontexts properlydifferentiate actualtop-levelheredocPythoncomparison fromredirect and quotedexamplesfromeffects.
+
+## Approved interpretation of other rows
+
+55candidateFP inspectedcontextually: quoted/status/instructiontext, versioncomparisons, assignment/case/arraynames and command-vavailability differfromactualcommands.13FDexecrows onlyduplicate/close ownedcoprocess descriptors, notnewexecutables; BOOKKEEPINGappropriate. Sixevalrows restoreBashtrap-pserialization, notmodelargv, and areordinaryoperatorscriptmechanics withF2ceilingexplicit. Wrapperreachoperator-only describesnormalexplicitinstalledentry, notunreachabilitytocopied/importedmodelcontrolledscripts. Finitepublicservicegateway mediatesstandardselectorsbutdirectsameUIDprivatefunctionsremainacceptedceiling, notsandbox. Installer/quicksetup/defaultYes/read/--yes notclaimedhumanproof. CIdependencyinstallreachtest-only appropriate. NamedprotectedF3 versusopaqueF2 clearlykeptseparate. No newHIGH identified.
+
+Before finalunitAPPROVED, authorfixonlyrequiredclassificationrow/reportcount; reviewerchecksactualnewrow/evidence and updatesownreviewedoutput. No production/register/classificationauthorfile edits by reviewer, no runtimeaction. Existingall159sourceauditdoesnotgrantunrelatedCunitsapprovalorWP2.1closure.
+
+## Corrected author row final review
+
+APPROVED for C3only. Independently reread corrected pkg-install::5 class/evidence: OPERATOR_BOOTSTRAP, actual pkginstall calledfrommain, no sharedtty confirmation, namedF3HIGH plusknownF2ceiling; neighboringtermux-cmdcategory stillFALSE_POSITIVE. Countnow65BOOTSTRAP/27SCRIPT/54FP/13BOOKKEEPING=159. Report/evidence fixedelevenremote count; no newsemanticrowchanges. Independent random40disagreementrate remainsoriginal0/40; expandedinitial5/159differences preservedabove, fourresolvedclassificationconventions and oneauthorrowcorrected. All159rows audited, so separate C3_reviewed_dispositions.tsv now159nonempty /root/code_reviewer:C3 fields. Authorinput/register untouchedbyreviewer. Coordinatorcanmerge revieweroutput aftercrossunitreconciliation; no closure/gateclaim. No source/productexecution.

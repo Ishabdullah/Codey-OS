@@ -1,0 +1,17 @@
+scan keys 1467 candidate keys 1467 unique 1467 equal sets True
+all lines have 11 cells True
+ownership units {'C1': 355, 'C2': 304, 'C3': 159, 'C4': 153, 'C5': 179, 'C6': 181, 'C7': 136}
+class counts {'OPERATOR_BOOTSTRAP': 223, 'OPERATOR_SCRIPT_RUNNABLE': 149, 'UNMEDIATED': 28, 'BOOKKEEPING': 242, 'GATED': 122, 'DORMANT': 33, 'FALSE_POSITIVE': 88, 'READ_NOEFFECT': 22, 'NATIVE_AUTHORITY': 537, 'LOOPBACK_IPC': 23}
+UNKNOWN 0
+UNMEDIATED 28 missing finding/severity/reach 0
+non-UNKNOWN missing evidence 0
+restoricon_core scan rows 304 all dispositioned non-UNKNOWN True
+reviewed_by populated 961
+candidate sha256 5279004783c2c3dc37208f061d76c97fdb1ec558d5eabbcd27dc61f1a8d0de7d
+10 successor keys first_seen==770dc66 full sha: True
+rows differing vs pre-fix 10 are exactly the 10 successors: True only first_seen_rev differs: True pre-fix value was {'941ec3fb'}
+old stale keys absent from candidate: True
+provenance: 10 stale rows candidate_first_seen == FZ: True
+provenance consistent with candidate for all rows: True
+count column values {'': 340, '1': 1127}
+1107-row partial rehearsal mismatching rows 0 of 1107

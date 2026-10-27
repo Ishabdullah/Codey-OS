@@ -1,0 +1,27 @@
+{
+ "unit": "C6_FRESH",
+ "action": "reseal_text_only_evidence_edits",
+ "reason": "reviewer warnings W1,W2 (C6_FRESH_REVIEW_DISAGREEMENTS.json)",
+ "old_sha256": "b2aa8b12e8af1a1a9fcc1fe0ea3ea7a1f1b840f7554e1fdd02fac43fb0e84703",
+ "new_sha256": "d61a5afb88cec10c6462f25670d228648981b361e1d4cb7abeac7f55395857ff",
+ "rows_changed": [
+  "ccos/core/sandbox.py::Sandbox.run_command::subprocess.run::1",
+  "ccos/core/sandbox.py::Sandbox.run_python::*.write_text::1",
+  "ccos/plugins/device/termux_api/extended_api.py::_run::subprocess.run::1"
+ ],
+ "fields_changed": {
+  "ccos/plugins/device/termux_api/extended_api.py::_run::subprocess.run::1": [
+   "evidence"
+  ],
+  "ccos/core/sandbox.py::Sandbox.run_command::subprocess.run::1": [
+   "evidence",
+   "finding (+NEW-1099)"
+  ],
+  "ccos/core/sandbox.py::Sandbox.run_python::*.write_text::1": [
+   "evidence",
+   "finding (+NEW-1099)"
+  ]
+ },
+ "w1_verification": "termux_api_extended/manifest.json 19 capabilities, 0 overlap with 41-name termux_api manifest, 19/19 impl fns found in extended_api.py via AST and each calls _run; extended.py aliases 19",
+ "not_changed": "class,key,reach,reviewer,severity,mediator,decided_by,first_seen_rev,count; no NEW-1100 edits (no scanned row's source line is the generate_plugin_code embedding code, skill_recombiner.py:331-357; recombiner rows are at 623-704); no optimizer generate/_deploy edits (staging/post-gate, not the fallback execution)"
+}

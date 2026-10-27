@@ -1,0 +1,32 @@
+{
+  "rows": 136,
+  "files": 31,
+  "class_counts": {
+    "OPERATOR_SCRIPT_RUNNABLE": 46,
+    "UNMEDIATED": 5,
+    "BOOKKEEPING": 46,
+    "OPERATOR_BOOTSTRAP": 8,
+    "FALSE_POSITIVE": 13,
+    "READ_NOEFFECT": 11,
+    "LOOPBACK_IPC": 2,
+    "GATED": 2,
+    "DORMANT": 3
+  },
+  "unreviewed": 136,
+  "key_set_matches": true,
+  "source_key_sha256": "f4bc608d5342a6b207303438c6efaa01c117ce2080ff33ad694ab45eda2f562a",
+  "artifact_sha256": "0da93956b78f403ec427effcc00f3a10a165d579ce0cccde4ef5ed6aa4608492",
+  "helper_mediated_review_keys": [
+    "tools/provision_ai_agent_auth.py::provision.<locals>._run::*.execute::1",
+    "tools/shell_tools.py::_run_shell_command_structured::subprocess.run::1"
+  ],
+  "unmediated_review_keys": [
+    "bench/lock.py::write_lock::*.write_text::1",
+    "tools/encrypt_cloudflare_token.py::main::*.chmod::1",
+    "tools/encrypt_cloudflare_token.py::main::*.unlink::1",
+    "tools/encrypt_cloudflare_token.py::main::argv:age::1",
+    "tools/encrypt_cloudflare_token.py::main::subprocess.run::1"
+  ],
+  "source_key_sha256_with_trailing_newline": "7c7fe5b63ea4fd0db9d22e9888552ceb750fd1f358c21dd2edb28397aae64ec5",
+  "ownership_key_hash_matches": true
+}

@@ -1,0 +1,254 @@
+{
+ "reviewer": "code-reviewer (independent)",
+ "frozen_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+ "canonical_register_sha256_verified": "f405a6715247c0781abb3232b836d9417fb15d1c46a18b741a7820672a6dcf3f",
+ "canonical_register_sha256_expected": "f405a6715247c0781abb3232b836d9417fb15d1c46a18b741a7820672a6dcf3f",
+ "adjudication_file_used": "stale_register_adjudication.json at scratch root (identical sha f4143ee8...; also in docs/wp21_census/review_770dc66/). The task named classification_units/stale_register_adjudication.json, which does not exist.",
+ "count_claim": {
+  "claim": "10 stale + 28 missing = 38 coverage failures; 28 unregistered rows",
+  "verified": true,
+  "evidence": "frozen tools/wp21_census.py --source worktree --check against canonical dispositions.tsv: failures 38, warnings 0; FAIL stale-row x10; FAIL unregistered-row x28; stats register_entries 1337, scan_rows 1467, unknown_rows 1433, no_disposition 28. Output saved in scratchpad/recheck/check_stdout.txt",
+  "note": "10 of the 28 unregistered rows ARE the successor keys of the 10 stale keys; 18 unregistered rows are genuinely new effects (e.g. _snapshot copytree, run_suite rmtree/mkdtemp, _expected_tests copytree/tempfile, _run_hardened mkdir/write_text, tty_confirm open_tty os.open, protected_paths constants, process_identity and system_info sys.path rows, one new protected_paths/ file)."
+ },
+ "stale_without_successor": [],
+ "stale_without_successor_note": "None. Scan key diff 941ec3fb -> 770dc66 removes exactly these 10 keys and no others.",
+ "per_mapping": [
+  {
+   "old_key": "bench/runner.py::run_suite::*.mkdir::1",
+   "new_key": "bench/runner.py::_run_snapshotted::*.mkdir::1",
+   "old_site": "bench/runner.py:55 (941ec3fb): ledger.parent.mkdir(parents=True, exist_ok=True)",
+   "new_site": "bench/runner.py:101 (770dc66, frozen sha-verified): ledger.parent.mkdir(parents=True, exist_ok=True)",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C7",
+   "successor_unit_status": "APPROVED",
+   "successor_approved_row": {
+    "class": "OPERATOR_SCRIPT_RUNNABLE",
+    "mediator": "",
+    "reach": "prod-confirmless"
+   },
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED",
+   "notes": "Same statement: ledger.parent.mkdir(parents=True, exist_ok=True) moved into _run_snapshotted; ledger is the caller-selected output path in both."
+  },
+  {
+   "old_key": "bench/runner.py::run_suite::open::1",
+   "new_key": "bench/runner.py::_run_snapshotted::open::1",
+   "old_site": "bench/runner.py:56 (941ec3fb): with open(ledger, \"a\") as f:  # append-only",
+   "new_site": "bench/runner.py:102 (770dc66, frozen sha-verified): with open(ledger, \"a\") as f:  # append-only",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C7",
+   "successor_unit_status": "APPROVED",
+   "successor_approved_row": {
+    "class": "OPERATOR_SCRIPT_RUNNABLE",
+    "mediator": "",
+    "reach": "prod-confirmless"
+   },
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED",
+   "notes": "Same append: open(ledger, 'a') in both (mode=a in both scans). _snapshot's copytree is a separate new row, not this key."
+  },
+  {
+   "old_key": "bench/runner.py::run_suite::shutil.copytree::1",
+   "new_key": "bench/runner.py::_run_snapshotted::shutil.copytree::1",
+   "old_site": "bench/runner.py:24 (941ec3fb): shutil.copytree(t.starter, ws)",
+   "new_site": "bench/runner.py:69 (770dc66, frozen sha-verified): shutil.copytree(t.starter, ws)",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C7",
+   "successor_unit_status": "APPROVED",
+   "successor_approved_row": {
+    "class": "BOOKKEEPING",
+    "mediator": "",
+    "reach": "operator-only"
+   },
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED",
+   "notes": "Old line 24 copies t.starter into the per-rep ws; new line 69 is the same call. The new _snapshot copytree (line 47) is a different qualname and correctly unregistered."
+  },
+  {
+   "old_key": "bench/runner.py::run_suite::tempfile.TemporaryDirectory::1",
+   "new_key": "bench/runner.py::_run_snapshotted::tempfile.TemporaryDirectory::1",
+   "old_site": "bench/runner.py:22 (941ec3fb): with tempfile.TemporaryDirectory(prefix=\"bench_ws_\") as td:",
+   "new_site": "bench/runner.py:67 (770dc66, frozen sha-verified): with tempfile.TemporaryDirectory(prefix=\"bench_ws_\") as td:",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C7",
+   "successor_unit_status": "APPROVED",
+   "successor_approved_row": {
+    "class": "BOOKKEEPING",
+    "mediator": "",
+    "reach": "operator-only"
+   },
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED",
+   "notes": "Old line 22 is the per-rep bench_ws_ temp dir; new line 67 is the same. The snapshot mkdtemp at run_suite (line 35) is a new row."
+  },
+  {
+   "old_key": "bench/verify.py::grade::subprocess.run::1",
+   "new_key": "bench/verify.py::_run_hardened::subprocess.run::1",
+   "old_site": "bench/verify.py:36 (941ec3fb): r = subprocess.run(",
+   "new_site": "bench/verify.py:141 (770dc66, frozen sha-verified): r = subprocess.run(",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C7",
+   "successor_unit_status": "APPROVED",
+   "successor_approved_row": {
+    "class": "OPERATOR_SCRIPT_RUNNABLE",
+    "mediator": "",
+    "reach": "prod-confirmless"
+   },
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED",
+   "notes": "Same effect (pytest over hidden tests in a temp work copy) but a different launch: -I, --noconftest, scrubbed env, junit evidence. Reached from grade() AND _expected_tests() (which runs the locked reference solution), so the single successor row covers two reaches. Old disposition was UNKNOWN, so nothing transfers; successor re-decision is in C7 and its text covers both reaches."
+  },
+  {
+   "old_key": "ccos/core/plugin_manager.py::ProcessSupervisor.start_external_plugin::subprocess.Popen::1",
+   "new_key": "ccos/core/plugin_manager.py::ProcessSupervisor.start_external_plugin.<locals>._spawn::subprocess.Popen::1",
+   "old_site": "ccos/core/plugin_manager.py:374 (941ec3fb): proc = subprocess.Popen(",
+   "new_site": "ccos/core/plugin_manager.py:676 (770dc66, frozen sha-verified): proc = subprocess.Popen(",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C6",
+   "successor_unit_status": "PENDING (cannot merge until approved)",
+   "successor_approved_row": null,
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED_MAPPING_DISPOSITION_CHANGES",
+   "notes": "Same Popen of the same cmd/cwd/env, now inside _spawn executed only via gate_exec(execute=_spawn) at line 685-689. Old row was a direct ungated spawn; the successor's disposition is materially different (GATED) and needs C6 review, which is pending. Scan lexgate for _spawn is helper:gate_exec, a scanner assumption that C6 must verify."
+  },
+  {
+   "old_key": "core/lora_import.py::_confirm_on_tty::os.write::1",
+   "new_key": "core/tty_confirm.py::confirm_on_tty::os.write::1",
+   "old_site": "core/lora_import.py:90 (941ec3fb): os.write(fd, prompt.encode(\"utf-8\", errors=\"replace\"))",
+   "new_site": "core/tty_confirm.py:49 (770dc66, frozen sha-verified): os.write(fd, prompt.encode(\"utf-8\", errors=\"replace\"))",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C4",
+   "successor_unit_status": "APPROVED",
+   "successor_approved_row": {
+    "class": "BOOKKEEPING",
+    "mediator": "",
+    "reach": "prod-interactive"
+   },
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED",
+   "notes": "Same prompt os.write after tcflush, moved to shared primitive; lora._confirm_on_tty now delegates with open_tty seam (lora line 80). Lora's own _open_tty os.open row (line 70) is NOT stale and stays valid. Successor is a shared reach for all gate_human_action callers."
+  },
+  {
+   "old_key": "core/setup_dr_key.py::main::*.mkdir::1",
+   "new_key": "core/setup_dr_key.py::main.<locals>._generate_and_store::*.mkdir::1",
+   "old_site": "core/setup_dr_key.py:153 (941ec3fb): config_path.parent.mkdir(parents=True, exist_ok=True)",
+   "new_site": "core/setup_dr_key.py:226 (770dc66, frozen sha-verified): config_path.parent.mkdir(parents=True, exist_ok=True)",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C5",
+   "successor_unit_status": "PENDING (cannot merge until approved)",
+   "successor_approved_row": null,
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED_MAPPING_REASON_CORRECTION_REQUIRED",
+   "notes": "Same statement config_path.parent.mkdir(...) moved into post-confirm closure. The adjudication reason says 'No actual key generation in closure', which is FALSE: the closure calls _generate_keypair() at 770dc66 line 206 (old main called it at line 133). The reason must be corrected."
+  },
+  {
+   "old_key": "core/setup_dr_key.py::main::open::1",
+   "new_key": "core/setup_dr_key.py::main.<locals>._generate_and_store::open::1",
+   "old_site": "core/setup_dr_key.py:154 (941ec3fb): with open(config_path, \"w\", encoding=\"utf-8\") as f:",
+   "new_site": "core/setup_dr_key.py:227 (770dc66, frozen sha-verified): with open(config_path, \"w\", encoding=\"utf-8\") as f:",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C5",
+   "successor_unit_status": "PENDING (cannot merge until approved)",
+   "successor_approved_row": null,
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED_MAPPING_REASON_CORRECTION_REQUIRED",
+   "notes": "Same open(config_path, 'w') (mode=w both). Same false 'No actual key generation in closure' reason; correct it. Successor disposition is in C5, which is pending review."
+  },
+  {
+   "old_key": "tools/provision_ai_agent_auth.py::provision::*.execute::1",
+   "new_key": "tools/provision_ai_agent_auth.py::provision.<locals>._run::*.execute::1",
+   "old_site": "tools/provision_ai_agent_auth.py:261 (941ec3fb): conn.execute(",
+   "new_site": "tools/provision_ai_agent_auth.py:331 (770dc66, frozen sha-verified): conn.execute(",
+   "same_site_verdict": "SAME_SITE_MOVED",
+   "old_row_in_canonical_register": {
+    "class": "UNKNOWN",
+    "reviewed_by": "",
+    "first_seen_rev": "941ec3fb"
+   },
+   "disposition_transfer": "none: old row is UNKNOWN with blank evidence/reviewed_by; the successor needs its own reviewed disposition",
+   "successor_unit": "C7",
+   "successor_unit_status": "APPROVED",
+   "successor_approved_row": {
+    "class": "GATED",
+    "mediator": "gate_exec",
+    "reach": "prod-interactive"
+   },
+   "adjudication_reviewed_by_before": "",
+   "adjudicated_by_recorded": "/root",
+   "verdict": "APPROVED",
+   "notes": "Same parameterized UPDATE users SET custom_permissions_json ... inside with conn: moved into _run, which is passed through the HIGH gate. Old row was UNKNOWN; successor is GATED gate_exec in the approved C7 packet (reviewed_by /root/code_reviewer:C7)."
+  }
+ ],
+ "required_changes_before_approval": [
+  "Correct the reason text of core/setup_dr_key.py::main::*.mkdir::1 and ::open::1: the closure calls _generate_keypair() at 770dc66 line 206, so 'No actual key generation in closure' is false.",
+  "Record adjudicated_by as an actual identity (currently '/root', a path, not an agent or person) and set reviewed_by to the independent reviewer on each entry.",
+  "State first_seen_rev explicitly for the 10 successor keys. They do not exist at 941ec3fb, so the rule 'new or moved keys retain their actually first-seen frozen revision' gives 770dc66. The adjudication file has no such field."
+ ],
+ "non_blocking_notes": [
+  "The 6 non-UNKNOWN canonical rows (core/daemon.py, embed_server.py, resource_bus.py, resource_gate.py os.kill READ_NOEFFECT and symbolic_graph GATED) were not re-verified for same-site in this review; they are outside the 10 mappings.",
+  "Successor dispositions in C5 (setup_dr_key x2, disagreement OPERATOR_SCRIPT_RUNNABLE in C5_FRESH vs OPERATOR_BOOTSTRAP in C5_FRESH3/C5_dispositions) and C6 (_spawn, GATED gate_exec in both C6 files) are not approved; the merge stays blocked on them, as the checkpoint already states."
+ ]
+}

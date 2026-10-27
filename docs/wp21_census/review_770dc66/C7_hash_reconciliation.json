@@ -1,0 +1,826 @@
+[
+  {
+    "kind": "source",
+    "file": "bench/agents.py",
+    "expected": "8abc0213dd421a47e96eb6fea3d49744d4b0b195345d6b409d7ab4eddccd4cd3",
+    "actual": "8abc0213dd421a47e96eb6fea3d49744d4b0b195345d6b409d7ab4eddccd4cd3",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "bench/lock.py",
+    "expected": "e4ccbcecfe71eff1c39ba60e3a631260e9a1fd43029c8daecfd2644289540286",
+    "actual": "e4ccbcecfe71eff1c39ba60e3a631260e9a1fd43029c8daecfd2644289540286",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "bench/promote.py",
+    "expected": "bc6c063cb5086ea524c58485900eac85369c8333d1765a4e6ab4a4e86f71e4b3",
+    "actual": "bc6c063cb5086ea524c58485900eac85369c8333d1765a4e6ab4a4e86f71e4b3",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "bench/runner.py",
+    "expected": "4a00f413f378146b7fdabb482d1cfb9fd362643107838f8eeb7dd1da8e2ac01c",
+    "actual": "4a00f413f378146b7fdabb482d1cfb9fd362643107838f8eeb7dd1da8e2ac01c",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "bench/scorecard.py",
+    "expected": "623a0c1db46d0edeb4acb3c8b8c19bfea41b2fcd041c7420cb7d824f10da20bb",
+    "actual": "623a0c1db46d0edeb4acb3c8b8c19bfea41b2fcd041c7420cb7d824f10da20bb",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "bench/verify.py",
+    "expected": "7e6f8f4df675f71b9f33277524591c0fd14159910fdc99bce230b08d35f10608",
+    "actual": "7e6f8f4df675f71b9f33277524591c0fd14159910fdc99bce230b08d35f10608",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/adb_confound_monitor.py",
+    "expected": "42c3157cada187d745ac67c8021fe7e431162d2e0008299aef72ef9e692c7c5c",
+    "actual": "42c3157cada187d745ac67c8021fe7e431162d2e0008299aef72ef9e692c7c5c",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/encrypt_cloudflare_token.py",
+    "expected": "1df41a847c3eee699a014ca8745d86f9e9d1ac2160d3adf39ce80df5f9746aa1",
+    "actual": "1df41a847c3eee699a014ca8745d86f9e9d1ac2160d3adf39ce80df5f9746aa1",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/ensure_model_cli.py",
+    "expected": "4e9340ec72532a9bce03f1f28e8bc40422cb91784ea96200699f7af2ab3443ac",
+    "actual": "4e9340ec72532a9bce03f1f28e8bc40422cb91784ea96200699f7af2ab3443ac",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/release_model_cli.py",
+    "expected": "ae338887a39f8803f835ed20afe9e8adf5a141eeca71d29f17407bd6ebb01248",
+    "actual": "ae338887a39f8803f835ed20afe9e8adf5a141eeca71d29f17407bd6ebb01248",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/provision_ai_agent_auth.py",
+    "expected": "897044e34b8cffd5e16517f1e2b69b38164805b36558e11165fafba9c9a1d251",
+    "actual": "897044e34b8cffd5e16517f1e2b69b38164805b36558e11165fafba9c9a1d251",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/quarantine_unsourced_ccos_metrics.py",
+    "expected": "e5ebe4061e0b8adca847a4411d41472268795353c47ce0e9bea890a5e301c4f9",
+    "actual": "e5ebe4061e0b8adca847a4411d41472268795353c47ce0e9bea890a5e301c4f9",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/file_tools.py",
+    "expected": "524ef3370fc4ecff873269d0608e6721871befa68f141d0a6049333d39653987",
+    "actual": "524ef3370fc4ecff873269d0608e6721871befa68f141d0a6049333d39653987",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/shell_tools.py",
+    "expected": "52b1f65c659810f640f5ec1d6c91abd0fe0cd6f893e7005bcd22e4fed51a3a5b",
+    "actual": "52b1f65c659810f640f5ec1d6c91abd0fe0cd6f893e7005bcd22e4fed51a3a5b",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "utils/file_utils.py",
+    "expected": "d6947ac2a9fa042e16a4c7e37a10e6c01b58c1873e19577f2c9d63086ef31be2",
+    "actual": "d6947ac2a9fa042e16a4c7e37a10e6c01b58c1873e19577f2c9d63086ef31be2",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "utils/logger.py",
+    "expected": "aafed2a167d904508a85b842171c992a410e8b626d99882b0ae6692121504cb6",
+    "actual": "aafed2a167d904508a85b842171c992a410e8b626d99882b0ae6692121504cb6",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "utils/config.py",
+    "expected": "361cd73f362dfc541d86c95dd8ead508bc54d6de3748c8c2871099dbf464d3c7",
+    "actual": "361cd73f362dfc541d86c95dd8ead508bc54d6de3748c8c2871099dbf464d3c7",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/wp21_census.py",
+    "expected": "7e502d2d5ec827fcb6f22aee486f75c2ae764309b9dd4e277719d8108f250c7a",
+    "actual": "7e502d2d5ec827fcb6f22aee486f75c2ae764309b9dd4e277719d8108f250c7a",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "pipeline/embedding/nomic_client.py",
+    "expected": "01af2ddd82c248fffa3bf3f117613788e0cf411589d0591536f203965f6cfa52",
+    "actual": "01af2ddd82c248fffa3bf3f117613788e0cf411589d0591536f203965f6cfa52",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "pipeline/export/exporter.py",
+    "expected": "1d2e83205f7b4219a7cd8a8d8207aeca6f9393e4284b75fc807213783fae3fd2",
+    "actual": "1d2e83205f7b4219a7cd8a8d8207aeca6f9393e4284b75fc807213783fae3fd2",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "pipeline/run.py",
+    "expected": "4d7e60ba23b2c23c797066b95981e881ad41208d20e30504df1dbe95fe775006",
+    "actual": "4d7e60ba23b2c23c797066b95981e881ad41208d20e30504df1dbe95fe775006",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "pipeline/storage/sqlite_store.py",
+    "expected": "6598a2617b115f234c6b7eb4f71969fdb9cadf21b674ea715c5f3306c93b098c",
+    "actual": "6598a2617b115f234c6b7eb4f71969fdb9cadf21b674ea715c5f3306c93b098c",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "pipeline/storage/vector_store.py",
+    "expected": "a51fca2757056449e8280dfeb4fa413806d839457325cda2c28c492a96892f53",
+    "actual": "a51fca2757056449e8280dfeb4fa413806d839457325cda2c28c492a96892f53",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "pipeline/synthetic.py",
+    "expected": "6954260291bca6902b5328abd56a0d583509461f7195db14d79cfdf8789bbf8b",
+    "actual": "6954260291bca6902b5328abd56a0d583509461f7195db14d79cfdf8789bbf8b",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/kb_scraper.py",
+    "expected": "2d179d0c584ad92b65b423d5fcf44b109793162f40e0592829cecef7e62d09a3",
+    "actual": "2d179d0c584ad92b65b423d5fcf44b109793162f40e0592829cecef7e62d09a3",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "tools/kb_semantic.py",
+    "expected": "c8a1df89f0e59f087528f44fb349c54be814846c240c89af3b2987d7ac51cc06",
+    "actual": "c8a1df89f0e59f087528f44fb349c54be814846c240c89af3b2987d7ac51cc06",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "main.py",
+    "expected": "1d1f4416dcd647af5549c075a7e7fdab0684919736ac429ae6c15762c1908a01",
+    "actual": "1d1f4416dcd647af5549c075a7e7fdab0684919736ac429ae6c15762c1908a01",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "telemetry/provenance.py",
+    "expected": "d1ea77052ff3bf500135caf51a95f3f054273c694cee9f92f59cf63672cffc94",
+    "actual": "d1ea77052ff3bf500135caf51a95f3f054273c694cee9f92f59cf63672cffc94",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "telemetry/store.py",
+    "expected": "b6c446a6545e907366aa146af99438af7fba8c44d78b6f82e35b79e6db18ac75",
+    "actual": "b6c446a6545e907366aa146af99438af7fba8c44d78b6f82e35b79e6db18ac75",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "telemetry/rollup.py",
+    "expected": "694f7924d7ee146b08fee07b53c35433a2009cc8d6e41a9546d2c32b33d32482",
+    "actual": "694f7924d7ee146b08fee07b53c35433a2009cc8d6e41a9546d2c32b33d32482",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "source",
+    "file": "telemetry/rotate.py",
+    "expected": "18c424793f917081f516f42d40195edcb2be8d8bfa3a1f7ed15e09456d9f6cdc",
+    "actual": "18c424793f917081f516f42d40195edcb2be8d8bfa3a1f7ed15e09456d9f6cdc",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "bench/runner.py",
+    "expected": "4a00f413f378146b7fdabb482d1cfb9fd362643107838f8eeb7dd1da8e2ac01c",
+    "actual": "4a00f413f378146b7fdabb482d1cfb9fd362643107838f8eeb7dd1da8e2ac01c",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_bench_harness.py",
+    "expected": "30f67452c6e9ff2f0e9dabf48973747b8917d78aebd81bbda5764756e2d9b98c",
+    "actual": "30f67452c6e9ff2f0e9dabf48973747b8917d78aebd81bbda5764756e2d9b98c",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_bench_integrity_grader.py",
+    "expected": "256141e7239f6a4d5b1c6c683bf3bdba4b0d954d7c7df15c47dd8807750cab7b",
+    "actual": "256141e7239f6a4d5b1c6c683bf3bdba4b0d954d7c7df15c47dd8807750cab7b",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_bench_integrity_lock.py",
+    "expected": "861ab51896013f27829e39d7d2d774073d20d1a5f043373a38f7b79528219ffc",
+    "actual": "861ab51896013f27829e39d7d2d774073d20d1a5f043373a38f7b79528219ffc",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_s2_bench_symlink_lock.py",
+    "expected": "e466c395f5721a2ac242a44da229cbe797602a8226d7efab342b6378d2c6d806",
+    "actual": "e466c395f5721a2ac242a44da229cbe797602a8226d7efab342b6378d2c6d806",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "bench/README.md",
+    "expected": "e2d90e494123c9c842a232e390fc34feb294525a596a819f859744e9f31c6c48",
+    "actual": "e2d90e494123c9c842a232e390fc34feb294525a596a819f859744e9f31c6c48",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "bench/gate.py",
+    "expected": "fc6d8c1fd1510094190ba41aa406e50b48cfaff7d060887d7addfdb3f270857c",
+    "actual": "fc6d8c1fd1510094190ba41aa406e50b48cfaff7d060887d7addfdb3f270857c",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "bench/compare.py",
+    "expected": "d5b23627c043ce25aa2586098fbf258323ee7cdbc9fcb09049582362869eb418",
+    "actual": "d5b23627c043ce25aa2586098fbf258323ee7cdbc9fcb09049582362869eb418",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/finetune_prep.py",
+    "expected": "c9b9ac5c2bb885aa481d93f8ff940e850a96cca27ee734dda3af5ebf0d165433",
+    "actual": "c9b9ac5c2bb885aa481d93f8ff940e850a96cca27ee734dda3af5ebf0d165433",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "bench/agents.py",
+    "expected": "8abc0213dd421a47e96eb6fea3d49744d4b0b195345d6b409d7ab4eddccd4cd3",
+    "actual": "8abc0213dd421a47e96eb6fea3d49744d4b0b195345d6b409d7ab4eddccd4cd3",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "bench/verify.py",
+    "expected": "7e6f8f4df675f71b9f33277524591c0fd14159910fdc99bce230b08d35f10608",
+    "actual": "7e6f8f4df675f71b9f33277524591c0fd14159910fdc99bce230b08d35f10608",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "bench/lock.py",
+    "expected": "e4ccbcecfe71eff1c39ba60e3a631260e9a1fd43029c8daecfd2644289540286",
+    "actual": "e4ccbcecfe71eff1c39ba60e3a631260e9a1fd43029c8daecfd2644289540286",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_scorecard.py",
+    "expected": "ed4ac85ccbbc04ed9dc3c007f5db2022794b4e2aeff10ac66283d3c9df3d3fff",
+    "actual": "ed4ac85ccbbc04ed9dc3c007f5db2022794b4e2aeff10ac66283d3c9df3d3fff",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "install.sh",
+    "expected": "e96c782a42fe9860d01ad0dc60af11391c65b3b1aead596cbb4f41cf58da6e78",
+    "actual": "e96c782a42fe9860d01ad0dc60af11391c65b3b1aead596cbb4f41cf58da6e78",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/backup_secrets.py",
+    "expected": "6e11309a498fede985d8f6304e3edd84344a4d9616e5d3ae0e8c6431ce856895",
+    "actual": "6e11309a498fede985d8f6304e3edd84344a4d9616e5d3ae0e8c6431ce856895",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "utils/config.py",
+    "expected": "361cd73f362dfc541d86c95dd8ead508bc54d6de3748c8c2871099dbf464d3c7",
+    "actual": "361cd73f362dfc541d86c95dd8ead508bc54d6de3748c8c2871099dbf464d3c7",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_wp0_7_cloudflare_token_encryption.py",
+    "expected": "b737514b86d2b7f3b6cf0632e37a0232181c7ee5ad38a2370b14fcf9208d8085",
+    "actual": "b737514b86d2b7f3b6cf0632e37a0232181c7ee5ad38a2370b14fcf9208d8085",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "/data/data/com.termux/files/home/Codey-Aigentik/index.js",
+    "expected": "e49203eea6afde2b4e2a02975439264b91a894d86a16f8569080484662a55dbe",
+    "actual": "e49203eea6afde2b4e2a02975439264b91a894d86a16f8569080484662a55dbe",
+    "match": true,
+    "external": true
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/loader_v2.py",
+    "expected": "cd006f1d50dcb6c902c083d177a443200a0c22f63b40809ea8b86693e40e1567",
+    "actual": "cd006f1d50dcb6c902c083d177a443200a0c22f63b40809ea8b86693e40e1567",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_ensure_model_cli.py",
+    "expected": "c53e4228c05066f646d35912f28781a8becb9928877187ed4b7b1364a572e132",
+    "actual": "c53e4228c05066f646d35912f28781a8becb9928877187ed4b7b1364a572e132",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/daemon.py",
+    "expected": "82d5cee1b55c333d50c33fe650b3d91f7d0c30c8d812b17db88dbd788a645462",
+    "actual": "82d5cee1b55c333d50c33fe650b3d91f7d0c30c8d812b17db88dbd788a645462",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_release_model_cli.py",
+    "expected": "d3bf38567fd227a9dd8ae7e04ce2398c2bfb4142775d731ad8e413fabbcfa5a2",
+    "actual": "d3bf38567fd227a9dd8ae7e04ce2398c2bfb4142775d731ad8e413fabbcfa5a2",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_daemon_release_model_slot.py",
+    "expected": "b685c51e57ee9718bac950e36195cfd5c03794a9f2f86027029093e7d5b9efeb",
+    "actual": "b685c51e57ee9718bac950e36195cfd5c03794a9f2f86027029093e7d5b9efeb",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/tty_confirm.py",
+    "expected": "23ba9d541f2c99a66f4df6d5770caab454a1798c12b6382f38e62cb47007fc25",
+    "actual": "23ba9d541f2c99a66f4df6d5770caab454a1798c12b6382f38e62cb47007fc25",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/action_gateway.py",
+    "expected": "92328bd453e6ce7a20ee49525cd24be6efa639357e97caabb746db34ee7ecdc4",
+    "actual": "92328bd453e6ce7a20ee49525cd24be6efa639357e97caabb746db34ee7ecdc4",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "restoricon_core/database.py",
+    "expected": "08e8a8e2b6805d344b59e2ac2801493a3e5d34bcf0059af3a764a0797f74b0e6",
+    "actual": "08e8a8e2b6805d344b59e2ac2801493a3e5d34bcf0059af3a764a0797f74b0e6",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "restoricon_core/auth.py",
+    "expected": "46422c7a114a721238912f796ee03a64edeac89765ba0ee49adec1560d5373a0",
+    "actual": "46422c7a114a721238912f796ee03a64edeac89765ba0ee49adec1560d5373a0",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_g15i_operator_script_guards.py",
+    "expected": "19ddd6d46f63b4794aa2f8f34c4b601c5e6802b4825abbf19f810a44e10357d7",
+    "actual": "19ddd6d46f63b4794aa2f8f34c4b601c5e6802b4825abbf19f810a44e10357d7",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "ccos/core/performance_tracker.py",
+    "expected": "86c2dcbf656844231d8087da7e6ebed8d74a4ea228377391d0a843cd5b5b4ef9",
+    "actual": "86c2dcbf656844231d8087da7e6ebed8d74a4ea228377391d0a843cd5b5b4ef9",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "ccos/core/reflection_engine.py",
+    "expected": "15381c344bddbb6a8161d75ae4e6c9efa112912db15be165831fd4badd2764dd",
+    "actual": "15381c344bddbb6a8161d75ae4e6c9efa112912db15be165831fd4badd2764dd",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/agent.py",
+    "expected": "f3f38a6e127311a650de1a008dd746185bb83fa304c3dee782d26468822946fd",
+    "actual": "f3f38a6e127311a650de1a008dd746185bb83fa304c3dee782d26468822946fd",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/protected_paths.py",
+    "expected": "69e7cec94c67cc31c5faff0e5e65c8c3bdde366ab8b2d632103f24d303b64dc9",
+    "actual": "69e7cec94c67cc31c5faff0e5e65c8c3bdde366ab8b2d632103f24d303b64dc9",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_file_tools_protected_classification.py",
+    "expected": "50c0b15e636f9b383a5eebdd883fc38188a7326110eec3ac38dceccc53b788e9",
+    "actual": "50c0b15e636f9b383a5eebdd883fc38188a7326110eec3ac38dceccc53b788e9",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/git_execution.py",
+    "expected": "f4087e56f8709589d9f87aee0cfa3ae16eef4abc0c64e21885f394e04795137b",
+    "actual": "f4087e56f8709589d9f87aee0cfa3ae16eef4abc0c64e21885f394e04795137b",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "utils/logger.py",
+    "expected": "aafed2a167d904508a85b842171c992a410e8b626d99882b0ae6692121504cb6",
+    "actual": "aafed2a167d904508a85b842171c992a410e8b626d99882b0ae6692121504cb6",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_shell_tools.py",
+    "expected": "77b3070a02dbeeee90663b9996fecb92dc601470b959f92eb1f95f4eeb5d9665",
+    "actual": "77b3070a02dbeeee90663b9996fecb92dc601470b959f92eb1f95f4eeb5d9665",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_shell_s2a_credential_casefold.py",
+    "expected": "238f96fb670683f2e37af61fbba6c6f4b65ae6eaf0e5d9285e39482b46041a37",
+    "actual": "238f96fb670683f2e37af61fbba6c6f4b65ae6eaf0e5d9285e39482b46041a37",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "utils/__init__.py",
+    "expected": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "actual": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_g15h_masking_redaction.py",
+    "expected": "408f37f4b943480ef7be20d62ae5e1812d39493014bf65142aef3f4a700d61aa",
+    "actual": "408f37f4b943480ef7be20d62ae5e1812d39493014bf65142aef3f4a700d61aa",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_s2_confirm_fail_closed.py",
+    "expected": "6f7bad61f519377ed5a7855a26aba20525eb5b9d3b595a9669462f7150451c70",
+    "actual": "6f7bad61f519377ed5a7855a26aba20525eb5b9d3b595a9669462f7150451c70",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/service_actions.py",
+    "expected": "decd48da4158c389cbe187c7525c060f21f6ab227469ec57073c00bac858db36",
+    "actual": "decd48da4158c389cbe187c7525c060f21f6ab227469ec57073c00bac858db36",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/service_lifecycle.py",
+    "expected": "939346abf9cb205a4c803c4d7c4276781fa312fe598f9c06805a0c8ad72300d3",
+    "actual": "939346abf9cb205a4c803c4d7c4276781fa312fe598f9c06805a0c8ad72300d3",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/process_identity.py",
+    "expected": "08c9125d33c808461ad95408c826e599e484cf22ae04e6839489055c9bebbc93",
+    "actual": "08c9125d33c808461ad95408c826e599e484cf22ae04e6839489055c9bebbc93",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "restoricon_core/services/notification_service.py",
+    "expected": "b28280d4dcdaa958d3495dd043040d35bac7729348e489756fc958b875cb8ee5",
+    "actual": "b28280d4dcdaa958d3495dd043040d35bac7729348e489756fc958b875cb8ee5",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_wp21_census.py",
+    "expected": "d945653efdd49f66b2a470e62d9d382ba5cb8a27684288e54a89306d9acff202",
+    "actual": "d945653efdd49f66b2a470e62d9d382ba5cb8a27684288e54a89306d9acff202",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "pipeline/embedding/embedder.py",
+    "expected": "c6587644621c6b530345fef8c0a46d6311c75b6859abb382f3f9c35f3ca6df4e",
+    "actual": "c6587644621c6b530345fef8c0a46d6311c75b6859abb382f3f9c35f3ca6df4e",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "pipeline/run.py",
+    "expected": "4d7e60ba23b2c23c797066b95981e881ad41208d20e30504df1dbe95fe775006",
+    "actual": "4d7e60ba23b2c23c797066b95981e881ad41208d20e30504df1dbe95fe775006",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/memory_v2.py",
+    "expected": "f01f27ce00907ef8511adaae256e1471262189c15ea5f8e95790da161fff63d0",
+    "actual": "f01f27ce00907ef8511adaae256e1471262189c15ea5f8e95790da161fff63d0",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "pipeline/export/exporter.py",
+    "expected": "1d2e83205f7b4219a7cd8a8d8207aeca6f9393e4284b75fc807213783fae3fd2",
+    "actual": "1d2e83205f7b4219a7cd8a8d8207aeca6f9393e4284b75fc807213783fae3fd2",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "pipeline/storage/sqlite_store.py",
+    "expected": "6598a2617b115f234c6b7eb4f71969fdb9cadf21b674ea715c5f3306c93b098c",
+    "actual": "6598a2617b115f234c6b7eb4f71969fdb9cadf21b674ea715c5f3306c93b098c",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "pipeline/storage/vector_store.py",
+    "expected": "a51fca2757056449e8280dfeb4fa413806d839457325cda2c28c492a96892f53",
+    "actual": "a51fca2757056449e8280dfeb4fa413806d839457325cda2c28c492a96892f53",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "pipeline/synthetic.py",
+    "expected": "6954260291bca6902b5328abd56a0d583509461f7195db14d79cfdf8789bbf8b",
+    "actual": "6954260291bca6902b5328abd56a0d583509461f7195db14d79cfdf8789bbf8b",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "pipeline/storage/__init__.py",
+    "expected": "765899c2857ab3494aac1245097ce067dbf1aae532c6b33887db6f51f9a8fae4",
+    "actual": "765899c2857ab3494aac1245097ce067dbf1aae532c6b33887db6f51f9a8fae4",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tools/setup_skills.sh",
+    "expected": "9305b1660d14680a8c44ec7539120c0bc92ecd1a6bf6156e47b79fe026ca2588",
+    "actual": "9305b1660d14680a8c44ec7539120c0bc92ecd1a6bf6156e47b79fe026ca2588",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/retrieval.py",
+    "expected": "9a961ead90b4a5d46a1d41a85d3653d797e9cb03c25f7c788d2f32a001b297e8",
+    "actual": "9a961ead90b4a5d46a1d41a85d3653d797e9cb03c25f7c788d2f32a001b297e8",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/resource_gate.py",
+    "expected": "09f1ca60d4c367c532b096ed352112165a25605529814729d50d7b774cfdc3f2",
+    "actual": "09f1ca60d4c367c532b096ed352112165a25605529814729d50d7b774cfdc3f2",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "core/filesystem.py",
+    "expected": "e2351d09a71371da845e1e65f308b0d6bd61f9adcb61be1acf3e06c91660555b",
+    "actual": "e2351d09a71371da845e1e65f308b0d6bd61f9adcb61be1acf3e06c91660555b",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tools/file_tools.py",
+    "expected": "524ef3370fc4ecff873269d0608e6721871befa68f141d0a6049333d39653987",
+    "actual": "524ef3370fc4ecff873269d0608e6721871befa68f141d0a6049333d39653987",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_filesystem_workspace_root_live.py",
+    "expected": "356e1add290c51c556f45a3e8ef08ffe586b18a3d7606a3325c17e780e0484d5",
+    "actual": "356e1add290c51c556f45a3e8ef08ffe586b18a3d7606a3325c17e780e0484d5",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_cli_readline_startup.py",
+    "expected": "a15e279bfbac180ce96338c2acff653b220e4a9316d2c8fdfd96c82c45b64765",
+    "actual": "a15e279bfbac180ce96338c2acff653b220e4a9316d2c8fdfd96c82c45b64765",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "telemetry/recorders.py",
+    "expected": "c8a37f10fa4a30da93ab7a3fcaeec6f760df244230f9ded0cbcb8120190cf67d",
+    "actual": "c8a37f10fa4a30da93ab7a3fcaeec6f760df244230f9ded0cbcb8120190cf67d",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "telemetry/store.py",
+    "expected": "b6c446a6545e907366aa146af99438af7fba8c44d78b6f82e35b79e6db18ac75",
+    "actual": "b6c446a6545e907366aa146af99438af7fba8c44d78b6f82e35b79e6db18ac75",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "main.py",
+    "expected": "1d1f4416dcd647af5549c075a7e7fdab0684919736ac429ae6c15762c1908a01",
+    "actual": "1d1f4416dcd647af5549c075a7e7fdab0684919736ac429ae6c15762c1908a01",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_telemetry_provenance.py",
+    "expected": "cb4527f4eb38771abbd28bd1babbcd76c3a733361573f7a165e3060c45f73598",
+    "actual": "cb4527f4eb38771abbd28bd1babbcd76c3a733361573f7a165e3060c45f73598",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_telemetry_t2_run_start.py",
+    "expected": "7dbd06d6dc6f03d5449d0186b555c73d936c12f74ae88731a398cb396512c767",
+    "actual": "7dbd06d6dc6f03d5449d0186b555c73d936c12f74ae88731a398cb396512c767",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "telemetry/envelope.py",
+    "expected": "81cb7710beec5bf5ba8a6879e3fa5f15c39a4ced5b002b45088ec411ee061a88",
+    "actual": "81cb7710beec5bf5ba8a6879e3fa5f15c39a4ced5b002b45088ec411ee061a88",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_telemetry_store.py",
+    "expected": "076385bfca69090f061bba96d40459f05dd8c4786483d791bf1cbc82dd8e3e44",
+    "actual": "076385bfca69090f061bba96d40459f05dd8c4786483d791bf1cbc82dd8e3e44",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "telemetry/cli.py",
+    "expected": "437e22827be8af897ab25d7c199c1ba4ebcf094890d30857f10ca52495fad0e5",
+    "actual": "437e22827be8af897ab25d7c199c1ba4ebcf094890d30857f10ca52495fad0e5",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "telemetry/rotate.py",
+    "expected": "18c424793f917081f516f42d40195edcb2be8d8bfa3a1f7ed15e09456d9f6cdc",
+    "actual": "18c424793f917081f516f42d40195edcb2be8d8bfa3a1f7ed15e09456d9f6cdc",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_telemetry_rotation.py",
+    "expected": "e0c273ee6d083d277178e25202adaddfd5eb4a9dfe93e601855553600106104b",
+    "actual": "e0c273ee6d083d277178e25202adaddfd5eb4a9dfe93e601855553600106104b",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "tests/test_telemetry_cli.py",
+    "expected": "49f24346d66bb7f86c642847eab7633efac6b16d989d5e84c07348feddb8d8cb",
+    "actual": "49f24346d66bb7f86c642847eab7633efac6b16d989d5e84c07348feddb8d8cb",
+    "match": true,
+    "external": false
+  },
+  {
+    "kind": "caller-context",
+    "file": "telemetry/rollup.py",
+    "expected": "694f7924d7ee146b08fee07b53c35433a2009cc8d6e41a9546d2c32b33d32482",
+    "actual": "694f7924d7ee146b08fee07b53c35433a2009cc8d6e41a9546d2c32b33d32482",
+    "match": true,
+    "external": false
+  }
+]

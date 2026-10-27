@@ -1,0 +1,86 @@
+........................................................................ [ 38%]
+......................F................................................. [ 77%]
+.........................................                                [100%]
+=================================== FAILURES ===================================
+__________ test_orchestrator_multi_domain_deliberation_and_execution ___________
+
+    def test_orchestrator_multi_domain_deliberation_and_execution():
+        bb_path = _make_temp_db()
+        tracker_path = _make_temp_db()
+        reg_path = _make_temp_registry_file()
+    
+        try:
+            bb = TaskBlackboard(db_path=bb_path)
+            tracker = PerformanceTracker(db_path=tracker_path)
+            reg = CapabilityRegistry(store_path=reg_path)
+            pm = PluginManager(registry=reg)
+    
+            # Register capabilities
+            global_reg = get_capability_registry()
+            local_pm = PluginManager(registry=global_reg)
+    
+            cap_crm = Capability(name="crm.customer_query", description="CRM query", implementation="builtin", category="crm")
+            cap_coding = Capability(name="coding.run_agent", description="Coding agent", implementation="builtin", category="coding")
+    
+            global_reg.register(cap_crm)
+            global_reg.register(cap_coding)
+    
+            # WP2.1 group 4 (NEW-910/911/912): register_capability_handler()
+            # now requires an explicit authority. "coding.run_agent" matches
+            # the core table's own ACT classification for that name.
+            local_pm.register_capability_handler(
+                "crm.customer_query",
+                lambda **kw: {"crm_output_1": [{"id": 1, "name": "Test Account"}]},
+                authority=READ,
+            )
+            local_pm.register_capability_handler(
+                "coding.run_agent",
+                lambda crm_output_1=None, **kw: {"code": "print('Report')" if crm_output_1 else "print('No data')"},
+                authority=ACT,
+            )
+    
+            orch = get_agent_orchestrator()
+    
+            goal = "Query CRM customer records and then write a python script to analyze them"
+            delib = orch.deliberate(goal)
+    
+            assert delib.status in (DecisionStatus.APPROVED, DecisionStatus.MODIFIED)
+            assert delib.final_plan is not None
+            assert delib.safety_blocked is False
+    
+            # Execute end to end
+            task_id = f"orch_multi_task_{int(time.time() * 1000)}"
+            context = TaskContext(task_id=task_id, step_id="init", goal=goal)
+    
+            exec_res = orch.execute_request(
+                goal=goal,
+                context=context,
+                blackboard=bb,
+                plugin_manager=local_pm,
+            )
+    
+            if exec_res.get("plan"):
+                for s in exec_res["plan"].steps:
+                    if s.error:
+                        print(f"Step {s.id} ({s.description}) error: {s.error}")
+    
+>           assert exec_res["status"] == "completed"
+E           AssertionError: assert 'failed' == 'completed'
+E             
+E             - completed
+E             + failed
+
+ccos/tests/test_multi_domain.py:551: AssertionError
+----------------------------- Captured stdout call -----------------------------
+Step 1 (Query CRM customer records) error: No loaded plugin implements 'crm.get_customer'
+=============================== warnings summary ===============================
+ccos/plugins/coding/agent/test.py::test
+  /data/data/com.termux/files/usr/lib/python3.14/site-packages/_pytest/python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but ccos/plugins/coding/agent/test.py::test returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED ccos/tests/test_multi_domain.py::test_orchestrator_multi_domain_deliberation_and_execution
+1 failed, 184 passed, 1 warning in 13.25s

@@ -102,6 +102,7 @@ The two existing switches are **test-level env vars, not CLI flags** (`tests/tes
 * `WP21_CENSUS_GATE=1` makes `test_repo_head_snapshot_is_covered_by_register` assert `cov.ok` (unregistered rows, stale rows, bad class/reach/severity, missing
   evidence, UNMEDIATED without finding+severity, GATED mediator outside the gate vocabulary all fail). Default (unset) is warn-only (a `UserWarning` in the pytest
   warning summary). `WP21_CENSUS_SKIP_REPO=1` skips both repo-level tests.
+  **Superseded 2026-10-27:** `WP21_CENSUS_GATE` and the warn-only branch no longer exist; the coverage test asserts `cov.ok` by default (blocking). Below is the original design text.
 * `WP21_CENSUS_STRICT=1` enables `test_repo_head_snapshot_has_no_unknown_rows` (`require_no_unknown=True`: any UNKNOWN row is a `unknown-remains` failure); otherwise it is
   skipped. It is the DoD 3 check.
 
@@ -114,6 +115,8 @@ boundary addition an immediate suite failure that must carry a classified dispos
 same commit**, which is why the Track B friction (NEW-1016; `gate_restoricon=False` exists in `evaluate_coverage` to soften `restoricon_core` qualname rows) is a
 standing decision; (iii) the test scans the **committed HEAD** snapshot, so a developer's own uncommitted new row is invisible locally and fails only after the commit
 (documented in `docs/wp2_1_census_report_1.md`), so the register update must ride in the same commit or the following docs-only commit will turn the suite red.
+
+**Superseded 2026-10-27:** part (a) is done for the gate test (blocking by default, `WP21_CENSUS_GATE` removed, so the "warn-only today" wording above is historical); STRICT remains a closure-time opt-in as recommended.
 
 ### 1.6 Stop conditions inside classification
 
@@ -318,7 +321,7 @@ Collision rule: run `git status --short` on the three tracking docs immediately 
 4. **`CODEY_MASTER_PLAN.md`**: only the Track-B-adjacent Appendix A lines in 4.1. Nothing else.
 5. **Docs sweep** (scope doc 5 G15z): `docs/security.md` has **no** mention of the default-deny shell classifier, the protected-path set, the audited plugin spawn, secret masking or the census (grep for `default-deny|G15|HIGH_IMPACT|protected_paths` = 0 hits): add a short
    section (visible behaviour changes for operators: which commands are refused in confirm-less modes, DENY/HIGH path tiers, `WP21_CENSUS_*`); `docs/commands.md:161` and `docs/architecture.md:163` (the linter lines `CODEY_LINTER ruff|flake8|mypy` and
-   the `linter.py` description; stale per NEW-984/991, re-read the code first); `docs/configuration.md` for any env switch added (`WP21_CENSUS_GATE/STRICT/SKIP_REPO/SOURCE`); `docs/troubleshooting.md` for "command refused in --yolo" (the D-F5 list).
+   the `linter.py` description; stale per NEW-984/991, re-read the code first); `docs/configuration.md` for any env switch added (`WP21_CENSUS_GATE/STRICT/SKIP_REPO/SOURCE`; superseded 2026-10-27: `GATE` was removed, the gate is blocking by default); `docs/troubleshooting.md` for "command refused in --yolo" (the D-F5 list).
    Any `CODEY.md`-related doc mention is checked by grep first. Suggest (for Ish, who owns `CLAUDE.md`) adding the new directories to the repo-structure section.
 6. **`install.sh` (rule 11)**: G15 added no dependency (`tools/wp21_census.py` is stdlib-only; `core/tty_confirm.py` has none): state "install.sh unchanged, checked" explicitly in the log; if any slice added a PATH shim or a package, update it in the same round.
 7. **`LIVE_TEST_QUEUE.md`**: add the L2 items of 3.3 with exact steps (the file already has `[G15h-A]`), so Ish's manual steps are written down; do not mark any of them done.
@@ -387,7 +390,7 @@ architect (this spec) -> Sonnet agent (explicit model override; `.claude/agents/
 | S3 | **freeze**: the last code commit lands; `git status` clean for scanned paths; census re-run `1.1/1.2` (A1-A3), register drift fixed, scan reproducibility `cmp` by a second agent | coordinator + 1 agent | 0.2-0.3M | no | none |
 | S4 | classification C1-C7 (1.3-1.4), each its own scratch TSV, append-after-every-file | 7 Sonnet agents | 2.9-4.9M | yes, disjoint files, cap 3 concurrent; C2 (`restoricon_core`) and C3 (shell/launchers) need only their own file families frozen, so they may start before S2 ends if S2's fixes touch none of them; **C1 (manifests) also depends on `ccos/core/plugin_manager.py`**, because each manifest capability row's `authority_listed` detail is computed from `CAPABILITY_AUTHORITY` in that file (`_authority_keys`), so any S2 fix to it invalidates C1. Re-run `--check` at S3 to prove nothing drifted | Z-2 (scope of classification) |
 | S5 | independent review R1-R3 (re-classify 25% + 100% UNMEDIATED / helper-based GATED / kill rows; 100% of the 35 READ-listed capabilities; mutation check per distinct mediator); disagreement resolution | 3 fresh agents + architect | 0.9-1.5M | R units parallel after their C unit | none |
-| S6 | merge to `dispositions.tsv`, `--check --strict` rc 0, `WP21_CENSUS_STRICT=1 pytest tests/test_wp21_census.py`, gate flip (test edit, code-reviewer, demonstration that an undispositioned boundary fails), coverage test blocking | coordinator, implementer, code-reviewer | 0.4-0.6M | no | Z-1 |
+| S6 | merge to `dispositions.tsv`, `--check --strict` rc 0, `WP21_CENSUS_STRICT=1 pytest tests/test_wp21_census.py`, gate flip (test edit, code-reviewer, demonstration that an undispositioned boundary fails), coverage test blocking (superseded 2026-10-27: the coverage test is already blocking by default, decoupled from classification completion; only the STRICT zero-UNKNOWN check remains opt-in) | coordinator, implementer, code-reviewer | 0.4-0.6M | no | Z-1 |
 | S7 | docs closeout 4.2, handoff, `LIVE_TEST_QUEUE` entries, ledgers (about 49 + new entries) | coordinator | 0.5-0.8M | no | Z-6, Z-7, Z-8, Z-9 (residual list, DoD text, tiers, doc target) |
 | S8 | fresh regression run in bounded chunks (never copy old counts), Ish's explicit closure sign-off, commit (stage exact paths) | coordinator | 0.1-0.2M | no | the closure decision itself |
 

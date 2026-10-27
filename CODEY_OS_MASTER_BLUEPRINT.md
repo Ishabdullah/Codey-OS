@@ -3421,7 +3421,8 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > parse failures, 1,433 rows, of which 1,427 UNKNOWN (unclassified, NOT "no
 > bypass"), 5 READ_NOEFFECT, 1 GATED; `tests/test_wp21_census.py` 115 passed,
 > 1 skipped; register `docs/wp21_census/dispositions.tsv` (1,337 entries); the
-> default coverage test is warn-only until classification completes. Review
+> default coverage test was warn-only at that commit; it is blocking by default
+> as of 2026-10-27 (`WP21_CENSUS_GATE` removed). Review
 > caught a scanner blind spot (6 missed rows, fixed). Architect probes at HEAD
 > `941ec3f` confirmed NEW-933 still live and kill/`gh repo create`/`crontab`/
 > `at`/`su` etc. classify ACT (NEW-1006). Commit `941ec3f` (NEW-959 S1-S3) was
@@ -3861,6 +3862,98 @@ reviewed by `/root/code_reviewer`, APPROVED).
 > 1,433 UNKNOWN, 28 NO_DISPOSITION, 38 coverage failures, exit 1; register unchanged.
 > Final classification/replay/gate/closure not yet run. Details and literal
 > evidence: `docs/wp2_1_g15z_closure_progress_2026-10-25.md`. No new dependency.
+> **Status update (2026-10-25, source freeze) — `770dc66` committed/pushed;
+> WP2.1 remains OPEN.** Exact 21-path tranche independently APPROVED; HEAD and
+> origin/main verified equal. Production source frozen at full hash
+> `770dc6639e4100ea3215fca07d923769a8290078`; preceding not-frozen wording is
+> the precommit checkpoint. Two independent frozen census runs reproduced all
+> five TSV inventories byte-for-byte, 1,467 rows; unchanged register still has
+> 1,433 UNKNOWN and 38 coverage failures, so no strict/gate success. C3's 159
+> dispositions independently approved (all159 audited); C7's 136 approved under
+> sampling policy (58 individually audited; original3/34 differences retained
+> and resolved). These 295 dispositions remain scratch, not merged. C1 under
+> way, C2/C4/C6 pending, C5 preparation partial. First adapted V-A runtime safely
+> stopped at recorded ctypes.CDLL during uuid/platform import before probes;
+> reviewed bootstrap repair/retry still pending. No final closure/residual/DoD
+> signature or attended/live integration claim. Progress report retains details.
+> **Status update (2026-10-26, classification/replay continuation) — OPEN.**
+> Source remains frozen at pushed `770dc66`. C1 355, C3 159 and C7 136 unit
+> dispositions independently APPROVED (650/1,467), still not merged; canonical
+> register remains 1,433 UNKNOWN /38 coverage failures. C1 random89 differences0,
+> expanded all355 audited; report discloses author-note exposure during inventory.
+> C2 author304 and C5 author179 complete, independent review pending; C4 initial
+> random10/39 disagreements (25.641%) require a fresh153-row classifier redo.
+> C6 paused for static assessment; NEW-1096 now records LOW/dormant exposure
+> with conditional HIGH optimizer staging-escape impact, OPEN/QUEUE; no
+> main/daemon/API reach established. NEW-1095 alternate peer-runner binding
+> defect is LOW/QUEUE. No source fix or final residual acceptance.
+> Ten stale register keys have manual mapping proposals only; register unchanged.
+> C6 classification and the remaining independent reviews are still pending. Adapted V-A retry and corrected
+> result independently APPROVED: data266 groups233 product refusals/20 positive
+> attempts refused by harness/8 accepted residual attempts/2 clean attempts/
+> 1 stricter refusal/2 explicit unrun, no FAIL/inconclusive; three canaries pass,
+> marker absent. Not all267 original inventory replayed (74 unselected remain).
+> Correction retained: checkpoint import constructs owned nonce SQLite schema/WAL;
+> prior unused-receiver assertion withdrawn, selected source closure18 and102
+> receivers outside scope. No native/global containment or attended/live claim.
+> Other B/C/S1b replay, full classification/strict gate and final signatures remain
+> pending. Progress report contains literal counts, limits and review artifacts.
+> **Status update (2026-10-26, further continuation) — OPEN.**
+> Frozen/pushed source remains `770dc66`. C1/C2/C3/freshC4/C7 now total
+> 1,107 approved unit dispositions;961 individual reviewer signatures,146
+> author-only under sampled unit approvals. Canonical register remains unchanged
+> (1,433 UNKNOWN/38 coverage failures). C5 requires third fresh179-row review
+> after initial11/45 and fresh8/45 disagreement thresholds; C6 requires fresh181
+> after13/46. Literal rates retained; no cosmetic closure by relabeling.
+> B1 approved bridge ran16 selected references (15fixturePASS+N17partial), with
+> actual owned file I/O and recorded/refused primitives; independent result
+> audit pending. This is not fullB1/B2 or realTTY verification. NEW-1097 unused
+> sandbox workspace-name containment is LOW/dormant/QUEUE, no source fix.
+> Approved classification/V-A evidence copies are uncommitted pending package
+> review. Remaining replays, register/stale review, strict/default gate, final
+> docs/residual/manual-tier and Ish closing sign-offs remain pending; see progress.
+> **Status update (2026-10-27, closing packet assembled) — READY FOR ISH'S
+> SIGN-OFF; WP2.1 is NOT CLOSED.** Frozen source is still the pushed `770dc66`;
+> nothing below is committed (commit hash `<to be recorded after commit>`).
+> Packet: `docs/WP2_1_CLOSING_PACKET_2026-10-27.md`; evidence copies with a
+> SHA256 manifest: `docs/wp21_census/closing_770dc66/`. Register: 1,467 rows,
+> 0 UNKNOWN, SHA256 `5279004783c2c3dc37208f061d76c97fdb1ec558d5eabbcd27dc61f1a8d0de7d`
+> (uncommitted; mechanical strict check 0 failures). 961 rows carry `reviewed_by`;
+> C5 (round 4 APPROVED) and C6 (APPROVED with warnings, non-blind, installed file
+> is a text-only 3-row reseal the reviewer did not re-read) are reviewed in their
+> review JSONs only. Default-blocking gate and the five disposable-repo proofs:
+> code-complete in `tests/test_wp21_census.py`, uncommitted, no retained review
+> artifact. Tests: 9,303 passed effective (raw 9,299) / 9 baseline failures /
+> 2 skipped / 19 subtests; guarded CCOS 1 failed / 184 passed (NEW-805); census
+> strict 124 passed; ruff 190/179 (prefreeze measurement), mypy unavailable.
+> G15b 49-item reconciliation `5c0f82d4c4ad7146faef1b8b33bc12d04c42e43e004de79cff6a840025e90e29`:
+> 28 CLOSED / 3 ACCEPTED_RESIDUAL / 12 PARTIAL / 6 OPEN (G15b-13 and G15b-34
+> moved to PARTIAL by rule 6); the re-review was CHANGES_REQUESTED on a
+> predecessor file and its fixes were not re-approved. V-A recorder-only
+> (74/267 original IDs unselected); B1 16-case owned-fixture bridge, not live,
+> not full coverage. NEW-1101 accepted limitation (15 supplementary rows outside
+> `--check`); NEW-1103 rename hole open. Replay expansion (B1 HIGH matrix,
+> final-HEAD S1b, remaining B/C1/C2/C3) DEFERRED by Ish 2026-10-27 to an
+> unnamed later work package. Pending Ish: Z-5/Z-6/Z-7/Z-8, R5 ratification,
+> the Q7(c) contradiction, R18 carry, NEW-814/NEW-1102 ratings.
+> **Trigger pointers (rule 8 as revised 2026-10-27; no new roadmap entries were
+> created, these are pointers only):**
+> - *WP2.2 (Worlds / Playground isolation):* conditional. If Ish signs WP2.2 as
+>   the next package, retag G15b-42's import-time state creation (NEW-855,
+>   NEW-1011) from `trigger: none` to `trigger: WP2.2`; NEW-1011 has no other
+>   blueprint pointer. See the pointer under the WP2.2 entry.
+> - *NEW-1069 (OS-level boundary, candidate WP, not part of WP2.1, Ish's call):*
+>   NEW-904, NEW-1019, NEW-1028, NEW-1037, NEW-975, NEW-986 carry
+>   `trigger: NEW-1069 OS-boundary candidate WP`, which is effectively parked
+>   while NEW-1069 is unscheduled.
+> - *D-2 option (c) env-scrub work (deferred):* NEW-1020, NEW-1053, NEW-1054
+>   carry `trigger: D-2(c) env-scrub work`.
+> - *Replay expansion (deferred, unnamed WP):* B1 HIGH matrix, final-HEAD S1b,
+>   remaining B/C1/C2/C3 replays; see `PROJECT_LOG.md` 2026-10-27 and
+>   `docs/wp21_census/closing_770dc66/deferrals/Z5_DEFERRAL_SCHEDULE.md` row DEF.
+> - Per-ID triggers for the other open IDs (NEW-1023/1044 -> Z-6 R5 ratification,
+>   NEW-1070/1071 -> L2-d, NEW-1024/1052/1081 -> adapter repair, NEW-1029/1030 and
+>   others) are in the `NEW_ISSUES.md` entries themselves.
 - *Objective:* one chokepoint for every irreversible action (§16.1).
 - *Deps:* P0 (don't build a gateway around known-broken paths) — **done.**
 - *Repo:* Codey-OS — new module `core/action_gateway.py`; `core/agent.py:335-352`,
@@ -4800,6 +4893,10 @@ reviewed by `/root/code_reviewer`, APPROVED).
 - *Tests:* a test run cannot open the live DB (assert on resolved path).
 - *Gate:* code-reviewer. *DoD:* the live store is unreachable from any
   non-production configuration.
+- *Pointer (2026-10-27, WP2.1 closing packet; not a scope change):* WP2.2 is the
+  closing packet's recommended next package (Ish's signature pending). If signed,
+  G15b-42's import-time state creation (NEW-855, NEW-1011, currently
+  `trigger: none`) is the finding to retag to this package.
 
 **WP2.3 — Registry and validator cleanup**
 - *Objective:* the safety machinery either works or is gone (§16.3, §16.6).

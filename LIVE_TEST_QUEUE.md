@@ -202,7 +202,7 @@ separate open items now, not blockers to re-running *this* test.
 
 ### [AGI-1] AGI audit branch `codey-os-agi` — on-device checks (run with Claude NOT active; rule 2)
 
-**Partially completed 2026-10-06** by a live-verifier pass (full detail: `PROJECT_LOG.md`'s 2026-10-06 entry). **Also surfaced, unrelated to this checklist's own items: normal model loading is currently broken** (`NEW-754` — `core/loader_v2.py` emits `--mmap`/`--no-mmap`, which the installed `llama-cpp 0.5.0` rejects; a manual `--load-mode` workaround was used to get through items 1-3 below, not a fix). Fix that first if you're running any of this yourself.
+**Partially completed 2026-10-06** by a live-verifier pass (full detail: `PROJECT_LOG.md`'s 2026-10-06 entry). **Also surfaced, unrelated to this checklist's own items: normal model loading was broken** (`NEW-754` — `core/loader_v2.py` emitted `--mmap`/`--no-mmap`, which the installed `llama-cpp 0.5.0` rejects; a manual `--load-mode` workaround was used to get through items 1-3 below, not a fix). **CORRECTION 2026-10-27 (stale header, WP2.1 closing pass):** NEW-754 is RESOLVED and LIVE-VERIFIED 2026-10-06 (`b5b805a`; a real `ModelLoader.load_primary()` returned True and `/health` returned ok), so model loading is NOT blocked by it. Still-live loader caveats before a run: unset ambient `HTTP_PROXY`/`http_proxy`/`HTTPS_PROXY`/`https_proxy` (NEW-756: `resource_gate` polling goes through the proxy and `/slots` returns 405; the first `load_primary()` may return False/`spawn_failed` although the server loaded) and check which `llama-server` binary `LLAMA_SERVER_BIN` resolves to (NEW-757, rule 12).
 
 1. **Done, with one gap.** `CODEY_TRAJECTORY=1 python -m pytest tests/test_trajectory.py -q` → 10 passed. One real agent turn with `CODEY_TRAJECTORY=1` produced a real new episode in `~/.codeyOS/trajectories.db`, with a matching `tool_calls` row. **Not run:** a control turn with the flag unset, to confirm "behavior is otherwise identical to main" — still open if you want to close this fully.
 2. **Done, deliberately scoped down, not the full 32-pair run.** A full calibration run showed ~780-820s per trivial task end-to-end on this device — the documented `repeats=4` (32 pairs) invocation would take many hours, not minutes. Ran exactly 1 task × 1 rep for champion instead. `ps aux | grep llama-server` confirmed clean unload at teardown. **Still unrun:** the one-shot `python main.py "<prompt>" --yolo --no-resume` from a temp dir, and the full 32-pair run itself — if you want a real statistically-meaningful bench baseline, budget roughly 13 hours of device time (see item 3's math) and expect to run it in several sessions, not one sitting.
@@ -216,3 +216,42 @@ separate open items now, not blockers to re-running *this* test.
 - **Steps (spec `docs/wp2_1_g15h_spec.md` section 7):** after `codey start`: (1) `ps -A -o pid,args` shows `cloudflared tunnel run` with NO token anywhere on the command line (and none in the `bash` mechanics or `core/process_identity.py` helper lines if still present); (2) `~/.codeyOS/cloudflared.log` shows `Settings: map[token:*****]` and a registered tunnel connection; (3) the public Restoricon subdomains answer. If the old path worked and (1) is clean but (2)/(3) fail, the env delivery is the suspect.
 - **RAM discipline:** no model is loaded by this step; record `free -h` anyway per rule 2 habit. Do not run it while another live model-load cycle is in progress.
 - **What to log back and where if it fails:** a tunnel that does not register, a token visible in `ps`, or an unexpected `Service credential unavailable` start failure is a Confirmed finding in `NEW_ISSUES.md` (reference NEW-1021). **Rollback:** revert the G15h Unit A commit (the old `--token` argv form is one line in `start_profile`).
+
+
+### [L2-b / G15b-32, 29, 30, 31 / NEW-1046 / NEW-1068] Real bench run with lock v2, the hardened grader and a scrubbed env — Ish-attended, hours long, alone on the device
+
+- **What was built and reviewed (committed `e9f593f`, `623e4c7`, `84c7bfd`):** G15f Unit A (hardened grader argv, scrubbed bench env) and Unit B (evaluator hash in a v2 lock and in every ledger row, `compare()` refusing mixed evaluator versions). Code-reviewer APPROVED. The bench has **never been run** with lock v2 at any committed HEAD; replay and V-A evidence is recorder-only. G15b-32 (env allowlist sufficiency) is HIGH by ambiguity with D-8 unconfirmed.
+- **Steps:** (1) `free -h` and record it (rule 2); `ps aux | grep llama-server` must show only the grep. (2) Unset the proxy variables and confirm `LLAMA_SERVER_BIN` (see the AGI-1 correction above). (3) Use disposable state; relock the evaluator LAST after any `bench/*.py` edit; keep `tests/test_trajectory.py` green (the WP0.5 / NEW-761 leakage guard) before using `CODEY_TRAJECTORY`. (4) The bench env must drop `LD_PRELOAD` and keep `SHELL`, `USER`, `LOGNAME`; compare shebang-script behaviour (NEW-1047 item 6, NEW-1042). (5) Re-run EVERY existing baseline: legacy ledger rows lack `evaluator_hash`.
+- **RAM discipline:** loads a model. Exactly one model-load cycle; `free -h` before; confirm unload before anything else. Budget from AGI-1: about 780-820 s per trivial task, roughly 14 hours for a 32-pair run, so expect several sessions. Do not run alongside Claude. Never name-pattern kill.
+- **Log back if it fails:** a starved backend or a failed lock check is a new Confirmed `NEW_ISSUES.md` entry; the scorecard anchors 4a 6.0 / 4c 7.0 must still hold.
+
+### [L2-d / G15b-21 / NEW-1028, NEW-1071] First real `python3 core/setup_dr_key.py --force` on the device — Ish-attended
+
+- **What was built and reviewed:** G15i operator-script guard (committed `781542a`). Verified only in S1b against a SHIM `age-keygen` (live-STYLE Python pty, disposable env), never with the real tool or an attended terminal. The real escrow DR key has been PENDING ISH since the admin-dashboard program.
+- **Steps:** real `age-keygen` installed; an attended terminal with a controlling tty AND a terminal stdout (G15i Q-D); back up the state `config.json` first (the pubkey is written to the live config); decide where the one-time-shown private key is stored; run `python3 core/setup_dr_key.py --force` yourself. No agent runs this.
+- **RAM discipline:** no model is loaded; record `free -h` anyway. Touches the operator config, not the Restoricon DB.
+- **Log back if it fails:** a format surprise or guard refusal is a Confirmed finding against NEW-1028 / NEW-1071.
+
+### [T-1 / G15b-46, 37 / NEW-996] Real `^C` at confirm prompts on the ATTENDED Termux terminal
+
+- **What to check:** `utils.logger.confirm`, the `Overwrite?` and `Apply patch?` prompts and the `/git commit` input, with the 770dc66 optional readline startup helper. Python-pty evidence (S1b) does not transfer: a pty child stayed blocked until the next key.
+- **Steps:** interactive session in the Termux app terminal on a fixture workspace; press `^C` at each prompt. No model needed.
+- **Log back if it fails:** NEW-996.
+
+### [T-2 / G15b-46 / NEW-1083, NEW-1084] Typeahead flush on the real terminal
+
+- **What to check:** pre-buffer `y` or Enter before the peer-escalation prompt and before the `/git commit` "Press Enter to accept" prompt; the pre-buffered key must be discarded (fixed in S2-D round 4, never re-run live). The Z-5 trigger `Z-5 attended-terminal check T-2` on G15b-46 refers to this entry.
+- **Steps:** fake peer scripts on a fakes-only PATH (never real peer binaries); a temporary git repo with the commit-message generator faked. No model.
+- **Log back if it fails:** reopen NEW-1084.
+
+### [T-3 / G15b-37 / G15j] HIGH new-file/append prompt on the real terminal
+
+- **What to check:** the G15j HIGH new-file/append confirmation with `y`, `n`, Enter and `^D`; DENY and ACT controls; piped `y\n` must stay `[BLOCKED]`.
+- **Steps:** disposable workspace and audit sink. No model.
+
+### [T-4 / G15b-46 / G15d spec 5.3, D-4] Real peer binaries (claude / qwen / codex / agy) — optional
+
+- **What to check:** Enter declines, `y` dispatches exactly once, on real tools. Not required if Ish accepts the fake-peer tier.
+- **Notes:** peers are external processes; record `free -h`; one peer at a time. Ish decides whether real peers are exercised at all.
+
+Source for L2-b / L2-d / T-1..T-4: `docs/wp21_census/closing_770dc66/deferrals/Z5_DEFERRAL_SCHEDULE.md` (draft, unsigned) and `docs/WP2_1_CLOSING_PACKET_2026-10-27.md` section 6.

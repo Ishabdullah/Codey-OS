@@ -1,0 +1,68 @@
+{
+  "seed": 77020261028,
+  "random_denominator": 39,
+  "initial_disagreement_count": 10,
+  "initial_rate": 0.2564102564102564,
+  "entries": [
+    {
+      "key": "core/daemon.py::DaemonServer.start::*.unlink::1",
+      "independent": "BOOKKEEPING",
+      "author": "OPERATOR_BOOTSTRAP",
+      "evidence": "770dc663:core/daemon.py:792 DaemonServer.start *.unlink: self.paths.socket_file.unlink(missing_ok=True) | daemon_bootstrap/main start resolves one absolute DaemonPaths snapshot before check/write PID; Daemon.__init__ creates DAEMON_DIR and selected socket/log parents, starts server later. DaemonServer.start unlinks selected socket before asyncio.start_unix_server then chmod0600; stop closes/waits server before unlink same socket. Installed daemon service startup/private profile, not arbitrary file write authority; operator-supplied config paths/parent distinctness and same-UID replacement race NEW-1004 retained. UDS filesystem mode is local access restriction, not caller role authorization. test_daemon_effective_paths.py/test_new959_absolute_daemon_paths.py fixtures, not live daemon."
+    },
+    {
+      "key": "core/embed_server.py::EmbedServer._signal_owned::*.kill::1",
+      "independent": "NATIVE_AUTHORITY",
+      "author": "BOOKKEEPING",
+      "evidence": "770dc663:core/embed_server.py:310 EmbedServer._signal_owned *.kill: proc.kill() | start Popen preexec_fn=os.setsid stores exact process and _owned_session_pid=process.pid; stop under lifecycleRLock polls retained child first, _signal_owned only sends group signal if stored original session pid equals proc.pid AND getpgid==owned_session_pid and second poll live. Otherwise terminate/kill retained Popen, never adopted server with no Popen. Stop waits/reaps before releasing slot; failure retains handle/pending state and blocks replacement. test_embed_owned_lifecycle.py exact fixture handle/group/retry; NEW-964 in-memory ownership does not survive owner death."
+    },
+    {
+      "key": "core/embed_server.py::EmbedServer._start::*.mkdir::1",
+      "independent": "BOOKKEEPING",
+      "author": "OPERATOR_BOOTSTRAP",
+      "evidence": "770dc663:core/embed_server.py:235 EmbedServer._start *.mkdir: log_file.parent.mkdir(parents=True, exist_ok=True) | daemon.start/heartbeat1212/1379 and legacy inference._start_server -> start_embed_server -> locked start/_start; retained cleanup debt blocks replacement. Creates/appends CODEY_STATE_DIR/embed-server.log and Popen exact LLAMA_SERVER_BIN -m EMBED_MODEL_PATH host127.0.0.1/port,n_ctx2048 flags, owns session+Popen before health polling. Embedding residency is accounted but intentionally admission-exempt, not claimed resource-admitted or gateway-gated. Adopted healthy server no owned signal; stale foreign replacement uses separately UNMEDIATED NEW-983 helper. Operator binary/model/env trust, no arbitrary model tool launch permission. test_embed_owned_lifecycle.py/test_new88_embed_watchdog_logs.py tests fixture cleanup/watchdog; no live RAM/model."
+    },
+    {
+      "key": "core/embed_server.py::EmbedServer._start::open::1",
+      "independent": "BOOKKEEPING",
+      "author": "OPERATOR_BOOTSTRAP",
+      "evidence": "770dc663:core/embed_server.py:239 EmbedServer._start open: with open(log_file, \"a\") as log_fd: | daemon.start/heartbeat1212/1379 and legacy inference._start_server -> start_embed_server -> locked start/_start; retained cleanup debt blocks replacement. Creates/appends CODEY_STATE_DIR/embed-server.log and Popen exact LLAMA_SERVER_BIN -m EMBED_MODEL_PATH host127.0.0.1/port,n_ctx2048 flags, owns session+Popen before health polling. Embedding residency is accounted but intentionally admission-exempt, not claimed resource-admitted or gateway-gated. Adopted healthy server no owned signal; stale foreign replacement uses separately UNMEDIATED NEW-983 helper. Operator binary/model/env trust, no arbitrary model tool launch permission. test_embed_owned_lifecycle.py/test_new88_embed_watchdog_logs.py tests fixture cleanup/watchdog; no live RAM/model."
+    },
+    {
+      "key": "core/embeddings.py::EmbeddingModel._embed_via_server::urllib.request.Request::1",
+      "independent": "FALSE_POSITIVE",
+      "author": "DORMANT",
+      "evidence": "770dc663:core/embeddings.py:142 EmbeddingModel._embed_via_server urllib.request.Request: req = urllib.request.Request( | _load_model first may instantiate sentence_transformers SentenceTransformer(model_name) (native model/download risk outside scanned HTTP row), else GET literal127.0.0.1:8082/health; _embed_via_server POST fulltext /v1/embeddings to same literal endpoint. EmbeddingModel constructor does NOT load model; embed invoked only LongTermMemory.store_file/search, whose Memory.store_in_longterm/search have no production callers per NEW-770. Actual live RAG uses tools.kb_semantic separate stack. If activated, model load/egress need separate authority/resource review, not implicitly safe from loopback. urllib proxies/native library model sideeffects unresolved; source-only reach evidence, no live model test."
+    },
+    {
+      "key": "core/embeddings.py::EmbeddingModel._embed_via_server::urllib.request.urlopen::1",
+      "independent": "LOOPBACK_IPC",
+      "author": "DORMANT",
+      "evidence": "770dc663:core/embeddings.py:147 EmbeddingModel._embed_via_server urllib.request.urlopen: with urllib.request.urlopen(req, timeout=10) as resp: | _load_model first may instantiate sentence_transformers SentenceTransformer(model_name) (native model/download risk outside scanned HTTP row), else GET literal127.0.0.1:8082/health; _embed_via_server POST fulltext /v1/embeddings to same literal endpoint. EmbeddingModel constructor does NOT load model; embed invoked only LongTermMemory.store_file/search, whose Memory.store_in_longterm/search have no production callers per NEW-770. Actual live RAG uses tools.kb_semantic separate stack. If activated, model load/egress need separate authority/resource review, not implicitly safe from loopback. urllib proxies/native library model sideeffects unresolved; source-only reach evidence, no live model test."
+    },
+    {
+      "key": "core/embeddings.py::EmbeddingModel._load_model::urllib.request.urlopen::1",
+      "independent": "LOOPBACK_IPC",
+      "author": "DORMANT",
+      "evidence": "770dc663:core/embeddings.py:82 EmbeddingModel._load_model urllib.request.urlopen: with urllib.request.urlopen(url, timeout=2) as r: | _load_model first may instantiate sentence_transformers SentenceTransformer(model_name) (native model/download risk outside scanned HTTP row), else GET literal127.0.0.1:8082/health; _embed_via_server POST fulltext /v1/embeddings to same literal endpoint. EmbeddingModel constructor does NOT load model; embed invoked only LongTermMemory.store_file/search, whose Memory.store_in_longterm/search have no production callers per NEW-770. Actual live RAG uses tools.kb_semantic separate stack. If activated, model load/egress need separate authority/resource review, not implicitly safe from loopback. urllib proxies/native library model sideeffects unresolved; source-only reach evidence, no live model test."
+    },
+    {
+      "key": "core/finetune_prep.py::generate_notebook::open::1",
+      "independent": "OPERATOR_SCRIPT_RUNNABLE",
+      "author": "GATED",
+      "evidence": "770dc663:core/finetune_prep.py:718 generate_notebook open: with open(output_file, \"w\", encoding=\"utf-8\") as f: | main --finetune2416 -> prepare_finetune_data constructs run callback -> gate_exec ACT execute=run BEFORE _prepare_finetune_data mkdir/default~/Downloads/codey-finetune -> export_dataset sanitize_examples then mkdir/_write_jsonl own-dir temp JSONL/replace/cleanup; generate_notebook fixed variant template .ipynb writes only, never executes training/notebook cells. Caller output_dir/model_variant controls artifact path/content via public prepare API; ACT means export allowed confirm-less, not a cloud/training/model promotion approval. CCOS finetune exports re-export these direct helpers but names absent CAPABILITY_AUTHORITY => canonical manifest has no permissions raise-tags/handler registration; ordinary dispatcher _authority_for has no candidate and refuses before handler; direct Python helper calls retain installed-script ceiling NEW-1069 and no independent leaf gate. _write_jsonl atomic replacement leaves no temp on failure, no arbitrary eval; export hygiene is distinct policy, not authority. test_finetune_phase3.py::test_reading_verified_does_not_create_db/test_export_4b tests fixture data/schema, test_finetune.py basic output, no live export/training."
+    },
+    {
+      "key": "core/inference.py::infer::urllib.request.Request::1",
+      "independent": "FALSE_POSITIVE",
+      "author": "LOOPBACK_IPC",
+      "evidence": "770dc663:core/inference.py:129 infer urllib.request.Request: req = urllib.request.Request( | main/agent -> inference_v2.infer fallback -> core.inference.infer -> canonical ModelLoader startup -> fixed CHAT_URL127.0.0.1:PRIMARY_SERVER_PORT/v1/chat/completions; _server_ready GET /health. infer Request/POST sends full messages/generation params, actual compute/effects at local server, no direct action gateway or context-budget perrequest in legacy fallback; canonical startup lifecycle independent. urllib proxy/redirect/no endpoint auth limits retained. test_hybrid_inference.py/test_loader_resource_gate.py fixture paths, no full legacy live model proof."
+    },
+    {
+      "key": "core/process_identity.py::LifecycleRecord.signal::os.kill::1",
+      "independent": "NATIVE_AUTHORITY",
+      "author": "BOOKKEEPING",
+      "evidence": "770dc663:core/process_identity.py:394 LifecycleRecord.signal os.kill: os.kill(current.identity[\"pid\"], requested_signal) | Signal is only finite TERM/KILL/HUP/USR1 after inspect validates pidfile+strict sidecar service/PID/boot_id/start_ticks/UID, then inspect again and compares expected snapshots. process_info reads /proc; legacy live/unverifiable/replaced fail UNSAFE, no signal. Public service worker/identity signal-stop command is configured lifecycle ACT; daemon current-self and loader release use separate native contracts. No name matching or bare pidfile trust; no pidfd, same-UID forgery/kernel race remains. test_process_identity.py fixture identity replacement and real owned stub evidence docs/wp2_1_group13c1_live_verification.md, no real model."
+    }
+  ]
+}

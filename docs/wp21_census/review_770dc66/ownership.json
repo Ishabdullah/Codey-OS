@@ -1,0 +1,41 @@
+{
+  "rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "units": {
+    "C1": {
+      "rows": 355,
+      "files": 19,
+      "key_sha256": "236964f74db9546e35fad412fa2205501ce20de9f1dfd8299089a8b84b9ac03e"
+    },
+    "C2": {
+      "rows": 304,
+      "files": 21,
+      "key_sha256": "542db5ab46fbeab75fd8dc73a0d670e0e0d0e98e69474483d7329a54ecb2297e"
+    },
+    "C3": {
+      "rows": 159,
+      "files": 13,
+      "key_sha256": "f496be18a0f0eec52c73cb579cbcfab75f5169b9be10949110821d35edc46b87"
+    },
+    "C4": {
+      "rows": 153,
+      "files": 23,
+      "key_sha256": "d2292505a86e837b41592ded50124cf7a026e76582fed92d5bc7e67fa98aa4c9"
+    },
+    "C5": {
+      "rows": 179,
+      "files": 29,
+      "key_sha256": "ae1e4641a156020febf8d49a00a899ea57f9fdc57a4bf38e11962baaa959f843"
+    },
+    "C6": {
+      "rows": 181,
+      "files": 43,
+      "key_sha256": "cf1bcd204ca688ab59e3426303021accb0df0f340105cecc501efb403cf3dbc0"
+    },
+    "C7": {
+      "rows": 136,
+      "files": 31,
+      "key_sha256": "f4bc608d5342a6b207303438c6efaa01c117ce2080ff33ad694ab45eda2f562a"
+    }
+  },
+  "deterministic_scans": "all five TSV artifacts byte-identical"
+}

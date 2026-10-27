@@ -1,0 +1,48 @@
+{
+  "reference_ids": [
+    "NV30"
+  ],
+  "legacy_ids": [],
+  "references": [
+    {
+      "id": "NV30",
+      "legacy_id": null,
+      "historical_family": "cred-glob",
+      "historical_expected": "REFUSE",
+      "historical_verdict": "INCONCLUSIVE",
+      "maps_to_finding": "G15b-10",
+      "method_change": null,
+      "fixed_since_historical": null,
+      "new": false
+    }
+  ],
+  "mode": "C",
+  "oracle": "PENDING_INVALID_EXPECTATION",
+  "scenario": "NORMAL",
+  "command_template": "cat ~/.ss*/id_rsa",
+  "rebased_command": null,
+  "meaning": "Primitive attempts are recorded and REFUSED by harness; no execution success claimed",
+  "verdict": "PENDING_INVALID_EXPECTATION",
+  "attempts": 0,
+  "product_output": {
+    "text": null,
+    "length": null,
+    "sha256": null,
+    "truncated": false,
+    "note": "no literal string returned"
+  },
+  "product_event_range": [
+    259,
+    259
+  ],
+  "product_events": [],
+  "matched_control": {
+    "status": "NOT_RUN_INVALID_OR_SUPERSEDED",
+    "events": []
+  },
+  "evidence": "not run: historical invalid/superseded probe; provenance retained",
+  "case_sequence": 230,
+  "snapshot_rev": "770dc6639e4100ea3215fca07d923769a8290078",
+  "adapter_sha256": "a644d8d176a13ad793b446500d9acbde1f921c12384c3e378271f2a85b551f32",
+  "case_data_sha256": "8efc61fb08e65b9e7c688e6120645d190de34ff4331ac6e50ddee1362f5aa583"
+}

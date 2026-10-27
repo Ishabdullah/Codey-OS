@@ -1,0 +1,84 @@
+{
+ "by_category": {
+  "credential": 25,
+  "dyn_code": 31,
+  "env_mut": 32,
+  "exec_spawn": 50,
+  "fs_write": 303,
+  "kill": 19,
+  "manifest": 355,
+  "network": 58,
+  "shell": 159,
+  "sql_dynamic": 78,
+  "sqlite_conn": 14,
+  "sqlite_exec": 9,
+  "sqlite_write": 334
+ },
+ "by_class": {
+  "GATED": 1,
+  "NO_DISPOSITION": 28,
+  "READ_NOEFFECT": 5,
+  "UNKNOWN": 1433
+ },
+ "by_dir": {
+  ".github": 2,
+  "bench": 23,
+  "ccos": 536,
+  "core": 332,
+  "lib": 37,
+  "pipeline": 25,
+  "restoricon_core": 304,
+  "root": 113,
+  "telemetry": 29,
+  "tools": 55,
+  "utils": 11
+ },
+ "by_dir_class": {
+  ".github": {
+   "UNKNOWN": 2
+  },
+  "bench": {
+   "NO_DISPOSITION": 14,
+   "UNKNOWN": 9
+  },
+  "ccos": {
+   "NO_DISPOSITION": 2,
+   "UNKNOWN": 534
+  },
+  "core": {
+   "GATED": 1,
+   "NO_DISPOSITION": 11,
+   "READ_NOEFFECT": 5,
+   "UNKNOWN": 315
+  },
+  "lib": {
+   "UNKNOWN": 37
+  },
+  "pipeline": {
+   "UNKNOWN": 25
+  },
+  "restoricon_core": {
+   "UNKNOWN": 304
+  },
+  "root": {
+   "UNKNOWN": 113
+  },
+  "telemetry": {
+   "UNKNOWN": 29
+  },
+  "tools": {
+   "NO_DISPOSITION": 1,
+   "UNKNOWN": 54
+  },
+  "utils": {
+   "UNKNOWN": 11
+  }
+ },
+ "by_kind": {
+  "manifest": 355,
+  "py": 953,
+  "shell": 159
+ },
+ "no_disposition": 28,
+ "total_rows": 1467
+}
