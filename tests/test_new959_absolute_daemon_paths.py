@@ -693,3 +693,96 @@ def test_wp22_s2_server_world_arg_parsing(capsys):
         with pytest.raises(SystemExit):
             parser.parse_args(["--world", bad])
     capsys.readouterr()
+
+
+def test_wp22_s3a_nul_db_path_cannot_grant_flag(env, monkeypatch):
+    from restoricon_core import world
+
+    monkeypatch.setattr(world, "live_db_paths", lambda: {str(env.tmp / "fake-live.db")})
+    assert world.is_live_path("a\x00b") is True  # the old grant path
+    argv = _restoricon_argv(monkeypatch, "a\x00b")  # must not raise ValueError
+    assert "--world" not in argv and "production" not in argv
+
+
+@pytest.mark.parametrize("content", ["{not json", "", "[]"])
+def test_wp22_s3a_garbage_config_json_omits_flag(env, monkeypatch, content):
+    from restoricon_core import world
+
+    pwhome = env.tmp / "pwhome"
+    (pwhome / ".codeyOS").mkdir(parents=True)
+    (pwhome / ".codeyOS" / "config.json").write_text(content)
+    monkeypatch.setattr(world, "_passwd_home", lambda: str(pwhome))
+    for target in (env.tmp / "x.db", pwhome / ".codeyOS" / "restoricon.db"):
+        argv = _restoricon_argv(monkeypatch, target)
+        assert "--world" not in argv and "production" not in argv
+
+
+def test_wp22_s3a_empty_db_path_omits_flag_and_live_adds_it_last(env, monkeypatch):
+    from restoricon_core import world
+
+    live = env.tmp / "fake-live.db"
+    monkeypatch.setattr(world, "live_db_paths", lambda: {str(live)})
+    assert "--world" not in _restoricon_argv(monkeypatch, "")
+    argv = _restoricon_argv(monkeypatch, str(live) + "-wal")
+    assert argv[-2:] == ["--world", "production"]
+    assert argv.count("--world") == 1
+
+
+@pytest.mark.parametrize("code,delay", [
+    ("import sys, time; time.sleep(0.4); sys.exit(2)", 3.0),  # alive at publish
+    ("import sys; sys.exit(2)", 3.0),  # may exit before publication verifies
+])
+def test_wp22_s3a_child_exiting_2_is_reported_failed_and_leaves_no_live_record(tmp_path, code, delay):
+    """Real owned spawn (real Popen, real LifecycleRecord) of a throwaway
+    ``python3 -c`` child that exits 2, standing in for a restoricon server
+    that refuses to start after S3b.  No real service is started.
+
+    Pins: run() returns 2, readiness is failed-cleanup-confirmed (not
+    published/retained), the child was spawned exactly once (no restart), and
+    afterwards the record state is DEAD ("absent-dead", what ``status``
+    prints, rc 1), never RUNNING.  If the child was alive when published the
+    pid/identity files are removed.  Known race (process_identity.py:603 vs
+    :358): a child that dies before publish() verifies leaves a DEAD pid +
+    identity pair behind (publication stays None, so _cleanup_record at :563
+    skips); the next launch removes it via run():589.  The test asserts that
+    leftover is DEAD and cleanable, not that it is absent.
+    """
+    pid_file = tmp_path / "state" / "restoricon.pid"
+    log_file = tmp_path / "state" / "restoricon.log"
+    pid_file.parent.mkdir()
+    read_fd, write_fd = os.pipe()
+    spawned = []
+    real_popen = subprocess.Popen
+
+    def _counting_popen(*a, **k):
+        spawned.append(a[0])
+        return real_popen(*a, **k)
+
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(identity.subprocess, "Popen", _counting_popen)
+    launch = None
+    try:
+        with identity.LifecycleRecord(pid_file, "restoricon") as record:
+            launch = identity.OwnedLaunch(
+                record, ["python3", "-c", code],
+                log_file=log_file, ready_fd=write_fd, startup_delay=delay, timeout=5.0,
+            )
+            assert launch.run() == 2
+            outcome = identity.parse_spawn_ready(os.read(read_fd, 128))
+            state_after = record.inspect().state
+            leftover = pid_file.exists()
+            if leftover:
+                assert record.cleanup(record.inspect()) is True  # next launch's path
+    finally:
+        monkey.undo()
+        os.close(read_fd)
+        if launch is not None and launch.ready_fd is not None:
+            os.close(launch.ready_fd)
+    assert outcome.outcome == "failed-cleanup-confirmed"
+    assert len(spawned) == 1
+    assert launch.child.poll() == 2
+    assert state_after == identity.DEAD
+    if "sleep" in code:
+        assert leftover is False  # published, then cleaned up on failure
+    assert not pid_file.exists() and not Path(str(pid_file) + ".identity").exists()
+    assert identity.inspect_record(pid_file, "restoricon").state == identity.DEAD

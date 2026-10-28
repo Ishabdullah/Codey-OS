@@ -23095,3 +23095,8 @@ The group 14 architect saw 254 32-hex directories at the repo root (`resource_bu
 
 ## NEW-1110 — Subagent killed processes by /proc cmdline substring match (rule 3 deviation, WP2.2 S3 scoping)
 - **Rating:** Confirmed (self-disclosed by the architect). **Severity:** Low (only that session's own two bash wrappers were killed, exit 144; nothing else harmed). Rule 3 forbids name-pattern kills; a stuck background waiter was killed by cmdline substring on an advisor suggestion. **Disposition:** logged, not repeated; trigger: none. Related: the S2 implementer left an orphaned `until` loop shell (PID 26788, ~7 h) that the coordinator stopped by exact PID.
+
+## NEW-1111 — `process_identity.publish()` can leave a DEAD pid+identity record when the child dies between write and verify
+- **Rating:** Confirmed (found by running a real short-lived child; trace at `core/process_identity.py:355-358, 563-564, 603`). **Severity:** Low: record is DEAD never RUNNING, `status` prints `absent-dead`, next launch's `run()` (:589) cleans it; no restart loop (single Popen :597, rc 2 `failed-cleanup-confirmed`). `_cleanup_record` skips it because `publication` stays None, so `codey-stop`/`status` show the leftover until the next launch. **Disposition:** OPEN/QUEUE, trigger: next change to `core/process_identity.py` (and revisit if S3b refused-child exits make it common). Reviewer-accepted for S3b.
+
+- **Update 2026-10-28 (NEW-1109 S2 warning):** launcher authorization on unclassifiable paths FIXED in WP2.2 S3a (`is_live_path_strict`; reviewer-approved round 2).

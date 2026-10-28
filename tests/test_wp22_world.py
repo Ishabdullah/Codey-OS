@@ -342,3 +342,190 @@ def test_resolve_db_path_rejects_bytes(monkeypatch):
     monkeypatch.setenv("RESTORICON_DB_PATH", "/env/db")
     with pytest.raises(world.WorldConfigError):
         world.resolve_db_path(b"/x/y.db")
+
+
+# ---- WP2.2 S3a: strict classifier, hardened resolver, guard, fd helpers ----
+
+_STRICT_BAD = ["a\x00b", "x\x00", "", "file:", "file://evilhost/x.db"]
+
+
+@pytest.mark.parametrize("bad", _STRICT_BAD)
+def test_strict_raises_where_is_live_path_says_true(fake_live, bad):
+    assert world.is_live_path(bad) is True  # contract pin: fail closed
+    with pytest.raises(world.WorldConfigError):
+        world.is_live_path_strict(bad)
+
+
+def test_strict_positive_and_negative(fake_live, tmp_path):
+    assert world.is_live_path_strict(fake_live) is True
+    assert world.is_live_path_strict(str(fake_live) + "-wal") is True
+    assert world.is_live_path_strict(tmp_path / "other.db") is False
+    assert world.is_live_path_strict(":memory:") is False
+    assert world.is_live_path_strict("file::memory:") is False
+
+
+def test_strict_live_set_error_and_garbage_config(tmp_path, monkeypatch):
+    def _boom():
+        raise world.WorldConfigError("bad config")
+
+    monkeypatch.setattr(world, "live_db_paths", _boom)
+    with pytest.raises(world.WorldConfigError, match="bad config"):
+        world.is_live_path_strict(tmp_path / "x.db")
+    assert world.is_live_path(tmp_path / "x.db") is True
+    monkeypatch.undo()
+    home = tmp_path / "pwhome"
+    (home / ".codeyOS").mkdir(parents=True)
+    (home / ".codeyOS" / "config.json").write_text("{not json")
+    monkeypatch.setattr(world, "_passwd_home", lambda: str(home))
+    with pytest.raises(world.WorldConfigError, match="cannot parse"):
+        world.is_live_path_strict(tmp_path / "x.db")
+
+
+def test_strict_wraps_os_errors_with_cause(fake_live, monkeypatch):
+    def _boom(_p):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(world.os.path, "realpath", _boom)
+    with pytest.raises(world.WorldConfigError, match="cannot classify") as ei:
+        world.is_live_path_strict("/x/y.db")
+    assert isinstance(ei.value.__cause__, OSError)
+
+
+def test_resolve_db_path_rejects_dot_pathlib_empty_and_nul(monkeypatch):
+    monkeypatch.setenv("RESTORICON_DB_PATH", "/env/db")
+    for bad in (Path(""), ".", "a\x00b"):
+        with pytest.raises(world.WorldConfigError):
+            world.resolve_db_path(bad)
+    assert world.resolve_db_path("") == "/env/db"  # explicit "" still = unset
+    # a real environ cannot hold NUL, so substitute the mapping to pin the check
+    monkeypatch.setattr(world.os, "environ", {"RESTORICON_DB_PATH": "/env/\x00db"})
+    with pytest.raises(world.WorldConfigError, match="NUL"):
+        world.resolve_db_path(None)
+
+
+def test_guard_refuses_live_and_variants(fake_live, tmp_path):
+    for p in (fake_live, str(fake_live) + "-wal", str(fake_live) + "-shm"):
+        with pytest.raises(world.LiveStoreRefused, match="--world production"):
+            world.guard_db_open(p)
+    link = tmp_path / "link.db"
+    link.symlink_to(fake_live)
+    with pytest.raises(world.LiveStoreRefused):
+        world.guard_db_open(link)
+
+
+def test_guard_production_audits_once_and_nonlive_is_silent(fake_live, tmp_path, capsys):
+    out = world.guard_db_open(fake_live, production=True)
+    assert out == os.path.realpath(fake_live)
+    assert capsys.readouterr().err.count("PRODUCTION open of live store") == 1
+    world.guard_db_open(fake_live, production=True, announce=False)
+    assert capsys.readouterr().err == ""
+    other = tmp_path / "w.db"
+    assert world.guard_db_open(other, production=True) == os.path.realpath(other)
+    assert capsys.readouterr().err == ""
+
+
+def test_guard_memory_file_uri_and_realpath(fake_live, tmp_path, monkeypatch):
+    assert world.guard_db_open(":memory:") == ":memory:"
+    monkeypatch.setenv("RESTORICON_DB_PATH", ":memory:")
+    assert world.guard_db_open() == ":memory:"
+    for uri in ("file:x.db", "FILE:x.db", "File:///tmp/x.db"):
+        with pytest.raises(world.WorldConfigError, match="file:"):
+            world.guard_db_open(uri)
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "ln").symlink_to(real)
+    assert world.guard_db_open(tmp_path / "ln" / "a.db") == str(real.resolve() / "a.db")
+
+
+def test_guard_indeterminate_not_overridden_by_production(tmp_path, monkeypatch):
+    home = tmp_path / "pwhome"
+    (home / ".codeyOS").mkdir(parents=True)
+    (home / ".codeyOS" / "config.json").write_text("")
+    monkeypatch.setattr(world, "_passwd_home", lambda: str(home))
+    for prod in (False, True):
+        with pytest.raises(world.WorldConfigError, match="config.json") as ei:
+            world.guard_db_open(tmp_path / "x.db", production=prod)
+        assert not isinstance(ei.value, world.LiveStoreRefused)
+        assert "refusing to open live" not in str(ei.value)
+
+
+def test_guard_no_default(monkeypatch):
+    monkeypatch.delenv("RESTORICON_DB_PATH", raising=False)
+    with pytest.raises(world.WorldConfigError, match="RESTORICON_DB_PATH"):
+        world.guard_db_open()
+
+
+def test_fd_snapshot_and_post_open_check(fake_live, tmp_path):
+    other = tmp_path / "other.db"
+    other.write_bytes(b"")
+    swapped = tmp_path / "swapped.db"
+    swapped.symlink_to(fake_live)
+
+    before = world.snapshot_fd_inodes()
+    fh = open(other, "rb")
+    try:
+        world.assert_opened_not_live(before, world.snapshot_fd_inodes())
+    finally:
+        fh.close()
+    before = world.snapshot_fd_inodes()
+    fh = open(swapped, "rb")  # symlink swap: opens the live inode
+    try:
+        after = world.snapshot_fd_inodes()
+        with pytest.raises(world.LiveStoreRefused, match="post-open"):
+            world.assert_opened_not_live(before, after)
+        world.assert_opened_not_live(before, after, production=True)
+        # hardlink case untested here: no os.link on this device
+    finally:
+        fh.close()
+
+
+def test_fd_snapshot_fails_closed_without_proc(monkeypatch):
+    real = os.listdir
+
+    def _fake(path="."):
+        if path == "/proc/self/fd":
+            raise OSError("no proc")
+        return real(path)
+
+    monkeypatch.setattr(world.os, "listdir", _fake)
+    with pytest.raises(world.WorldConfigError, match="/proc/self/fd"):
+        world.snapshot_fd_inodes()
+
+
+def test_guard_realpath_called_once_and_classified_string_is_returned(fake_live, tmp_path, monkeypatch):
+    calls = []
+    seen = []
+
+    def _flaky_realpath(p, *a, **k):
+        calls.append(p)
+        return str(tmp_path / f"v{len(calls)}.db")  # different value per call
+
+    def _spy_strict(p):
+        seen.append(p)
+        return False
+
+    monkeypatch.setattr(world.os.path, "realpath", _flaky_realpath)
+    monkeypatch.setattr(world, "is_live_path_strict", _spy_strict)
+    out = world.guard_db_open(tmp_path / "in.db")
+    assert len(calls) == 1
+    assert seen == [out] == [str(tmp_path / "v1.db")]
+
+
+def test_guard_announces_realpath_not_raw_input(fake_live, tmp_path, capsys):
+    link = tmp_path / "link.db"
+    link.symlink_to(fake_live)
+    out = world.guard_db_open(link, production=True)
+    assert out == os.path.realpath(fake_live)
+    err = capsys.readouterr().err
+    assert out in err and str(link) not in err
+
+
+def test_resolve_db_path_env_rejects_dot_and_non_path_explicit(monkeypatch):
+    for bad in (".",):
+        monkeypatch.setenv("RESTORICON_DB_PATH", bad)
+        with pytest.raises(world.WorldConfigError):
+            world.resolve_db_path(None)
+    monkeypatch.setenv("RESTORICON_DB_PATH", "/env/db")
+    for bad in (123, object(), 1.5):
+        with pytest.raises(world.WorldConfigError):
+            world.resolve_db_path(bad)
