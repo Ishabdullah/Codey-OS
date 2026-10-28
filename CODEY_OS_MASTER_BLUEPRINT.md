@@ -2940,6 +2940,8 @@ fix; re-tested at 42s after). Commit `598b81f`.
 **Dependency note:** P2 must precede any CCOS wiring. Connecting CCOS activates
 §16.5's latent defects and a sandbox whose `ALLOWED_DIRS` includes `ccos/` itself.
 
+> **WP2.1 CLOSED WITH ACCEPTED RESIDUALS (Ish, 2026-10-28, delegated sign-off; supersedes the "not closed" notes below).** Register 1,467 rows / 0 UNKNOWN, blocking coverage gate, closing packet `docs/WP2_1_CLOSING_PACKET_2026-10-27.md` (decision record §10). Tier: reviewer-approved, not live-verified beyond fixtures. Deferred with triggers: replay expansion, Z-5 manual checks, NEW-1101/1103/1102. **Next: WP2.2.**
+
 **WP2.1 — Build the Action Gateway** — **SLICES 1-29 DONE (1-5: 2026-10-07; 6-12: 2026-10-08; 13-26: 2026-10-09; 27-29: 2026-10-10); full DoD
 not yet met (far from it — see residual scope below).** Code-reviewer-approved
 (slice 1 `a5b93379043fcf32c`, slice 2 `a31252e02705ee263`, slice 3

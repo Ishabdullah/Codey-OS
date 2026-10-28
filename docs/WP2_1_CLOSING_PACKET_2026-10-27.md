@@ -270,3 +270,14 @@ HEAD vs origin/main: ['770dc6639e4100ea3215fca07d923769a8290078', '770dc6639e410
 ```
 
 Reading the output: "effective passed 9303" is the raw 9,299 with chunk 29's 260 passes replaced by the 264 passes of its foreground rerun (the 4 chunk-29 failures are the NEW-1104 `nohup` artifact). The "1,433 UNKNOWN / 38 failures" figures belong to the original register and are not re-computed here; the installed register shows 0 UNKNOWN. The 8-hex prefixes quoted in ledger prose (for example `7bbfdaf6...`) are prefixes of full hashes in section 3 and were checked by eye against them, not by the script.
+
+
+## 10. Ish's decision record (2026-10-28)
+
+Ish's instruction (verbatim): "move it out of the repo if thats whats recommended by you. and for your 12 questions do what you recommend and what ever gets us to really completing WP2.1 and being able to move on to the next part of our project".
+
+Recorded by the coordinator as Ish's delegated decision: every section-6 question is resolved **as recommended**, and WP2.1 is **CLOSED WITH ACCEPTED RESIDUALS** (form Z-7). The section-7 signature lines were not filled in by an agent; this section is the sign-off of record. Specifics:
+
+- Q1 R5 ratified (G15b-13 -> ACCEPTED_RESIDUAL; pnpm/yarn tables re-verified if either is ever installed). Q2 13-module `python -m` allowlist ratified; the factual contradiction between PROJECT_LOG and NEW_ISSUES about what Ish answered at Q7(c) remains unresolved in the record, and the ratification is by this delegation, not Ish's recollection. Q3 G15d Q1/Q6 and G15i/G15j Q-A..Q-F ratified at spec defaults. Q4 NEW-814 LOW. Q5 NEW-1102 MEDIUM (escalate to HIGH on a shown confirm-less write into `ccos/plugins/**`). Q6 Z-5 manual schedule and replay-expansion deferral accepted as residual, not blocking. Q7 R1-R18 and DoD text accepted as written. Q8 group-14 slices accepted at reviewer-approved tier. Q9 next WP = WP2.2 (NEW-1069 stays a separate candidate). Q10 NEW-1026 stays parked. Q11 rule 8 stands. Q12 the gate-review transcription and unreviewed edits (RF-1..3, stale adjudication edits, C6 reseal) accepted as known gaps.
+- Not changed by closure: live-verified status (none beyond disposable fixtures), the deferred replays, the 9 baseline test failures, ruff 190 vs 179, mypy unavailable (NEW-984).
+- Housekeeping: `.wp21-closure-ccos-p56u5f68/` moved out of the repo to scratch (contents unread). `checkpoint.tar.gz` stays local and untracked.

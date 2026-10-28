@@ -1,3 +1,7 @@
+## 2026-10-28 — WP2.1 CLOSED WITH ACCEPTED RESIDUALS (Ish's delegated sign-off); next WP2.2
+
+Ish (2026-10-28): "for your 12 questions do what you recommend and what ever gets us to really completing WP2.1 and being able to move on". All 12 closing-packet questions resolved as recommended; full list in `docs/WP2_1_CLOSING_PACKET_2026-10-27.md` section 10. Closing HEAD for the work: `7842edf` (+ `666b2ef` hash record). Tier: code-complete + reviewer-approved; NOT live-verified beyond disposable fixtures; replay expansion, Z-5 manual checks, NEW-1101/1103 remain deferred residuals with triggers. Stray repo-root dir `.wp21-closure-ccos-p56u5f68/` moved to scratch. Next: WP2.2 (Worlds/Playground isolation).
+
 ## 2026-10-27 — WP2.1 closing packet assembled, READY FOR ISH'S SIGN-OFF; WP2.1 NOT CLOSED
 
 Commit: `7842edf353a3467f4b72bfe7f17e60ffeb18a367 (pushed to origin/main; gate re-run at that HEAD: tests/test_wp21_census.py 124 passed with WP21_CENSUS_STRICT=1)`. Nothing in this entry is committed. Production source is still the pushed, frozen `770dc6639e4100ea3215fca07d923769a8290078` (local HEAD = origin/main); no source change. Packet: `docs/WP2_1_CLOSING_PACKET_2026-10-27.md`. Durable evidence copies with README and SHA256SUMS manifest: `docs/wp21_census/closing_770dc66/` (the older `review_770dc66/` manifest was deliberately left untouched).
