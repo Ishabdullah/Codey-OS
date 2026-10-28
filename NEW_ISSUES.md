@@ -23071,3 +23071,14 @@ The group 14 architect saw 254 32-hex directories at the repo root (`resource_bu
 - **Disposition:** OPEN/QUEUE, trigger: next touch of the capability registry tests (see test-isolation fixes `dd49c1d` for the same class). Confirm by running that test alone with mtime/hash before/after.
 
 - **Update 2026-10-27 (NEW-805/NEW-1090 gate run):** guarded CCOS at the gate run was `1 failed, 184 passed` — `test_multi_domain` (NEW-805) failed, NEW-1090 passed; the intermittent pair is unchanged and the earlier "snapshot artifact" explanation for NEW-805 is withdrawn (unresolved/intermittent).
+
+## NEW-1106 — Live Restoricon store opened on 2026-10-24 during WP2.1 work (unattributed)
+- **Rating:** Suspected. **Severity:** Medium (rule 0(b): `RESTORICON_DB_PATH` must point at a copy in every dev/test configuration).
+- **Evidence (stat only; DB never opened):** `~/.codeyOS/restoricon.db` mtime 2026-09-30 17:50:45; `restoricon.db-shm` 2026-10-24 11:53:24; `restoricon.db-wal` 2026-10-24 11:53:26 (1,281,352 B). Under WAL these change on any open. No restoricon/litestream process running 2026-10-28.
+- **Candidate cause (unproven):** G15b harness C07 ran `tools.provision_ai_agent_auth` for real; it defaults to `~/.codeyOS/restoricon.db`; the harness record does not state the HOME or `RESTORICON_DB_PATH` used. Other candidates: a manual start, a backup process, any test using the default path with the real HOME.
+- **Disposition:** OPEN, trigger: WP2.2 S0-S3 (fail-closed default makes recurrence impossible via supported paths). Attribution: check transcript/PROJECT_LOG for 2026-10-24 11:53 -0400; do not open the DB to investigate.
+
+## NEW-1107 — Committed repo-root `config.json:8` names the live DB path
+- **Rating:** Confirmed (per WP2.2 architect read). **Severity:** Low. **Disposition:** OPEN, trigger: WP2.2 S1/S3 (live-path definition).
+
+## Update 2026-10-28 (WP2.2 scoping): NEW-855 and NEW-1011 retagged `trigger: WP2.2` — mitigated in worlds only via `CODEY_STATE_DIR`; lazy-init refactor parked (Ish accepted recommendation Q3). NEW-907 to be closed by S1+S3.
