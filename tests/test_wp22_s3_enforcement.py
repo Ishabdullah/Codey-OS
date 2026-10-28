@@ -633,6 +633,7 @@ def test_ast_default_db_path_gone_and_caller_allowlist():
         "restoricon_core/migrate_aigentik.py",
         "restoricon_core/backfill_wo_351695937.py",
         "tools/provision_ai_agent_auth.py",
+        "tools/world.py",
     }, sorted(callers)
     for rel, sites in callers.items():
         for lineno, prod in sites:

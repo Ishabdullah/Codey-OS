@@ -23118,3 +23118,6 @@ The group 14 architect saw 254 32-hex directories at the repo root (`resource_bu
   2. Final `rmdir(name, dir_fd=root_fd)` after the identity re-check is a tiny check-then-act window (can only remove an empty non-world directory).
   3. A special file (FIFO etc.) inside a world makes `destroy` refuse until removed by hand (message names the path).
   4. Cross-mount refusal tested only via a faked `st_dev` (no second filesystem on this device); an unparsable manifest hides its port from allocation; no test for a 64 KiB+1 manifest (benign).
+
+- **Update 2026-10-28 (NEW-855 / NEW-1011, WP2.2):** retagged `trigger: WP2.2`. Mitigated in worlds only: a world session exports `CODEY_STATE_DIR` (via `tools.world env`) so import-time state stores land under the world. With the env unset the modules still write at import. The lazy-init refactor is parked (Ish accepted, 2026-10-28). Pointer added in blueprint WP2.2 entry.
+- **Update 2026-10-28 (WP2.2 S4/S3 interaction):** the S3 AST caller-allowlist test failed once `tools/world.py` was tracked (`git ls-files`-based) because the world tool constructs `DatabaseManager` without `production=`; fixed by passing `production=False` explicitly and adding `tools/world.py` to the allowlist. Lesson: a test that enumerates `git ls-files` passes while a new file is untracked; re-run the suite after committing.

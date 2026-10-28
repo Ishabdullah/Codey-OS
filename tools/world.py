@@ -470,7 +470,7 @@ def _strict_rmtree(root: str, name: str, expected, fd: Optional[int] = None) -> 
 
 def _seed_empty(db: str) -> None:
     """Create the schema-only DB via the guarded DatabaseManager constructor."""
-    m = DatabaseManager(db, init_schema=True)
+    m = DatabaseManager(db, init_schema=True, production=False)
     m.close()
 
 
