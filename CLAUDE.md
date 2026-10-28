@@ -34,7 +34,9 @@
    data integrity (not uptime) is the binding constraint — services may be
    restarted during development after checking `ps`/`ss`, but **never write
    to the live store** (`RESTORICON_DB_PATH` points at a copy in every
-   dev/test configuration).
+   dev/test configuration; enforced since WP2.2 — no default DB path, live
+   store refused without `--world production`, worlds via `tools/world.py`,
+   see `docs/worlds.md`).
 1. **`CODEY_MASTER_PLAN.md`** — **the rules document.** Its §2 numbered
    rules remain fully in force, are not superseded by anything, and are
    **not** migrated into the blueprint — every "rule N" reference anywhere
