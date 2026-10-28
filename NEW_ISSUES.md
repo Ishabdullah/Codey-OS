@@ -23111,3 +23111,10 @@ The group 14 architect saw 254 32-hex directories at the repo root (`resource_bu
 - **Update (NEW-907):** `database.py` no longer has an import-time default path; fixed by WP2.2 S3b (reviewer-approved; pending Ish's attended refusal check before marking live-verified).
 
 - **Update 2026-10-28 (NEW-1106 lead, from the restoricon service log during the S3 production check):** the log shows a Restoricon API server start at `2026-10-24 11:49:04`, four minutes before the live `-shm`/`-wal` mtimes (11:53:24/11:53:26). That start is the likeliest source of the touch, but the log line does not record the `--db` path, so whether it was a production start or a dev start on the live default remains **unproven**. Rating stays Suspected; before WP2.2 S3 a start with no `--db`/env would have defaulted to the live store, which this slice now prevents. Other starts in the log: 2026-10-01 05:50, 2026-10-28 17:17 (Ish's S2 dev check on `~/s2check`, no PRODUCTION line), 2026-10-28 17:56 (production, below).
+
+## NEW-1113 — WP2.2 S4 `tools/world.py` known limits (reviewer-accepted)
+- **Rating:** Confirmed. **Severity:** Low (seatbelt scope; NEW-1069 is the real boundary). **Disposition:** OPEN/QUEUE, trigger: NEW-1069 / before worlds are used for untrusted agent sessions.
+  1. The manifest dev/ino binding and the root marker stop copied/stale/planted-by-mistake state, not a same-uid process: a root sibling with a hand-forged `world.json` that matches its own stat is deletable (pinned by `test_known_gap_stat_forged_sibling_manifest_is_deletable`). Keep only worlds in the worlds root.
+  2. Final `rmdir(name, dir_fd=root_fd)` after the identity re-check is a tiny check-then-act window (can only remove an empty non-world directory).
+  3. A special file (FIFO etc.) inside a world makes `destroy` refuse until removed by hand (message names the path).
+  4. Cross-mount refusal tested only via a faked `st_dev` (no second filesystem on this device); an unparsable manifest hides its port from allocation; no test for a 64 KiB+1 manifest (benign).
