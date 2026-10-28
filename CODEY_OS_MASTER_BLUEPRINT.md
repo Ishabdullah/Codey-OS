@@ -4971,6 +4971,7 @@ P3a (research track, open-ended)     P3b (engineering track, bounded)
   are unsupported at the backend level, SSM-state migration alone will not be
   enough, and that is much better known before the research starts than after.
 - *Deps:* none. *Repo:* OpenCL-S24-Ultra (read-only). No model load.
+- *Ish note (2026-10-28):* when starting WP3.0, survey the whole `~/OpenCL-S24-Ultra` directory (`docs/`, `patches/`, `reports/`, `scripts/`, `tests/`, `OPENCL_PERFORMANCE_ANALYSIS.md`, `execution_history.log`, `npu-upstream.json`) for anything else useful to Codey-OS, and record what is usable. Read-only.
 - *DoD:* a documented yes/no per op class, recorded in the blueprint.
 
 **WP3.0b — SSM-state-migration research** *(Ish's decision 4a; research, §22 item 2)*
