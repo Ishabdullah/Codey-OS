@@ -110,37 +110,39 @@ def test_get_restoricon_api_config_defaults():
     assert cfg["db_path"].endswith("restoricon.db")
 
 
-def test_default_db_path_matches_api_config_db_path(monkeypatch):
+def test_default_db_path_matches_api_config_db_path(monkeypatch, tmp_path):
     """U.39 / NEW-455: restoricon_core.database.DEFAULT_DB_PATH (the path
-    migrate_aigentik and any bare DatabaseManager() use) must be the same
-    file the API server actually serves from — otherwise backups and
-    migrations target a DB nobody reads. This single assertion is what
-    would have caught the ~/.codey_restoricon/core.db vs
-    ~/.codeyOS/restoricon.db divergence.
+    migrate_aigentik and any bare DatabaseManager() use) must resolve to the
+    same file the API server actually serves from -- otherwise backups and
+    migrations target a DB nobody reads.
 
-    DEFAULT_DB_PATH is frozen at module import, so the autouse
-    clean_service_env fixture's delenv does not affect it; the guard
-    below (no RESTORICON_DB_PATH, {} config so no restoricon.db_path
-    override) is what keeps this hermetic.
-
-    NEW-855: the root conftest.py redirects CODEY_STATE_DIR to a per-session
-    temp dir for the whole test session (so import-time state stores never
-    touch the real ~/.codeyOS), but restoricon_core.database.DEFAULT_DB_PATH
-    independently re-derives "~/.codeyOS" from Path.home() rather than from
-    utils.config.CODEY_STATE_DIR (same class as NEW-455 itself — logged
-    separately, not fixed here). Pin utils.config.CODEY_STATE_DIR back to
-    the real ~/.codeyOS for this one comparison so it still tests what it
-    always tested: the two shipped defaults agreeing with each other.
+    WP2.2 S0: root conftest.py now redirects RESTORICON_DB_PATH for the whole
+    session, so the in-process DEFAULT_DB_PATH is a temp path and no longer
+    exercises the shipped fallback. This test now pins the env-driven
+    equivalence instead: with RESTORICON_DB_PATH=<tmp>, a FRESH import of
+    restoricon_core.database (subprocess, so sys.modules and every other
+    test's DatabaseManager class identity are untouched; import-only, it
+    opens no DB) and get_restoricon_api_config({}) agree. The shipped-fallback
+    equivalence (NEW-455) moves to WP2.2 S1's world tests.
     """
-    from restoricon_core.database import DEFAULT_DB_PATH
+    import os
+    import subprocess
+    import sys
 
-    monkeypatch.setattr(utils.config, "CODEY_STATE_DIR", Path.home() / ".codeyOS")
-
-    # (the autouse fixture already cleared RESTORICON_DB_PATH; DEFAULT_DB_PATH
-    # was bound at import anyway, so this compares the shipped fallbacks)
-    resolved_default = str(Path(DEFAULT_DB_PATH).expanduser().resolve())
+    target = tmp_path / "restoricon.db"
+    monkeypatch.setenv("RESTORICON_DB_PATH", str(target))
+    repo = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         "from pathlib import Path;"
+         "from restoricon_core.database import DEFAULT_DB_PATH as D;"
+         "print(Path(D).expanduser().resolve())"],
+        cwd=str(repo), env=dict(os.environ), capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    resolved_default = proc.stdout.strip().splitlines()[-1]
     api_db_path = get_restoricon_api_config({})["db_path"]
-    assert resolved_default == api_db_path
+    assert resolved_default == api_db_path == str(target.resolve())
 
 
 def test_doc_store_path_matches_across_sources(monkeypatch):

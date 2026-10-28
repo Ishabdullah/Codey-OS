@@ -73,3 +73,21 @@ if not os.environ.get("CODEY_ACTION_GATEWAY_AUDIT"):
         Path(_codey_test_audit_dir) / "action_gateway_audit.jsonl"
     )
     atexit.register(shutil.rmtree, _codey_test_audit_dir, ignore_errors=True)
+
+# WP2.2 S0. restoricon_core/database.py freezes DEFAULT_DB_PATH at import
+# from RESTORICON_DB_PATH, falling back to the LIVE ~/.codeyOS/restoricon.db,
+# and does not consult CODEY_STATE_DIR (NEW-907), so the CODEY_STATE_DIR
+# redirect above does not cover it. Any test that reaches the default (a bare
+# DatabaseManager(), RestoriconAPIServer() with no db_path, provision() with
+# no db_path) would open the live store. Redirect it to a per-session temp
+# file here, at collection time. Same only-when-unset/empty rationale as the
+# blocks above (no os.environ.setdefault(): an exported empty string would
+# be kept by setdefault and then be falsy at the consumer). A caller who
+# explicitly exports a non-empty RESTORICON_DB_PATH is left alone;
+# tests/test_wp22_s0_test_isolation.py fails if that value is the live DB.
+if not os.environ.get("RESTORICON_DB_PATH"):
+    _codey_test_restoricon_dir = tempfile.mkdtemp(prefix="codeyos-test-restoricon-")
+    os.environ["RESTORICON_DB_PATH"] = str(
+        Path(_codey_test_restoricon_dir) / "restoricon.db"
+    )
+    atexit.register(shutil.rmtree, _codey_test_restoricon_dir, ignore_errors=True)
