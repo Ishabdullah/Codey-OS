@@ -648,3 +648,48 @@ def test_s3_does_not_change_relative_aigentik_dir_or_restoricon_db(
     _cwd, missing, argv = mechanics.start_profile("restoricon", restoricon)
     assert missing is False
     assert argv[argv.index("--db") + 1] == str(relative_db)
+
+
+def _restoricon_argv(monkeypatch, db_path):
+    config = SimpleNamespace(
+        get_restoricon_api_config=lambda: {"host": "127.0.0.1", "port": 8000, "db_path": db_path},
+    )
+    monkeypatch.setattr(mechanics, "_config_helpers", lambda: config)
+    _cwd, missing, argv = mechanics.start_profile("restoricon", mechanics.service_paths("restoricon"))
+    assert missing is False
+    return argv
+
+
+def test_wp22_s2_world_flag_iff_db_path_is_live(env, monkeypatch):
+    from restoricon_core import world
+
+    live = env.tmp / "fake-live" / "restoricon.db"
+    live.parent.mkdir()
+    monkeypatch.setattr(world, "live_db_paths", lambda: {str(live)})
+    argv = _restoricon_argv(monkeypatch, live)
+    assert argv[-2:] == ["--world", "production"]
+    assert argv[argv.index("--db") + 1] == str(live)
+    other = _restoricon_argv(monkeypatch, env.tmp / "world-copy.db")
+    assert "--world" not in other and "production" not in other
+
+
+def test_wp22_s2_undeterminable_live_set_omits_flag(env, monkeypatch):
+    from restoricon_core import world
+
+    def _boom():
+        raise world.WorldConfigError("bad config")
+
+    monkeypatch.setattr(world, "live_db_paths", _boom)
+    assert "--world" not in _restoricon_argv(monkeypatch, env.tmp / "x.db")
+
+
+def test_wp22_s2_server_world_arg_parsing(capsys):
+    from restoricon_core.api.server import build_arg_parser
+
+    parser = build_arg_parser()
+    assert parser.parse_args([]).world is None
+    assert parser.parse_args(["--world", "production"]).world == "production"
+    for bad in ("dev", "Production", ""):
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--world", bad])
+    capsys.readouterr()

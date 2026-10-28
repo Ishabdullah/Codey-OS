@@ -109,6 +109,23 @@ def start_profile(service, selected):
     elif service == "restoricon":
         config = _config_helpers().get_restoricon_api_config()
         argv = ["python3", "-m", "restoricon_core.api.server", "--host", str(config["host"]), "--port", str(config["port"]), "--db", str(config["db_path"])]
+        # WP2.2 S2: authorize a live-store open only when the configured db_path
+        # is positively the live DB. world is imported lazily (stdlib-only, no
+        # import-time state). Fail-closed handling: is_live_path() answers True on
+        # any resolution error, which here would GRANT production authorization
+        # on exactly the cases where we cannot tell. So the live-path set is
+        # resolved first; if it cannot be determined (WorldConfigError, e.g. bad
+        # ~/.codeyOS/config.json) the flag is omitted and the S3 guard in the
+        # server will itself refuse to open an undeterminable path. Argv only:
+        # no PID/ownership/identity/spawn logic is touched.
+        from restoricon_core import world
+        try:
+            world.live_db_paths()
+        except world.WorldConfigError:
+            pass  # cannot tell what is live: do not add the production flag
+        else:
+            if world.is_live_path(config["db_path"]):
+                argv += ["--world", "production"]
     elif service == "aigentik":
         cwd = Path(_config_helpers().get_aigentik_config()["dir"])
         script = next((name for name in ("main.py", "app.py", "server.py", "run.sh", "index.js", "start.sh") if (cwd / name).is_file()), None)

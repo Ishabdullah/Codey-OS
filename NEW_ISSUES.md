@@ -23082,3 +23082,11 @@ The group 14 architect saw 254 32-hex directories at the repo root (`resource_bu
 - **Rating:** Confirmed (per WP2.2 architect read). **Severity:** Low. **Disposition:** OPEN, trigger: WP2.2 S1/S3 (live-path definition).
 
 ## Update 2026-10-28 (WP2.2 scoping): NEW-855 and NEW-1011 retagged `trigger: WP2.2` — mitigated in worlds only via `CODEY_STATE_DIR`; lazy-init refactor parked (Ish accepted recommendation Q3). NEW-907 to be closed by S1+S3.
+
+## NEW-1108 — `tests/test_restoricon_core` aborts as one pytest process (`Fatal Python error: Aborted`)
+- **Rating:** Confirmed (reproduced on worktree and on a clean `git archive HEAD`, same point ~81-83%, E-cascade then fatal abort in pytest failure-repr / `database.py init_schema`). **Severity:** Low-Medium (test infrastructure; split runs pass: 1,309 + 294). First real error not yet captured. **Disposition:** OPEN/QUEUE, trigger: WP2.2 S3 baseline (run `pytest tests/test_restoricon_core --tb=no -rE --maxfail=1` to capture the first error before S3 edits `database.py`).
+
+## NEW-1109 — `tests/test_daemon_shutdown_budget.py::test_fixed_profile_trace_only_canonical_daemon_receives45` fails (`assert 2 == 0`)
+- **Rating:** Confirmed pre-existing (fails identically on clean HEAD archive). **Severity:** Low. **Disposition:** OPEN/QUEUE, trigger: next touch of daemon shutdown/trace code. Check against the 9 recorded WP2.1 baseline failures before treating as new.
+
+## Update 2026-10-28 (WP2.2 S2 review): launcher authorization must be "positively live AND resolution succeeded", not `is_live_path()==True` (which also returns True on internal errors). S3 prerequisite, with a NUL-byte db_path test; also add a test that `main()` passes `production=` to `RestoriconAPIServer`.

@@ -152,9 +152,12 @@ class RestoriconAPIServer:
         db_path: Optional[str] = None,
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
+        production: bool = False,
     ):
         self.host = host
         self.port = port
+        # WP2.2 S2: stored only; DatabaseManager does not consume it until S3.
+        self.production = production
         self.db = DatabaseManager(db_path or DEFAULT_DB_PATH)
         self.auth_service = AuthService(self.db)
         self.audit_service = AuditService(self.db)
@@ -304,15 +307,30 @@ class RestoriconAPIServer:
             logger.info("Restoricon Core API server stopped")
 
 
-if __name__ == "__main__":
+def build_arg_parser():
+    """CLI parser for ``python3 -m restoricon_core.api.server`` (factored for tests).
+
+    ``--world production`` is the only allowed value; absent means dev.
+    """
     import argparse
-    import sys
 
     parser = argparse.ArgumentParser(description="Restoricon Core HTTP REST API Server & Web Surfaces")
     parser.add_argument("--host", default=DEFAULT_HOST, help=f"Bind host (default: {DEFAULT_HOST})")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Bind port (default: {DEFAULT_PORT})")
     parser.add_argument("--db", default=None, help="Custom SQLite DB path")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--world",
+        choices=["production"],
+        default=None,
+        help="Authorize opening the live store (production). Absent = dev world.",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    import sys
+
+    args = build_arg_parser().parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     print(f"\n=======================================================")
@@ -323,7 +341,9 @@ if __name__ == "__main__":
     print(f"  • REST API Base:   http://{args.host}:{args.port}/api/v1")
     print(f"=======================================================\n")
 
-    server = RestoriconAPIServer(db_path=args.db, host=args.host, port=args.port)
+    server = RestoriconAPIServer(
+        db_path=args.db, host=args.host, port=args.port, production=(args.world == "production")
+    )
     try:
         server.start(background=False)
     except KeyboardInterrupt:
