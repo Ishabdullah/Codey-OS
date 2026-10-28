@@ -9,9 +9,9 @@ files out of version control) that would otherwise silently exclude
 this source file from git entirely.
 
 Creates (or reuses, if already present) a single `ai_agent` user in the
-Core's real persistent DB (`restoricon_core.database.DEFAULT_DB_PATH`,
-overridable via `RESTORICON_DB_PATH` like the rest of `restoricon_core`)
-and issues a fresh bearer token for it. Connecting a `DatabaseManager` to
+Core DB named by `--db-path` or `RESTORICON_DB_PATH` (there is no
+default path since WP2.2 S3; the live store is refused unless
+`--world production` is given) and issues a fresh bearer token for it. Connecting a `DatabaseManager` to
 that path creates the schema via `CREATE TABLE IF NOT EXISTS` if it
 doesn't exist yet — this script does not start the HTTP API server itself,
 since token issuance only needs direct DB access (there is no HTTP route
@@ -73,7 +73,8 @@ from restoricon_core.auth import (
     _validate_custom_permissions,
     utc_now_iso,
 )
-from restoricon_core.database import DEFAULT_DB_PATH, DatabaseManager
+from restoricon_core import world
+from restoricon_core.database import DatabaseManager
 
 from core import tty_confirm
 
@@ -194,12 +195,16 @@ def provision(
     email: str = DEFAULT_EMAIL,
     db_path: str | None = None,
     custom_permissions: Optional[Dict[str, bool]] = None,
+    *,
+    production: bool = False,
 ) -> str:
     """Create (or reuse) the ai_agent user and return a fresh bearer token.
 
-    `db_path` defaults to `restoricon_core.database.DEFAULT_DB_PATH` (the
-    real persistent Core DB) when not given — tests pass an explicit
-    `:memory:` or scratch path instead so they never touch that file.
+    `db_path` falls back to `$RESTORICON_DB_PATH`; there is no default path
+    (WP2.2 S3) and a missing one raises `WorldConfigError`. A live-store path
+    raises `LiveStoreRefused` unless `production=True`. Both are raised
+    BEFORE the prompt, the tty gate and any audit row. Tests pass an explicit
+    `:memory:` or scratch path so they never touch the live file.
 
     `custom_permissions`, when given, is validated against
     `PERMISSIONS_CATALOG` (`_validate_custom_permissions()`, raises
@@ -227,7 +232,12 @@ def provision(
     # still patch this module or use DatabaseManager/AuthService directly --
     # an accepted residual, G15i spec 1.2/1.6; this stops the casual and
     # accidental caller, not an adversarial one.)
-    resolved_db = db_path if db_path is not None else str(DEFAULT_DB_PATH)
+    # WP2.2 S3: guard before the prompt/gate/tty/audit; a refusal (whose text
+    # may carry the path) therefore never reaches the audit ledger. The prompt
+    # shows the pre-resolution string. announce=False: the production line is
+    # printed once, by the DatabaseManager that actually opens the file.
+    resolved_db = world.resolve_db_path(db_path)
+    world.guard_db_open(resolved_db, production=production, announce=False)
     stdout_note = (
         "a terminal" if sys.stdout.isatty()
         else "NOT a terminal - it may be captured by the calling process"
@@ -246,7 +256,7 @@ def provision(
 
     def _run() -> str:
         try:
-            db = DatabaseManager(db_path) if db_path is not None else DatabaseManager()
+            db = DatabaseManager(resolved_db, production=production)
             try:
                 auth = AuthService(db)
                 conn = db.get_connection()
@@ -359,7 +369,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="python3 -m tools.provision_ai_agent_auth", description=__doc__)
     parser.add_argument("--username", default=DEFAULT_USERNAME)
     parser.add_argument("--email", default=DEFAULT_EMAIL)
-    parser.add_argument("--db-path", default=None, help="Override the Core DB path (defaults to the real persistent DB)")
+    parser.add_argument("--db-path", default=None, help="Core DB path (default: $RESTORICON_DB_PATH; there is no live default)")
+    parser.add_argument(
+        "--world",
+        choices=["production"],
+        default=None,
+        help="Authorize opening the live store (production). Absent = dev world; a live path is refused.",
+    )
     args = parser.parse_args()
 
     # Mechanical, not a generic flag: this specific, hardcoded username
@@ -372,7 +388,18 @@ def main() -> int:
     email = CRM_READER_EMAIL if (is_crm_reader and args.email == DEFAULT_EMAIL) else args.email
 
     try:
-        token = provision(args.username, email, db_path=args.db_path, custom_permissions=custom_permissions)
+        token = provision(
+            args.username,
+            email,
+            db_path=args.db_path,
+            custom_permissions=custom_permissions,
+            production=(args.world == "production"),
+        )
+    except (world.WorldConfigError, world.LiveStoreRefused) as exc:
+        # Raised by the pre-consent DB guard: nothing was prompted, minted or
+        # audited. Message goes to stderr only; stdout stays empty.
+        print(f"provision_ai_agent_auth: refusing to open database: {exc}", file=sys.stderr)
+        return 2
     except ProvisionNotConfirmed as exc:
         # A clean refusal line (static text), not a traceback; nothing was
         # minted and stdout stays empty.

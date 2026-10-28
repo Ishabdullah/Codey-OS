@@ -30,15 +30,15 @@ def _live_family():
     return [Path(str(live) + sfx) for sfx in ("", "-wal", "-shm", "-journal")]
 
 
-def test_default_db_path_is_not_the_live_store():
-    from restoricon_core.database import DEFAULT_DB_PATH
+def test_resolved_env_db_path_is_not_the_live_store():
+    from restoricon_core import world
 
-    resolved = Path(DEFAULT_DB_PATH).expanduser().resolve()
+    resolved = Path(world.resolve_db_path()).expanduser().resolve()
     live = _live_db().resolve()
     live_dir = live.parent
     assert resolved != live
     assert live_dir not in resolved.parents, (
-        f"DEFAULT_DB_PATH {resolved} is under the live state dir {live_dir}"
+        f"resolved RESTORICON_DB_PATH {resolved} is under the live state dir {live_dir}"
     )
     if live.exists():
         assert not os.path.samefile(resolved.parent, live_dir)
@@ -62,10 +62,13 @@ def test_bare_database_manager_leaves_live_store_untouched():
 
     import restoricon_core.database as dbmod
 
-    db = dbmod.DatabaseManager()  # resolves to the redirected temp default
+    from restoricon_core import world
+
+    db = dbmod.DatabaseManager()  # resolves to the redirected temp env path
     try:
-        assert Path(dbmod.DEFAULT_DB_PATH).expanduser().resolve() != _live_db().resolve()
-        assert Path(dbmod.DEFAULT_DB_PATH).exists()
+        env_path = Path(world.resolve_db_path()).expanduser().resolve()
+        assert env_path != _live_db().resolve()
+        assert env_path.exists()
     finally:
         close = getattr(db, "close", None)
         if callable(close):

@@ -149,6 +149,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .auth import AuthContext, ROLE_AI_AGENT
+from . import world
 from .database import DatabaseManager
 from .models import (
     Appointment,
@@ -872,6 +873,9 @@ def print_report(report: Dict[str, Any], apply: bool) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """CLI entry. Returns 2 (message on stderr) if the DB guard refuses the
+    path (nothing configured, unclassifiable, or live without --world
+    production) before any migration code runs."""
     parser = argparse.ArgumentParser(
         description="Migrate Aigentik-CLI's live JSON data into restoricon_core's SQLite DB."
     )
@@ -883,7 +887,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--db-path",
         default=None,
-        help="Path to restoricon_core's SQLite DB (default: restoricon_core.database.DEFAULT_DB_PATH)",
+        help="Path to restoricon_core's SQLite DB (default: $RESTORICON_DB_PATH; there is no live default)",
+    )
+    parser.add_argument(
+        "--world",
+        choices=["production"],
+        default=None,
+        help="Authorize opening the live store (production). Absent = dev world; a live path is refused.",
     )
     parser.add_argument(
         "--apply",
@@ -892,11 +902,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    db_manager = (
-        DatabaseManager(args.db_path, init_schema=args.apply)
-        if args.db_path
-        else DatabaseManager(init_schema=args.apply)
-    )
+    try:
+        db_manager = DatabaseManager(
+            args.db_path,
+            init_schema=args.apply,
+            production=(args.world == "production"),
+        )
+    except (world.WorldConfigError, world.LiveStoreRefused) as exc:
+        print(f"migrate_aigentik: refusing to open database: {exc}", file=sys.stderr)
+        return 2
     report = run_migration(args.source_dir, db_manager, args.apply)
     print_report(report, args.apply)
     return 0

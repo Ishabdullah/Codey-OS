@@ -23100,3 +23100,12 @@ The group 14 architect saw 254 32-hex directories at the repo root (`resource_bu
 - **Rating:** Confirmed (found by running a real short-lived child; trace at `core/process_identity.py:355-358, 563-564, 603`). **Severity:** Low: record is DEAD never RUNNING, `status` prints `absent-dead`, next launch's `run()` (:589) cleans it; no restart loop (single Popen :597, rc 2 `failed-cleanup-confirmed`). `_cleanup_record` skips it because `publication` stays None, so `codey-stop`/`status` show the leftover until the next launch. **Disposition:** OPEN/QUEUE, trigger: next change to `core/process_identity.py` (and revisit if S3b refused-child exits make it common). Reviewer-accepted for S3b.
 
 - **Update 2026-10-28 (NEW-1109 S2 warning):** launcher authorization on unclassifiable paths FIXED in WP2.2 S3a (`is_live_path_strict`; reviewer-approved round 2).
+
+## NEW-1112 — WP2.2 S3b residuals (reviewer-accepted, non-blocking)
+- **Rating:** Confirmed. **Severity:** Low. **Disposition:** OPEN/QUEUE, trigger: next change to `restoricon_core/database.py` / `world.py`.
+  1. `database.py` `_live_authorized` re-classifies the path after `guard_db_open` (microsecond window; a leaf swapped to live between the two classifications on a `production=True` manager skips the post-open check). Cleaner: have `guard_db_open` return its live bool.
+  2. Same-process fd reuse: with a live inode already open in the same process, SQLite can reuse a closed connection's fd so the fd diff sees no new fd (observed on this device). Not reachable in shipped flows (non-production refuses the first live open; pre-open guard is the primary control).
+  3. A leaf swapped to a not-yet-existing live path can make `sqlite3.connect` create a 0-byte file there before the post-open refusal.
+  4. Hardlink detection untested on this device (`os.link` absent in Termux Python); post-open check tested with symlink swaps only.
+  5. Pre-existing `SyntaxWarning` at `database.py:1071` (`"\S"` in a docstring), trigger: none.
+- **Update (NEW-907):** `database.py` no longer has an import-time default path; fixed by WP2.2 S3b (reviewer-approved; pending Ish's attended refusal check before marking live-verified).

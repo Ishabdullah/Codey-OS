@@ -14,7 +14,8 @@ Constraints: stdlib only.  It must NOT import ``utils.config`` or ``core.*``
 ``$HOME``, so a monkeypatched/disposable HOME cannot rebase what counts as
 live.  Every resolution error fails closed (treated as live).
 
-Wired into the launcher (S2/S3a); database.py/server/CLI enforcement is S3b.
+Wired into the launcher (S2/S3a) and enforced in database.py, the API server
+and the three CLIs (S3b).
 """
 
 from __future__ import annotations

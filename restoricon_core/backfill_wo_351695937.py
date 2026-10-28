@@ -111,6 +111,7 @@ import argparse
 import sys
 from typing import Any, Dict, Optional
 
+from . import world
 from .auth import AuthContext, ROLE_ADMIN
 from .database import DatabaseManager
 from .models import Customer, Invoice, Project, ProjectStage, WorkOrder, WorkOrderStatus
@@ -394,13 +395,22 @@ def print_report(report: Dict[str, Any]) -> None:
 
 
 def main(argv: Optional[list] = None) -> int:
+    """CLI entry. Returns 2 (message on stderr) if the DB guard refuses the
+    path (nothing configured, unclassifiable, or live without --world
+    production) before any backfill code runs."""
     parser = argparse.ArgumentParser(
         description="Backfill Joy Clark's real, completed/paid WO #351695937 into restoricon_core."
     )
     parser.add_argument(
         "--db-path",
         default=None,
-        help="Path to restoricon_core's SQLite DB (default: restoricon_core.database.DEFAULT_DB_PATH)",
+        help="Path to restoricon_core's SQLite DB (default: $RESTORICON_DB_PATH; there is no live default)",
+    )
+    parser.add_argument(
+        "--world",
+        choices=["production"],
+        default=None,
+        help="Authorize opening the live store (production). Absent = dev world; a live path is refused.",
     )
     parser.add_argument(
         "--apply",
@@ -409,11 +419,15 @@ def main(argv: Optional[list] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    db_manager = (
-        DatabaseManager(args.db_path, init_schema=False)
-        if args.db_path
-        else DatabaseManager(init_schema=False)
-    )
+    try:
+        db_manager = DatabaseManager(
+            args.db_path,
+            init_schema=False,
+            production=(args.world == "production"),
+        )
+    except (world.WorldConfigError, world.LiveStoreRefused) as exc:
+        print(f"backfill_wo_351695937: refusing to open database: {exc}", file=sys.stderr)
+        return 2
     report = run_backfill(db_manager, args.apply)
     print_report(report)
     return 0

@@ -335,7 +335,7 @@ def test_provision_prompt_shows_db_consequence_stdout_and_escapes_user_text(tty,
     assert "Proceed? [y/N]:" in seen
 
 
-def test_provision_prompt_uses_default_db_path_without_opening_it(tty, monkeypatch):
+def test_provision_prompt_uses_env_db_path_without_opening_it(tty, monkeypatch):
     t = tty(pa, b"n\n")
 
     def _boom(*a, **k):
@@ -344,7 +344,7 @@ def test_provision_prompt_uses_default_db_path_without_opening_it(tty, monkeypat
     monkeypatch.setattr(pa, "DatabaseManager", _boom)
     with pytest.raises(pa.ProvisionNotConfirmed):
         pa.provision()
-    assert ascii(str(pa.DEFAULT_DB_PATH)) in t.prompt_seen()
+    assert ascii(os.environ["RESTORICON_DB_PATH"]) in t.prompt_seen()
 
 
 def test_main_declined_returns_2_with_empty_stdout(tty, monkeypatch, tmp_path, capsys):

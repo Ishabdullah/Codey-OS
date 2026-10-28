@@ -110,20 +110,19 @@ def test_get_restoricon_api_config_defaults():
     assert cfg["db_path"].endswith("restoricon.db")
 
 
-def test_default_db_path_matches_api_config_db_path(monkeypatch, tmp_path):
-    """U.39 / NEW-455: restoricon_core.database.DEFAULT_DB_PATH (the path
-    migrate_aigentik and any bare DatabaseManager() use) must resolve to the
-    same file the API server actually serves from -- otherwise backups and
-    migrations target a DB nobody reads.
+def test_db_path_resolver_matches_api_config_db_path(monkeypatch, tmp_path):
+    """U.39 / NEW-455: the path world.resolve_db_path() gives migrate_aigentik
+    and any bare DatabaseManager() must resolve to the same file the API
+    server actually serves from -- otherwise backups and migrations target a
+    DB nobody reads.
 
     WP2.2 S0: root conftest.py now redirects RESTORICON_DB_PATH for the whole
-    session, so the in-process DEFAULT_DB_PATH is a temp path and no longer
-    exercises the shipped fallback. This test now pins the env-driven
-    equivalence instead: with RESTORICON_DB_PATH=<tmp>, a FRESH import of
-    restoricon_core.database (subprocess, so sys.modules and every other
-    test's DatabaseManager class identity are untouched; import-only, it
-    opens no DB) and get_restoricon_api_config({}) agree. The shipped-fallback
-    equivalence (NEW-455) moves to WP2.2 S1's world tests.
+    session. WP2.2 S3 then removed DEFAULT_DB_PATH entirely (no shim): this
+    test pins the env-driven equivalence: with RESTORICON_DB_PATH=<tmp>, a
+    FRESH import of restoricon_core.database (subprocess, so sys.modules and
+    every other test's DatabaseManager class identity are untouched;
+    import-only, it opens no DB) has no DEFAULT_DB_PATH attribute, and
+    world.resolve_db_path() and get_restoricon_api_config({}) agree.
     """
     import os
     import subprocess
@@ -135,8 +134,10 @@ def test_default_db_path_matches_api_config_db_path(monkeypatch, tmp_path):
     proc = subprocess.run(
         [sys.executable, "-c",
          "from pathlib import Path;"
-         "from restoricon_core.database import DEFAULT_DB_PATH as D;"
-         "print(Path(D).expanduser().resolve())"],
+         "import restoricon_core.database as d;"
+         "from restoricon_core import world;"
+         "assert not hasattr(d, 'DEFAULT_DB_PATH');"
+         "print(Path(world.resolve_db_path()).expanduser().resolve())"],
         cwd=str(repo), env=dict(os.environ), capture_output=True, text=True, timeout=60,
     )
     assert proc.returncode == 0, proc.stderr

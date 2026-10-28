@@ -14,7 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 
 from ..auth import AuthService
-from ..database import DatabaseManager, DEFAULT_DB_PATH
+from .. import world
+from ..database import DatabaseManager
 from ..services.audit_service import AuditService
 from ..services.automation_service import AutomationService
 from ..services.communication_service import CommunicationService
@@ -154,11 +155,17 @@ class RestoriconAPIServer:
         port: int = DEFAULT_PORT,
         production: bool = False,
     ):
+        """Build the server and its services.
+
+        ``db_path`` falls back to ``$RESTORICON_DB_PATH``; there is no live
+        default (WP2.2 S3). The DatabaseManager guard runs first, so a refused
+        or unconfigured path raises (WorldConfigError / LiveStoreRefused)
+        before any other service or the listening socket is created.
+        ``production=True`` authorizes opening the live store."""
         self.host = host
         self.port = port
-        # WP2.2 S2: stored only; DatabaseManager does not consume it until S3.
         self.production = production
-        self.db = DatabaseManager(db_path or DEFAULT_DB_PATH)
+        self.db = DatabaseManager(db_path, production=production)
         self.auth_service = AuthService(self.db)
         self.audit_service = AuditService(self.db)
         self.comm_service = CommunicationService(self.db)
@@ -327,12 +334,29 @@ def build_arg_parser():
     return parser
 
 
-if __name__ == "__main__":
+def main(argv=None) -> int:
+    """CLI entry: parse args, build the server, run it; return the exit code.
+
+    The server is constructed BEFORE the "Server Live" banner so a guard
+    refusal (WorldConfigError / LiveStoreRefused) prints only to stderr and
+    returns 2 without ever having announced success or bound a port.
+    """
     import sys
 
-    args = build_arg_parser().parse_args()
+    args = build_arg_parser().parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    try:
+        server = RestoriconAPIServer(
+            db_path=args.db,
+            host=args.host,
+            port=args.port,
+            production=(args.world == "production"),
+        )
+    except (world.WorldConfigError, world.LiveStoreRefused) as exc:
+        print(f"restoricon: refusing to start: {exc}", file=sys.stderr)
+        return 2
+
     print(f"\n=======================================================")
     print(f"  Restoricon Core Server Live")
     print(f"  • Quote Surface:   http://{args.host}:{args.port}/quote")
@@ -341,13 +365,16 @@ if __name__ == "__main__":
     print(f"  • REST API Base:   http://{args.host}:{args.port}/api/v1")
     print(f"=======================================================\n")
 
-    server = RestoriconAPIServer(
-        db_path=args.db, host=args.host, port=args.port, production=(args.world == "production")
-    )
     try:
         server.start(background=False)
     except KeyboardInterrupt:
         print("\nShutting down Restoricon Core Server...")
         server.stop()
-        sys.exit(0)
+        return 0
+    return 0
 
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())

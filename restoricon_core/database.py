@@ -6,7 +6,6 @@ and transactional safety.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -14,9 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator
 
-DEFAULT_DB_PATH = Path(
-    os.getenv("RESTORICON_DB_PATH", os.path.expanduser("~/.codeyOS/restoricon.db"))
-)
+from . import world
 
 _SCHEMA_SQL = """
 -- Users / Employees table (Authentication and RBAC)
@@ -2415,21 +2412,40 @@ class DatabaseManager:
     """
 
     def __init__(
-        self, db_path: Path | str = DEFAULT_DB_PATH, init_schema: bool = True
+        self,
+        db_path: Path | str | None = None,
+        init_schema: bool = True,
+        *,
+        production: bool = False,
     ):
-        """Open (or create) the DB at ``db_path``. When ``init_schema`` is
-        ``True`` (default) the DDL schema and additive column migrations
-        run on construction; pass ``init_schema=False`` to attach without
-        touching schema (used by ``migrate_aigentik``'s dry run so it does
-        not mutate schema on the target DB)."""
+        """Open (or create) the DB at ``db_path`` (else ``$RESTORICON_DB_PATH``).
+
+        There is deliberately no default path (``DEFAULT_DB_PATH`` was removed
+        in WP2.2 S3): ``world.guard_db_open`` runs FIRST, before any mkdir or
+        sqlite3.connect, and raises WorldConfigError (nothing configured /
+        unclassifiable) or LiveStoreRefused (live store without
+        ``production=True``). ``db_path`` is then the realpath string that was
+        classified. When ``init_schema`` is ``True`` (default) the DDL schema
+        and additive column migrations run on construction; pass
+        ``init_schema=False`` to attach without touching schema (used by the
+        migration CLIs' dry runs). ``init_schema=False`` is still an open at
+        first use and is guarded identically."""
         global _mem_counter
-        if str(db_path) == ":memory:":
+        self.production = production
+        resolved = world.guard_db_open(db_path, production=production)
+        # One bool (no fd/inode state) recording whether this manager is an
+        # AUTHORIZED live open; only those skip the post-open inode check, so
+        # production=True on a non-live path is still checked against a swap.
+        self._live_authorized = (
+            production and resolved != ":memory:" and world.is_live_path_strict(resolved)
+        )
+        if resolved == ":memory:":
             with _mem_lock:
                 _mem_counter += 1
                 self.db_path = f"file:restoricon_mem_{_mem_counter}?mode=memory&cache=shared"
                 self.is_memory = True
         else:
-            self.db_path = str(db_path)
+            self.db_path = resolved
             self.is_memory = False
             self._ensure_db_dir()
 
@@ -2437,20 +2453,39 @@ class DatabaseManager:
             self.init_schema()
 
     def _ensure_db_dir(self) -> None:
-        """Create parent directory if it does not exist."""
+        """Create parent directory if it does not exist. Runs only after
+        ``world.guard_db_open`` so a refused path never creates directories."""
         if not self.is_memory:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
     def get_connection(self) -> sqlite3.Connection:
-        """Return a thread-local SQLite connection with WAL mode and foreign keys."""
+        """Return a thread-local SQLite connection with WAL mode and foreign keys.
+
+        For a new file connection of any manager that is not an authorized
+        live open (``_live_authorized``), fd->inode
+        snapshots taken around ``sqlite3.connect`` (local variables only, no
+        retained state) let ``world.assert_opened_not_live`` refuse a file
+        swapped to the live store after the pre-open guard (TOCTOU). The check
+        runs on every new per-thread connection and before any PRAGMA, so no
+        write or WAL switch happens on a refused file; it detects after the
+        open(2), it cannot prevent it, and a refused connection is closed and
+        never cached."""
         conn = getattr(_local, f"conn_{self.db_path}", None)
         if conn is None:
+            check = not self.is_memory and not self._live_authorized
+            before = world.snapshot_fd_inodes() if check else None
             conn = sqlite3.connect(
                 self.db_path,
                 timeout=30.0,
                 check_same_thread=False,
                 uri=self.is_memory,
             )
+            if check:
+                try:
+                    world.assert_opened_not_live(before, world.snapshot_fd_inodes())
+                except BaseException:
+                    conn.close()
+                    raise
             conn.row_factory = sqlite3.Row
             # Enable foreign keys and WAL mode (if file-based)
             conn.execute("PRAGMA foreign_keys = ON;")
