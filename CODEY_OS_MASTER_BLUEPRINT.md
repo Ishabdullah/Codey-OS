@@ -4976,6 +4976,27 @@ P3a (research track, open-ended)     P3b (engineering track, bounded)
 - *Ish note (2026-10-28):* when starting WP3.0, survey the whole `~/OpenCL-S24-Ultra` directory (`docs/`, `patches/`, `reports/`, `scripts/`, `tests/`, `OPENCL_PERFORMANCE_ANALYSIS.md`, `execution_history.log`, `npu-upstream.json`) for anything else useful to Codey-OS, and record what is usable. Read-only.
 - *DoD:* a documented yes/no per op class, recorded in the blueprint.
 
+> **WP3.0 status (2026-10-29) -- static research complete; NOT runtime-verified.**
+> Source: `~/llama.cpp@4f540676` (Codey pin) and `~/OpenCL-S24-Ultra/.work-npu/llama.cpp@e358d59` (only tree ever built for HTP); the host `supports_op` gates for the ops below are byte-identical in both. Shapes taken from the deployed GGUFs (Qwen3.5-4B: S_v=128, H_v=32, H_k=16, d_conv=4, 24 recurrent + 8 attention layers, DK=DV=256; nomic-embed: 12 layers, 12 heads, DK=64, `attention.causal=False`). VTCM questions were resolved by computing the kernels' own layout arithmetic at the device's recorded `hwinfo: threads 4, hvx 4, hmx 1, vtcm 8 MB`.
+>
+> | Op class | `supports_op` | Notes |
+> |---|---|---|
+> | qwen35 `SSM_CONV` | YES | F32, d_conv=4, d_inner=8192; VTCM ~0.5-0.8 MiB of 8. DSP kernels `ssm_conv_thread_f32_{decode,prefill}` present in the built `libggml-htp-v75.so`. |
+> | qwen35 `GATED_DELTA_NET` (fused) | YES | S_v=128 is exactly at `HTP_GDN_MAX_SV`; H_k=16/H_v=32 broadcast handled in-kernel; HMX prefill layout solves (bh=4, 3.67 MiB), HVX decode 0.5 MiB. Kernels `gated_delta_net_f32_{tg,pp}_thread` + `..._hmx_chunked` present. Gate has no HVX fallback if HMX layout fails (not the case at 8 MiB). |
+> | qwen35 `SSM_SCAN` | N/A (qwen35 uses SSM_CONV + GATED_DELTA_NET only); backend answer NO | Relevant only to Mamba-class models. |
+> | qwen35 unfused-GDN fallback ops (CUMSUM/TRI/DIAG/SOLVE_TRI/PAD/SUM_ROWS/REPEAT) | YES | Used if the fused-GDN probe disables itself (`llama-context.cpp:520-593`) -- a silent fallback to detect via the `fused Gated Delta Net ... enabled / not supported` log line. |
+> | qwen35 attention layers (IMROPE, FLASH_ATTN_EXT DK=256, SET_ROWS) | YES | FA VTCM safe via HVX fallback (0.63 MiB); gate rejects only multi-stream caches (`dst->ne[3]!=1`). |
+> | MUL_MAT Q4_K/Q5_K/Q6_K/Q8_0 (both models) | YES | `token_embd` GET_ROWS (Q6_K/Q4_K) is NO -> CPU, benign. |
+> | nomic-bert non-causal attention | No separate op: causality is mask *contents*; the Hexagon FA kernel streams all KV blocks and applies the mask by value (verified in `htp/flash-attn-ops.c`). FLASH_ATTN_EXT YES (0.20 MiB HVX fallback). SOFT_MAX fallback path (FA off) is NO for most real lengths (`ne0>32 && ne0%32!=0`). ROPE NEOX, NORM, SILU, MUL_MAT YES. | Embed server does not pass `--flash-attn` (AUTO resolves by probe). |
+>
+> **Conclusion:** the backend does not block either model at the op level, so SSM-state migration (WP3.0b) is not made moot by missing ops and WP3.4 is not blocked at this layer. Not established: where each node actually ran (needs an Ish-attended on-device check: `GGML_HEXAGON_VERBOSE=1` supports-op log, the fused-GDN enabled/not-supported log line, and `test-backend-ops -b HTP0 -o SSM_CONV,GATED_DELTA_NET,FLASH_ATTN_EXT` using the already-built `.work-npu/build/bin/test-backend-ops`), and numerical quality (the OpenCL repo's only qwen35 evidence is a FA-off 32-token forced-prefix gate: 32/32 top-token agreement, max abs logit diff 9.02, mean KL 1.76e-4, at e358d59).
+>
+> **WP3.0b inputs found:** `reports/2026-10-08/patches/qwen3next-hybrid-handoff.patch` + `scripts/hybrid-handoff-probe.cpp` (built `hybrid-handoff-probe`) migrate `llama_memory_hybrid` (attention KV + recurrent state) one-way NPU->CPU for `QWEN3NEXT` (one live run: 6.00 MiB KV + 75.38 MiB state, no replay, no output-equality proof). QWEN35 is not on its allowlist (a third allowlist beyond #5/#7), and none of the handoff/sphal patches apply to `4f540676` (`git apply --check` fails; the pin's `llama_memory_hybrid` also takes `n_rs_seq`). **Open question for Ish:** the WP3.0b gate says "identical output"; NPU vs CPU logits are documented as not bit-identical, so the gate needs a defined meaning (candidate: (a) byte-equality of KV + recurrent-state buffers before/after migration; (b) end-to-end top-token agreement/KL vs full-CPU within a pre-registered bound). No change made to the gate.
+>
+> **WP3.4 inputs found:** `mmap_support=false` (P:8331) => `--load-mode mmap` is mandatory for every HTP launch (omission caused a device OOM spiral on 2026-10-08); the sphal patch (4 files) is required to open a DSP session from Termux and must be forward-ported (fails `git apply --check` on the pin); single-session ceiling unchanged; `-DLLAMA_BUILD_SERVER=OFF` is what the scripts pass, but `.work-npu` was later hand-reconfigured ON and contains a 6 KB `llama-server` wrapper (Oct 8) -- one HTP server build already exists at e358d59.
+
+> Full findings and the OpenCL-S24-Ultra directory survey: `docs/WP3_0_FINDINGS_2026-10-29.md`.
+
 **WP3.0b — SSM-state-migration research** *(Ish's decision 4a; research, §22 item 2)*
 - *Objective:* make `qwen35`'s hybrid SSM+attention state migratable between
   backends so prefill→decode handoff becomes possible without changing models.

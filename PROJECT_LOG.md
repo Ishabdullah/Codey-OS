@@ -1,3 +1,7 @@
+## 2026-10-29 — WP3.0 static `supports_op` research complete; NOT runtime-verified
+
+Architect read `~/llama.cpp@4f540676` and `~/OpenCL-S24-Ultra/.work-npu/llama.cpp@e358d59` (read-only, no build, no model load, no NPU use). Verdict: the Hexagon backend does not block qwen35 (`SSM_CONV` + fused `GATED_DELTA_NET`; it uses no `SSM_SCAN`) or nomic-bert (non-causal is mask contents, no separate op) at the op level. Where nodes actually ran is NOT established (needs an Ish-attended on-device check, listed in the blueprint). Whole-directory survey per Ish's note: WP3.0b prior art (`qwen3next-hybrid-handoff.patch`, `hybrid-handoff-probe`), WP3.4 inputs (sphal patch, `-lm mmap` mandatory, build recipe); none of the patches apply to the pin. Open question for Ish: the WP3.0b "identical output" gate needs a defined meaning. Recorded in the blueprint WP3.0 entry and `docs/WP3_0_FINDINGS_2026-10-29.md`.
+
 ## 2026-10-29 — WP2.3 + WP2.4 code-complete + reviewer-approved; NOT live-verified
 
 Ish approved the order (WP2.3, WP2.4, then WP3.0 with a note to survey `~/OpenCL-S24-Ultra`, blueprint commit `3e3af4f`) and "go with your recommendations" on the 3 decisions (delete both shell validators; log, don't repoint `speech.tts`; no durable `/undo`). Spec: architect, scratch `wp23_24_spec.md`.
