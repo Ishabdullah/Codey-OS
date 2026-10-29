@@ -20,6 +20,10 @@ def snapshot(path: str) -> bool:
     """
     Save current contents of a file before it gets overwritten.
     Call this BEFORE writing. Returns True if snapshot was saved.
+
+    Callers going through Filesystem.write must not also snapshot: write()
+    already does, and with MAX_VERSIONS=2 a duplicate entry evicts the
+    original version (WP2.4, NEW-1114).
     """
     p = Path(path).expanduser()
     if not p.exists():

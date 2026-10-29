@@ -52,7 +52,6 @@ def env(tmp_path, monkeypatch):
     monkeypatch.chdir(home)
     snap = Mock()
     monkeypatch.setattr(filesystem_module, "_snapshot", snap)
-    monkeypatch.setattr(patch_tools, "snapshot", snap)
     monkeypatch.setitem(AGENT_CONFIG, "confirm_write", False)
     monkeypatch.setitem(AGENT_CONFIG, "allow_self_modification", False)
     reset_action_gateway()
@@ -280,7 +279,10 @@ def test_patch_ordinary_workspace_file_still_works_and_failed_patch_still_echoes
     ok = patch_tools.tool_patch_file("notes.txt", "alpha", "ALPHA")
     assert ok.startswith("Patched"), ok
     assert f.read_text() == "ALPHA beta\n"
-    assert env.snap.called  # ordinary target is still snapshotted for /undo
+    # Exactly one snapshot (Filesystem.write's); patch_tools no longer takes its own.
+    # Note: this fixture no longer mocks patch_tools.snapshot, so it cannot see a
+    # reintroduced duplicate; tests/test_wp24_patch_undo.py guards that.
+    assert env.snap.call_count == 1
 
 
 def test_patch_nul_in_path_refused_cleanly(env):

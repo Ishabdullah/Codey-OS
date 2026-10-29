@@ -6,7 +6,6 @@ Much more efficient than write_file for small edits.
 import os
 from pathlib import Path
 
-from core.filehistory import snapshot
 from utils.config import AGENT_CONFIG
 from utils.logger import confirm as ask_confirm
 from utils.logger import warning
@@ -15,7 +14,13 @@ from utils.logger import warning
 def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
     """
     Replace first occurrence of old_str with new_str in file.
-    Snapshots before patching for /undo support.
+
+    Takes no snapshot itself: the single /undo snapshot is taken inside
+    Filesystem.write (via the gateway), after path validation and only when
+    the write is actually allowed. A second snapshot here evicted the original
+    under filehistory.MAX_VERSIONS=2 and let refused patches burn history
+    slots (WP2.4, NEW-1114). Any new non-Filesystem write path added here
+    would need its own snapshot.
     """
     if not path or not isinstance(path, str):
         return "[ERROR] Invalid path: empty or not a string"
@@ -113,7 +118,6 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
         # enforcement) via core.action_gateway (WP2.1 slice 3): classified
         # here, then gated, same as tools.file_tools.tool_write_file.
         from core.action_gateway import OUTCOME_FAILED, OUTCOME_REFUSED, get_action_gateway
-        from core.filesystem import FilesystemAccessError
         from tools.file_tools import classify_write_action
 
         authority = classify_write_action(str(p), workspace=fs.workspace)
@@ -123,17 +127,6 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
         confirm_available = bool(AGENT_CONFIG.get("confirm_write", True)) or bool(
             AGENT_CONFIG.get("allow_self_modification", False)
         )
-        # G15e Unit C: snapshot for /undo only AFTER the protection check, so a
-        # DENY-tier target (state dir, audit ledger, ~/.bashrc, .git, ...) is
-        # never copied into file history before the gateway refuses it. The
-        # denied call still goes to the gateway below so it is audited.
-        try:
-            fs._validate_for_mutation(p)
-            snapshot(str(p))
-        except FilesystemAccessError:
-            # Protected / out-of-bounds: skip the snapshot; the gateway call
-            # below fails with the same error and writes the audit row.
-            pass
         # No gateway `confirm=` here by design (G15j): the earlier
         # ask_confirm("Apply patch?") under confirm_write is the human consent
         # for HIGH targets; see file_tools._high_write_confirm for the file path.
