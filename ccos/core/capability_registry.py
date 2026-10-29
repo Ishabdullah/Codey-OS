@@ -9,6 +9,7 @@ This is the core innovation — the AI's self-knowledge system.
 """
 
 import json
+import os
 import time
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -88,9 +89,21 @@ class CapabilityRegistry:
     """
 
     def __init__(self, store_path: str = None):
+        """Load (or start empty from) the persisted registry file.
+
+        Path precedence: explicit `store_path`, then the
+        CODEY_CAPABILITY_REGISTRY env var, then the live
+        ccos/data/capabilities.json. The env override exists so tests and
+        isolated worlds never write test fixtures into the live file (the
+        root conftest.py sets it; WP2.3 / NEW-1105). Note `_save` swallows
+        write errors, so a bad override path silently makes the registry
+        non-persistent rather than raising.
+        """
         self._capabilities: Dict[str, Capability] = {}
-        self._store_path = store_path or str(
-            Path(__file__).parent.parent / "data" / "capabilities.json"
+        self._store_path = (
+            store_path
+            or os.environ.get("CODEY_CAPABILITY_REGISTRY")
+            or str(Path(__file__).parent.parent / "data" / "capabilities.json")
         )
         self._load()
 

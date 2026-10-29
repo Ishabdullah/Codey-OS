@@ -91,3 +91,46 @@ if not os.environ.get("RESTORICON_DB_PATH"):
         Path(_codey_test_restoricon_dir) / "restoricon.db"
     )
     atexit.register(shutil.rmtree, _codey_test_restoricon_dir, ignore_errors=True)
+
+# WP2.3 S2 (NEW-1105). ccos/core/capability_registry.py's
+# get_capability_registry() singleton (and PluginManager()'s fallback to it)
+# persists to the LIVE, gitignored ccos/data/capabilities.json on every
+# register()/record_use(). Three tests write to it (tests/test_context_passing.py,
+# ccos/tests/test_multi_domain.py, tests/test_agent_capability.py); the leak
+# recurred on 2026-10-24 even after the dd49c1d isolation work, leaving
+# test.* / crm.customer_query rows in the live file. CapabilityRegistry now
+# honors CODEY_CAPABILITY_REGISTRY, set here at collection time to a
+# per-session temp file. Same only-when-unset/empty rationale as the blocks
+# above (os.environ.setdefault() would keep an exported empty string). A
+# caller who exports a non-empty path is left alone.
+if not os.environ.get("CODEY_CAPABILITY_REGISTRY"):
+    _codey_test_registry_dir = tempfile.mkdtemp(prefix="codeyos-test-registry-")
+    os.environ["CODEY_CAPABILITY_REGISTRY"] = str(
+        Path(_codey_test_registry_dir) / "capabilities.json"
+    )
+    atexit.register(shutil.rmtree, _codey_test_registry_dir, ignore_errors=True)
+
+
+import pytest  # noqa: E402  (after the collection-time env blocks above)
+
+
+@pytest.fixture(autouse=True)
+def _reset_capability_registry_singleton(monkeypatch):
+    """Give every test a fresh get_capability_registry() singleton.
+
+    The singleton caches its store path and in-memory rows at first use, so
+    without a per-test reset one test's registrations (and any cached
+    instance built before the env override) would leak into the next.
+    monkeypatch restores the previous value afterward. Only resets the
+    singleton if the module is already imported, so it adds no import cost
+    to tests that never touch CCOS.
+    """
+    import sys
+
+    mod = sys.modules.get("ccos.core.capability_registry")
+    if mod is not None:
+        monkeypatch.setattr(mod, "_registry", None)
+    yield
+    mod = sys.modules.get("ccos.core.capability_registry")
+    if mod is not None:
+        mod._registry = None
