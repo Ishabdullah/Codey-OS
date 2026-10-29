@@ -23152,3 +23152,10 @@ The group 14 architect saw 254 32-hex directories at the repo root (`resource_bu
 
 ## NEW-1119 — `CLAUDE.md` rule 2 reads "or a retired 4B during migration" (Confirmed, Low; trigger: the 7B-purge round that owns CLAUDE.md)
 - `CLAUDE.md:184-185` now says "(the Qwen3.5-4B default, the embedding model, or a retired 4B during migration)". The Qwen3.5-4B is the only language model (Ish, 2026-10-29), so "a retired 4B" is self-contradictory and looks like a mechanical 7B-to-4B replacement of the older "retired 7B/1.5B". `CODEY_MASTER_PLAN.md` §2 rule 2 was corrected in this round to name only the 4B and the embedding model; `CLAUDE.md` was outside this round's file ownership and was not edited.
+
+
+## NEW-1120 — telemetry env allow-list/schema still record only the retired `CODEY_7B_MMAP`/`CODEY_7B_MLOCK` names (Confirmed, Low; trigger: next telemetry schema bump)
+- The primary-model load flags were renamed `CODEY_PRIMARY_MMAP`/`CODEY_PRIMARY_MLOCK` (old names kept as deprecated fallbacks, 2026-10-29). `TELEMETRY_ENV_ALLOW_LIST` (`utils/config.py` ~909) and the hash-pinned `telemetry/schema/v1.json`/`v2.json` still list only the old names, so provenance does not record the new ones. Adding them needs schema v3 with a new pinned hash. Not fixed. Also: an empty-but-set new-name var masks a set old-name var (reviewer W1; documented behaviour "new wins if set").
+
+## NEW-1121 — stale "legacy port 8081" labels and `plannd-llama.log` doc row (Confirmed, Low; trigger: none, parked)
+- `core/inference_v2.py:193,242` still describe a legacy port-8081 backend; `docs/troubleshooting.md` keeps a stale `plannd-llama.log` row. The planner server is retired; `PLANNER_MODEL_PATH` and `core/lora_import.py`'s "secondary" branch are still LIVE (repurposed onto the single primary server) and are not removed. `PLANND_LOG_FILE`/`PLANND_PID_FILE` (zero readers) were removed.

@@ -164,12 +164,11 @@ Any model path or port can be overridden without editing `config.py`:
 |----------|---------|-------|
 | `CODEY_MODEL` | `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf` | |
 | `CODEY_EMBED_MODEL` | `~/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf` | |
-| `CODEY_PLANNER_MODEL` | `~/models/qwen2.5-coder-1.5b/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf` | |
+| `CODEY_PLANNER_MODEL` | `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf` | Same file as `CODEY_MODEL`; no separate planner model or server exists. Read only as `PLANNER_MODEL_PATH` by LoRA import/rollback (`core/lora_import.py`) |
 | `CODEY_PRIMARY_PORT` | `8080` | |
 | `CODEY_EMBED_PORT` | `8082` | |
-| `CODEY_PLANND_PORT` | `8081` | |
 | `CODEY_LLAMA_SERVER` | Auto-detected from PATH or `~/llama.cpp/build/bin/llama-server` | |
-| `CODEY_7B_MMAP` | `1` (enabled) | |
-| `CODEY_7B_MLOCK` | `0` (disabled) | |
+| `CODEY_PRIMARY_MMAP` | `1` (enabled) | Deprecated fallback: `CODEY_7B_MMAP` (the new name wins if both are set) |
+| `CODEY_PRIMARY_MLOCK` | `0` (disabled) | Deprecated fallback: `CODEY_7B_MLOCK` (the new name wins if both are set) |
 | `CODEY_BACKEND` | `local` | Coder backend: `local`, `openrouter`, `unlimitedclaude` |
 | `CODEY_BACKEND_P` | `local` | Planner backend (independent of coder backend) |

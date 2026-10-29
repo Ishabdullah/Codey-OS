@@ -335,8 +335,8 @@ DAEMON_CONFIG_FILE = CODEY_STATE_DIR / "config.json"
 STATE_DB_FILE = CODEY_STATE_DIR / "state.db"
 CHECKPOINT_DIR = CODEY_STATE_DIR / "checkpoints"
 NOTES_FILE = CODEY_STATE_DIR / "notes.json"
-PLANND_PID_FILE = CODEY_STATE_DIR / "plannd.pid"        # unchanged, already generic
-PLANND_LOG_FILE = CODEY_STATE_DIR / "plannd.log"        # unchanged, already generic
+# PLANND_PID_FILE / PLANND_LOG_FILE removed: the standalone plannd daemon is
+# retired (M1-D) and nothing read or wrote either path (repo-wide grep).
 
 # Track 3 Phase 5a / 7.4 sub-task B: the "is a user actively using the TUI
 # right now" interactive-session signal (core/resource_gate.py's
@@ -512,12 +512,23 @@ PLANNER_MODEL_PATH = Path(
 # summarizer model is unaffected" line was already wrong before this change
 # too, per NEW-124, since core/loader_v2.py applies these flags
 # unconditionally to every LlamaServer instance it spawns, not just the
-# primary one). The env vars themselves (CODEY_7B_MMAP/CODEY_7B_MLOCK) are
-# NOT renamed here — that would also require updating docs/commands.md,
-# docs/configuration.md, and docs/troubleshooting.md, more than this file
-# plus core/loader_v2.py, so it's left for a later pass.
-QWEN_MMAP = os.environ.get("CODEY_7B_MMAP", "1") != "0"  # default: True
-QWEN_MLOCK = os.environ.get("CODEY_7B_MLOCK", "0") != "0"  # default: False
+# primary one). The env vars are CODEY_PRIMARY_MMAP / CODEY_PRIMARY_MLOCK;
+# the old CODEY_7B_MMAP / CODEY_7B_MLOCK names are still honoured as
+# deprecated fallbacks (the new name wins when both are set).
+def _primary_load_flag_env(new_name: str, old_name: str, default: str) -> str:
+    """Raw value of a primary-model load-mode env var, new name first.
+
+    Why: CODEY_7B_* was renamed CODEY_PRIMARY_*; existing operator
+    environments that still set the old name must keep working.
+    """
+    value = os.environ.get(new_name)
+    if value is None:
+        value = os.environ.get(old_name, default)
+    return value
+
+
+QWEN_MMAP = _primary_load_flag_env("CODEY_PRIMARY_MMAP", "CODEY_7B_MMAP", "1") != "0"  # default: True
+QWEN_MLOCK = _primary_load_flag_env("CODEY_PRIMARY_MLOCK", "CODEY_7B_MLOCK", "0") != "0"  # default: False
 
 # ── Planner settings ─────────────────────────────────────────────────────────
 # Temperature 0.2 keeps plans focused.

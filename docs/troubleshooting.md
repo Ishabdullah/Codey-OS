@@ -43,20 +43,20 @@ codeydOS status   # Check RAM and task queue
 codeydOS restart  # Clears working memory
 ```
 
-If the primary model alone is using a lot of RAM, verify that `CODEY_7B_MMAP=1` is set (default; the variable name is a legacy name and applies to the primary model). Memory-mapped weights only load touched pages into RAM.
+If the primary model alone is using a lot of RAM, verify that `CODEY_PRIMARY_MMAP=1` is set (default; the older name `CODEY_7B_MMAP` is still honoured as a deprecated fallback). Memory-mapped weights only load touched pages into RAM.
 
 ### Planner / summarizer not responding
 
 Planning and summarization use the primary model server on port 8080; it may have failed to start or crashed.
 
 ```bash
-cat ~/.codeyOS/plannd.log        # Check planner log
-cat ~/.codeyOS/plannd-llama.log  # Check llama-server log
+cat ~/.codeyOS/codeyOS.log        # Check main daemon log
+cat ~/.codeyOS/llama-server.log  # Check llama-server log
 
 codeydOS restart                   # Restart all daemons
 ```
 
-If port 8081 is unreachable, task planning falls back to heuristic decomposition and context compression skips the micro-summary step. The agent continues working normally.
+There is no separate planner server (port 8081 is retired). If the primary server on port 8080 is unreachable, task planning falls back to heuristic decomposition and context compression skips the micro-summary step. The agent continues working normally.
 
 ### Peer CLI crashes on startup
 
@@ -106,6 +106,5 @@ codeyOS   # then type /peer
 | Log file | Contents |
 |----------|----------|
 | `~/.codeyOS/codeyOS.log` | Main daemon log |
-| `~/.codeyOS/plannd.log` | planner daemon log |
 | `~/.codeyOS/plannd-llama.log` | llama-server log (legacy planner server; no longer started) |
 | `~/.codeyOS/embed-server.log` | nomic-embed llama-server log |

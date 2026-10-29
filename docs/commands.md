@@ -157,10 +157,9 @@ Routine confirmation flags do not provide isolation. `--allow-self-mod` can perm
 |----------|-------------|
 | `CODEY_MODEL` | Override the primary model path |
 | `CODEY_EMBED_MODEL` | Override the embedding model path |
-| `CODEY_7B_MMAP=0` | (legacy variable name; applies to the primary model) Disable memory-mapped weights (use if RAM is tight) |
-| `CODEY_7B_MLOCK=1` | Lock weights in RAM (prevents paging under pressure) |
+| `CODEY_PRIMARY_MMAP=0` | Disable memory-mapped weights (use if RAM is tight). Deprecated alias: `CODEY_7B_MMAP` |
+| `CODEY_PRIMARY_MLOCK=1` | Lock weights in RAM (prevents paging under pressure). Deprecated alias: `CODEY_7B_MLOCK` |
 | `CODEY_THREADS` | Override CPU thread count |
 | `CODEY_LINTER` | Single-file linter preference: `ruff` when installed; flake8/mypy are skipped and fall back to syntax checking |
-| `CODEY_PLANND_PORT` | Override the planner/summarizer model port (default 8081) |
 | `CODEY_EMBED_PORT` | Override the embedding model port (default 8082) |
 | `ALLOW_SELF_MOD=1` | Enable self-modification (alternative to `--allow-self-mod`) |
