@@ -4910,6 +4910,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
   path; purge 3 leaked fixtures and 4 orphan `speech.*` rows.
 - *Tests:* the security suite exercises the path production uses.
 - *DoD:* no green test covers a function production never calls.
+- **Status (2026-10-29): CODE-COMPLETE + reviewer-approved (S1 `5ca87b9`, S2 `683b312`); S3 purge done as an operator data step; NOT live-verified.** Corrections (rule 6): `ALLOWED_COMMANDS` is live; dead and deleted were `SHELL_METACHARACTERS`, `validate_command_structure`, `_validate_command`, `_parse_command`; the leak count was 4 not 3 (`crm.customer_query`), 8 rows purged (161 -> 153, backup `~/capabilities.json.pre-wp23-purge.20261028`, md5 before `7e7a34c5...`, after `b336c488...`). `speech.tts` stays the dangling domain default (NEW-1116, logged not repointed). See NEW-786, NEW-1105, NEW-1115, NEW-1116.
 
 **WP2.4 — Snapshot before patch** — **largely already true; rescope needed.**
 - *Objective:* `patch_file` is undoable (§16.8).
@@ -4933,6 +4934,7 @@ reviewed by `/root/code_reviewer`, APPROVED).
   needs a real end-to-end test, not yet confirmed to exist.
 - *DoD:* every `patch_file` call is recoverable — **likely already true for
   the live path; needs verification, not new mechanism.**
+- **Status (2026-10-29): code-complete + reviewer-approved (`084627a`); NOT live-verified. DoD only PARTLY met (rule 6).** NEW-840's duplicate was already deleted by NEW-902 (`97b83cb`). Found and fixed a real double snapshot (NEW-1114) that evicted the original after two patches. Met: the original stays in history through two patches; refused/failed/cancelled patches consume no slot; a single undo restores. NOT met: A->B->C then two undos restoring A (undo's deliberate "(pre-undo)" entry makes the second undo a redo; strict xfail; NEW-1117, needs an Ish design decision).
 
 **WP2.3a — Remove `ccos/` from sandbox `ALLOWED_DIRS`** *(Ish's decision 5)* — **DONE 2026-10-07.** `ccos/core/sandbox.py` entry removed; `ccos/tests/test_sandbox_path_validation.py`'s invariant test asserts on the resolved path (not source text), plus a behavioral test confirming a `ccos/` file access is now blocked. code-reviewer APPROVED (also swept `Sandbox(` callers repo-wide — none depend on `ccos/` being writable).
 - *Objective:* close the self-modification hole before it can ever matter.

@@ -90,7 +90,6 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.chdir(home)
     snap = Mock()
     monkeypatch.setattr(filesystem_module, "_snapshot", snap)
-    monkeypatch.setattr(patch_tools, "snapshot", snap)
     monkeypatch.setitem(AGENT_CONFIG, "confirm_write", False)
     monkeypatch.setitem(AGENT_CONFIG, "confirm_shell", False)
     monkeypatch.setitem(AGENT_CONFIG, "allow_self_modification", False)

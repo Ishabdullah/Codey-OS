@@ -53,7 +53,6 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(filesystem_module, "CODE_DIR", code)
     monkeypatch.setattr(checkpoint_module, "CODE_DIR", code)
     monkeypatch.setattr(filesystem_module, "_snapshot", Mock())
-    monkeypatch.setattr(patch_tools, "snapshot", Mock())
     monkeypatch.chdir(home)
     monkeypatch.setitem(AGENT_CONFIG, "confirm_write", True)
     monkeypatch.setitem(AGENT_CONFIG, "allow_self_modification", False)
