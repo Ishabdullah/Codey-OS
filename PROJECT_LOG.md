@@ -1,3 +1,7 @@
+## 2026-10-29 — Track B P0-1 / P0-2 live-run in a disposable world (p012, destroyed): P0-2 LIVE-VERIFIED; P0-1 NOT flipped (NEW-1122)
+
+live-verifier, direct server start in a world (not codey-start), separate curl processes, live store unchanged (restoricon.db 4018176 B, mtime 2026-09-30 17:50:45, inode 2724812). Cross-customer isolation held; P0-1 does not flip because customers see invoice `notes` and legacy estimate line `cost` on their own records (NEW-1122, High, unfixed). P0-2 flips: role-filtered data for admin/customer/technician and distinct human vs ai_agent audit_log (ids 28/29) and communication_history rows. Transcript: `docs/P0_1_2_LIVE_VERIFY_TRANSCRIPT_2026-10-29.md`. Not claimed: production run, browser, tunnel, P0-4/P0-6.
+
 ## 2026-10-29 — Docs-only: Ish's Q2/Q4/7B decisions recorded; Track B tier reconciliation (documentation only, no code, nothing run)
 
 **Decisions logged (Ish, 2026-10-29, as relayed by the coordinator):** (1) `CODEY_MASTER_PLAN.md` §8 Q2 (Core-to-device dispatch) RESOLVED: it was already built (B5b, DONE 2026-08-30, Appendix A item 9.4, loopback WebSocket/HTTP IPC); tier code-complete + reviewer-approved, no on-device live evidence. (2) §8 Q4 DECIDED: everything stays on the device; only the website is hosted on GitHub (Pages); the tunnel serves the other parts; no Firebase/bigger server. Read as the static public site only, not `/admin` `/portal` `/quote`; Pages/tunnel state NOT verified. (3) There is no 7B model any more; Qwen3.5-4B is the only language model (embedding model unaffected).
