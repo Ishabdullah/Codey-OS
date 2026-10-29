@@ -1202,8 +1202,9 @@ Pattern E: list_dir → read_file → write_file
 
 #### 14.3.3 Synthetic Data Quality Controls
 
-- All synthetic shell commands must pass `validate_command_structure()` from
-  `tools/shell_tools.py` (no metacharacters).
+- All synthetic shell commands must contain no shell metacharacters (checked by
+  `pipeline/transformation/validator.py`; `validate_command_structure()` was
+  removed from `tools/shell_tools.py` in WP2.3).
 - All synthetic `write_file` content must be complete (not stubs or `...`).
 - De-duplicate against existing dataset records by instruction hash.
 - Manual review sample: spot-check 5% of generated records before inclusion.

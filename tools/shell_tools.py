@@ -25,23 +25,6 @@ from utils.config import AGENT_CONFIG, CODE_DIR
 from utils.logger import confirm as ask_confirm
 from utils.logger import warning
 
-SHELL_METACHARACTERS = {
-    ";",
-    "&&",
-    "||",
-    "|",
-    "`",
-    "$(",
-    "${",
-    "<(",
-    ">(",
-    ">",
-    "<",
-    "&",
-    "\n",
-    "\\",
-}
-
 DANGEROUS_COMMANDS = [
     "rm",
     "rmdir",
@@ -124,26 +107,13 @@ DANGEROUS_PATTERNS = [
 ]
 
 
-def validate_command_structure(command: str) -> tuple:
-    """
-    Validate command structure to prevent shell injection.
-
-    Returns:
-        (is_valid, error_message) tuple
-    """
-    if not command or not command.strip():
-        return True, ""
-
-    sorted_chars = sorted(SHELL_METACHARACTERS, key=len, reverse=True)
-    for char in sorted_chars:
-        if char in command:
-            return False, f"Blocked metacharacter '{char}' found in command"
-
-    return True, ""
-
-
 def is_dangerous(command: str) -> bool:
-    """Check if a command is potentially dangerous using pattern matching."""
+    """Check if a command is potentially dangerous using pattern matching.
+
+    UI-warning input only: shell() uses it to print a warning and to force a
+    confirm prompt for READ/ACT commands. It is not an authority decision;
+    the authority class comes from classify_shell_command().
+    """
     cmd_lower = command.lower().strip()
     if not cmd_lower:
         return False
@@ -1726,37 +1696,6 @@ def _command_shadows_system_binary(command: str) -> bool:
         return True
 
 
-def _parse_command(command: str) -> list:
-    """Safely parse a shell command into arguments using shlex."""
-    try:
-        return shlex.split(command)
-    except ValueError:
-        return command.split()
-
-
-def _validate_command(command: str) -> tuple:
-    """Validate a command against the allowlist. Returns (is_valid, reason)."""
-    try:
-        parts = shlex.split(command)
-    except ValueError:
-        parts = command.split()
-
-    if not parts:
-        return False, "Empty command"
-
-    base_cmd = Path(parts[0]).name
-
-    if base_cmd not in ALLOWED_COMMANDS:
-        return False, f"Command '{base_cmd}' not in allowlist"
-
-    for part in parts[1:]:
-        if part.startswith("-") and not part.startswith("--"):
-            if any(c in part for c in "rRfFiI"):
-                return False, f"Suspicious flag detected: {part}"
-
-    return True, "OK"
-
-
 def _argv_token_hits_git(token: str) -> bool:
     """True if `token` (one already-parsed argv element) is itself a
     git/git-* basename, or -- for a `-c`/single-string wrapper dispatch
@@ -1768,7 +1707,7 @@ def _argv_token_hits_git(token: str) -> bool:
     the token only adds coverage on top of it. On malformed quoting
     inside the token, falls back to a bare whitespace .split() -- the
     same fallback this module's other shlex.split() call sites use on a
-    ValueError (e.g. _parse_command(), _validate_command()) -- rather
+    ValueError (e.g. is_dangerous()) -- rather
     than giving up, since a malformed-but-identifiable token (e.g.
     `"git push 'unterminated"`) must still be found: this check only
     ever adds coverage on top of the plain-token result, never

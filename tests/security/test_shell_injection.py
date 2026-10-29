@@ -1,121 +1,121 @@
 #!/usr/bin/env python3
 """
-Test shell command structure validation.
+Shell-injection tests against the code production actually runs (WP2.3).
 
-Verifies that shell metacharacters are properly blocked to prevent injection attacks.
+Why this file was rewritten: it used to test SHELL_METACHARACTERS /
+validate_command_structure, which no production path ever called (deleted in
+WP2.3). The real injection guard in tools.shell_tools.shell() is that argv is
+built with shlex.split() and run WITHOUT a shell, so metacharacters are
+literal arguments; everything else is the classifier + gateway fail-closed
+rule for HIGH_IMPACT commands. These tests drive the real shell() with a real
+subprocess in a tmp dir, spy on subprocess.run, and AST-scan the module for
+shell=True so a switch to a shell executor fails loudly.
 """
 
-import sys
+import ast
+import os
+import subprocess
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import pytest
 
-from tools.shell_tools import SHELL_METACHARACTERS, validate_command_structure
+import tools.shell_tools as shell_tools
+from core.action_gateway import HIGH_IMPACT, READ
+from tools.shell_tools import classify_shell_command, shell
 
-
-class TestShellInjection:
-    """Test shell command structure validation."""
-
-    def test_blocks_semicolon_injection(self):
-        """Semicolon should be blocked (command chaining)."""
-        is_valid, error_msg = validate_command_structure("ls; rm -rf /")
-        assert not is_valid
-        assert ";" in error_msg
-
-    def test_blocks_double_ampersand(self):
-        """&& should be blocked (conditional execution)."""
-        is_valid, error_msg = validate_command_structure("ls && cat /etc/passwd")
-        assert not is_valid
-        assert "&&" in error_msg
-
-    def test_blocks_double_pipe(self):
-        """|| should be blocked (alternative execution)."""
-        is_valid, error_msg = validate_command_structure("ls || echo failed")
-        assert not is_valid
-        assert "||" in error_msg
-
-    def test_blocks_pipe(self):
-        """| should be blocked (piping)."""
-        is_valid, error_msg = validate_command_structure("ls | bash")
-        assert not is_valid
-        assert "|" in error_msg
-
-    def test_blocks_backticks(self):
-        """Backticks should be blocked (command substitution)."""
-        is_valid, error_msg = validate_command_structure("echo `whoami`")
-        assert not is_valid
-        assert "`" in error_msg
-
-    def test_blocks_dollar_paren(self):
-        """$() should be blocked (command substitution)."""
-        is_valid, error_msg = validate_command_structure("echo $(cat /etc/passwd)")
-        assert not is_valid
-        assert "$(" in error_msg
-
-    def test_blocks_dollar_brace(self):
-        """${} should be blocked (variable expansion)."""
-        is_valid, error_msg = validate_command_structure("echo ${PATH}")
-        assert not is_valid
-        assert "${" in error_msg
-
-    def test_blocks_process_substitution(self):
-        """<() and >() should be blocked (process substitution)."""
-        is_valid, error_msg = validate_command_structure("diff <(ls) <(cat)")
-        assert not is_valid
-        assert "<(" in error_msg
-
-    def test_allows_simple_ls(self):
-        """Simple ls command should be allowed."""
-        is_valid, error_msg = validate_command_structure("ls -la")
-        assert is_valid
-        assert error_msg == ""
-
-    def test_allows_simple_cat(self):
-        """Simple cat command should be allowed."""
-        is_valid, error_msg = validate_command_structure("cat file.txt")
-        assert is_valid
-        assert error_msg == ""
-
-    def test_allows_simple_grep(self):
-        """Simple grep command should be allowed."""
-        is_valid, error_msg = validate_command_structure("grep pattern file.py")
-        assert is_valid
-        assert error_msg == ""
-
-    def test_allows_simple_find(self):
-        """Simple find command should be allowed."""
-        is_valid, error_msg = validate_command_structure("find . -name '*.py'")
-        assert is_valid
-        assert error_msg == ""
-
-    def test_allows_python_script(self):
-        """Python script execution should be allowed."""
-        is_valid, error_msg = validate_command_structure("python3 script.py --arg value")
-        assert is_valid
-        assert error_msg == ""
-
-    def test_allows_git_commands(self):
-        """Git commands should be allowed."""
-        is_valid, error_msg = validate_command_structure("git status")
-        assert is_valid
-        assert error_msg == ""
-
-    def test_empty_command(self):
-        """Empty command should be allowed (validation passes, execution may fail)."""
-        is_valid, error_msg = validate_command_structure("")
-        assert is_valid
-        assert error_msg == ""
-
-    def test_all_metacharacters_blocked(self):
-        """Verify all defined metacharacters are actually blocked."""
-        for char in SHELL_METACHARACTERS:
-            cmd = f"ls {char} test"
-            is_valid, error_msg = validate_command_structure(cmd)
-            assert not is_valid, f"Character '{char}' should be blocked"
-            assert char in error_msg
+# Former SHELL_METACHARACTERS set; each must stay inert under shell().
+METACHARS = [";", "&&", "||", "|", "`", "$(", "${", "<(", ">(", ">", "<", "&", "\\"]
+# shlex treats backslash as an escape, so its text is not reproduced literally.
+LITERAL_OK = [m for m in METACHARS if m != "\\"]
 
 
-if __name__ == "__main__":
-    import pytest
+@pytest.fixture
+def workdir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
 
-    pytest.main([__file__, "-v"])
+
+@pytest.mark.parametrize("meta", METACHARS)
+def test_metacharacter_never_runs_second_command(workdir, meta):
+    """A metachar between two commands must not execute the second one."""
+    out = shell(f"echo A {meta} touch PWNED", yolo=True)
+    assert not (workdir / "PWNED").exists(), out
+    assert not os.path.exists("PWNED")
+
+
+@pytest.mark.parametrize("meta", LITERAL_OK)
+def test_metacharacter_is_literal_argv(workdir, meta):
+    out = shell(f"echo A {meta} touch PWNED", yolo=True)
+    assert out == f"A {meta} touch PWNED"
+    assert not (workdir / "PWNED").exists()
+
+
+def test_subprocess_run_never_gets_shell_true(workdir, monkeypatch):
+    calls = []
+    real_run = subprocess.run
+
+    def spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(shell_tools.subprocess, "run", spy)
+    shell("echo hello ; touch PWNED", yolo=True)
+    shell("ls", yolo=True)
+    assert calls, "spy never saw subprocess.run"
+    for args, kwargs in calls:
+        assert isinstance(args[0], list)
+        assert not kwargs.get("shell")
+    assert not (workdir / "PWNED").exists()
+
+
+def test_no_subprocess_call_in_shell_tools_uses_shell_true():
+    """Tripwire: the no-shell argv model is what makes metachars inert."""
+    tree = ast.parse(Path(shell_tools.__file__).read_text())
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        owner = getattr(func, "value", None)
+        if isinstance(owner, ast.Name) and owner.id == "subprocess":
+            for kw in node.keywords:
+                if kw.arg == "shell" and not (
+                    isinstance(kw.value, ast.Constant) and kw.value.value is False
+                ):
+                    offenders.append(node.lineno)
+    assert offenders == []
+
+
+HIGH_CMDS = [
+    "sh -c 'x'",
+    "bash -lc 'x'",
+    "python3 -c 'x'",
+    "find . -exec x {} +",
+    "xargs x",
+    "ls | bash",
+    "ls; rm -rf /",
+]
+
+
+@pytest.mark.parametrize("cmd", HIGH_CMDS)
+def test_high_impact_classified_and_refused_under_yolo(workdir, monkeypatch, cmd):
+    assert classify_shell_command(cmd) == HIGH_IMPACT
+    run_mock_calls = []
+    monkeypatch.setattr(
+        shell_tools.subprocess, "run", lambda *a, **k: run_mock_calls.append(a)
+    )
+    out = shell(cmd, yolo=True)
+    assert out.startswith("[BLOCKED]"), out
+    assert run_mock_calls == []
+
+
+def test_chained_read_commands_classify_read_only_because_no_shell():
+    # `ls && cat /etc/passwd` is READ ONLY because shell() runs argv without a
+    # shell, so `&&` is a literal argument to ls. If shell() ever switches to
+    # a shell executor this expectation must be revisited.
+    assert classify_shell_command("ls && cat /etc/passwd") == READ
+
+
+# The daemon prefix gate (_daemon_shell refuses before shell() is reached) is
+# already pinned by tests/test_shell_refusal_accounting.py
+# ::test_each_daemon_refusal_one_audit_no_shell; not duplicated here.

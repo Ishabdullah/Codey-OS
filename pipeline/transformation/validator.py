@@ -22,7 +22,8 @@ TOOL_SCHEMAS: Dict[str, List[str]] = {
 
 VALID_TOOL_NAMES = set(TOOL_SCHEMAS.keys())
 
-# Shell metacharacters that the Codey-OS shell tool blocks (mirrors shell_tools.py)
+# Shell metacharacters rejected in synthetic training commands (pipeline-local;
+# shell_tools.py no longer has a metacharacter list, it runs argv with no shell)
 _SHELL_METACHARACTERS = [";", "&&", "||", "|", "`", "$(", "${", "<(", ">(", "\n", "\r"]
 
 # Max content sizes (characters) — prevent enormous records in the index
