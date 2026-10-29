@@ -1695,6 +1695,28 @@ rows, with tests, behind the §16 gateway, against a **copy** of the production 
 **Status:** `calc` path IMPLEMENTED and reachable. `catalog` + `retailers`
 DORMANT. Pricing worker MISSING. Schema doc PARTIAL (drifted).
 
+**Tier reconciliation, 2026-10-29 (docs-only; agrees with
+`CODEY_MASTER_PLAN.md` §6.13 "CURRENT STATUS" and its §4.5 "Track B tier
+table", which is the single place per-sub-item tiers are kept):** B9.1
+schema merged to `main` (`bb7a59d`) and its migration chain live-verified
+2026-09-29 on a copy of the production DB; B9.2-B9.7 (+B9.2b) code-complete
++ reviewer-approved, no live pass recorded; B9.8 and B9.x live-verified
+2026-10-01 on a copy of the production DB (with the caveats in the plan's
+§4.1); B9.y code-complete + approved, not live-verified. Nothing in this
+section's census findings (§14.1-§14.6) is changed by that.
+
+**Logged decisions, 2026-10-29 (Ish, as relayed by the coordinator),
+recorded here because they touch this document's scope; the authoritative
+text is `CODEY_MASTER_PLAN.md` §8 Q2/Q4 and §1.4:** (1) the Core-to-device
+dispatch mechanism was already built (B5b, DONE 2026-08-30) — Q2
+resolved; (2) everything stays on the device, only the static website is
+hosted on GitHub, the tunnel serves the rest, no Firebase/bigger server —
+Q4 decided; (3) there is no 7B model any more, the Qwen3.5-4B is the only
+language model (the nomic-bert embedding model is unaffected). The
+blueprint's own `7B` mentions are Mistral-7B comparison evidence (a model
+Codey-OS does not deploy, §10.1) and one historical note about the retired
+Qwen2.5-Coder-7B (`NEW-832`); none were changed.
+
 ## 15. Memory / learning / sleep / curiosity / teacher / self-improvement
 
 Directive §8 asks specifically whether memory is *"actually read back into

@@ -21,9 +21,13 @@ background) also remain useful reading.
 **Track B — the Restoricon business-layer phases (§6.3-§6.13, B1-B9) —
 is NOT covered by the blueprint's census and is NOT superseded.** This
 document remains the live, currently-updated tracker for Track B's
-status (B1-B5 done; B6/B7 extensively built; B8 "Sales Rep Portal" is
-PLAN ONLY; B9 "Codey-Estimator Integration" is code-complete/reviewed/
-not-live-verified), **except** where a specific item has been separately
+status (B1-B9 all built to at least code-complete; **per-phase and
+per-sub-item tiers — code-complete / reviewer-approved / live-verified,
+rule 7 — are in the §4.5 "Track B tier table", reconciled 2026-10-29**;
+this sentence previously read "B8 is PLAN ONLY; B9 is not-live-verified",
+which had been stale since B8 shipped 2026-09-16..29 and B9.1/B9.8/B9.x
+were live-verified on copies of the production DB 2026-09-29..10-01),
+**except** where a specific item has been separately
 reconciled into the blueprint — currently only B9/Codey-Estimator, which
 also has a live status section in blueprint §14. **Flagged, not
 resolved (2026-10-14):** B8 (`sales_rep_portal.md`) and the rest of
@@ -129,7 +133,9 @@ And, from the CRM breakdown (Appendix C):
 **January 1, 2027 — full scope, confirmed by Ish (2026-08-21,
 Revision 4).** Every domain — CRM/Sales, Operations, Finance/Bookkeeping,
 Marketing/Lead-Gen, Compliance, HR, Customer Service, Procurement — plus
-the phone-hosted website with all three surfaces, plus both limbs' full
+the website with all three surfaces (hosting split per the 2026-10-29
+decision in §8 Q4: static site on GitHub Pages, everything else on the
+phone behind the tunnel), plus both limbs' full
 roles, is a Jan-1 target, not a stretch goal. This is a settled decision
 and is not re-litigated here. §7 states the risks against it honestly;
 §6 states the order the work has to happen in.
@@ -141,6 +147,17 @@ the Qwen2.5-Coder-1.5B planner are both retired. `Qwen3.5-4B-Q4_K_M`
 becomes the single default model for every role, and it does its own
 planning by running in thinking mode instead of handing off to a separate
 planner model.**
+
+**Reaffirmed and extended, 2026-10-29 (Ish, as relayed by the
+coordinator; logged decision): there is NO 7B model any more.** The
+Qwen3.5-4B is the only language model across everything — agent, planner
+role, and every other role. (The nomic-bert embedding model is a separate,
+still-present artifact and is not affected.) Any present-tense statement
+in this document of a 7B primary, a 1.5B planner, or a "two-model"
+arrangement is stale and has been corrected where it was not a dated
+historical record (§2 rule 2, §7 risk 1, §10's prompt-work routing line);
+dated log/evidence entries that name the retired 7B/1.5B are left verbatim
+as the record of what was measured or asked at the time.
 
 This is a settled decision, not a proposal. What it changes runs through
 almost every platform item in §6.2, so the consequences are stated here
@@ -238,8 +255,8 @@ plan's own successor documents.
 
 2. **RAM discipline.** ~10.8GB RAM; this device has crashed from
    concurrent model loads. Before any live test that loads any local
-   model (the Qwen3.5-4B default, the embedding model, or a retired
-   7B/1.5B during migration): run `free -h` and record it verbatim. Never
+   model (the Qwen3.5-4B — the only language model, §1.4/2026-10-29 — or
+   the embedding model): run `free -h` and record it verbatim. Never
    run more than one live model-load cycle at a time — a cycle isn't done
    until the model is confirmed unloaded (`ps aux | grep llama-server`
    showing nothing but the grep). Batch test messages into one
@@ -503,21 +520,39 @@ is no "hidden page" shortcut: an unauthenticated admin URL that is merely
 unlinked is not a security boundary — it is the same login system with a
 different role. This forces auth/roles into Jan-1 scope.
 
-### 3.6 Deployment: phone first, portability as a discipline
+### 3.6 Deployment: everything on the phone; only the static website is hosted on GitHub
 
-**Confirmed: everything runs on one phone to start** — the Core, the API,
-and the website. Migrating later to Firebase or a larger server is the
-acknowledged future direction, **not decided and not designed**.
+**DECIDED, 2026-10-29 (Ish, as relayed by the coordinator; supersedes this
+section's earlier "Firebase or a larger server is the acknowledged future
+direction"): everything stays on the device. Only the website is hosted on
+GitHub (Pages); a tunnel is used for the other parts; no Firebase / bigger
+server.** This matches, and finalizes, Ish's 2026-08-27 hybrid direction
+already recorded in §6.6 (static `restoricon.com` on GitHub Pages;
+Cloudflare Tunnel to `api.restoricon.com`; the phone is never directly
+exposed). **Scope caution:** "the website" here is the static public site
+(the `~/restoricon` repo, `CNAME` = `restoricon.com`, origin
+`Ishabdullah/Restoricon`). This decision is not extended to the
+authenticated `/admin`, `/portal`, `/quote` and staff surfaces, which §6.6
+already places on the phone's API behind the tunnel. **Implementation
+state not verified by this edit:** the CNAME file and GitHub origin exist,
+but no evidence was checked that Pages is enabled or that the tunnel is
+currently up.
 
-The one commitment held while building: **a plain HTTP/API boundary, even
-when both sides run on the same phone.** No shared-memory shortcuts
-between the website's backend code and Codey-OS's Python internals. That
-is what keeps a future hardware move from being a rewrite. It is a design
-discipline, not a project.
+The plain HTTP/API boundary discipline is retained, with a corrected
+rationale: it no longer exists to keep a future hardware move from being a
+rewrite; it exists because the GitHub-hosted site (and every other
+client) reaches the Core only through the tunnel, over the API, and
+because the one-API/one-auth design (§3.5) depends on it. No shared-memory
+shortcuts between the website's backend code and Codey-OS's Python
+internals. It is a design discipline, not a project.
 
-Also confirmed and explicitly deferred: **scheduled maintenance windows
-and periodic backups to another storage location.** Real requirements,
-"to be figured out" per Ish — named here so they aren't forgotten.
+Consequence for the risk register: reliability of the public site no
+longer depends on the phone's uptime, but every authenticated surface and
+all business data remain single-device (§7 risk 7).
+
+Also confirmed and explicitly deferred: **scheduled maintenance windows**
+(still open — see §8 Q5's second half). Periodic backups to another
+storage location were answered 2026-09-02 (§6.10 / B7).
 
 ### 3.7 The shared model layer and the Model Orchestrator
 
@@ -1428,10 +1463,62 @@ Phase B4 (Public Website Intake API, Rate Limiting, Customer Portal Data
 Isolation, Staff/Admin Surface & Device Limb Dashboard Integration), Phase
 B5a (Remaining Business Domain Engines & Cross-Domain Search/Reporting),
 and Phase B5b (Third-Party App Automation & Device Bridge IPC Integration)
-are complete and verified **at the service and API layer** (1,165 passed).
+are complete and verified **at the service and API layer** (**1,165
+passed — a 2026-08-31 figure, stale; reconciled 2026-10-29**: it counted
+only the Restoricon/Track-B tests as of B5b's close. Later recorded
+figures: 1,472 passed/1 skipped at B6.4b-f (`PROJECT_LOG.md` 2026-09-06);
+the latest repo-wide figure is **9,616 passed, 10 failed** run as 29
+isolated chunks at `41b097f` on 2026-10-28 (`PROJECT_LOG.md`, WP2.2
+closure; the 10 = 9 known baseline + 1 census gate, since fixed). That
+latest number is repo-wide, not a Track-B-only count, and the full suite
+cannot run in one process on this device — `NEW-791`).
 All three surfaces (`quote`, `portal`, `admin`) plus the static
 `restoricon.com` site are unified under a top-left hamburger navigation
 drawer and redesigned with exact Deep Navy & Bronze branding.
+
+#### Track B tier table — added 2026-10-29 (rule 7; documentation reconciliation)
+
+The `[x]` boxes in Appendix A and the word "complete" above mix three
+different tiers. This table separates them, **derived only from evidence
+already in this document and `PROJECT_LOG.md`**; where the evidence is
+absent the cell says **unclear** rather than guessing. **CC** =
+code-complete (tests pass); **RA** = code-reviewer-approved; **LV** =
+live-verified (real device / real HTTP server / real production DB or a
+copy of it — the scope is stated in each cell). Appendix A's per-item
+entries remain the detail; this table is the summary and must be updated
+when a cell changes. "Reviewer-run live repro" (a code-reviewer reproducing
+a bug against a real DB) is **not** counted as LV here.
+
+| Phase / sub-items | CC | RA | LV | Notes / evidence |
+|---|---|---|---|---|
+| **B1** Core schema, API, auth/RBAC, comm-history + audit | yes | yes — rule-4 review 2026-08-26 + confirmatory pass after the `NEW-189` fix (§6.3) | **unclear** — §6.3 says the exit criterion (a genuinely separate OS process via `codey-start`; a human-action and an agent-action audit record) was never recorded as run; later live sessions exercised the real HTTP server indirectly (admin program 2026-09-10/11) | Appendix A's B1 "rule-4 adversarial review pending" was stale and is corrected (2026-10-29); `NEW-190`..`194` non-blocking, logged |
+| **B2** Aigentik write-through (8 groups) | yes (Aigentik jest 239 tests/18 suites at B2-fin-1) | **partial** — Appendix A's B2 line says "code-reviewer-approved" (2026-08-30) but the 2026-09-02 audit (`NEW-288`) records only `do-not-contact.js` and the `business_profile` half as code-reviewed, plus B2-fin-1 (round 2) and `calendar.js` alignment (`ad7a2e3`) | write-through itself: **no** (jest was the bar); business-profile consumption by Aigentik's signature/booking logic: yes, live 2026-09-10/11 (admin program) | rule-6: the earlier "approved" claim is narrower than it read |
+| **B3** CRM/sales, operations, first workflows | yes (15 new CRM tests) | CRM/pipeline: yes; `OperationsService` and workflow engine: **unclear** (entries say only "DONE") | **unclear** (none recorded) | |
+| **B4** public intake API + rate limiter + portal API | yes ("audited", API test suites) | **unclear** per item | **unclear** (none recorded) | API layer only; see B6 for the web layer |
+| **B4** device-limb dashboard (Flutter) | "DONE 2026-08-30" | **unclear** | **unclear** | |
+| **B4** public site hosting | n/a | n/a | **not verified** | Decided 2026-10-29: static site on GitHub Pages, tunnel for the rest (§3.6/§8 Q4); `CNAME`+origin exist in `~/restoricon`, Pages/tunnel state not checked |
+| **B5a** finance, marketing, compliance, HR, procurement, customer service, search, reporting | yes (17 new tests; 1,138 repo tests then) | **unclear** | **unclear** (none recorded) | |
+| **B5b** Private-Codey-Agent fork, third-party automation, Core-to-device dispatch (items 9.3/9.4; closes old §8 Q2) | yes (1,143 tests then) | items 9.3 and 9.4: yes; the fork/automation items: **unclear** | **none** — no on-device dispatch evidence recorded | |
+| **B6.1, B6.2a/b** reassignment perms, canonical audit envelope (55 sites) | yes | yes (rule-4) | **unclear** | |
+| **B6.2c** audit-search screen | yes | **unclear** | **unclear** | |
+| **B6.3** customer portal rewired to real routes | yes | yes | **none recorded** — customer-isolation/portal has no live pass on file | highest-priority live-verify item |
+| **B6.4** admin dashboard (tabs, calendar, scheduling, profile, delete flows) | yes | yes | **yes** — admin-dashboard program, each phase live-verified, closed 2026-09-11 (`6095b37`); Executive Overview/Delete buttons live-verified 2026-09-15 | the 2026-09-15 ultrareview batch (`2b2c2a3`) is CC+RA only, **not LV** |
+| **B6.5** upload, **B6.6** Core-to-Aigentik notify, **B6.8** four staff portals | yes (log entries 2026-09-06/07) | **unclear** for these entries (the `NEW-470` staff-portal template fix was RA, no separate live-verify) | **none recorded** | B6.5 and B6.8 are rule-4 category |
+| **B6.7** staff scheduling | yes | yes (adversarial review performed, per log) | scheduling UI live via admin program 2026-09-11; ICS invites **unclear** | |
+| **B7.1** Core DB replication, **B7.2** doc-store backup, **B7.3** secrets/DR key, **B7.4** restore drill | yes | yes for `10108d4` (U.39); other B7 commits **unclear** | **yes**, all four: real restore drills 2026-09-10 (exact row parity; doc store byte-identical; DR-key chain); `NEW-458` escrow closed 2026-09-15 on Ish's attestation | all LV predates `NEW-540` (replica stale vs the 2026-09-16 `users` rebuild — **still open**) and the 2026-10-28 `--world production` change; **not re-verified since** |
+| **B8.1 / B8.1a** `sales_manager` role + Property/commission schema | yes | yes | **yes** — migration path against the real production DB, 2026-09-16/17 | |
+| **B8.2–B8.10, B8.12–B8.15** dashboard, leads/pipeline UX, properties, scheduling, estimates/contracts/PDF/signing, commissions, insurance/financing, territory, comms center, handoff, mobile/analytics sweeps | yes | yes (each, incl. multi-round reviews) | **no phase-level pass**; individual fixes were reviewer-reproduced live (e.g. B8.7c, B8.10, B8.12) and `NEW-625` (`3f77344`) was live-verified | |
+| **B8.11** AI Sales Copilot | yes | yes (2 rounds) | **yes** 2026-10-06, with caveat (empty-result path only; §4.1) | |
+| **B8.16** work-order intake pipeline | yes | yes | **yes** — Phase 5 against the real production DB 2026-09-29 | |
+| **B9.1** estimator schema/migration | yes | yes | **yes** — merged to `main` (`bb7a59d`); migration chain live-verified 2026-09-29 against a copy of the production DB | the old "explicitly NOT live-verified" in §6.13 predates this |
+| **B9.2–B9.7** EstimateService, API routes, share-link delivery, staff/admin UI, quote portal | yes | yes | **none recorded** (`B9.2b`: "not yet full-suite live-verified") | B9.4 is the first unauthenticated surface — live-verify priority |
+| **B9.8** `EstimateService.convert()` | yes | yes | **yes** 2026-10-01, against a copy of the production DB, with stated caveats (priority branches 1/2 not forced) | Appendix A's "NOT live-verified" header corrected 2026-10-29 |
+| **B9.x** 12 pricing/retailer tables | yes | yes (2 rounds) | **yes** 2026-10-01, copy of production DB, with caveat (real `estimates` table empty) | Appendix A header corrected 2026-10-29 |
+| **B9.y** admin-portal customer-login + password reset | yes | yes (2 rounds) | **no** — no browser/device access that round | |
+
+The Ish-attended checklist to move the "unclear/none" cells to LV is in
+`/data/data/com.termux/files/usr/tmp/trackb_liveverify_list.md` (scratch,
+2026-10-29; not a tracked repo file).
 
 **⚠ The "100% complete" claim this paragraph previously carried is
 withdrawn for B4's web layer.** Verified by reading
@@ -4823,6 +4910,27 @@ nothing in Track A.
 
 ### 6.13 Track B / Phase B9 — Estimating System (Codey-Estimator Integration)
 
+**CURRENT STATUS, added 2026-10-29 (documentation reconciliation; the
+original 2026-09-27 prose below is kept as the historical plan and is
+partly superseded by this block).** B9.1 through B9.y are **built**:
+B9.1 schema/migration merged to `main` as `bb7a59d` (2026-09-29) and its
+migration chain **live-verified 2026-09-29 against a copy of the real
+production DB**; B9.2 (EstimateService), B9.3 (API routes), B9.4 (public
+share-link delivery), B9.5 (staff builder UI), B9.6 (admin Estimates tab),
+B9.7 (quote-portal migration/D8) and B9.2b (expiry sweep) are
+code-complete + code-reviewer-approved with **no live pass recorded**;
+B9.8 (`convert()`) and B9.x (12 pricing/retailer tables) are code-complete
++ code-reviewer-approved + **live-verified 2026-10-01 on a copy of the
+production DB** (with the caveats in §4.1); B9.y (customer-login creation /
+password reset UI) is code-complete + approved, **not live-verified**. So
+the later sentences in this section that say B9.1 is "explicitly NOT
+live-verified" and that "B9.2+ does not start until B9.1 is live-verified"
+describe the 2026-09-27 plan, not current state — B9.2+ was in fact built
+after B9.1 was merged and live-verified. Per-sub-item tiers: §4.5 "Track B
+tier table". Cross-reference: blueprint §14 (which agrees: `calc` path
+implemented and reachable; `catalog`/`retailers` dormant; pricing worker
+not yet written — its §14.6).
+
 **Added 2026-09-27**, reconciling the standalone `Codey-Estimator` library's
 own `docs/ARCHITECTURE_PLAN.md` §14-24 design against the real current
 schema/RBAC in this repo. Full detail (exact DDL, migration procedure, RBAC
@@ -4851,7 +4959,9 @@ code-reviewer-approved as of this writing, but **explicitly NOT
 live-verified** — no session that worked on it had access to the real
 device. It lives on branch `feat/estimator-phase3-schema`, not `main`, until
 a session with device access runs `codey_estimator_schema.md`'s live
-verification checklist and merges it.
+verification checklist and merges it. *(2026-09-27 plan statement; the
+migration chain was in fact live-verified 2026-09-29 via `main`, see the
+CURRENT STATUS block above.)*
 
 **Correction, 2026-09-30 (rule 6):** this never happened on this branch. A
 separate, later B9.1-equivalent schema/migration effort (`ef04dab`,
@@ -4874,7 +4984,9 @@ generator, API routes, the share-link delivery mechanism, and five explicit
 business/policy questions for Ish) lives in `codey_estimator_service.md` —
 read that document, not a restatement here, per §0's no-duplication rule.
 **Building B9.2 itself does not start until B9.1 is live-verified and merged
-to `main`.**
+to `main`.** *(2026-09-27 plan statement; superseded by the CURRENT STATUS
+block above — B9.1 was merged and live-verified 2026-09-29 and B9.2-B9.8
+were then built.)*
 
 One-paragraph summary: `EstimateService` is a **new file**
 (`restoricon_core/services/estimate_service.py`), not a further section of
@@ -4924,20 +5036,38 @@ rather than the legacy `estimates.line_items_json` shape.
 Stated once, honestly, and not argued with. The date is settled (§1.3);
 these are the things that could go wrong against it.
 
-1. **The platform's foundation is not live-proven at production config.**
-   Concurrent primary+planner at `n_ctx=32768` reproduces swap distress
-   on this device (`NEW-141`), and the production 7B's cost sits ~137MiB
-   under the hard-reject ceiling (`NEW-143`). 7.4b's policy is the
-   intended answer and is only partly built and partly unreviewed. Every
-   AI-assisted business behavior sits downstream of this.
-2. **Full scope, four months, solo, on a phone.** Eight domains, a Core,
-   an API, an auth system, three surfaces, two forks, and a dispatch
-   protocol that doesn't exist yet. The mitigation in this plan is
-   §3.5's one-API/one-auth simplification and starting Track B
+1. **The platform's foundation: re-stated 2026-10-29 against the
+   one-model reality (Qwen3.5-4B is the only language model; no 7B, no
+   1.5B planner — §1.4).** The original wording of this risk (concurrent
+   primary+planner swap distress, `NEW-141`; "the production 7B's cost
+   ~137MiB under the hard-reject ceiling", `NEW-143`) described the retired
+   two-model arrangement: `NEW-141` was retired as structurally unreachable
+   when `core/planner_loader.py` was deleted, and the 7B figure no longer
+   applies. What remains, and must not be read as closed: the 4B's
+   headroom is an estimate that the live passes (M1-E/M1-G, 7.4b) only
+   partly confirm; the compound swap-distress residual was risk-accepted by
+   Ish 2026-08-26 and `NEW-140`/`NEW-188` stay open; and one `llama-server`
+   serving several consumers concurrently produced a decision-shaped
+   negative result (`NEW-206`, §8 Q11). See §4/§6.2 and the blueprint for
+   current status of each. Every AI-assisted business behavior still sits
+   downstream of this.
+2. **Full scope, solo, on a phone, against a fixed date.** *(Reworded
+   2026-10-29: the original "four months" was a 2026-08-21 estimate — as of
+   2026-10-29 roughly two months remain to the 2027-01-01 date.)* Eight
+   domains, a Core, an API, an auth system, three surfaces and two forks.
+   The "dispatch protocol that doesn't exist yet" clause is withdrawn: the
+   Core-to-device dispatch mechanism was built (B5b, 2026-08-30; loopback
+   IPC, item 9.4) and §8 Q2 is resolved. What that mechanism lacks is
+   live on-device evidence (§4.5 tier table). The mitigation in this plan
+   is §3.5's one-API/one-auth simplification and starting Track B
    immediately rather than serializing behind Track A.
 3. **The auth boundary.** A customer portal makes an authorization bug a
    data breach between real customers. Treated as rule-4 category
-   throughout §6.6.
+   throughout §6.6. **As of 2026-10-29 the customer-portal/customer-
+   isolation path (B6.3, the B4 portal API, B9.4's unauthenticated
+   share-link surface) has no recorded live-verification pass** — it is
+   code-complete and reviewer-approved only (§4.5 tier table); the
+   attended checklist puts it first.
 4. **Two forks to maintain.** Accepted deliberately (§3.4), but it is a
    real ongoing cost, not a one-time one.
 5. **Process debt compounds.** `NEW-151` is the shape of the failure: a
@@ -4948,6 +5078,18 @@ these are the things that could go wrong against it.
    use is invisible from Termux; `MemAvailable` peaks below what the
    shipped default needs. Some decisions will have to be made on partial
    signals, and should say so rather than implying certainty.
+7. **Single-device operation (added 2026-10-29, from the §8 Q4
+   decision).** Ish decided everything stays on the phone — the static
+   website is the only thing hosted off-device (GitHub Pages), with a
+   tunnel for the rest, and no Firebase/bigger-server fallback. There is
+   therefore no off-device failover: a dead, lost, thermally throttled or
+   offline phone takes down the API, every authenticated surface and
+   Aigentik, and the only protection for the data is the B7 backup chain
+   (§6.10) — whose live verification predates `NEW-540` (open) and the
+   2026-10-28 production-start change. The tunnel and its auth
+   (Cloudflare Tunnel/Access, §6.6) become a rule-4-category exposure
+   point. Accepted by decision, recorded here so it is a stated risk and
+   not a silent one.
 
 ---
 
@@ -4982,9 +5124,28 @@ Numbered for reference. Nothing here is guessed at in this document.
    downstream and still needing re-derivation against the new default:
    7.3's tier thresholds and 7.4b sub-task C's interactive/background
    ceilings, both sized against a model that no longer exists.
-2. **The Core→device dispatch mechanism.** Reuse the existing Telegram
+2. ~~**The Core→device dispatch mechanism.** Reuse the existing Telegram
    Bot API channel the device app already polls, or build something
-   Codey-OS-native? Not designed anywhere.
+   Codey-OS-native? Not designed anywhere.~~ **RESOLVED — already built.
+   Logged 2026-10-29 (Ish, as relayed by the coordinator): "it was already
+   built (B5b, DONE 2026-08-30)"; the "not designed anywhere" statement
+   was stale.** Recorded facts, from Appendix A: item 9.4 (DONE
+   2026-08-30, code-complete + code-reviewer-approved) settled this
+   question with a Codey-OS-native loopback WebSocket/HTTP IPC protocol
+   (`ws://127.0.0.1:8088/ws/device`; `ccos/core/device_bridge.py`
+   `DeviceBridgeServer`/`DeviceBridgeClient`; emergency-shortcode safety
+   veto; CCOS device plugin `ccos/plugins/device/bridge/`), not the
+   Telegram option; B5b's "Core→device scheduled-dispatch mechanism" item
+   is DONE 2026-08-30. **Tier: code-complete + reviewer-approved; no
+   on-device live-verification of the dispatch path is recorded** (§4.5
+   tier table). Caveat for the record: the 12.x scoping note (Appendix A,
+   2026-09-26) describes `ccos/core/device_bridge.py` as "write-only
+   (device-limb comms logging)" from the CCOS side; this edit did not
+   re-read the code to reconcile that with "Core→device dispatch", so the
+   dispatch direction's real reach is part of what the live pass should
+   confirm. Kept struck through so the answer stays visible.
+   (Pre-existing 2026-09-02 audit text below that counts Q2 among "4 open"
+   questions is a dated record, since resolved.)
 3. ~~**One model vs. swap scheduling.**~~ **Answered by Ish, 2026-08-22
    (§1.4): one model.** Qwen3.5-4B serves every role, with thinking mode
    in place of a separate planner. What remains from this question was
@@ -4993,9 +5154,20 @@ Numbered for reference. Nothing here is guessed at in this document.
    has now run (2026-08-26) and produced a decision-shaped negative
    result — see `NEW-206` and §8 Q11.** Kept here, struck through, so the
    answer is visible rather than the question quietly vanishing.
-4. **Deployment migration off-phone.** Firebase, a bigger server, or
+4. ~~**Deployment migration off-phone.** Firebase, a bigger server, or
    something else. Explicitly not decided; revisit after the
-   phone-hosted version is real.
+   phone-hosted version is real.~~ **DECIDED 2026-10-29 (Ish, as relayed
+   by the coordinator): everything stays on the device. Only the website
+   is hosted on GitHub; the tunnel is used for the other parts; no
+   Firebase / bigger server.** This confirms Ish's 2026-08-27 hybrid
+   direction already recorded in §6.6 (GitHub Pages for the static site,
+   Cloudflare Tunnel to the phone's API). "The website" is read as the
+   static public site; the decision is not extended to `/admin`,
+   `/portal`, `/quote` or the staff surfaces, which stay served by the
+   phone's API behind the tunnel. Dependent text updated: §1.3, §3.6, §7
+   risk 7 (new), Appendix A's B4 "phone-hosted public site" line. Not
+   verified by this edit: that GitHub Pages is enabled and the tunnel is
+   currently up. Kept struck through so the answer stays visible.
 5. ~~**Backup and maintenance windows.** Real requirements, explicitly
    deferred, "to be figured out."~~ **The backup half is ANSWERED by Ish,
    2026-09-02: Google Cloud Storage, continuous local journal plus
@@ -5551,7 +5723,7 @@ this plan first, then decide which specialist the task actually needs.
 - **Qwen prompt work** (`prompts/system_prompt.py`,
   `prompts/layered_prompt.py`, `prompts/critique_prompts.py`,
   `core/plannd.py`'s `PLANNER_PROMPT` — tuning or debugging how the local
-  7B agent or 1.5B planner follows instructions): scope with
+  Qwen3.5-4B agent — the only model, §1.4 — follows instructions, planning included): scope with
   **prompt-engineer** first, then implementer if a separate
   implementation pass is needed.
 - **General coding work** goes straight to **implementer**.
@@ -5944,6 +6116,10 @@ the day.)
 off-phone deployment, Q6 = `U.8`/`NEW-9`, Q7 = `U.9`/`NEW-69`, Q9 =
 `U.10`), 7 answered and struck through. All four open questions are
 model-independent — **Still real**. No obsolescence found in §8.
+*(Dated record; **since resolved 2026-10-29**: Q2 was already built —
+B5b, 2026-08-30 — and Q4 was decided, see §8. Contrary to this pass's
+"Still real" verdict, Q2 was in fact stale when written; Appendix A item
+9.4 had settled it on 2026-08-30, two days before this audit.)*
 
 **Rule-8 findings raised by this pass:** `NEW-283` (the
 `DEVICE_CEILING_USABLE_FRACTION` rationale + archived-`TODO.md` pointer),
@@ -7294,7 +7470,13 @@ Then:
       (`NEW-750`, found incidentally, out of scope). See `NEW-746`
       through `NEW-750` for full detail.
 
-### Phase B — business layer (§6.3–§6.10)
+### Phase B — business layer (§6.3–§6.13, B1–B9)
+
+**Heading scope corrected 2026-10-29:** this heading read "(§6.3–§6.10)"
+but the items below run through B9 (§6.13). Per-phase tiers
+(code-complete / reviewer-approved / live-verified) are summarized in the
+§4.5 "Track B tier table" — the `[x]` boxes below do **not** distinguish
+them.
 
 **Header added 2026-09-02.** These items previously sat physically under
 the `Phase A2 — coding-domain rollout` heading above, with no heading of
@@ -7303,12 +7485,19 @@ business-layer work belongs to Track A. Nothing was moved or re-scoped;
 only this heading was inserted.
 
 - [x] **B1** — Core schema + canonical IDs (code-complete, 11 tests passing in `tests/test_restoricon_core/`).
-- [x] **B1** — the HTTP API boundary (code-complete; rule-4 adversarial review pending for binding & auth).
+- [x] **B1** — the HTTP API boundary (code-complete; ~~rule-4 adversarial review pending for binding & auth~~ **rule-4 review was run 2026-08-26 — blocking gap `NEW-189` found and fixed, confirmatory pass approved, non-blocking `NEW-190`..`194` logged; see §6.3 "Status, 2026-08-26". Corrected 2026-10-29: the "pending" wording was stale. Live-verification of the exit criterion remains unrecorded.**).
 - [x] **B1** — auth, roles, permissions (code-complete; 7 roles, PBKDF2 hashing, bearer tokens, customer isolation).
 - [x] **B1** — Communication History + Audit Log (day-one-or-never, code-complete; append-only verified).
 - [x] **B2** — create `Codey-Aigentik` fork; migrate `data/*.json` into
       the Core; write-through; point at the shared model layer.
       **DONE 2026-08-30: 100% code-complete, code-reviewer-approved, full test suites passing.**
+      *(Tier note, rule 6, 2026-10-29: "code-reviewer-approved" here is
+      broader than the later evidence supports — the 2026-09-02 audit
+      (`NEW-288`, see "Phase B2 completion" below) records only
+      `do-not-contact.js` and the `business_profile` half as
+      code-reviewed, plus B2-fin-1 and the `calendar.js` alignment
+      (`ad7a2e3`) in later rounds. Not live-verified beyond jest. See the
+      §4.5 tier table.)*
       All 10 of 10 write-site modules cut over to Restoricon Core API with zero local JSON writes:
       1. `do-not-contact.js` (`/api/v1/do-not-contact*`)
       2. `email-rules.js` & `sms-rules.js` (`/api/v1/automation-rules*`)
@@ -7329,7 +7518,7 @@ only this heading was inserted.
       RBAC endpoints under `/api/v1/crm/*` and `/api/v1/opportunities*`; verified with 15 new unit tests.
 - [x] **B3** — Operations domain. **DONE 2026-08-30 (`OperationsService`).**
 - [x] **B3** — first Automated Workflows. **DONE 2026-08-30 (`OperationsService` automation rules engine).**
-- [x] **B4** — phone-hosted public site. **DONE 2026-08-31 (Public intake, top-left hamburger navigation drawer, and static hosting).**
+- [x] **B4** — phone-hosted public site. **DONE 2026-08-31 (Public intake, top-left hamburger navigation drawer, and static hosting).** *(Note 2026-10-29: the name "phone-hosted" predates Ish's hybrid direction (2026-08-27, §6.6) and the 2026-10-29 §8 Q4 decision — the static public site is hosted on GitHub Pages; only the intake/authenticated API is phone-hosted, via the tunnel. Whether Pages/tunnel are live was not verified.)*
 - [x] **B4** — staff/admin surface. Was **PARTIAL** (downgraded 2026-09-02
       per rule 6, was briefly marked DONE 2026-08-31 before that
       correction) — the gaps named then (`NEW-273`'s `alert()` save
@@ -9541,7 +9730,7 @@ this file's own don't-duplicate rule.
       implementer miscount corrected during review); full suite 2679
       passed, 1 skipped, both implementer and reviewer runs matching.
       Full spec: `codey_estimator_service.md` §4/§3.
-- [x] **B9.8 — DONE, code-complete + code-reviewer APPROVED, NOT live-verified** (commit `bc6b6fa`, 2026-09-30). `EstimateService.convert()`: estimate -> job workflow's Project-creation
+- [x] **B9.8 — DONE, code-complete + code-reviewer APPROVED; ~~NOT live-verified~~ LIVE-VERIFIED 2026-10-01 on a copy of the production DB (status corrected 2026-10-29, rule 6 — this header was stale; see §4.1 and `PROJECT_LOG.md` 2026-10-01 for the evidence and the two unforced priority-branch caveats)** (commit `bc6b6fa`, 2026-09-30). `EstimateService.convert()`: estimate -> job workflow's Project-creation
       half (the Contract half is created at acceptance, per D7), gated on
       the linked Contract's `status = 'signed'`, idempotent, linking to an existing
       Opportunity's project if present (priority: `estimates.project_id` ->
@@ -9559,7 +9748,7 @@ this file's own don't-duplicate rule.
       and both new findings against actual code. No route added (B9.3 stays
       deferred). Full spec: `codey_estimator_service.md`
       §1.9/§8/§9 item 4.
-- [x] **B9.x — DONE, code-complete + code-reviewer APPROVED (2 rounds), NOT live-verified** (commit `dc141e7`, 2026-10-01). All 12 originally-deferred pricing/retailer tables (`retailers`, `retailer_stores`, `retailer_products`, `price_observations`, `search_cache`, `canonical_materials`, `material_matches`, `price_book_items`, `labor_rates`, `labor_rate_history`, `pricing_jobs`, `product_search_fts`), not just the 3 bound to `codey_estimator.ports.py`'s repository Protocols (Ish's decision to scope all 12 in one round). `estimate_line_items`' 4 pricing-id columns and `estimates.property_id` (stale "not built yet" comment corrected) both got real FKs attached, folded in. Round-1 code-reviewer caught a real Critical commit-before-raise migration bug (a safety net that ran after its own rebuild had already committed, then self-silenced on every later open) — fixed and independently re-verified round 2, full detail in `PROJECT_LOG.md`'s 2026-10-01 entry. Two smaller findings disclosed, not fixed: `NEW-739`, `NEW-740`. 45 tests passed. No RBAC/route/UI work — `PERM_MANAGE_PRICE_BOOK` already existed, unused since B9.1.
+- [x] **B9.x — DONE, code-complete + code-reviewer APPROVED (2 rounds); ~~NOT live-verified~~ LIVE-VERIFIED 2026-10-01 on a copy of the production DB (54→70 tables, FK attachments, triggers preserved; status corrected 2026-10-29, rule 6 — stale header; caveat: the real `estimates` table was empty, so the orphaned-`property_id` guard remains synthetic-only; see §4.1)** (commit `dc141e7`, 2026-10-01). All 12 originally-deferred pricing/retailer tables (`retailers`, `retailer_stores`, `retailer_products`, `price_observations`, `search_cache`, `canonical_materials`, `material_matches`, `price_book_items`, `labor_rates`, `labor_rate_history`, `pricing_jobs`, `product_search_fts`), not just the 3 bound to `codey_estimator.ports.py`'s repository Protocols (Ish's decision to scope all 12 in one round). `estimate_line_items`' 4 pricing-id columns and `estimates.property_id` (stale "not built yet" comment corrected) both got real FKs attached, folded in. Round-1 code-reviewer caught a real Critical commit-before-raise migration bug (a safety net that ran after its own rebuild had already committed, then self-silenced on every later open) — fixed and independently re-verified round 2, full detail in `PROJECT_LOG.md`'s 2026-10-01 entry. Two smaller findings disclosed, not fixed: `NEW-739`, `NEW-740`. 45 tests passed. No RBAC/route/UI work — `PERM_MANAGE_PRICE_BOOK` already existed, unused since B9.1.
 - [x] **B9.y — DONE, code-complete + code-reviewer APPROVED (2 rounds), NOT live-verified** (commit `bba5ba5`, 2026-10-01; queued Ish, 2026-09-30) — admin-portal user-management UX:
       unify customer-portal account creation into the same
       `POST /api/v1/users` create-user flow already used for
