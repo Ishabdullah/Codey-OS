@@ -29,12 +29,11 @@ ls -la ~/.codeyOS/codeyOS.sock
 ### Model not found
 
 ```bash
-ls -la ~/models/qwen2.5-coder-7b/
-ls -la ~/models/qwen2.5-0.5b/
+ls -la ~/models/qwen3.5-4b-instruct/
 ls -la ~/models/nomic-embed/
 ```
 
-Check that the filenames match the paths in `utils/config.py`, or set `CODEY_MODEL`, `CODEY_PLANNER_MODEL`, and `CODEY_EMBED_MODEL` environment variables to the correct paths.
+Check that the filenames match the paths in `utils/config.py`, or set `CODEY_MODEL` and `CODEY_EMBED_MODEL` environment variables to the correct paths.
 
 ### High memory usage
 
@@ -44,11 +43,11 @@ codeydOS status   # Check RAM and task queue
 codeydOS restart  # Clears working memory
 ```
 
-If the 7B model alone is using more than ~5 GB, verify that `CODEY_7B_MMAP=1` is set (default). Memory-mapped weights only load touched pages into RAM.
+If the primary model alone is using a lot of RAM, verify that `CODEY_7B_MMAP=1` is set (default; the variable name is a legacy name and applies to the primary model). Memory-mapped weights only load touched pages into RAM.
 
 ### Planner / summarizer not responding
 
-The 0.5B model on port 8081 may have failed to start or crashed.
+Planning and summarization use the primary model server on port 8080; it may have failed to start or crashed.
 
 ```bash
 cat ~/.codeyOS/plannd.log        # Check planner log
@@ -75,17 +74,14 @@ codeyOS   # then type /peer
 
 | Metric | Value |
 |--------|-------|
-| Primary model | Qwen2.5-Coder-7B-Instruct Q4_K_M |
-| Planner / summarizer | Qwen2.5-0.5B-Instruct Q8_0 |
+| Primary model (all generation roles) | Qwen3.5-4B Q4_K_M |
 | Embedding model | nomic-embed-text-v1.5 Q4_K_M |
 | RAM (idle) | ~200 MB |
-| RAM (7B loaded) | ~4.4 GB |
-| RAM (0.5B loaded) | ~400 MB |
+| RAM (primary model loaded) | not re-measured for this doc; see `core/resource_gate.py` and live measurements |
 | RAM (embed loaded) | ~80 MB |
-| Context window | 32,768 tokens |
+| Context window | see `utils/config.py` (`CODEY_N_CTX`) |
 | Max response tokens | 2,048 |
-| Speed — 7B | ~7–8 t/s |
-| Speed — 0.5B | ~40–60 t/s |
+| Speed | not re-measured for this doc |
 | Inference backend | `/v1/chat/completions` over localhost HTTP |
 | Backend overhead | ~400–600 ms per call |
 
@@ -110,6 +106,6 @@ codeyOS   # then type /peer
 | Log file | Contents |
 |----------|----------|
 | `~/.codeyOS/codeyOS.log` | Main daemon log |
-| `~/.codeyOS/plannd.log` | 0.5B planner daemon log |
-| `~/.codeyOS/plannd-llama.log` | llama-server log for the 0.5B model |
+| `~/.codeyOS/plannd.log` | planner daemon log |
+| `~/.codeyOS/plannd-llama.log` | llama-server log (legacy planner server; no longer started) |
 | `~/.codeyOS/embed-server.log` | nomic-embed llama-server log |

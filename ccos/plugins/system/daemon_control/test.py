@@ -3,7 +3,7 @@
 
 The socket-based capabilities (ping/status/health/task/cancel) need a
 real daemon listening on the Unix socket. Starting the full
-`core.daemon.Daemon` (via `main.py`) pre-loads the 7B model — out of
+`core.daemon.Daemon` (via `main.py`) pre-loads the primary model — out of
 scope and unwanted for a plugin test. `core.daemon.DaemonServer` is just
 the asyncio Unix socket server plus its handlers; it does not touch any
 model. This test starts a bare `DaemonServer` (backed by a throwaway

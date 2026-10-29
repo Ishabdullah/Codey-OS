@@ -24,7 +24,7 @@ reasons — don't conflate them:
   inference synchronously — it now only enqueues (`needs_planning`
   flagged for the pull-side planner, per sub-task C) and returns
   immediately. That redesign changed WHEN the risk materializes, not
-  WHETHER it does: the real 7B inference and real tool execution this
+  WHETHER it does: the real model inference and real tool execution this
   handler ultimately causes still happen, just later, via
   `_process_planner_tasks()`'s pull-side dispatch — as an unreviewed
   side effect of whichever agent called this capability, gated only by

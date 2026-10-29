@@ -1,5 +1,7 @@
 # Fine-Tuning Codey-OS on Kaggle
 
+> **Legacy guide.** This workflow targets the retired Qwen2.5 0.5B/7B models. Codey-OS now runs only Qwen3.5-4B, so the model names, ports and file paths below no longer match the deployed system and have not been re-verified for it.
+
 This guide covers the full end-to-end workflow for fine-tuning both Codey-OS models using your own training data and a free Kaggle GPU.
 
 ---

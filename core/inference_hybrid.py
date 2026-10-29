@@ -3,7 +3,7 @@
 Inference backend for Codey-OS (v2.6.0 — simplified).
 
 Uses llama-server's /v1/chat/completions endpoint which automatically applies
-the model's chat template (ChatML for Qwen2.5-Coder). This is CRITICAL —
+the model's chat template (ChatML). This is CRITICAL —
 sending raw prompts to /completion bypasses the template and the model cannot
 distinguish system instructions from user messages.
 
@@ -304,7 +304,7 @@ class ChatCompletionBackend:
     HTTP backend using llama-server's /v1/chat/completions endpoint.
 
     Uses proper messages array so llama-server applies the model's chat
-    template (ChatML for Qwen2.5-Coder). This is the only backend needed
+    template (ChatML). This is the only backend needed
     on Termux/Android where llama-server runs on TCP port 8080.
     """
 

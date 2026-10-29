@@ -1965,8 +1965,8 @@ def run_agent(
     if should_summarize(history, system_messages=_tmp_msgs):
         history = summarize_history(history)
         # NOTE: _mem.compress_summary() was removed here — it calls infer()
-        # on the same 7B model that's about to run the real task, causing
-        # a single-slot collision. The 0.5B summarize_history() is sufficient.
+        # on the same primary model that's about to run the real task, causing
+        # a single-slot collision. The plain summarize_history() is sufficient.
     # Rebuild messages with potentially compressed history
     messages = [{"role": "system", "content": sys_prompt}]
 

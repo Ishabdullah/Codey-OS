@@ -1,5 +1,7 @@
 # importantdoc.md — Qwen2.5-Coder-7B-Instruct Prompting Guide for Codey-OS
 
+> **Retired-model document.** Codey-OS no longer runs Qwen2.5-Coder-7B; the only generation model is Qwen3.5-4B (Q4_K_M). Everything below describes the retired Qwen2.5 model and has NOT been re-verified for Qwen3.5-4B. Kept only as a prompting-lessons reference.
+
 This document captures everything you need to know to get correct tool calls, proper instruction following, and reliable code generation from the exact model Codey-OS runs: **Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf** via llama-server.
 
 ---

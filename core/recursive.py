@@ -378,7 +378,7 @@ def recursive_infer(
         normal infer() contract.
     """
 
-    # Sub-task 1 (attribution logging, WORK_QUEUE.md "7B coder system-prompt
+    # Sub-task 1 (attribution logging, WORK_QUEUE.md "coder system-prompt
     # round"): tracks how many critique/refine cycles this call actually ran,
     # so the final log line can tell a future live-verifier pass whether a
     # given turn's tool call came from the recursive draft/critique/refine

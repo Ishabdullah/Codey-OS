@@ -78,7 +78,7 @@ def infer(
         messages: Chat messages [{"role": "system"/"user"/"assistant", "content": "..."}]
         stream: Enable streaming (reserved for future use)
         extra_stop: Additional stop sequences
-        model: Ignored (single-model mode — always uses primary 7B)
+        model: Ignored (single-model mode — always uses the primary model)
         show_thinking: Show thinking indicator
         use_hybrid: Use chat completions backend (default True)
         max_tokens: Override max tokens (default: MODEL_CONFIG["max_tokens"])

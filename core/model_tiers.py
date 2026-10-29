@@ -23,13 +23,13 @@ config today — `core/lora_import.py`'s own NEW-84 comment block (lines
 "had no effect on what actually got loaded." `SECONDARY_MODEL_PATH` and
 `PLANNER_MODEL_PATH` share an identical default path only by coincidence,
 not because `SECONDARY_MODEL_PATH` names a real, distinct "coder-small"
-model. So the `coder` role gets exactly ONE local tier here (`"large"`, 7B,
-`MODEL_PATH`) plus a `"remote"` tier wherever `CODEY_BACKEND` selects one —
+model. So the `coder` role gets exactly ONE local tier here (`"large"`, the primary
+model, `MODEL_PATH`) plus a `"remote"` tier wherever `CODEY_BACKEND` selects one —
 not two local tiers.
 
 Planner/coder same-physical-model overlap (NEW-125, logged not fixed): the
-planner's `"large"` tier (the orchestrator's 7B fallback path,
-`core/orchestrator.py:plan_tasks()`, exercised when the 1.5B daemon planner
+planner's `"large"` tier (the orchestrator's fallback path,
+`core/orchestrator.py:plan_tasks()`, exercised when the daemon planner
 fails/is unavailable) is the SAME underlying model file as the coder role's
 `"large"` tier — both point at `utils.config.MODEL_PATH` on
 `PRIMARY_SERVER_PORT`. This table represents that literally (identical
@@ -93,7 +93,7 @@ class ModelTierEntry:
 # rather than kept as a duplicate of "large" below, since a distinct tier
 # key that resolves to the exact same server isn't a real second tier.
 #
-# "large": the orchestrator's 7B fallback path (core/orchestrator.py's
+# "large": the orchestrator's fallback path (core/orchestrator.py's
 #          plan_tasks(), used when the daemon planner fails/is unavailable)
 #          — same physical model as the coder role's "large" tier below
 #          (NEW-125), represented literally, not as a distinct model.
@@ -121,7 +121,7 @@ if cfg.is_remote_planner_backend():
     )
 
 # ── Coding domain, "coder" role ─────────────────────────────────────────────
-# "large": the ONLY local tier (7B, MODEL_PATH, port 8080). No "small" local
+# "large": the ONLY local tier (primary model, MODEL_PATH, port 8080). No "small" local
 #          tier — see module docstring / NEW-84.
 # "remote": present ONLY when CODEY_BACKEND is actually set to a remote
 #          backend (cfg.is_remote_backend()) — same reasoning as the planner

@@ -5,7 +5,7 @@ Model loader for Codey-OS - Termux/Android compatible.
 Uses llama-server binary via subprocess instead of llama-cpp-python bindings
 (since llama-cpp-python doesn't support Android platform).
 
-Single-model architecture: always loads the primary 7B model.
+Single-model architecture: always loads the primary model.
 """
 
 import http.client
@@ -1380,7 +1380,7 @@ class ModelLoader:
     """
     Manages model loading via llama-server.
 
-    Single-model: always loads the primary 7B Qwen2.5-Coder model.
+    Single-model: always loads the primary model (Qwen3.5-4B).
     """
 
     def __init__(self):

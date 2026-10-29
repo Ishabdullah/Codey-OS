@@ -11,22 +11,20 @@ Codey-OS supports personalizing the underlying model using your own interaction 
 codeyOS --finetune
 
 # Customize the export
-codeyOS --finetune --ft-days 60 --ft-quality 0.6 --ft-model 7b
+codeyOS --finetune --ft-days 60 --ft-quality 0.6 --ft-model 4b
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--ft-days` | 30 | Days of history to include |
 | `--ft-quality` | 0.7 | Minimum quality score (0.0–1.0) |
-| `--ft-model` | both | Target variant: `0.5b`, `7b`, or `both` |
+| `--ft-model` | 4b | Target variant: `4b` (the deployed Qwen3.5-4B). `1.5b`, `7b` and `both` are legacy Qwen2.5 variants for models Codey-OS no longer runs |
 | `--ft-output` | `~/Downloads/codey-finetune` | Output directory |
 
 **Output files:**
 
-- `codey-finetune-0.5b.jsonl` — Dataset for the 0.5B model
-- `codey-finetune-7b.jsonl` — Dataset for the 7B model
-- `codey-finetune-qwen-coder-0.5b.ipynb` — Colab notebook
-- `codey-finetune-qwen-coder-7b.ipynb` — Colab notebook
+- `codey-finetune-4b.jsonl` — Dataset for the deployed Qwen3.5-4B
+- A Colab notebook for the chosen variant (legacy variants write `codey-finetune-*-1.5b/7b` files)
 
 ---
 
@@ -53,9 +51,9 @@ codeyOS --import-lora /path/to/codey-lora-adapter --lora-model primary
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--lora-model` | primary | `primary` (7B) or `secondary` (0.5B) |
+| `--lora-model` | primary | `primary` (the only accepted value) |
 | `--lora-quant` | q4_0 | Quantization: `q4_0`, `q5_0`, `q8_0`, `f16` |
-| `--lora-merge` | false | Merge on-device (requires llama.cpp, ~8 GB RAM for 7B) |
+| `--lora-merge` | false | Merge on-device (requires llama.cpp, ~8 GB RAM; not re-measured for the 4B) |
 
 ---
 
@@ -69,14 +67,14 @@ codeyOS --import-lora /path/to/adapter --lora-model primary --lora-merge
 
 # Or manually with llama.cpp
 python ~/llama.cpp/convert-lora.py \
-  --base-model ~/models/qwen2.5-coder-7b/model.gguf \
+  --base-model ~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf \
   --lora-adapter /path/to/adapter \
   --output merged.gguf
 
 ./quantize merged.gguf merged-q4.gguf q4_0
 ```
 
-Merging requires ~8 GB free RAM for the 7B model and takes 5–15 minutes.
+Merge RAM and time requirements have not been re-measured for the 4B.
 
 ---
 
@@ -96,5 +94,4 @@ codeyOS --rollback --lora-model primary
 |------|---------|
 | High quality, smaller dataset | `--ft-quality 0.8` or higher |
 | More examples, more diversity | `--ft-quality 0.5` with `--ft-days 90` |
-| Fast training for style tuning | Target the 0.5B model |
-| Best reasoning improvement | Target the 7B model |
+| Any fine-tune | Target the 4B (the only deployed model) |

@@ -221,7 +221,7 @@ class EmbedServer:
             "-c",
             "2048",  # 2k ctx — fast for 92% of chunks; rest use BM25 fallback
             "-t",
-            "2",  # 2 threads for embedding (keep CPU headroom for 7B)
+            "2",  # 2 threads for embedding (keep CPU headroom for the primary model)
             "-b",
             "2048",  # logical batch size matches ctx
             "--ubatch-size",
@@ -269,7 +269,7 @@ class EmbedServer:
                 # store for accounting/observability — but it is deliberately
                 # NOT run through reserve_slot()/can_admit(): it never competes
                 # for admission and must never be evicted by the gate the way
-                # the 7B/1.5B are. register_slot() (unconditional, no admission
+                # the primary model's slot is. register_slot() (unconditional, no admission
                 # check) with status=RESIDENT immediately achieves exactly that:
                 # visible in list_slots()/total_reserved_bytes() bookkeeping,
                 # but never subject to a can_admit()/reserve_slot() denial or

@@ -6,7 +6,7 @@ Provides get_plan(): sends a user prompt to the primary Qwen3.5-4B model
 for the same model to then execute as the coding agent.
 
 M1-D (2026-08-23): planning used to be a dedicated Qwen2.5-1.5B model on
-its own port 8081, swapped in/out against the primary 7B via
+its own port 8081, swapped in/out against the primary model via
 core/planner_loader.py's PlannerLoader.ensure_planner() (sequential swap,
 never both resident). That whole server/swap mechanism is retired —
 core/planner_loader.py is deleted. There is now exactly one local model

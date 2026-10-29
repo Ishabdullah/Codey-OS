@@ -67,7 +67,7 @@ WRITE_PROTECTED = {
 }
 
 # Text source file extensions that receive \" → " decode on write.
-# The 7B model sometimes double-encodes JSON, leaving literal \" in content.
+# The local model sometimes double-encodes JSON, leaving literal \" in content.
 # Excluded: .json (\" is valid JSON escaping), .sh (\" is a shell escape).
 _DECODE_EXTS = {
     ".py",

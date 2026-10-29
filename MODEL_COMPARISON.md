@@ -1,5 +1,7 @@
 # Codey-OS Model Selection Guide
 
+> **Historical comparison.** Written when the stack was Qwen2.5-Coder-7B + a small planner. Codey-OS now runs only Qwen3.5-4B for every role; the "current choice" and recommendations below are retired and kept as evidence of the original selection.
+
 ## Samsung Galaxy S24 Ultra Hardware Constraints
 
 | Specification | Value |

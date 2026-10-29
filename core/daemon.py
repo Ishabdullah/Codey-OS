@@ -1061,7 +1061,7 @@ class Daemon:
 
     def _watchdog_check_model(self):
         """
-        30s watchdog for the 7B primary model server — extracted out of
+        30s watchdog for the primary model server — extracted out of
         `_main_loop()` (Track 3 Phase 5a / 7.4 sub-task 3) so the gate-denial
         vs. crash distinction below is independently testable, and so this
         block reads as one named unit instead of being buried inline in the
@@ -1129,17 +1129,17 @@ class Daemon:
                 # (no gate-side "give up" state to persist against, and this
                 # sub-task's scope doesn't extend to adding one), but logged
                 # accurately instead of as a restart.
-                warning(f"7B model: resource gate permanently denies this load — {reason}")
+                warning(f"primary model: resource gate permanently denies this load — {reason}")
             elif outcome == LOAD_OUTCOME_GATE_DENIED:
                 # Transient — headroom/thermal. Not a crash; will keep
                 # retrying on subsequent ticks as conditions change.
-                warning(f"7B model load denied by resource gate (transient) — {reason}")
+                warning(f"primary model load denied by resource gate (transient) — {reason}")
             elif outcome == LOAD_OUTCOME_DEFERRED:
                 # SWAP_GUARD busy (a concurrent release_model_slot request,
                 # or — before M1-D, 2026-08-23 — a planner mid-swap) —
                 # expected, benign, self-resolves on the next tick. Not
                 # worth a warning.
-                info(f"7B model watchdog: {reason}")
+                info(f"primary model watchdog: {reason}")
             elif was_running is False and server is None:
                 # Reachable only because `was_ever_spawned()` (NEW-152)
                 # gated us into calling `ensure_model()` at all (7.4b
@@ -1150,18 +1150,18 @@ class Daemon:
                 # this reload attempt also failed. "died" would
                 # misdescribe this: there's no currently-known process
                 # that stopped running.
-                warning(f"7B model not loaded ({outcome}: {reason}) — attempted load, still not running")
+                warning(f"primary model not loaded ({outcome}: {reason}) — attempted load, still not running")
             else:
                 # The process really was running and now isn't — this is the
                 # "died, restarting" case the original message described.
-                warning(f"7B model server died ({outcome}: {reason}) — restart attempt failed")
+                warning(f"primary model server died ({outcome}: {reason}) — restart attempt failed")
         except Exception as e:
             # Watchdog itself must never crash the daemon's main loop — but
             # unlike a truly best-effort signal read, a swallowed exception
-            # here would silently stop the 7B model from ever being retried
+            # here would silently stop the primary model from ever being retried
             # again with no trace, so this is logged (not a bare `pass`)
             # before being swallowed.
-            warning(f"7B model watchdog check failed: {e}")
+            warning(f"primary model watchdog check failed: {e}")
 
     async def _main_loop(self):
         """Main daemon event loop."""
@@ -1187,7 +1187,7 @@ class Daemon:
         # _process_planner_tasks, which uses try_claim_task() for atomic claiming.
 
         # 7.4b sub-task C's NEW-145 fix: the daemon no longer eagerly
-        # pre-loads the 7B coder model at startup. Eager preload always ran
+        # pre-loads the coder model at startup. Eager preload always ran
         # before any TUI session could register itself as interactive (see
         # `core/resource_gate.py`'s `is_interactive_session_active()`), so
         # it always evaluated False and spawned the coder at the background
@@ -1203,7 +1203,7 @@ class Daemon:
         from utils.config import is_remote_backend as _is_remote
 
         if not _is_remote():
-            info("Coder (7B) will load lazily on first request — no startup preload")
+            info("Coder (primary model) will load lazily on first request — no startup preload")
         else:
             info(f"Backend: {_backend} — skipping local model server startup")
 
@@ -1371,7 +1371,7 @@ class Daemon:
                     except Exception as e:
                         warning(f"telemetry: interactive-state watchdog sample failed: {e}")
 
-                    # 7B model server watchdog (local only)
+                    # primary model server watchdog (local only)
                     if not _is_remote():
                         self._watchdog_check_model()
                     # Retry cleanup even if the owned child is still alive.
@@ -1398,7 +1398,7 @@ class Daemon:
             # Stop file watch
             self.file_watch.stop()
 
-            # Stop 7B model server (llama-server) — it runs detached (os.setsid)
+            # Stop primary model server (llama-server) — it runs detached (os.setsid)
             # so it survives daemon exit unless explicitly unloaded here.
             # unload() releases the resource-gate slot as its last step
             # (core/loader_v2.py) — a failure here can leave BOTH an orphaned
@@ -1414,7 +1414,7 @@ class Daemon:
             except Exception as e:
                 # A broken diagnostic sink must not skip the owned embedding
                 # cleanup that follows this primary-model failure.
-                _embed_notice(warning, f"7B model unload during shutdown failed: {e}")
+                _embed_notice(warning, f"primary model unload during shutdown failed: {e}")
 
             # Stop embed server
             try:

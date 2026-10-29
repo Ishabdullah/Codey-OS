@@ -6,7 +6,7 @@
 |-------------|---------------|
 | **Platform** | Termux on Android, or any Linux system |
 | **RAM** | 6 GB+ available |
-| **Storage** | ~10 GB (7B model + 0.5B model + Codey) |
+| **Storage** | ~10 GB (Qwen3.5-4B + embedding model + Codey) |
 | **Python** | 3.12+ |
 | **Packages** | `rich`, `numpy`, `watchdog` |
 
@@ -44,21 +44,15 @@ The build takes 10–20 minutes on a modern Android device.
 
 ### Step 3 — Download models
 
-**Primary model — Qwen2.5-Coder-7B (~4.7 GB)**
+**Primary model — Qwen3.5-4B (every role: coding, planning, summarization)**
 
 ```bash
-mkdir -p ~/models/qwen2.5-coder-7b
-cd ~/models/qwen2.5-coder-7b
-wget https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf
+mkdir -p ~/models/qwen3.5-4b-instruct
+cd ~/models/qwen3.5-4b-instruct
+wget https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf
 ```
 
-**Planner/summarizer model — Qwen2.5-0.5B (~400 MB)**
-
-```bash
-mkdir -p ~/models/qwen2.5-0.5b
-cd ~/models/qwen2.5-0.5b
-wget https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf
-```
+There is no separate planner/summarizer model; `install.sh` installs this model and the embedding model only.
 
 **Embedding model — nomic-embed-text-v1.5 (~80 MB)**
 

@@ -68,7 +68,7 @@ MODEL_CONFIG = {
 
 ## Planner Config
 
-The 0.5B model runs on port 8081 and handles both task planning and conversation summarization.
+Task planning and conversation summarization run on the primary Qwen3.5-4B server (port 8080); there is no separate planner model.
 
 ```python
 PLANNER_TEMPERATURE = 0.2   # Low temperature keeps plans focused
@@ -87,7 +87,7 @@ These values live in `core/summarizer.py` and control when and how conversation 
 |---------|-------|---------|
 | `SUMMARIZE_THRESHOLD_PCT` | 0.55 | Trigger compression when context hits 55% |
 | `DROP_TARGET_PCT` | 0.40 | Drop turns until usage falls to 40% |
-| `MICRO_SUMMARY_MSG_LIMIT` | 2000 | Max chars per message fed to the 0.5B summarizer |
+| `MICRO_SUMMARY_MSG_LIMIT` | 2000 | Max chars per message fed to the summarizer |
 
 **Pinned messages** (never dropped): anything containing `write_file`, `patch_file`, `[ERROR]`, `[PATCH_FAILED]`, `[BLOCKED]`, `[CONVERSATION SUMMARY]`, `Tool error:`, or `shell`.
 
@@ -162,7 +162,7 @@ Any model path or port can be overridden without editing `config.py`:
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `CODEY_MODEL` | `~/models/qwen2.5-coder-7b/qwen2.5-coder-7b-instruct-q4_k_m.gguf` | |
+| `CODEY_MODEL` | `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf` | |
 | `CODEY_EMBED_MODEL` | `~/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf` | |
 | `CODEY_PLANNER_MODEL` | `~/models/qwen2.5-coder-1.5b/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf` | |
 | `CODEY_PRIMARY_PORT` | `8080` | |

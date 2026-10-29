@@ -669,7 +669,7 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
 
     If the daemon is running and plannd returns a plan:
       1. Print the numbered plan from DeepSeek before any execution begins.
-      2. Run each step through run_agent() locally (7B model, visible in terminal).
+      2. Run each step through run_agent() locally (primary model, visible in terminal).
       3. After file-creation steps, verify the file was actually written.
          If not, retry the step once before continuing.
 
@@ -1921,7 +1921,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
 [bold]Fine-tuning (v2.3.0):[/bold]
   codeyOS --finetune          Export fine-tuning dataset + Colab notebook
-  codeyOS --finetune --ft-days 30 --ft-quality 0.7 --ft-model both
+  codeyOS --finetune --ft-days 30 --ft-quality 0.7 --ft-model 4b
   codeyOS --import-lora /path/to/adapter --lora-model primary
 
 [bold]Environment variables:[/bold]

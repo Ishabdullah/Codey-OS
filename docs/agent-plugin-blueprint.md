@@ -186,7 +186,7 @@ it. Actual integration work is a separate, not-yet-scoped follow-up (see
    equivalent) rather than importing a module.
 2. **`resource_footprint`** declaring Qwen3-4B's RAM footprint, so the
    future resource gate (Section 9.2 of the vision doc) knows this
-   agent's model load competes with Codey-OS's own 7B/1.5B/embedding
+   agent's model load competes with Codey-OS's own Qwen3.5-4B/embedding
    stack for the same device RAM — this is a real collision risk today
    if both were run simultaneously with no arbitration, exactly the
    kind of case CLAUDE.md rule 2's RAM discipline exists for.
@@ -223,7 +223,7 @@ flowchart TB
         CR["capability_registry.py\nCapabilityRegistry"]
         PM["plugin_manager.py\nPluginManager"]
         RG["Resource gate / scheduler\n(PROPOSED — Section 7.4 of\nCODEY_OS_MASTER_VISION.md,\nnot built)"]
-        CODING["Coding agent\n(core/agent.py, 7B/1.5B/embed)"]
+        CODING["Coding agent\n(core/agent.py, Qwen3.5-4B/embed)"]
     end
 
     subgraph aigentik["Aigentik-CLI (separate repo, separate process)"]

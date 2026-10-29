@@ -1,18 +1,17 @@
 # Architecture
 
-This page retains historical model/layout descriptions. Use [the master blueprint](../CODEY_OS_MASTER_BLUEPRINT.md) for the current Track A architecture and roadmap; the three-model layout below is superseded. Current WP2.1 authority boundaries and verification limits are in [Security](security.md).
+Use [the master blueprint](../CODEY_OS_MASTER_BLUEPRINT.md) for the current Track A architecture and roadmap. Codey-OS runs a single generation model, Qwen3.5-4B, for every role (coding, planning, summarization) plus a separate embedding model. Current WP2.1 authority boundaries and verification limits are in [Security](security.md).
 
-## Historical Three-Model Design (superseded)
+## Model Servers
 
-Codey-OS runs three purpose-built models simultaneously, each on its own port:
+Codey-OS runs two model servers, each on its own port:
 
 | Model | Port | Role |
 |-------|------|------|
-| Qwen2.5-Coder-7B Q4_K_M | 8080 | Primary agent — coding, reasoning, tool use |
-| Qwen2.5-0.5B Q8_0 | 8081 | Planner + conversation summarizer |
+| Qwen3.5-4B Q4_K_M | 8080 | Primary agent — coding, planning (thinking mode), summarization, tool use |
 | nomic-embed-text-v1.5 Q4 | 8082 | Embedding encoder for RAG retrieval |
 
-The 7B model handles all user-facing work. The 0.5B runs independently for task planning and context compression so the 7B never burns tokens managing its own context. The embedding model runs continuously to serve retrieval queries during inference.
+The primary model handles all user-facing work, including task planning and context compression. The embedding model runs continuously to serve retrieval queries during inference.
 
 ---
 
@@ -42,8 +41,8 @@ The 7B model handles all user-facing work. The 0.5B runs independently for task 
                           ▼
 ┌─────────────────────────────────────────────────────────┐
 │                     LLM Layer                           │
-│  Port 8080 — Qwen2.5-Coder-7B (primary agent)          │
-│  Port 8081 — Qwen2.5-0.5B (planner + summarizer)       │
+│  Port 8080 — Qwen3.5-4B (primary agent, planner,       │
+│              summarizer)                                │
 │  Port 8082 — nomic-embed-text (RAG encoder)             │
 │  /v1/chat/completions · ChatML · thermal management     │
 └─────────────────────────────────────────────────────────┘
@@ -95,10 +94,10 @@ When in-context token usage hits 55% of the context window, Codey compresses his
 1. The 4 most recent messages are always kept intact.
 2. Pinned messages (file writes, errors, existing summaries) are never dropped.
 3. Oldest unpinned turns are dropped until usage falls to 40%.
-4. The 0.5B model generates a ≤100-word "Previously:" summary of what was dropped.
+4. The primary model generates a ≤100-word "Previously:" summary of what was dropped.
 5. An existing `[CONVERSATION SUMMARY]` is never re-summarized — it stays pinned.
 
-This keeps the 7B model focused on current work without losing critical context.
+This keeps the primary model focused on current work without losing critical context.
 
 ---
 
@@ -142,9 +141,9 @@ This table covers exactly what Codey saves, where it lives, and how long it last
 │   ├── state.py             # SQLite state store
 │   ├── task_executor.py     # Task execution with tool loop and recovery
 │   ├── planner_v2.py        # Internal task planner
-│   ├── plannd.py            # 0.5B planner daemon and get_plan_from_7b
+│   ├── plannd.py            # Planner daemon (get_plan against the primary model)
 │   ├── planner_client.py    # Async interface to the planner
-│   ├── summarizer.py        # Context compression (sliding window + 0.5B)
+│   ├── summarizer.py        # Context compression (sliding window + primary-model summary)
 │   ├── background.py        # Background tasks and file watches
 │   ├── filesystem.py        # Direct filesystem access
 │   ├── memory_v2.py         # Four-tier memory system
