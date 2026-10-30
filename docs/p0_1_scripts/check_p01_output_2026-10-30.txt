@@ -1,0 +1,101 @@
+PASS  custA-GET-invoices-1: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-invoices-1: notes null on every invoice  | measured: [None]
+PASS  custA-GET-invoices-1: INTERNAL-NOTE absent from whole body  | measured: absent
+PASS  custA-GET-invoices-1: payments[] non-empty (exercised)  | measured: 1 payment(s)
+PASS  custA-GET-invoices-1: payments have no recorded_by_user_id  | measured: [['amount', 'method', 'payment_type', 'reference', 'timestamp']]
+PASS  custA-GET-invoices-1: amount/balance_due/line_items intact  | measured: [(5000.0, 4000.0, [])]
+PASS  custA-GET-invoices-list: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-invoices-list: notes null on every invoice  | measured: [None]
+PASS  custA-GET-invoices-list: INTERNAL-NOTE absent from whole body  | measured: absent
+PASS  custA-GET-invoices-list: payments[] non-empty (exercised)  | measured: 1 payment(s)
+PASS  custA-GET-invoices-list: payments have no recorded_by_user_id  | measured: [['amount', 'method', 'payment_type', 'reference', 'timestamp']]
+PASS  custA-GET-invoices-list: amount/balance_due/line_items intact  | measured: [(5000.0, 4000.0, [])]
+PASS  custA-GET-portal-invoices: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-portal-invoices: notes null on every invoice  | measured: [None]
+PASS  custA-GET-portal-invoices: INTERNAL-NOTE absent from whole body  | measured: absent
+PASS  custA-GET-portal-invoices: payments[] non-empty (exercised)  | measured: 1 payment(s)
+PASS  custA-GET-portal-invoices: payments have no recorded_by_user_id  | measured: [['amount', 'method', 'payment_type', 'reference', 'timestamp']]
+PASS  custA-GET-portal-invoices: amount/balance_due/line_items intact  | measured: [(5000.0, 4000.0, [])]
+PASS  custA-GET-estimates-1: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-estimates-1: no cost/unit_cost/category keys anywhere  | measured: []
+PASS  custA-GET-estimates-1: lines present and carry description/quantity/unit_price  | measured: [['description', 'quantity', 'unit_price']]
+PASS  custA-GET-estimates-1: estimate notes null  | measured: [None]
+PASS  custA-GET-estimates-1: INTERNAL-NOTE absent  | measured: absent
+PASS  custA-GET-estimates-list: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-estimates-list: no cost/unit_cost/category keys anywhere  | measured: []
+PASS  custA-GET-estimates-list: lines present and carry description/quantity/unit_price  | measured: [['description', 'quantity', 'unit_price']]
+PASS  custA-GET-estimates-list: estimate notes null  | measured: [None, None]
+PASS  custA-GET-estimates-list: INTERNAL-NOTE absent  | measured: absent
+PASS  custA-SEARCH-note: no invoice hits  | measured: {"query": "INTERNAL-NOTE", "total_matches": 0, "results": {}}
+PASS  custA-SEARCH-note: no estimate hits  | measured: see body
+PASS  custA-SEARCH-note: INTERNAL-NOTE absent from results section  | measured: absent
+PASS  custA-SEARCH-B-note: no invoice hits  | measured: {"query": "INTERNAL-NOTE-INV-B", "total_matches": 0, "results": {}}
+PASS  custA-SEARCH-B-note: no estimate hits  | measured: see body
+PASS  custA-SEARCH-B-note: INTERNAL-NOTE absent from results section  | measured: absent
+PASS  admin-GET-invoices-1: still shows INTERNAL-NOTE-INV-A  | measured: HTTP 200 note_present=True
+PASS  admin-GET-invoices-1: payments still carry recorded_by_user_id  | measured: present=True
+PASS  admin-GET-invoices-list: still shows INTERNAL-NOTE-INV-A  | measured: HTTP 200 note_present=True
+PASS  admin-GET-invoices-list: payments still carry recorded_by_user_id  | measured: present=True
+PASS  manager-GET-invoices-1: still shows INTERNAL-NOTE-INV-A  | measured: HTTP 200 note_present=True
+PASS  manager-GET-invoices-1: payments still carry recorded_by_user_id  | measured: present=True
+PASS  manager-GET-invoices-list: still shows INTERNAL-NOTE-INV-A  | measured: HTTP 200 note_present=True
+PASS  manager-GET-invoices-list: payments still carry recorded_by_user_id  | measured: present=True
+PASS  sales-GET-invoices-1: still shows INTERNAL-NOTE-INV-A  | measured: HTTP 200 note_present=True
+PASS  sales-GET-invoices-1: payments still carry recorded_by_user_id  | measured: present=True
+PASS  admin-GET-estimates-1: cost/unit_cost/category still present  | measured: HTTP 200 keys=['cost', 'unit_cost', 'category']
+PASS  admin-GET-estimates-list: cost/unit_cost/category still present  | measured: HTTP 200 keys=['cost', 'unit_cost', 'category']
+PASS  manager-GET-estimates-1: cost/unit_cost/category still present  | measured: HTTP 200 keys=['cost', 'unit_cost', 'category']
+PASS  sales-GET-estimates-1: cost/unit_cost/category still present  | measured: HTTP 200 keys=['cost', 'unit_cost', 'category']
+PASS  sales-GET-estimates-list: cost/unit_cost/category still present  | measured: HTTP 200 keys=['cost', 'unit_cost', 'category']
+PASS  admin-SEARCH-note: staff search finds internal note  | measured: HTTP 200 hits_inv=False
+PASS  manager-SEARCH-note: staff search finds internal note  | measured: HTTP 200 hits_inv=False
+PASS  sales-SEARCH-note: staff search finds internal note  | measured: HTTP 200 hits_inv=False
+PASS  custC-GET-invoices-3: own invoice redacted (notes null, note absent)  | measured: HTTP 200
+PASS  custC-PAY-own-3: own pay returns redacted response  | measured: HTTP 200
+PASS  custC-PAY-B-2: paying B's invoice -> 403  | measured: HTTP 403
+PASS  custC-GET-invoices-2: B's invoice -> 403  | measured: HTTP 403
+PASS  B invoice unchanged by all probes (admin before == after)  | measured: identical
+PASS  custA-GET-projects-1: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-projects-2: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-invoices-2: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-contracts-1: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-contracts-2: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-documents-1: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-documents-2: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-documents-2-download: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-documents-1-download: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-estimates-2: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-estimator-own: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-estimator-B: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-customers-1: HTTP 200  | measured: HTTP 200
+PASS  custA-GET-customers-2: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-milestones-B: HTTP 403  | measured: HTTP 403
+PASS  custA-GET-portal-projects-2: HTTP 403  | measured: HTTP 403
+PASS  custB-GET-invoices-2: HTTP 200  | measured: HTTP 200
+PASS  custB-GET-invoices-1: HTTP 403  | measured: HTTP 403
+PASS  custA-DENY-pay-B: HTTP 403  | measured: HTTP 403
+PASS  custA-DENY-customer-B-update: HTTP 403  | measured: HTTP 403
+PASS  custA-DENY-project-B-update: HTTP 403  | measured: HTTP 403
+PASS  custA-DENY-estimator-B-line: HTTP 403  | measured: HTTP 403
+PASS  custA-POSITIVE-portal-message: HTTP 201  | measured: HTTP 201
+PASS  noauth-portal-projects: HTTP 401  | measured: HTTP 401
+PASS  noauth-projects-1: HTTP 401  | measured: HTTP 401
+PASS  garbage-bearer-portal-projects: HTTP 401  | measured: HTTP 401
+PASS  garbage-bearer-projects-1: HTTP 401  | measured: HTTP 401
+PASS  garbage-query-token: HTTP 401  | measured: HTTP 401
+PASS  tech-GET-invoices: HTTP 403  | measured: HTTP 403
+PASS  tech-GET-customers: HTTP 403  | measured: HTTP 403
+PASS  tech-GET-communications: HTTP 403  | measured: HTTP 403
+PASS  custA-BYPASS-communications: no B rows (no 'B-PRIVATE-MSG-XYZ', no 'Bob Bravo', no INV-B)  | measured: HTTP 200
+PASS  custA-BYPASS-documents: no B rows (no 'B-PRIVATE-MSG-XYZ', no 'Bob Bravo', no INV-B)  | measured: HTTP 200
+PASS  custA-BYPASS-invoices: no B rows (no 'B-PRIVATE-MSG-XYZ', no 'Bob Bravo', no INV-B)  | measured: HTTP 200
+PASS  custA-BYPASS-estimates: no B rows (no 'B-PRIVATE-MSG-XYZ', no 'Bob Bravo', no INV-B)  | measured: HTTP 200
+PASS  custA-BYPASS-projects: no B rows (no 'B-PRIVATE-MSG-XYZ', no 'Bob Bravo', no INV-B)  | measured: HTTP 200
+PASS  custA-BYPASS-portal-projects: no B rows (no 'B-PRIVATE-MSG-XYZ', no 'Bob Bravo', no INV-B)  | measured: HTTP 200
+PASS  custA-BYPASS-portal-invoices: no B rows (no 'B-PRIVATE-MSG-XYZ', no 'Bob Bravo', no INV-B)  | measured: HTTP 200
+PASS  custA-BYPASS-portal-documents: no B rows (no 'B-PRIVATE-MSG-XYZ', no 'Bob Bravo', no INV-B)  | measured: HTTP 200
+PASS  custA-GET-users: 403 (no user list)  | measured: HTTP 403
+PASS  custA-GET-portal-projects: only own project id 1  | measured: {"projects": [{"id": 1, "customer_id": 1, "title": "Project A kitchen", "property_address": "A St 1", "project_type": "r
+PASS  custB-GET-portal-messages: own message only (B-PRIVATE present, A-OWN absent)  | measured: checked
+PASS  custA-GET-portal-messages: A-OWN present, B-PRIVATE absent  | measured: checked
+TOTAL 100 assertions, 0 FAIL
