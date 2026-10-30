@@ -172,6 +172,23 @@ class ClaimConflictError(Exception):
     must catch this locally and return 409 (NEW-534)."""
 
 
+# NEW-1122: the only legacy-estimate line-item keys a customer/technician may
+# see. Real items carry internal unit_cost/category, so this is an allow-list
+# (not a key blacklist). Matches what render_estimate_proposal already prints.
+_CUSTOMER_ESTIMATE_LINE_ITEM_KEYS = frozenset({"description", "quantity", "unit", "unit_price"})
+
+
+def _customer_estimate_line_items(items: Any) -> List[Dict[str, Any]]:
+    """Reduce legacy estimate line items to the customer-safe allow-list."""
+    if not isinstance(items, list):
+        return []
+    return [
+        {k: v for k, v in it.items() if k in _CUSTOMER_ESTIMATE_LINE_ITEM_KEYS}
+        for it in items
+        if isinstance(it, dict)
+    ]
+
+
 class CRMService:
     """Core domain logic and data management for Restoricon Core."""
 
@@ -3360,9 +3377,17 @@ class CRMService:
 
     @staticmethod
     def _row_to_estimate(row: Any, actor_role: str = "") -> Estimate:
+        """Build an Estimate from a row. actor_role "" = unredacted (internal
+        callers). ROLE_CUSTOMER and ROLE_TECHNICIAN get cost buckets zeroed,
+        notes nulled and line_items reduced to an allow-list (NEW-1122:
+        real items carry internal unit_cost/category; a key blacklist would
+        leak them), so technicians also lose line-item cost keys.
+        """
         keys = row.keys() if hasattr(row, "keys") else []
         line_items = json.loads(row["line_items_json"]) if "line_items_json" in keys and row["line_items_json"] else []
         is_customer = actor_role in (ROLE_CUSTOMER, ROLE_TECHNICIAN)
+        if is_customer:
+            line_items = _customer_estimate_line_items(line_items)
 
         return Estimate(
             id=row["id"],
@@ -4949,9 +4974,20 @@ class CRMService:
     # ==========================================
 
     @staticmethod
-    def _row_to_invoice(row: Any) -> Invoice:
+    def _row_to_invoice(row: Any, actor_role: str = "") -> Invoice:
+        """Build an Invoice from a row. actor_role "" = unredacted, for
+        internal/audit callers. A ROLE_CUSTOMER sees the billed line_items
+        (on invoices unit_cost IS the price owed) but not internal notes or
+        the staff user id on payments (NEW-1122).
+        """
         keys = row.keys() if hasattr(row, "keys") else []
+        is_customer = actor_role == ROLE_CUSTOMER
         payments = json.loads(row["payments_json"]) if "payments_json" in keys and row["payments_json"] else []
+        if is_customer:
+            payments = [
+                {k: v for k, v in p.items() if k != "recorded_by_user_id"} if isinstance(p, dict) else p
+                for p in payments
+            ]
         line_items = json.loads(row["line_items_json"]) if "line_items_json" in keys and row["line_items_json"] else []
         return Invoice(
             id=row["id"],
@@ -4964,7 +5000,7 @@ class CRMService:
             balance_due=row["balance_due"] if "balance_due" in keys else 0.0,
             due_date=row["due_date"] if "due_date" in keys else None,
             payments=payments,
-            notes=row["notes"] if "notes" in keys else None,
+            notes=row["notes"] if "notes" in keys and not is_customer else None,
             assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
             invoice_type=row["invoice_type"] if "invoice_type" in keys and row["invoice_type"] else "other",
             line_items=line_items,
@@ -4984,7 +5020,7 @@ class CRMService:
         if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
             raise PermissionError("Customer cannot access another customer's invoice")
 
-        return self._row_to_invoice(row)
+        return self._row_to_invoice(row, actor.role)
 
     def get_customer_credit_balance(self, customer_id: int, actor: AuthContext) -> float:
         """B8.15 (NEW-613/633): sum of every customer_credits row logged
@@ -5039,7 +5075,7 @@ class CRMService:
 
         query += " ORDER BY id DESC;"
         rows = conn.execute(query, params).fetchall()
-        return [self._row_to_invoice(r) for r in rows]
+        return [self._row_to_invoice(r, actor.role) for r in rows]
 
     @staticmethod
     def _recalculate_invoice_balance(
@@ -5827,6 +5863,12 @@ class CRMService:
         if not row:
             raise ValueError(f"Invoice {invoice_id} not found")
 
+        # NEW-1122: same ownership gate as get_invoice, before any mutation --
+        # a customer holding custom write:financials must not pay (or read
+        # back) another customer's invoice.
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's invoice")
+
         # NEW-633: a payment against a voided invoice must not silently
         # resurrect it to paid/partially_paid. finance_service.py already
         # treats status='void' as excluded/terminal on the read side (its
@@ -5837,6 +5879,7 @@ class CRMService:
         if row["status"] == "void":
             raise ValueError(f"Cannot record a payment against voided invoice {invoice_id}")
 
+        # No role: the audit pre-image must stay unredacted (staff-only path).
         _before = self._row_to_invoice(row).to_dict()
 
         now = utc_now_iso()
@@ -6376,6 +6419,14 @@ class CRMService:
                 details=build_audit_details(after={"invoice_id": invoice_id, "error": str(exc)}),
             )
 
+        # NEW-1122: the returned body gets the same customer redaction as
+        # _row_to_invoice; `_updated` above (audit `after`) stays unredacted.
+        if actor.role == ROLE_CUSTOMER:
+            _updated.notes = None
+            _updated.payments = [
+                {k: v for k, v in p.items() if k != "recorded_by_user_id"} if isinstance(p, dict) else p
+                for p in _updated.payments
+            ]
         return _updated
 
     # ==========================================

@@ -110,15 +110,16 @@ class AnalyticsSearchService:
             results["projects"] = [dict(r) for r in proj_rows]
             total_count += len(results["projects"])
 
-            # Estimates
+            # Estimates (NEW-1122: no notes LIKE -- hit/miss would be a search
+            # oracle for internal notes the customer must not see)
             est_rows = conn.execute(
                 """
                 SELECT id, estimate_number, project_id, status, total_amount, created_at
                 FROM estimates
-                WHERE customer_id = ? AND (estimate_number LIKE ? OR notes LIKE ?)
+                WHERE customer_id = ? AND estimate_number LIKE ?
                 LIMIT ?;
                 """,
-                (cust_id, like_pattern, like_pattern, limit_per_category),
+                (cust_id, like_pattern, limit_per_category),
             ).fetchall()
             results["estimates"] = [dict(r) for r in est_rows]
             total_count += len(results["estimates"])
@@ -141,10 +142,10 @@ class AnalyticsSearchService:
                 """
                 SELECT id, invoice_number, project_id, status, amount, balance_due, due_date
                 FROM invoices
-                WHERE customer_id = ? AND (invoice_number LIKE ? OR notes LIKE ?)
+                WHERE customer_id = ? AND invoice_number LIKE ?
                 LIMIT ?;
                 """,
-                (cust_id, like_pattern, like_pattern, limit_per_category),
+                (cust_id, like_pattern, limit_per_category),
             ).fetchall()
             results["invoices"] = [dict(r) for r in inv_rows]
             total_count += len(results["invoices"])
