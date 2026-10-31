@@ -181,8 +181,7 @@ Codey-OS/
 
 2. **RAM discipline.** This device has ~10.8GB RAM and has crashed before
    from concurrent model loads. Before any live test that loads the local
-   models (the Qwen3.5-4B default, the embedding model, or a retired
-   4B during migration): run `free -h` and record it. Never run more
+   models (the Qwen3.5-4B, the only chat model, or the embedding model): run `free -h` and record it. Never run more
    than one live model-load cycle at a time — a cycle isn't done until the
    model is confirmed unloaded (`ps aux | grep llama-server` showing
    nothing but the grep itself). Batch multiple test messages into one
