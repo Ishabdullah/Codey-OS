@@ -229,3 +229,18 @@ def test_cross_customer_still_403(env):
     r, tok = env["router"], env["a_tok"]
     assert _req(r, "GET", f"{P}/invoices/{env['binv'].id}", tok)[0] == 403
     assert _req(r, "GET", f"{P}/estimates/{env['best'].id}", tok)[0] == 403
+
+
+def test_customer_estimate_cost_buckets_zeroed_but_stored_nonzero(env):
+    """Cost buckets are zeroed for customers; prove the stored values are real
+    (labor 2 x 99 = 198) so a zero is redaction, not empty data."""
+    stored = env["db"].get_connection().execute(
+        "SELECT labor_cost, markup_percent FROM estimates WHERE id = ?;", (env["est"].id,)
+    ).fetchone()
+    assert stored["labor_cost"] == 198.0
+    objs, _ = _est_bodies(env, env["a_tok"])
+    assert objs
+    for e in objs:
+        assert e["materials_cost"] == e["labor_cost"] == e["subcontractor_cost"] == e["markup_percent"] == 0.0
+    admin_objs, _ = _est_bodies(env, env["toks"][ROLE_ADMIN])
+    assert any(e["labor_cost"] == 198.0 for e in admin_objs)
