@@ -172,6 +172,50 @@ def _parse_int_query_param(
     return value
 
 
+def _document_dict(doc: Any, actor: Any) -> Dict[str, Any]:
+    """JSON form of a Document. NEW-1123: ROLE_CUSTOMER must not see the
+    absolute server `file_path`. Redacted here, not in CRMService, because
+    the /download route reads doc.file_path from get_document server-side."""
+    d = doc.to_dict()
+    if actor.role == ROLE_CUSTOMER:
+        d.pop("file_path", None)
+    return d
+
+
+# Customer audit-feed key filter, pattern-based so new estimator/finance
+# columns are covered by default: any key containing a substring below, or
+# equal to an exact name, is dropped (output only). sell_total_cents and
+# override_reason are exact because estimate_service gates them as internal
+# (_LINE_COST_INTERNAL_FIELDS); total_cents/line_total_cents stay visible.
+_CUSTOMER_AUDIT_STRIP_SUBSTRINGS = ("cost", "margin", "markup", "internal", "rate_cents", "profit")
+_CUSTOMER_AUDIT_STRIP_EXACT = frozenset({
+    "notes", "assigned_user_id", "assigned_to_user_id", "file_path", "change_summary",
+    "sell_total_cents", "override_reason",
+})
+
+
+def _customer_audit_key_hidden(key: Any) -> bool:
+    k = str(key).lower()
+    return k in _CUSTOMER_AUDIT_STRIP_EXACT or any(sub in k for sub in _CUSTOMER_AUDIT_STRIP_SUBSTRINGS)
+
+
+def _strip_audit_keys(value: Any) -> Any:
+    """Recursively drop customer-hidden keys (internal notes, commission-rep
+    id, server file paths) from an audit payload. Output-only: the stored
+    audit row is never modified."""
+    if isinstance(value, dict):
+        return {k: _strip_audit_keys(v) for k, v in value.items() if not _customer_audit_key_hidden(k)}
+    if isinstance(value, list):
+        return [_strip_audit_keys(v) for v in value]
+    return value
+
+
+def _customer_audit_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Customer view of one audit entry: hidden keys stripped and the free-text
+    change_summary (can carry rep ids/staff emails) removed. Output-only."""
+    return _strip_audit_keys(entry)
+
+
 def _parse_int_path_segment(raw: str, name: str) -> int:
     """Parse an integer path segment (e.g. a resource id) out of a URL
     path, raising a clean ValueError with a non-leaking message on a
@@ -2351,7 +2395,7 @@ class APIRouter:
                     # project_name -- raw ids are the wrong thing for the
                     # admin Documents panel to display. customer_id/
                     # project_id stay for other consumers.
-                    doc_dicts = [d.to_dict() for d in documents]
+                    doc_dicts = [_document_dict(d, actor) for d in documents]
                     doc_cust_names = self._resolve_customer_names(d.customer_id for d in documents)
                     doc_proj_names = self._resolve_project_names(d.project_id for d in documents)
                     for dd in doc_dicts:
@@ -2592,7 +2636,7 @@ class APIRouter:
                                 tags=tags
                             )
                             created = self.crm.create_document(doc, actor)
-                            return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
+                            return 201, {"Content-Type": "application/json"}, {"document": _document_dict(created, actor)}
                         except Exception:
                             if 'fd' in file_info:
                                 file_info['fd'].close()
@@ -2663,14 +2707,14 @@ class APIRouter:
                             }
                         doc = Document(**json_body)
                         created = self.crm.create_document(doc, actor)
-                        return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
+                        return 201, {"Content-Type": "application/json"}, {"document": _document_dict(created, actor)}
 
             if path.startswith("/api/v1/documents/") and "/" not in path[len("/api/v1/documents/"):] and method == "GET":
                 doc_id = _parse_int_path_segment(path.split("/")[-1], "doc_id")
                 doc = self.crm.get_document(doc_id, actor)
                 if not doc:
                     return 404, {"Content-Type": "application/json"}, {"error": "Document not found"}
-                return 200, {"Content-Type": "application/json"}, {"document": doc.to_dict()}
+                return 200, {"Content-Type": "application/json"}, {"document": _document_dict(doc, actor)}
                 
             if (
                 path.startswith("/api/v1/documents/")
@@ -2822,7 +2866,7 @@ class APIRouter:
                     proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
                     dtype = query_params.get("document_type", [None])[0]
                     documents = self.crm.list_documents(actor, customer_id=actor.customer_id, project_id=proj_id, document_type=dtype)
-                    return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
+                    return 200, {"Content-Type": "application/json"}, {"documents": [_document_dict(d, actor) for d in documents]}
 
                 if path == "/api/v1/portal/messages" and method == "GET":
                     # Restrict to web_chat channel only so the PM Direct Thread
@@ -3171,7 +3215,11 @@ class APIRouter:
                 logs = self.audit.query_logs(
                     actor, entity_type=entity_type, entity_id=entity_id, actor_id=actor_id, action=action, limit=limit, offset=offset
                 )
-                return 200, {"Content-Type": "application/json"}, {"audit_logs": [l.to_dict() for l in logs]}
+                return 200, {"Content-Type": "application/json"}, {
+                    "audit_logs": [
+                        _customer_audit_entry(l.to_dict()) if actor.role == ROLE_CUSTOMER else l.to_dict() for l in logs
+                    ]
+                }
 
             # Subcontractors
             if path == "/api/v1/subcontractors":

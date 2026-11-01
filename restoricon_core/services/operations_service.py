@@ -74,7 +74,10 @@ class OperationsService:
     # ==========================================
 
     @staticmethod
-    def _row_to_milestone(row: Any) -> ProjectMilestone:
+    def _row_to_milestone(row: Any, actor_role: str = "") -> ProjectMilestone:
+        """actor_role "" = unredacted (internal callers). ROLE_CUSTOMER gets
+        `notes` nulled -- milestone notes are internal, like project notes
+        (NEW-1125, Ish decision 2026-10-31)."""
         keys = row.keys() if hasattr(row, "keys") else []
         dependencies = json.loads(row["dependencies_json"]) if "dependencies_json" in keys and row["dependencies_json"] else []
         return ProjectMilestone(
@@ -86,7 +89,7 @@ class OperationsService:
             completion_date=row["completion_date"] if "completion_date" in keys else None,
             status=row["status"],
             dependencies=dependencies,
-            notes=row["notes"] if "notes" in keys else None,
+            notes=row["notes"] if "notes" in keys and actor_role != ROLE_CUSTOMER else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -682,7 +685,7 @@ class OperationsService:
             if not self._actor_assigned_to_project(row["project_id"], actor):
                 raise PermissionError("Technician cannot view a milestone for a project they are not assigned to")
 
-        return self._row_to_milestone(row)
+        return self._row_to_milestone(row, actor.role)
 
     def list_milestones(self, project_id: int, actor: AuthContext) -> List[ProjectMilestone]:
         if not (
@@ -710,7 +713,7 @@ class OperationsService:
             "SELECT * FROM project_milestones WHERE project_id = ? ORDER BY id ASC;",
             (project_id,),
         ).fetchall()
-        return [self._row_to_milestone(r) for r in rows]
+        return [self._row_to_milestone(r, actor.role) for r in rows]
 
     def update_milestone_status(
         self,
@@ -734,6 +737,13 @@ class OperationsService:
         milestone = self.get_milestone(milestone_id, actor)
         if not milestone:
             raise ValueError(f"Milestone #{milestone_id} not found")
+        # get_milestone above did the access checks and is role-redacted;
+        # audit snapshots and the notes fallback must come from the raw row.
+        milestone = self._row_to_milestone(
+            self.db.get_connection().execute(
+                "SELECT * FROM project_milestones WHERE id = ?;", (milestone_id,)
+            ).fetchone()
+        )
         _before = milestone.to_dict()
 
         # Dependency check when transitioning to in_progress or completed
@@ -779,6 +789,9 @@ class OperationsService:
             )
 
         updated = self.get_milestone(milestone_id, actor)
+        _updated_raw = self._row_to_milestone(
+            conn.execute("SELECT * FROM project_milestones WHERE id = ?;", (milestone_id,)).fetchone()
+        )
         self.audit.log(
             action="status_change",
             entity_type="milestone",
@@ -787,7 +800,7 @@ class OperationsService:
             actor=actor,
             details=build_audit_details(
                 before=_before,
-                after=updated.to_dict() if updated else None,
+                after=_updated_raw.to_dict(),
                 fields=_AUDITABLE_MILESTONE_FIELDS,
             ),
         )

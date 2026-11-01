@@ -3373,6 +3373,9 @@ class CRMService:
             actor=actor,
             details=build_audit_details(after=estimate.to_dict()),
         )
+        # NEW-1125: audit above keeps the rep id; the returned body hides it.
+        if actor.role == ROLE_CUSTOMER:
+            estimate.assigned_user_id = None
         return estimate
 
     @staticmethod
@@ -3407,7 +3410,11 @@ class CRMService:
             expiration_date=row["expiration_date"] if "expiration_date" in keys else None,
             version=row["version"] if "version" in keys else 1,
             notes=row["notes"] if "notes" in keys and not is_customer else None,
-            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
+            # NEW-1125: commission rep is not customer-visible (customer only;
+            # technician keeps it -- it is the rep-narrowing key for staff).
+            assigned_user_id=(
+                row["assigned_user_id"] if "assigned_user_id" in keys and actor_role != ROLE_CUSTOMER else None
+            ),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -3864,10 +3871,15 @@ class CRMService:
             actor=actor,
             details=build_audit_details(after=contract.to_dict(), fields=_AUDITABLE_CONTRACT_FIELDS),
         )
+        # NEW-1125: audit above keeps the rep id; the returned body hides it.
+        if actor.role == ROLE_CUSTOMER:
+            contract.assigned_user_id = None
         return contract
 
     @staticmethod
-    def _row_to_contract(row: Any) -> Contract:
+    def _row_to_contract(row: Any, actor_role: str = "") -> Contract:
+        """actor_role "" = unredacted (internal callers). ROLE_CUSTOMER gets
+        the commission-rep `assigned_user_id` nulled (NEW-1125)."""
         keys = row.keys() if hasattr(row, "keys") else []
         return Contract(
             id=row["id"],
@@ -3882,7 +3894,9 @@ class CRMService:
             customer_signed_at=row["customer_signed_at"] if "customer_signed_at" in keys else None,
             customer_signature_data=row["customer_signature_data"] if "customer_signature_data" in keys else None,
             version=row["version"] if "version" in keys else 1,
-            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
+            assigned_user_id=(
+                row["assigned_user_id"] if "assigned_user_id" in keys and actor_role != ROLE_CUSTOMER else None
+            ),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -3899,7 +3913,7 @@ class CRMService:
         if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
             raise PermissionError("Customer cannot access another customer's contract")
 
-        contract = self._row_to_contract(row)
+        contract = self._row_to_contract(row, actor.role)
         if actor.role != ROLE_CUSTOMER and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
             # B8.6a / NEW-548: rep-ownership narrowing, same not-found (not
             # PermissionError) shape as get_lead/get_opportunity. See
@@ -3946,7 +3960,7 @@ class CRMService:
 
         query += " ORDER BY id DESC;"
         rows = conn.execute(query, params).fetchall()
-        return [self._row_to_contract(r) for r in rows]
+        return [self._row_to_contract(r, actor.role) for r in rows]
 
     # Fields updatable via update_contract. Deliberately excludes
     # customer_id/project_id/estimate_id/assigned_user_id/status (status
@@ -4039,7 +4053,7 @@ class CRMService:
             details=build_audit_details(before=_before, after=contract.to_dict(), fields=_AUDITABLE_CONTRACT_FIELDS),
         )
         updated_row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
-        return self._row_to_contract(updated_row)
+        return self._row_to_contract(updated_row, actor.role)
 
     def send_contract(self, contract_id: int, actor: AuthContext) -> Optional[Contract]:
         """Transition a contract from draft to sent (B8.6c). Mirrors
@@ -4091,7 +4105,7 @@ class CRMService:
             details=build_audit_details(before=_before, after=contract.to_dict(), fields=_AUDITABLE_CONTRACT_FIELDS),
         )
         updated_row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
-        return self._row_to_contract(updated_row)
+        return self._row_to_contract(updated_row, actor.role)
 
     # B8.6d-b: actor.role -> ContractSigner.party_role, used only to derive
     # which row a caller is signing when sign_contract's `party_role` kwarg
@@ -4819,6 +4833,10 @@ class CRMService:
                     ),
                 )
 
+        # NEW-1125: returned body hides the commission rep from a customer
+        # signer; `_signed` above (audit `after`, PDF) stays unredacted.
+        if actor.role == ROLE_CUSTOMER:
+            _signed.assigned_user_id = None
         return _signed
 
     def cancel_homecare_subscription(
@@ -5001,7 +5019,7 @@ class CRMService:
             due_date=row["due_date"] if "due_date" in keys else None,
             payments=payments,
             notes=row["notes"] if "notes" in keys and not is_customer else None,
-            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
+            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys and not is_customer else None,
             invoice_type=row["invoice_type"] if "invoice_type" in keys and row["invoice_type"] else "other",
             line_items=line_items,
             created_at=row["created_at"],
@@ -5219,6 +5237,9 @@ class CRMService:
             actor=actor,
             details=build_audit_details(after=invoice.to_dict(), fields=_AUDITABLE_INVOICE_FIELDS),
         )
+        # NEW-1125: audit above keeps the rep id; the returned body hides it.
+        if actor.role == ROLE_CUSTOMER:
+            invoice.assigned_user_id = None
         return invoice
 
     # ==========================================
@@ -6423,6 +6444,7 @@ class CRMService:
         # _row_to_invoice; `_updated` above (audit `after`) stays unredacted.
         if actor.role == ROLE_CUSTOMER:
             _updated.notes = None
+            _updated.assigned_user_id = None  # NEW-1125
             _updated.payments = [
                 {k: v for k, v in p.items() if k != "recorded_by_user_id"} if isinstance(p, dict) else p
                 for p in _updated.payments
